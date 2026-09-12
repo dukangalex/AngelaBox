@@ -617,6 +617,11 @@ def main() -> int:
         errors.append("script engine must require function main(config)")
     if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("Rhino must use initSafeStandardObjects")
+    script_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt")
+    if "setClassShutter" not in script_kt:
+        errors.append("Rhino ClassShutter must be set via setClassShutter (the field is private)")
+    if "cx.classShutter" in script_kt or ".classShutter =" in script_kt:
+        errors.append("do not assign Context.classShutter; the field is private and fails release compile")
     if "org.mozilla:rhino" not in read("app/build.gradle.kts"):
         errors.append("app must depend on Mozilla Rhino to run overlay scripts")
     if "tools/scripts" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):

@@ -1,7 +1,6 @@
 package io.nekohasekai.sfa.utils
 
 import org.json.JSONObject
-import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.Scriptable
@@ -63,11 +62,11 @@ object ConfigScriptOverride {
             val cx = Context.enter()
             deadline.set(System.currentTimeMillis() + TIMEOUT_MS)
             try {
-                cx.optimizationLevel = -1
+                cx.setOptimizationLevel(-1)
                 cx.languageVersion = Context.VERSION_ES6
-                cx.instructionObserverThreshold = 20_000
+                cx.setInstructionObserverThreshold(20_000)
                 val scope: Scriptable = cx.initSafeStandardObjects()
-                cx.classShutter = ClassShutter { className ->
+                cx.setClassShutter { className ->
                     className.startsWith("org.mozilla.javascript.") ||
                         className == "java.lang.String" ||
                         className == "java.lang.Boolean" ||
@@ -109,8 +108,8 @@ object ConfigScriptOverride {
                 object : ContextFactory() {
                     override fun makeContext(): Context {
                         val cx = super.makeContext()
-                        cx.instructionObserverThreshold = 20_000
-                        cx.optimizationLevel = -1
+                        cx.setInstructionObserverThreshold(20_000)
+                        cx.setOptimizationLevel(-1)
                         return cx
                     }
 
