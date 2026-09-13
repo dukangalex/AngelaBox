@@ -651,7 +651,9 @@ class MainActivity :
                                 R.string.check_update_prompt_github
                             },
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
                     )
                 },
                 confirmButton = {

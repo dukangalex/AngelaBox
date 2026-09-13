@@ -19,6 +19,8 @@ def main() -> int:
         errors.append("ad block rule-set URL must use testingcf jsDelivr")
     if 'put("action", "reject")' not in block:
         errors.append("ad block must reject matching traffic")
+    if "alreadyRoutesAds" not in block or "ruleSetMentioned" not in block:
+        errors.append("ad block must not stomp a script that already routes ads")
     if "ensureRuleSet" not in block:
         errors.append("ad block must inject a remote rule-set when missing")
 

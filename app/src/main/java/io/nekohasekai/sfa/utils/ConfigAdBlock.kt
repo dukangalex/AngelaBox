@@ -15,6 +15,7 @@ object ConfigAdBlock {
     fun apply(root: JSONObject) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val tag = ensureRuleSet(route)
+        if (alreadyRoutesAds(route, tag)) return
         val old = route.optJSONArray("rules") ?: JSONArray()
         val merged = JSONArray()
         merged.put(
@@ -28,6 +29,27 @@ object ConfigAdBlock {
             merged.put(rule)
         }
         route.put("rules", merged)
+    }
+
+    private fun alreadyRoutesAds(route: JSONObject, tag: String): Boolean {
+        return ruleSetMentioned(route.optJSONArray("rules"), tag)
+    }
+
+    private fun ruleSetMentioned(rules: JSONArray?, tag: String): Boolean {
+        if (rules == null) return false
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (ruleSetMentioned(rule.optJSONArray("rules"), tag)) return true
+            when (val raw = rule.opt("rule_set")) {
+                is String -> if (raw.trim() == tag) return true
+                is JSONArray -> {
+                    for (j in 0 until raw.length()) {
+                        if (raw.optString(j).trim() == tag) return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     private fun ensureRuleSet(route: JSONObject): String {

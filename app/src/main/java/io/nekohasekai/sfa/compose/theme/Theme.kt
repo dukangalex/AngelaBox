@@ -90,6 +90,10 @@ private fun ColorScheme.pureBlack(): ColorScheme = copy(
     surfaceContainer = Color(0xFF141414),
     surfaceContainerHigh = Color(0xFF1A1A1A),
     surfaceContainerHighest = Color(0xFF222222),
+    onSurface = Color(0xFFF2F2F2),
+    onSurfaceVariant = Color(0xFFD6D6D6),
+    outline = Color(0xFF9A9A9A),
+    outlineVariant = Color(0xFF5C5C5C),
 )
 
 private fun schemePair(seed: String): Pair<ColorScheme, ColorScheme> {
@@ -105,5 +109,8 @@ private fun schemePair(seed: String): Pair<ColorScheme, ColorScheme> {
         primary = primary,
         secondary = secondary,
         tertiary = tertiary,
+        onSurface = Color(0xFFF2F2F2),
+        onSurfaceVariant = Color(0xFFD6D6D6),
+        outline = Color(0xFF9A9A9A),
     )
 }

@@ -657,11 +657,19 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 4" not in sample:
-        errors.append("default script must stamp overlay-revision: 4 so stale copies refresh")
+    if "overlay-revision: 5" not in sample:
+        errors.append("default script must stamp overlay-revision: 5 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 4"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 5"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    if "override_address" in sample:
+        errors.append("default script must not emit removed direct override_address")
+    if 'type: "socks"' not in sample or "server_port: 9" not in sample:
+        errors.append("REJECT/REJECT-DROP must be local socks blackholes, not direct override")
+    if "healDirectDestinationOverride" not in inbound:
+        errors.append("startup must strip removed direct override fields so old scripts still start")
+    if '"override_address"' not in overlay_kt:
+        errors.append("stale sample detector must refresh copies that still emit override_address")
     if "inherits catalog-enabled" in overlay_kt:
         errors.append("unbound profiles must not inherit catalog scripts")
     if "?: return emptyList()" not in overlay_kt:
@@ -688,6 +696,16 @@ def main() -> int:
         errors.append("script editor must be a fullscreen page")
     if "weight(1f)" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
         errors.append("script editor code field must fill the screen")
+    theme = read("app/src/main/java/io/nekohasekai/sfa/compose/theme/Theme.kt")
+    if "onSurfaceVariant = Color(0xFFD6D6D6)" not in theme:
+        errors.append("dark/pure-black theme must use high-contrast onSurfaceVariant")
+    update_dlg = read("app/src/main/java/io/nekohasekai/sfa/compose/component/UpdateDialog.kt")
+    if "onSurfaceVariant" in update_dlg:
+        errors.append("update notes must use onSurface so dark theme caption stays readable")
+    if "color = MaterialTheme.colorScheme.onSurface" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
+    ):
+        errors.append("check-update prompt must use onSurface in dark theme")
     zh_cn = read("app/src/main/res/values-zh-rCN/strings.xml")
     zh_tw = read("app/src/main/res/values-zh-rTW/strings.xml")
     if "示例脚本" in zh_cn or "机场地区分组" in zh_cn:

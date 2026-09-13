@@ -16,6 +16,7 @@ object ConfigInboundCompat {
         var changed = false
         if (migrateLegacyInbounds(root)) changed = true
         if (stripSniffOverrideDestination(root)) changed = true
+        if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
         if (dropMissingRemoteRuleSets(root)) changed = true
@@ -113,6 +114,44 @@ object ConfigInboundCompat {
             }
         }
         return changed
+    }
+
+    /**
+     * sing-box 1.13 removed direct outbound override_address/override_port.
+     * Scripts that still emit them fail-close the kernel. Strip always so
+     * start succeeds; blackhole-like tags become a local socks sink so
+     * ads/remote selectors keep a selectable reject member.
+     */
+    internal fun healDirectDestinationOverride(root: JSONObject): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        var changed = false
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (!o.optString("type").equals("direct", true)) continue
+            val addr = o.optString("override_address").trim()
+            val port = when (val raw = o.opt("override_port")) {
+                is Number -> raw.toInt()
+                is String -> raw.toIntOrNull() ?: 0
+                else -> 0
+            }
+            if (addr.isEmpty() && port == 0) continue
+            o.remove("override_address")
+            o.remove("override_port")
+            changed = true
+            if (looksLikeBlackhole(o.optString("tag"), addr, port)) {
+                o.put("type", "socks")
+                o.put("server", "127.0.0.1")
+                o.put("server_port", 9)
+            }
+        }
+        return changed
+    }
+
+    private fun looksLikeBlackhole(tag: String, addr: String, port: Int): Boolean {
+        val t = tag.trim().lowercase()
+        if (t.contains("reject") || t.contains("block") || t.contains("blackhole")) return true
+        val a = addr.lowercase()
+        return a == "240.0.0.1" || a == "0.0.0.0" || a == "127.0.0.1" || a == "::1"
     }
 
     internal fun migrateSpecialOutbounds(root: JSONObject): Boolean {

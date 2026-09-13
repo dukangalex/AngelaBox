@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 4
+ * overlay-revision: 5
  * 覆盖原配置的分组与分流，只保留节点；按节点名生成地区 urltest/selector，
  * 并写入 DNS、嗅探与远程规则集。
  * function main(config)，config 为 sing-box JSON。
@@ -292,21 +292,19 @@ function main(config) {
   }
   var dropTag = "REJECT-DROP";
   var rejectTag = "REJECT";
+  function makeBlackhole(tag) {
+    return {
+      type: "socks",
+      tag: tag,
+      server: "127.0.0.1",
+      server_port: 9
+    };
+  }
   if (!existingTag(outbounds, [dropTag])) {
-    pushUniqueTag(outbounds, {
-      type: "direct",
-      tag: dropTag,
-      override_address: "240.0.0.1",
-      override_port: 1
-    });
+    pushUniqueTag(outbounds, makeBlackhole(dropTag));
   }
   if (!existingTag(outbounds, [rejectTag])) {
-    pushUniqueTag(outbounds, {
-      type: "direct",
-      tag: rejectTag,
-      override_address: "127.0.0.1",
-      override_port: 1
-    });
+    pushUniqueTag(outbounds, makeBlackhole(rejectTag));
   }
 
   var regionGroups = [];

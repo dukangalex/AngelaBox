@@ -217,9 +217,38 @@ def drop_missing_rulesets(root: dict) -> None:
         walk((root.get("dns") or {}).get("rules"))
 
 
+def heal_direct_override(root: dict) -> None:
+    outs = root.get("outbounds") or []
+    for o in outs:
+        if str(o.get("type") or "").lower() != "direct":
+            continue
+        addr = str(o.get("override_address") or "").strip()
+        port = o.get("override_port") or 0
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            port = 0
+        if not addr and port == 0:
+            continue
+        o.pop("override_address", None)
+        o.pop("override_port", None)
+        tag = str(o.get("tag") or "").lower()
+        a = addr.lower()
+        if any(k in tag for k in ("reject", "block", "blackhole")) or a in (
+            "240.0.0.1",
+            "0.0.0.0",
+            "127.0.0.1",
+            "::1",
+        ):
+            o["type"] = "socks"
+            o["server"] = "127.0.0.1"
+            o["server_port"] = 9
+
+
 def sanitize(root: dict) -> dict:
     migrate_inbounds(root)
     strip_sniff_override(root)
+    heal_direct_override(root)
     migrate_special(root)
     rewrite_sets(root)
     drop_missing_rulesets(root)
@@ -232,7 +261,7 @@ def main() -> int:
     inbound_src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt").read_text()
     if "ConfigInboundCompat.apply" not in src:
         errors.append("ConfigCompat.sanitize must call ConfigInboundCompat.apply")
-    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "legacy inbound fields"):
+    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "healDirectDestinationOverride", "legacy inbound fields"):
         if needle not in inbound_src:
             errors.append(f"missing {needle}")
     if JSDELIVR_HOST not in inbound_src:
@@ -276,6 +305,31 @@ def main() -> int:
     )
     if leftover["route"]["rules"][0].get("override_destination"):
         errors.append("leftover sniff override_destination was not stripped")
+
+    healed = sanitize(
+        {
+            "outbounds": [
+                {
+                    "type": "direct",
+                    "tag": "REJECT-DROP",
+                    "override_address": "240.0.0.1",
+                    "override_port": 1,
+                },
+                {
+                    "type": "direct",
+                    "tag": "direct-dns",
+                    "override_address": "1.1.1.1",
+                    "override_port": 53,
+                },
+            ]
+        }
+    )
+    drop = healed["outbounds"][0]
+    dns = healed["outbounds"][1]
+    if drop.get("type") != "socks" or drop.get("server_port") != 9 or "override_address" in drop:
+        errors.append(f"REJECT-DROP blackhole must become socks sink: {drop}")
+    if dns.get("type") != "direct" or "override_address" in dns or "override_port" in dns:
+        errors.append(f"non-blackhole direct override must only be stripped: {dns}")
 
     dropped = sanitize(
         {

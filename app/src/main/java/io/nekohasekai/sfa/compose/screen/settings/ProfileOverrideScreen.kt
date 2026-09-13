@@ -274,7 +274,7 @@ fun ProfileOverrideScreen(
                     onHelp = {
                         help = SwitchHelp(
                             "广告拦截",
-                            "开启后在运行时注入官方 sing-geosite 的 geosite-category-ads-all 规则集，并对匹配流量执行 reject。不改订阅文件。首次开启会下载规则集；国内站点广告同样拦截。",
+                            "开启后在运行时注入官方 sing-geosite 的 geosite-category-ads-all 规则集，并对匹配流量执行 reject。若当前配置的脚本已经把广告分到「广告拦截」分组，本开关不会再盖一层拒绝，避免和脚本打架。不改订阅文件。首次开启会下载规则集。",
                         )
                     },
                     onCheckedChange = {
