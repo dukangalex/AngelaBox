@@ -528,6 +528,17 @@ def main() -> int:
         errors.append("Telegram APK caption must come from telegram_announce.py")
     if "filename=AngelaBox-android.apk" not in read("scripts/telegram_send.py") and '"AngelaBox-android.apk"' not in read("scripts/telegram_send.py"):
         errors.append("Telegram sendDocument must set filename so the APK is installable")
+    send_py = read("scripts/telegram_send.py")
+    if "timeout=180" in send_py:
+        errors.append("Telegram upload timeout 180s is too short for a 40MB APK")
+    if "sendDocument runs first" in send_py or "changelog first" not in send_py.lower():
+        errors.append("telegram_send.py must post sendMessage before sendDocument so a timeout cannot hide the channel notes")
+    if "RETRIES" not in send_py:
+        errors.append("telegram_send.py must retry sendDocument after write timeout")
+    if "CHUNK" not in send_py:
+        errors.append("telegram_send.py must stream the APK in chunks instead of one ssl.sendall")
+    if "PYTHONUNBUFFERED" not in workflow:
+        errors.append("build-chainbox.yml Telegram step must be unbuffered so upload progress is visible")
     if "body_path: release-body.md" not in workflow:
         errors.append("GitHub release body must come from generated notes")
     if "same-bytes alias" not in workflow:
@@ -547,6 +558,10 @@ def main() -> int:
         errors.append("telegram.yml must send via telegram_send.py")
     if "disable_web_page_preview" not in telegram and "telegram_send.py" not in telegram:
         errors.append("telegram.yml must disable GitHub link preview")
+    if "timeout-minutes: 25" not in telegram and "timeout-minutes: 20" not in telegram:
+        errors.append("telegram.yml job timeout must cover APK upload retries")
+    if "PYTHONUNBUFFERED" not in telegram:
+        errors.append("telegram.yml must be unbuffered so upload progress is visible")
     if "docs/brand/AngelaBox-icon-512.png" not in readme:
         errors.append("README must show the cube icon on the repository homepage")
     brand512 = ROOT / "docs/brand/AngelaBox-icon-512.png"

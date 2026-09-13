@@ -22,7 +22,7 @@ jobs:
   telegram-release:
     name: Publish Release to Telegram
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
 
     steps:
@@ -155,6 +155,7 @@ jobs:
           TG_CHANNEL_ID: ${{ secrets.TG_CHANNEL_ID }}
           APK_FILE: AngelaBox-android.apk
           DOCUMENT_ONLY: ${{ github.event.inputs.document_only }}
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
           ls -lh AngelaBox-android.apk
