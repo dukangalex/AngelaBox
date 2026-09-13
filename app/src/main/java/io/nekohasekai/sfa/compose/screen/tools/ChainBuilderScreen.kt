@@ -241,6 +241,7 @@ fun ChainBuilderScreen(
                             landingTag = landing.tag,
                         ),
                     )
+                    OverlayScripts.setBinding(boundId, emptyList())
                 }
             }
             busy = false
@@ -348,14 +349,6 @@ fun ChainBuilderScreen(
                 enabled = !busy,
                 onClick = { picker = "landing"; pickerQuery = "" },
             )
-            val landingRef = exit
-            if (landingRef != null && landingRef.profileId != currentProfileId && OverlayScripts.isBound(landingRef.profileId)) {
-                Text(
-                    "落地配置开启了脚本，链式模式下不会执行。脚本只对前置生效。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
             Button(
                 onClick = { save() },
                 modifier = Modifier.fillMaxWidth(),
@@ -487,7 +480,7 @@ fun ChainBuilderScreen(
                         "5. 使用 sing-box 原生 Chain outbound，按你选的顺序串联现有 outbound：入口 → 落地 → 目标。不绑定机场或协议。\n" +
                         "6. Fail Closed：链路失败会明确报错并停止启动，不会偷偷改走 DIRECT。\n" +
                         "7. 链式代理模式下，所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国直连开关仍可让国内与局域网走 DIRECT。\n" +
-                        "8. 脚本在链式模式下仍然生效，但只改写前置（当前）配置；落地配置上的脚本不会执行。请不要在落地配置上开启脚本。\n" +
+                        "8. 链式开启后，当前配置的脚本会自动关闭，两者不同时生效。取消链式后如需脚本，到编辑配置页再打开。\n" +
                         "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。",
                 )
             },

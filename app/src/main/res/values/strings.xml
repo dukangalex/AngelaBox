@@ -791,7 +791,7 @@
     <string name="ads_block_summary">Reject domains in the ads rule-set</string>
     <string name="overlay_scripts">Scripts</string>
     <string name="overlay_scripts_subtitle">Per-profile sing-box overlay scripts</string>
-    <string name="overlay_scripts_hint">This is the script catalog. Importing a script does not apply it to every profile. Enable it on the profiles you want in Edit Profile (or the dashboard profile menu). When on, the script replaces that profile\'s groups and routing and keeps the nodes. It never writes back to the subscription. Scripts need function main(config). In chain mode they apply only to the entry profile. The switch here is a master kill for that script.</string>
+    <string name="overlay_scripts_hint">This is the script catalog. Importing a script does not apply it to every profile. Enable it on the profiles you want in Edit Profile (or the dashboard profile menu). When on, the script replaces that profile\'s groups and routing and keeps the nodes. It never writes back to the subscription. Scripts need function main(config). Turning on a chain mutes scripts for that profile; they do not run together. The switch here is a master kill for that script.</string>
     <string name="overlay_scripts_empty">No scripts yet. Tap + to import from code, URL, a file, or the default script.</string>
     <string name="overlay_scripts_import">Import</string>
     <string name="overlay_scripts_import_code">Import from code</string>
@@ -812,6 +812,6 @@
     <string name="overlay_scripts_failed">Could not save the script</string>
     <string name="overlay_scripts_empty_file">The file is empty</string>
     <string name="overlay_scripts_profile_enable">Enable scripts for this profile</string>
-    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups and routing and keeps the nodes. In chain mode scripts apply only to the entry profile; landing-profile scripts are ignored.</string>
+    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups and routing and keeps the nodes. Turning on a chain mutes scripts for this profile; turning on scripts clears the chain. They do not run together.</string>
     <string name="overlay_scripts_profile_empty">No scripts yet. Import some from Tools → Scripts.</string>
 </resources>

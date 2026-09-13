@@ -22,15 +22,15 @@ data class OverlayScript(
  * The catalog is a library. A profile only runs scripts after the user
  * binds them on that profile (`[]` or missing key = off). Catalog
  * `enabled` is a master kill: a bound script that is switched off in
- * the list does not run. Chain mode still runs scripts, but only
- * against the entry (current) profile.
+ * the list does not run. Chain mode on a profile mutes scripts for
+ * that profile; the two are not applied together.
  */
 object OverlayScripts {
     const val MAX_SCRIPTS = 12
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
-    const val SAMPLE_REVISION = "overlay-revision: 3"
+    const val SAMPLE_REVISION = "overlay-revision: 4"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"

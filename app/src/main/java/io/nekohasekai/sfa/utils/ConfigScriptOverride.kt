@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import io.nekohasekai.sfa.chain.ChainBindings
 import org.json.JSONObject
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
@@ -16,6 +17,7 @@ object ConfigScriptOverride {
 
     fun apply(root: JSONObject, profileId: Long) {
         OverlayScripts.refreshStaleSample()
+        if (ChainBindings.get(profileId) != null) return
         val scripts = OverlayScripts.enabledFor(profileId)
         if (scripts.isEmpty()) return
         var current = root.toString()

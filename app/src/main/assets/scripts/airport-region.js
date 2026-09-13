@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 3
+ * overlay-revision: 4
  * 覆盖原配置的分组与分流，只保留节点；按节点名生成地区 urltest/selector，
  * 并写入 DNS、嗅探与远程规则集。
  * function main(config)，config 为 sing-box JSON。
@@ -225,8 +225,16 @@ function main(config) {
 
   var regionMembers = {};
   var otherMembers = [];
+  function isAnnouncement(name) {
+    try {
+      return /群|返利|官网|客服|网站|网址|订阅|流量|到期|机场|过期|工单|通知|倒卖|防失联|expire|traffic/i.test(name);
+    } catch (e) {
+      return false;
+    }
+  }
   for (var li = 0; li < leafTags.length; li++) {
     var name = leafTags[li];
+    if (isAnnouncement(name)) continue;
     var matched = matchRegion(name);
     if (matched.length > 0) {
       for (var mi = 0; mi < matched.length; mi++) {
@@ -265,40 +273,68 @@ function main(config) {
       interrupt_exist_connections: false
     };
   }
-  function makeSelector(tag, members) {
-    return {
+  function makeSelector(tag, members, defaultTag) {
+    var g = {
       type: "selector",
       tag: tag,
       outbounds: members.slice(0),
       interrupt_exist_connections: false
     };
+    if (defaultTag) g["default"] = defaultTag;
+    return g;
   }
 
+  var directTag = existingTag(outbounds, ["direct", "DIRECT"]);
+  if (!directTag) {
+    pushUniqueTag(outbounds, { type: "direct", tag: "direct" });
+    directTag = "direct";
+    groupTags[directTag] = "direct";
+  }
+  var dropTag = "REJECT-DROP";
+  var rejectTag = "REJECT";
+  if (!existingTag(outbounds, [dropTag])) {
+    pushUniqueTag(outbounds, {
+      type: "direct",
+      tag: dropTag,
+      override_address: "240.0.0.1",
+      override_port: 1
+    });
+  }
+  if (!existingTag(outbounds, [rejectTag])) {
+    pushUniqueTag(outbounds, {
+      type: "direct",
+      tag: rejectTag,
+      override_address: "127.0.0.1",
+      override_port: 1
+    });
+  }
+
+  var regionGroups = [];
   for (var ak = 0; ak < activeRegions.length; ak++) {
     var ar = activeRegions[ak];
     var members = regionMembers[ar.name];
     if (!members || members.length === 0) continue;
-    if (!hasOwn(groupTags, ar.name)) {
-      pushUniqueTag(outbounds, makeUrltest(ar.name, members));
-      groupTags[ar.name] = "urltest";
-    }
+    regionGroups.push(makeUrltest(ar.name, members));
+    groupTags[ar.name] = "urltest";
   }
-  if (otherMembers.length > 0 && !hasOwn(groupTags, OTHER_NAME)) {
-    pushUniqueTag(outbounds, makeUrltest(OTHER_NAME, otherMembers));
+  if (otherMembers.length > 0) {
+    regionGroups.push(makeUrltest(OTHER_NAME, otherMembers));
     groupTags[OTHER_NAME] = "urltest";
   }
 
   var autoMembers = regionNames.slice(0);
   if (autoMembers.length === 0) autoMembers = leafTags.slice(0);
-  if (autoMembers.length > 0 && !hasOwn(groupTags, AUTO_NAME)) {
-    pushUniqueTag(outbounds, makeUrltest(AUTO_NAME, autoMembers));
+  var autoGroup = null;
+  if (autoMembers.length > 0) {
+    autoGroup = makeUrltest(AUTO_NAME, autoMembers);
     groupTags[AUTO_NAME] = "urltest";
   }
   var selectMembers = [];
-  if (hasOwn(groupTags, AUTO_NAME) || existingTag(outbounds, [AUTO_NAME])) selectMembers.push(AUTO_NAME);
+  if (autoGroup) selectMembers.push(AUTO_NAME);
   for (var sn = 0; sn < regionNames.length; sn++) selectMembers.push(regionNames[sn]);
-  if (selectMembers.length > 0 && !hasOwn(groupTags, SELECT_NAME)) {
-    pushUniqueTag(outbounds, makeSelector(SELECT_NAME, selectMembers));
+  var selectGroup = null;
+  if (selectMembers.length > 0) {
+    selectGroup = makeSelector(SELECT_NAME, selectMembers);
     groupTags[SELECT_NAME] = "selector";
   }
 
@@ -317,15 +353,19 @@ function main(config) {
     for (var j = 0; j < src.length; j++) list.push(src[j]);
     return list;
   }
+  var serviceGroups = [];
   function addService(tag, members) {
-    if (hasOwn(groupTags, tag)) return tag;
     if (!members || members.length === 0) return existingTag(outbounds, [SELECT_NAME, AUTO_NAME]) || tag;
-    pushUniqueTag(outbounds, makeSelector(tag, members));
+    serviceGroups.push(makeSelector(tag, members));
     groupTags[tag] = "selector";
     return tag;
   }
 
-  var pickSelect = existingTag(outbounds, [SELECT_NAME, AUTO_NAME]) || SELECT_NAME;
+  var pickSelect = SELECT_NAME;
+  if (!selectGroup && autoGroup) pickSelect = AUTO_NAME;
+  var adsTag = "🛑 广告拦截";
+  var adsGroup = makeSelector(adsTag, [dropTag, rejectTag, directTag], dropTag);
+  groupTags[adsTag] = "selector";
   var aiTag = addService("🤖 AI服务", serviceMembers([pickSelect, AUTO_NAME], true));
   var mediaTag = addService("📺 Media", serviceMembers([pickSelect, AUTO_NAME], false));
   addService("📺 YouTube", serviceMembers([pickSelect, AUTO_NAME], false));
@@ -339,22 +379,18 @@ function main(config) {
   addService("🎵 Spotify", serviceMembers([pickSelect, AUTO_NAME], false));
   var globalTag = addService("🌍 国外服务", serviceMembers([pickSelect, AUTO_NAME], false));
   var finalTag = addService("漏网之鱼", serviceMembers([pickSelect, AUTO_NAME], false));
-  if (!hasOwn(groupTags, "🔧 远控工具")) {
-    var remoteOut = [];
-    if (existingTag(outbounds, ["direct"])) remoteOut.push("direct");
-    remoteOut.push(globalTag);
-    if (remoteOut.length === 0) remoteOut.push(pickSelect);
-    pushUniqueTag(outbounds, makeSelector("🔧 远控工具", remoteOut));
-    groupTags["🔧 远控工具"] = "selector";
-  }
+  var remoteTag = "🔧 远控工具";
+  var remoteGroup = makeSelector(remoteTag, [dropTag, globalTag, directTag], dropTag);
+  groupTags[remoteTag] = "selector";
 
-  if (!existingTag(outbounds, ["direct", "DIRECT"])) {
-    pushUniqueTag(outbounds, { type: "direct", tag: "direct" });
-  }
-  if (!existingTag(outbounds, ["block", "REJECT", "reject"])) {
-    /* type:block is migrated by the client overlay; keep reject action in rules instead */
-  }
-
+  var ordered = [];
+  if (selectGroup) ordered.push(selectGroup);
+  if (autoGroup) ordered.push(autoGroup);
+  ordered.push(adsGroup);
+  for (var sg = 0; sg < serviceGroups.length; sg++) ordered.push(serviceGroups[sg]);
+  ordered.push(remoteGroup);
+  for (var rg = 0; rg < regionGroups.length; rg++) ordered.push(regionGroups[rg]);
+  for (var og = 0; og < ordered.length; og++) pushUniqueTag(outbounds, ordered[og]);
   config.outbounds = outbounds;
 
   var RULE_SETS = [
@@ -474,7 +510,7 @@ function main(config) {
 
   var prepend = [];
   function addRule(item) { if (item) prepend.push(item); }
-  addRule({ rule_set: "geosite-category-ads-all", action: "reject" });
+  addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
   addRule(rule("geosite-category-ai-!cn", mapTarget("🤖 AI服务")));
   addRule(rule("geosite-openai", mapTarget("🤖 AI服务")));
   addRule(rule("geosite-youtube", youtubeTag));
@@ -520,7 +556,158 @@ function main(config) {
   addRule(rule("geosite-geolocation-cn", "direct"));
   addRule(rule("geosite-cn", "direct"));
   addRule(rule("geoip-cn", "direct"));
-  addRule({ ip_is_private: true, outbound: "direct" });
+  addRule({ ip_is_private: true, outbound: directTag });
+  addRule({
+    ip_cidr: ["fe80::/10", "fc00::/7", "::1/128", "101.226.0.0/16", "140.207.0.0/16"],
+    outbound: directTag
+  });
+  addRule({ ip_cidr: ["ff00::/8"], action: "reject", method: "drop" });
+  addRule({
+    domain_suffix: [
+      "alipay.com", "alipayobjects.com", "antpay.com", "taobao.com", "jd.com", "jdpay.com",
+      "pinduoduo.com", "pddpic.com", "meituan.com", "dianping.com", "ele.me", "amap.com",
+      "baidu.com", "weixin.qq.com", "weixin.com", "wx.qq.com", "wxs.qq.com", "qq.com",
+      "servicewechat.com", "work.weixin.qq.com", "meeting.tencent.com",
+      "weibo.com", "zhihu.com", "12306.cn", "railway12306.cn", "chinatax.gov.cn",
+      "gjzwfw.gov.cn", "unionpay.com", "unionpaysecure.com", "chinapay.com", "yeepay.com",
+      "icbc.com.cn", "ccb.com", "boc.cn", "bankofchina.com", "abchina.com", "abchina.com.cn",
+      "cmbchina.com", "bankcomm.com", "psbc.com", "spdb.com.cn", "cib.com.cn", "cmbc.com.cn",
+      "pingan.com", "pingan.com.cn", "cgbchina.com.cn", "cebbank.com", "citicbank.com",
+      "dingtalk.com", "feishu.cn", "xiaohongshu.com", "kuaishou.com", "bilibili.com",
+      "163.com", "ctrip.com", "qunar.com", "sf-express.com", "xiaojukeji.com", "didichuxing.com",
+      "xuexi.cn", "chsi.com.cn", "umeng.com", "umengcloud.com", "geetest.com", "tongdun.net",
+      "rongcloud.cn", "samsunghealth.com", "samsungosp.com"
+    ],
+    outbound: directTag
+  });
+  addRule({
+    package_name: [
+      "com.tencent.mm", "com.eg.android.AlipayGphone", "com.unionpay",
+      "com.chinatelecom.bestpayclient", "com.MobileTicket", "cn.gov.tax.its",
+      "com.icbc.androidclient", "com.chinamworld.main", "com.chinamworld.bocmbci",
+      "com.android.bankabc", "cmb.pb", "com.yitong.mbank.psbc",
+      "com.cgb.mobilebank", "com.czbank.mbank", "com.pingan.paces.ccmsapp",
+      "com.greenpoint.android.mc10086", "com.sinovatech.unicom.ui", "com.ct.client",
+      "cn.hsa.app", "com.service.android.gov.cn", "com.hicorenational.antifraud"
+    ],
+    outbound: directTag
+  });
+  addRule({
+    package_name: [
+      "com.anydesk.anydeskandroid", "com.oray.todesk",
+      "com.teamviewer.teamviewer.market.mobile", "com.carriez.flutter_hbb",
+      "com.tailscale.ipn", "com.zerotier.one"
+    ],
+    outbound: remoteTag
+  });
+  addRule({
+    process_name: [
+      "AnyDesk", "ToDesk", "TeamViewer", "RustDesk", "rustdesk",
+      "tailscale", "tailscaled", "zerotier", "ngrok", "frpc", "frps", "cloudflared",
+      "natapp", "nblink"
+    ],
+    outbound: remoteTag
+  });
+  addRule({
+    package_name: [
+      "com.google.android.youtube", "com.google.android.apps.youtube.music",
+      "app.revanced.android.youtube", "com.vanced.android.youtube"
+    ],
+    outbound: youtubeTag
+  });
+  addRule({
+    network: ["udp", "tcp"],
+    port_range: "3478:3480",
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    network: ["udp", "tcp"],
+    port_range: "5349:5355",
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    network: ["udp", "tcp"],
+    port_range: "19302:19305",
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    domain_regex: [
+      "^(stun|turn|stuns|turns)\\.",
+      ".*[-.]stun[-.].*",
+      ".*[-.]turn[-.].*",
+      ".*[-.]stuns[-.].*",
+      ".*[-.]turns[-.].*"
+    ],
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    type: "logical",
+    mode: "and",
+    rules: [
+      { port: 53, network: ["udp", "tcp"] },
+      { rule_set: "geoip-cn", invert: true }
+    ],
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    type: "logical",
+    mode: "and",
+    rules: [
+      { port: 853, network: ["udp", "tcp"] },
+      { rule_set: "geoip-cn", invert: true }
+    ],
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    type: "logical",
+    mode: "and",
+    rules: [
+      { port: [21, 23, 25, 110, 143], network: "tcp" },
+      { rule_set: "geoip-cn", invert: true }
+    ],
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    type: "logical",
+    mode: "and",
+    rules: [
+      { port: [1900, 5353], network: "udp" },
+      { rule_set: "geoip-cn", invert: true }
+    ],
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    domain: ["connectivitycheck.gstatic.com"],
+    outbound: directTag
+  });
+  addRule({
+    domain_suffix: [
+      "browserleaks.com", "browserleaks.org", "browserleaks.info",
+      "ipleak.net", "ipleak.com", "dnsleaktest.com", "dnsleaktest.org", "dnsleak.com",
+      "whoer.net", "whatismyipaddress.com", "whatismyip.com",
+      "ipinfo.io", "ip-api.com", "ipify.org", "ipapi.co", "ipwho.is",
+      "myip.com", "ifconfig.me", "ifconfig.co", "ipecho.net", "ip.sb", "ident.me"
+    ],
+    outbound: globalTag
+  });
+  addRule({
+    domain_suffix: [
+      "a-cdn.anthropic.com", "assets-proxy.anthropic.com"
+    ],
+    outbound: aiTag
+  });
+  addRule({
+    domain_suffix: ["bing.com", "recaptcha.net", "crashlytics.com"],
+    outbound: globalTag
+  });
 
   function isInfraRule(item) {
     if (!item || typeof item !== "object") return false;

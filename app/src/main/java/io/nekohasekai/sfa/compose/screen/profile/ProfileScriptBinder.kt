@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.compose.base.GlobalEventBus
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.database.Settings
@@ -93,6 +94,7 @@ private fun ProfileScriptBinderBody(profileId: Long) {
 
     fun persist(ids: List<String>) {
         OverlayScripts.setBinding(profileId, ids)
+        if (ids.isNotEmpty()) ChainBindings.remove(profileId)
         tick++
         if (profileId == Settings.selectedProfile) {
             GlobalEventBus.tryEmit(UiEvent.ApplyServiceChange(UiEvent.ApplyServiceChange.Mode.Reload))
