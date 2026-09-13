@@ -15,6 +15,7 @@ object ConfigInboundCompat {
     fun apply(root: JSONObject): Boolean {
         var changed = false
         if (migrateLegacyInbounds(root)) changed = true
+        if (stripSniffOverrideDestination(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
         return changed
@@ -62,9 +63,6 @@ object ConfigInboundCompat {
                 val rule = JSONObject().put("inbound", tag).put("action", "sniff")
                 val timeout = ib.optString("sniff_timeout").trim()
                 if (timeout.isNotEmpty()) rule.put("timeout", timeout)
-                if (ib.optBoolean("sniff_override_destination")) {
-                    rule.put("override_destination", true)
-                }
                 extra.put(rule)
             }
             ib.remove("sniff")
@@ -91,6 +89,29 @@ object ConfigInboundCompat {
         if (!changed) return false
         prependRouteRules(root, extra)
         return true
+    }
+
+    /**
+     * sing-box 1.14 sniff action has no `override_destination`. Scripts and
+     * older overlays still emit it; strip so libbox can decode.
+     */
+    internal fun stripSniffOverrideDestination(root: JSONObject): Boolean {
+        val rules = root.optJSONObject("route")?.optJSONArray("rules") ?: return false
+        return stripSniffOverrideInRules(rules)
+    }
+
+    private fun stripSniffOverrideInRules(rules: JSONArray): Boolean {
+        var changed = false
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val nested = rule.optJSONArray("rules")
+            if (nested != null && stripSniffOverrideInRules(nested)) changed = true
+            if (rule.optString("action") == "sniff" && rule.has("override_destination")) {
+                rule.remove("override_destination")
+                changed = true
+            }
+        }
+        return changed
     }
 
     internal fun migrateSpecialOutbounds(root: JSONObject): Boolean {

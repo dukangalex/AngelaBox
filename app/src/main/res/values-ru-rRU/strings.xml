@@ -687,8 +687,8 @@
     <string name="taildrop_open_app">Открыть sing-box</string>
     <string name="taildrop_notification_title">Отправка файлов</string>
     <string name="overlay_scripts">Скрипты</string>
-    <string name="overlay_scripts_subtitle">Глобальные скрипты sing-box</string>
-    <string name="overlay_scripts_hint">Скрипты меняют только рабочий JSON при запуске. Нужна function main(config) для sing-box. Ключи Clash игнорируются.</string>
+    <string name="overlay_scripts_subtitle">Скрипты sing-box для каждого профиля</string>
+    <string name="overlay_scripts_hint">Это каталог скриптов. Они меняют только рабочий JSON при запуске. Нужна function main(config) для sing-box. Ключи Clash игнорируются. Каждый профиль выбирает, какие скрипты запускать. В режиме цепочки скрипты действуют только на входной профиль.</string>
     <string name="overlay_scripts_empty">Скриптов нет. Нажмите +, чтобы импортировать код, URL, файл или образец.</string>
     <string name="overlay_scripts_import">Импорт</string>
     <string name="overlay_scripts_import_code">Импорт из кода</string>
@@ -703,6 +703,12 @@
     <string name="overlay_scripts_from_sample">Образец</string>
     <string name="overlay_scripts_imported">Импортированный скрипт</string>
     <string name="overlay_scripts_duplicate">Дублировать</string>
+    <string name="overlay_scripts_sync">Синхронизация</string>
+    <string name="overlay_scripts_synced">Синхронизировано с URL</string>
+    <string name="overlay_scripts_sync_failed">Не удалось синхронизировать</string>
     <string name="overlay_scripts_failed">Не удалось сохранить скрипт</string>
     <string name="overlay_scripts_empty_file">Файл пуст</string>
+    <string name="overlay_scripts_profile_enable">Включить скрипты для этого профиля</string>
+    <string name="overlay_scripts_profile_hint">Каждый профиль выбирает отдельно. В режиме цепочки скрипты действуют только на входной профиль.</string>
+    <string name="overlay_scripts_profile_empty">Скриптов нет. Импортируйте их в «Инструменты → Скрипты».</string>
 </resources>

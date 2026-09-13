@@ -497,7 +497,6 @@ function main(config) {
     var ity = typeOf(inbound);
     if (ity === "tun" || ity === "mixed" || ity === "socks" || ity === "http" || ity === "redirect" || ity === "tproxy") {
       inbound.sniff = true;
-      inbound.sniff_override_destination = true;
     }
     if (ity === "mixed") hasMixed = true;
   }
@@ -507,8 +506,7 @@ function main(config) {
       tag: "mixed-in",
       listen: "127.0.0.1",
       listen_port: 17890,
-      sniff: true,
-      sniff_override_destination: true
+      sniff: true
     });
   }
   config.inbounds = inbounds;

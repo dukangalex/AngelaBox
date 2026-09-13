@@ -14,8 +14,8 @@ object ConfigScriptOverride {
     private const val TIMEOUT_MS = 5_000L
     private const val MAX_JSON_CHARS = 1_500_000
 
-    fun apply(root: JSONObject) {
-        val scripts = OverlayScripts.enabled()
+    fun apply(root: JSONObject, profileId: Long) {
+        val scripts = OverlayScripts.enabledFor(profileId)
         if (scripts.isEmpty()) return
         var current = root.toString()
         val failures = mutableListOf<String>()

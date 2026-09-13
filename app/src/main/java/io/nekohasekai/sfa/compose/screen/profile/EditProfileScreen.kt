@@ -433,6 +433,8 @@ fun EditProfileScreen(
                     }
                 }
 
+                ProfileScriptBinderCard(profileId = profileId)
+
                 // Content Card (for both Local and Remote profiles) - placed at the end
                 Card(
                     modifier = Modifier.fillMaxWidth(),

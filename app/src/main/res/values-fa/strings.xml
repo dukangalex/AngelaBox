@@ -679,8 +679,8 @@
     <string name="taildrop_open_app">باز کردن sing-box</string>
     <string name="taildrop_notification_title">در حال ارسال فایل‌ها</string>
     <string name="overlay_scripts">اسکریپت</string>
-    <string name="overlay_scripts_subtitle">اسکریپت بازنویسی sing-box</string>
-    <string name="overlay_scripts_hint">اسکریپت فقط هنگام شروع JSON زنده را تغییر می‌دهد. باید function main(config) داشته باشد. کلیدهای Clash نادیده گرفته می‌شوند.</string>
+    <string name="overlay_scripts_subtitle">اسکریپت sing-box برای هر پیکربندی</string>
+    <string name="overlay_scripts_hint">این فهرست اسکریپت‌هاست. اسکریپت فقط هنگام شروع JSON زنده را تغییر می‌دهد. باید function main(config) داشته باشد. کلیدهای Clash نادیده گرفته می‌شوند. هر پیکربندی جداگانه انتخاب می‌کند. در حالت زنجیره فقط روی پیکربندی ورودی اعمال می‌شود.</string>
     <string name="overlay_scripts_empty">هنوز اسکریپتی نیست. برای وارد کردن کد، URL، پرونده یا نمونه + را بزنید.</string>
     <string name="overlay_scripts_import">وارد کردن</string>
     <string name="overlay_scripts_import_code">از کد</string>
@@ -695,6 +695,12 @@
     <string name="overlay_scripts_from_sample">نمونه</string>
     <string name="overlay_scripts_imported">اسکریپت واردشده</string>
     <string name="overlay_scripts_duplicate">تکثیر</string>
+    <string name="overlay_scripts_sync">همگام‌سازی</string>
+    <string name="overlay_scripts_synced">از URL همگام شد</string>
+    <string name="overlay_scripts_sync_failed">همگام‌سازی ممکن نشد</string>
     <string name="overlay_scripts_failed">ذخیره اسکریپت ممکن نشد</string>
     <string name="overlay_scripts_empty_file">پرونده خالی است</string>
+    <string name="overlay_scripts_profile_enable">فعال‌سازی اسکریپت برای این پیکربندی</string>
+    <string name="overlay_scripts_profile_hint">هر پیکربندی جداگانه انتخاب می‌کند. در حالت زنجیره اسکریپت فقط روی پیکربندی ورودی اجرا می‌شود.</string>
+    <string name="overlay_scripts_profile_empty">اسکریپتی نیست. از «ابزار → اسکریپت» وارد کنید.</string>
 </resources>

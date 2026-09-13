@@ -69,8 +69,6 @@ def migrate_inbounds(root: dict) -> None:
             timeout = str(ib.get("sniff_timeout") or "").strip()
             if timeout:
                 rule["timeout"] = timeout
-            if ib.get("sniff_override_destination"):
-                rule["override_destination"] = True
             extra.append(rule)
         for k in ("sniff", "sniff_timeout", "sniff_override_destination"):
             ib.pop(k, None)
@@ -147,8 +145,23 @@ def rewrite_sets(root: dict) -> None:
                 item[key] = rewrite_url(cur)
 
 
+def strip_sniff_override(root: dict) -> None:
+    def walk(rules):
+        if not isinstance(rules, list):
+            return
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            walk(rule.get("rules"))
+            if str(rule.get("action") or "") == "sniff":
+                rule.pop("override_destination", None)
+
+    walk((root.get("route") or {}).get("rules"))
+
+
 def sanitize(root: dict) -> dict:
     migrate_inbounds(root)
+    strip_sniff_override(root)
     migrate_special(root)
     rewrite_sets(root)
     return root
@@ -188,8 +201,22 @@ def main() -> int:
     rules = inbound["route"]["rules"]
     if rules[0].get("action") != "resolve" or rules[1].get("action") != "sniff":
         errors.append(f"sniff/resolve not prepended: {rules}")
+    if rules[1].get("override_destination"):
+        errors.append("sniff action must not emit override_destination (sing-box 1.14 rejects it)")
     if rules[2].get("action") != "hijack-dns":
         errors.append("original route rule lost")
+
+    leftover = sanitize(
+        {
+            "route": {
+                "rules": [
+                    {"inbound": "tun-in", "action": "sniff", "override_destination": True}
+                ]
+            }
+        }
+    )
+    if leftover["route"]["rules"][0].get("override_destination"):
+        errors.append("leftover sniff override_destination was not stripped")
 
     special = sanitize(
         {

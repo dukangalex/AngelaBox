@@ -343,8 +343,29 @@ class ConfigCompatTest {
         val sniff = rules.getJSONObject(1)
         assertEquals("sniff", sniff.getString("action"))
         assertEquals("1s", sniff.getString("timeout"))
-        assertEquals(true, sniff.getBoolean("override_destination"))
+        assertEquals(false, sniff.has("override_destination"))
         assertEquals("hijack-dns", rules.getJSONObject(2).getString("action"))
+    }
+
+    @Test
+    fun stripsLeftoverSniffOverrideDestination() {
+        val src = JSONObject()
+            .put(
+                "route",
+                JSONObject().put(
+                    "rules",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("inbound", "tun-in")
+                            .put("action", "sniff")
+                            .put("override_destination", true),
+                    ),
+                ),
+            )
+        val out = JSONObject(ConfigCompat.sanitize(src.toString()))
+        val sniff = out.getJSONObject("route").getJSONArray("rules").getJSONObject(0)
+        assertEquals("sniff", sniff.getString("action"))
+        assertEquals(false, sniff.has("override_destination"))
     }
 
     @Test

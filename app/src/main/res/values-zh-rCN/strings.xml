@@ -683,8 +683,8 @@
     <string name="ads_block">广告拦截</string>
     <string name="ads_block_summary">拒绝广告规则集匹配的域名</string>
     <string name="overlay_scripts">脚本</string>
-    <string name="overlay_scripts_subtitle">配置全局覆写脚本（sing-box）</string>
-    <string name="overlay_scripts_hint">脚本只在启动时改写运行时配置，不改订阅文件。需要 function main(config)，config 为 sing-box JSON。Clash 字段不会被识别。内置开关仍会在脚本之后生效。</string>
+    <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
+    <string name="overlay_scripts_hint">这里是脚本库。脚本只在启动时改写运行时配置，不改订阅文件。需要 function main(config)，config 为 sing-box JSON。Clash 字段不会被识别。每个配置在编辑页单独选择是否启用、启用哪几条。链式模式下仅对前置（当前）配置生效。列表开关是未单独设置时的默认启用。</string>
     <string name="overlay_scripts_empty">还没有脚本。点右下角 +，可用代码、URL、文件或示例导入。</string>
     <string name="overlay_scripts_import">导入</string>
     <string name="overlay_scripts_import_code">通过代码导入</string>
@@ -699,6 +699,12 @@
     <string name="overlay_scripts_from_sample">示例脚本</string>
     <string name="overlay_scripts_imported">导入的脚本</string>
     <string name="overlay_scripts_duplicate">复制</string>
+    <string name="overlay_scripts_sync">同步</string>
+    <string name="overlay_scripts_synced">已从 URL 同步</string>
+    <string name="overlay_scripts_sync_failed">同步失败</string>
     <string name="overlay_scripts_failed">无法保存脚本</string>
     <string name="overlay_scripts_empty_file">文件是空的</string>
+    <string name="overlay_scripts_profile_enable">为此配置启用脚本</string>
+    <string name="overlay_scripts_profile_hint">每个配置单独选择。链式模式下仅对前置（当前配置）生效，落地配置上的脚本不会执行。</string>
+    <string name="overlay_scripts_profile_empty">还没有脚本。请到「工具 → 脚本」导入。</string>
 </resources>

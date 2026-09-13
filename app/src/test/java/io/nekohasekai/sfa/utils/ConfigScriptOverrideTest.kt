@@ -81,4 +81,18 @@ class ConfigScriptOverrideTest {
         assertTrue(decoded[0].enabled)
         assertTrue(decoded[0].code.contains("function main"))
     }
+
+    @Test
+    fun scriptBindingsRoundTripAndInherit() {
+        val encoded = OverlayScripts.encodeBindings(
+            mapOf(
+                12L to listOf("a", "b"),
+                13L to emptyList(),
+            ),
+        )
+        val decoded = OverlayScripts.decodeBindings(encoded)
+        assertEquals(listOf("a", "b"), decoded[12L])
+        assertEquals(emptyList<String>(), decoded[13L])
+        assertEquals(true, OverlayScripts.decodeBindings("").isEmpty())
+    }
 }

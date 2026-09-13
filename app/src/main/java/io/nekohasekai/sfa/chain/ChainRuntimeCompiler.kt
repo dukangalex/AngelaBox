@@ -40,6 +40,7 @@ object ChainRuntimeCompiler {
     private val forbiddenTypes = setOf("direct", "block", "dns", NATIVE_CHAIN_TYPE)
     private val forbiddenTags = setOf("direct", "block", "dns")
     private val groupTypes = setOf("selector", "urltest")
+    private val CN_TOKEN = Regex("""(?<![a-z0-9_-])cn(?![a-z0-9_-])""")
 
     data class ApplyRequest(
         val content: String,
@@ -184,7 +185,9 @@ object ChainRuntimeCompiler {
     /**
      * Front airport outbounds may only appear as hop 0 of the generated chain.
      * Rewrite route.final and route.rules[].outbound so unmatched / Global /
-     * explicit-proxy traffic cannot exit via the entry. DNS detours are left
+     * explicit-proxy traffic cannot exit via the entry. Non-China DIRECT is
+     * also rewritten to the chain so those flows leave via the landing hop;
+     * China / LAN / private DIRECT rules stay. DNS detours are left
      * unchanged so queries stay one hop (Clash Meta behaviour).
      * entryTags are never treated as a valid public exit.
      */
@@ -196,32 +199,93 @@ object ChainRuntimeCompiler {
     ) {
         val outs = root.optJSONArray("outbounds") ?: return
         val protected = mutableSetOf(chainTag, landingTag)
+        val directTags = mutableSetOf<String>()
         for (i in 0 until outs.length()) {
             val o = outs.optJSONObject(i) ?: continue
             val tag = o.optString("tag").trim()
             val type = o.optString("type").trim()
             if (tag.isEmpty()) continue
             if (tag in entryTags || tag.startsWith(ENTRY_PREFIX)) continue
+            if (type == "direct" || isDirectLike(tag)) {
+                directTags.add(tag)
+                continue
+            }
             if (type in forbiddenTypes || tag.lowercase() in forbiddenTags) protected.add(tag)
             if (tag.startsWith(LANDING_PREFIX)) protected.add(tag)
         }
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val currentFinal = route.optString("final").trim()
-        if (currentFinal.isEmpty() || currentFinal !in protected || currentFinal in entryTags) {
+        if (currentFinal.isEmpty() || currentFinal !in protected || currentFinal in entryTags ||
+            currentFinal in directTags || isDirectLike(currentFinal)
+        ) {
             route.put("final", chainTag)
         }
-        rewriteRuleOutbounds(route.optJSONArray("rules"), protected, chainTag)
+        rewriteRuleOutbounds(route.optJSONArray("rules"), protected, directTags, chainTag)
     }
 
-    private fun rewriteRuleOutbounds(rules: JSONArray?, protected: Set<String>, chainTag: String) {
+    /**
+     * China / LAN / private DIRECT rules stay. Any other DIRECT (including a
+     * bare MATCH or clash Direct) is rewritten to the chain so non-China
+     * traffic cannot skip the landing hop.
+     */
+    internal fun isBypassDirectRule(rule: JSONObject): Boolean {
+        if (rule.optBoolean("ip_is_private", false)) return true
+        val haystack = buildString {
+            listOf("rule_set", "geosite", "geoip", "domain_suffix", "domain", "domain_keyword", "ip_cidr").forEach { key ->
+                textsOf(rule, key).forEach { append(' ').append(it.lowercase()) }
+            }
+        }
+        if (haystack.contains("geoip-cn") || haystack.contains("geosite-cn") ||
+            haystack.contains("geoip_cn") || haystack.contains("geosite_cn")
+        ) {
+            return true
+        }
+        if (CN_TOKEN.containsMatchIn(haystack) || haystack.contains("china") || haystack.contains("中国")) return true
+        if (haystack.contains(".cn") || haystack.contains("cn.")) return true
+        val lan = listOf("local", "lan", "localhost", "home.arpa", "internal", "intranet", "private", "localdomain")
+        if (lan.any { haystack.contains(it) }) return true
+        if (haystack.contains("10.") || haystack.contains("192.168.") || haystack.contains("172.16.") ||
+            haystack.contains("127.0.0.") || haystack.contains("fc00") || haystack.contains("fe80")
+        ) {
+            return true
+        }
+        return false
+    }
+
+    internal fun isDirectLike(tag: String): Boolean {
+        val t = tag.trim().lowercase()
+        if (t.isEmpty()) return false
+        return t == "direct" || t.contains("直连") || t == "chainbox-direct"
+    }
+
+    private fun rewriteRuleOutbounds(
+        rules: JSONArray?,
+        protected: Set<String>,
+        directTags: Set<String>,
+        chainTag: String,
+    ) {
         if (rules == null) return
         for (i in 0 until rules.length()) {
             val rule = rules.optJSONObject(i) ?: continue
+            rewriteRuleOutbounds(rule.optJSONArray("rules"), protected, directTags, chainTag)
             val outbound = rule.optString("outbound").trim()
-            if (outbound.isNotEmpty() && outbound !in protected) {
+            if (outbound.isEmpty()) continue
+            if (isDirectLike(outbound) || outbound in directTags) {
+                if (!isBypassDirectRule(rule)) rule.put("outbound", chainTag)
+                continue
+            }
+            if (outbound !in protected) {
                 rule.put("outbound", chainTag)
             }
-            rewriteRuleOutbounds(rule.optJSONArray("rules"), protected, chainTag)
+        }
+    }
+
+    private fun textsOf(rule: JSONObject, key: String): List<String> {
+        val raw = rule.opt(key) ?: return emptyList()
+        return when (raw) {
+            is String -> listOf(raw)
+            is JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+            else -> emptyList()
         }
     }
 

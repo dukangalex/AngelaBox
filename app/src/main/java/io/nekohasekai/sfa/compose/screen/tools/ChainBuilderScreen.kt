@@ -65,6 +65,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.OverlayScripts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -321,11 +322,6 @@ fun ChainBuilderScreen(
                     savedHint?.let {
                         Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
                     }
-                    Text(
-                        "链路只绑定当前这一份配置。切换到其他配置时，各自使用自己保存的落地，互不影响。订阅更新只换节点列表，不会清掉这份绑定。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
             if (otherBound > 0) {
@@ -337,13 +333,6 @@ fun ChainBuilderScreen(
                 ) {
                     Text("另有 $otherBound 个配置已绑定落地，点此查看是哪几个")
                 }
-            }
-            Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
-                Text(
-                    "Chain 按你选的顺序串联现有 outbound：入口 → 落地 → 目标。不绑定机场或协议。链路失败不会自动改走 DIRECT。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp),
-                )
             }
             Text("入口（当前配置）", fontWeight = FontWeight.Medium)
             HopPickCard(
@@ -359,6 +348,14 @@ fun ChainBuilderScreen(
                 enabled = !busy,
                 onClick = { picker = "landing"; pickerQuery = "" },
             )
+            val landingRef = exit
+            if (landingRef != null && landingRef.profileId != currentProfileId && OverlayScripts.isBound(landingRef.profileId)) {
+                Text(
+                    "落地配置开启了脚本，链式模式下不会执行。脚本只对前置生效。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             Button(
                 onClick = { save() },
                 modifier = Modifier.fillMaxWidth(),
@@ -485,11 +482,13 @@ fun ChainBuilderScreen(
                 Text(
                     "1. 入口：当前配置里流量先走的分组或节点（前置）。不要依赖「漏网之鱼」。前置只作为链式第一跳，不会单独成为出口。\n" +
                         "2. 落地：下一跳，出口 IP 应该是落地节点，不是前置。可来自当前或其他配置。\n" +
-                        "3. 保存后只绑定当前配置。每个配置可以各绑不同落地。\n" +
-                        "4. 绑定存在本地，不写进订阅 JSON。远程订阅更新后不必重配；入口改名会自动改用主分组。\n" +
-                        "5. 使用 sing-box 原生 Chain outbound：入口 → 落地 → 目标。\n" +
+                        "3. 保存后只绑定当前配置。每个配置可以各绑不同落地。切换配置时各自使用自己保存的落地，互不影响。\n" +
+                        "4. 绑定存在本地，不写进订阅 JSON。远程订阅更新只换节点列表，不会清掉绑定；入口改名会自动改用主分组。\n" +
+                        "5. 使用 sing-box 原生 Chain outbound，按你选的顺序串联现有 outbound：入口 → 落地 → 目标。不绑定机场或协议。\n" +
                         "6. Fail Closed：链路失败会明确报错并停止启动，不会偷偷改走 DIRECT。\n" +
-                        "7. 保存后会回到仪表。哪些流量走 Chain 由路由规则决定，但指向前置的规则会被改写到 Chain，避免前置泄漏。",
+                        "7. 链式代理模式下，所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国直连开关仍可让国内与局域网走 DIRECT。\n" +
+                        "8. 脚本在链式模式下仍然生效，但只改写前置（当前）配置；落地配置上的脚本不会执行。请不要在落地配置上开启脚本。\n" +
+                        "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。",
                 )
             },
             confirmButton = { TextButton(onClick = { showHelp = false }) { Text("知道了") } },

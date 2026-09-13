@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -62,6 +63,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.ProfileContent
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.qr.QRCodeDialog
+import io.nekohasekai.sfa.compose.screen.profile.ProfileScriptBinderDialog
 import io.nekohasekai.sfa.compose.util.ProfileIcons
 import io.nekohasekai.sfa.compose.util.QRCodeGenerator
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
@@ -91,6 +93,7 @@ fun ProfilePickerSheet(
 
     var showQRCodeDialog by remember { mutableStateOf(false) }
     var qrCodeProfile by remember { mutableStateOf<Profile?>(null) }
+    var scriptProfile by remember { mutableStateOf<Profile?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -143,6 +146,7 @@ fun ProfilePickerSheet(
                                 onDismiss()
                             },
                             onEdit = { onProfileEdit(profile) },
+                            onScripts = { scriptProfile = profile },
                             onShare = {
                                 coroutineScope.launch(Dispatchers.IO) {
                                     try {
@@ -183,6 +187,15 @@ fun ProfilePickerSheet(
             },
         )
     }
+
+    val bindTarget = scriptProfile
+    if (bindTarget != null) {
+        ProfileScriptBinderDialog(
+            profileId = bindTarget.id,
+            profileName = bindTarget.name,
+            onDismiss = { scriptProfile = null },
+        )
+    }
 }
 
 private suspend fun createProfileContent(profile: Profile): ByteArray {
@@ -212,6 +225,7 @@ private fun ProfilePickerRow(
     isDragging: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
+    onScripts: () -> Unit,
     onShare: () -> Unit,
     onShareURL: () -> Unit,
     onDelete: () -> Unit,
@@ -381,6 +395,21 @@ private fun ProfilePickerRow(
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.overlay_scripts)) },
+                            onClick = {
+                                showMenu = false
+                                onScripts()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Code,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                 )

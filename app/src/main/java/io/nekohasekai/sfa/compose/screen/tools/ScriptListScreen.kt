@@ -89,6 +89,7 @@ fun ScriptListScreen(
     var urlDraft by remember { mutableStateOf<Pair<String, String>?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<OverlayScript?>(null) }
+    var syncingId by remember { mutableStateOf<String?>(null) }
 
     fun reloadService() {
         scope.launch { notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload) }
@@ -251,6 +252,45 @@ fun ScriptListScreen(
                                                 )
                                             },
                                         )
+                                        if (script.source == OverlayScripts.SOURCE_URL && script.url.isNotBlank()) {
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.overlay_scripts_sync)) },
+                                                enabled = syncingId != script.id,
+                                                onClick = {
+                                                    menuFor = null
+                                                    syncingId = script.id
+                                                    scope.launch {
+                                                        try {
+                                                            val body = withContext(Dispatchers.IO) {
+                                                                HTTPClient().use { it.getString(script.url) }
+                                                            }
+                                                            if (body.isBlank()) {
+                                                                snackbar.showSnackbar(
+                                                                    context.getString(R.string.overlay_scripts_empty_file),
+                                                                )
+                                                            } else {
+                                                                upsert(
+                                                                    script.copy(
+                                                                        code = body,
+                                                                        updatedAt = System.currentTimeMillis(),
+                                                                    ),
+                                                                )
+                                                                snackbar.showSnackbar(
+                                                                    context.getString(R.string.overlay_scripts_synced),
+                                                                )
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            snackbar.showSnackbar(
+                                                                e.message
+                                                                    ?: context.getString(R.string.overlay_scripts_sync_failed),
+                                                            )
+                                                        } finally {
+                                                            syncingId = null
+                                                        }
+                                                    }
+                                                },
+                                            )
+                                        }
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.menu_delete)) },
                                             onClick = {

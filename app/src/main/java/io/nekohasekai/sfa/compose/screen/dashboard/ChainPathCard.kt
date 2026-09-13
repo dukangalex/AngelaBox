@@ -46,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -437,9 +436,9 @@ fun ChainPathCard(
             nodes = localizedNodes,
             links = topology.flowLinks,
             flowing = topology.flowing && running,
+            compact = !running,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (running) 200.dp else 148.dp)
                 .clickable(onClick = onOpenChainBuilder),
         )
     }
@@ -557,6 +556,7 @@ private fun TrafficSankey(
     nodes: List<FlowNode>,
     links: List<FlowLink>,
     flowing: Boolean,
+    compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -582,10 +582,9 @@ private fun TrafficSankey(
     val hop = Color(0xFFFDDB8A)
     val dest = Color(0xFFF2A0A0)
     val direct = Color(0xFF94A3B8)
-    BoxWithConstraints(modifier = modifier.clipToBounds()) {
+    BoxWithConstraints(modifier = modifier) {
         if (nodes.isEmpty()) return@BoxWithConstraints
         val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
-        val viewportPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
         val padPx = with(density) { 6.dp.toPx() }
         val gapY = with(density) { 8.dp.toPx() }
         val barW = with(density) { 12.dp.toPx() }
@@ -610,11 +609,21 @@ private fun TrafficSankey(
             measured.mapValues { (_, layout) -> layout.size.height + padH }
         }
         val required = SankeyLayout.requiredHeight(nodes, padPx, gapY, minHeights, 1f)
-        val canvasH = required.coerceAtMost(viewportPx * 2.4f).coerceAtLeast(1f)
+        val minPx = with(density) { (if (compact) 148.dp else 160.dp).toPx() }
+        val maxPx = with(density) { (if (compact) 148.dp else 480.dp).toPx() }
+        val fitted = required.coerceIn(minPx, maxPx).coerceAtLeast(1f)
+        val canvasH = required.coerceAtLeast(minPx)
+        val needScroll = canvasH > maxPx + 1f
+        val boxH = if (needScroll) maxPx else fitted
         val canvasDp = with(density) { canvasH.toDp() }
-        val needScroll = canvasH > viewportPx + 1f
+        val boxDp = with(density) { boxH.toDp() }
         val scroll = rememberScrollState()
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(boxDp),
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()

@@ -719,8 +719,8 @@
     <string name="ads_block">廣告攔截</string>
     <string name="ads_block_summary">拒絕廣告規則集匹配的網域</string>
     <string name="overlay_scripts">腳本</string>
-    <string name="overlay_scripts_subtitle">設定全域覆寫腳本（sing-box）</string>
-    <string name="overlay_scripts_hint">腳本只在啟動時改寫執行時設定，不改訂閱檔。需要 function main(config)，config 為 sing-box JSON。Clash 欄位不會被辨識。內建開關仍會在腳本之後生效。</string>
+    <string name="overlay_scripts_subtitle">依設定檔選擇覆寫腳本（sing-box）</string>
+    <string name="overlay_scripts_hint">這裡是腳本庫。腳本只在啟動時改寫執行時設定，不改訂閱檔。需要 function main(config)，config 為 sing-box JSON。Clash 欄位不會被辨識。每個設定檔在編輯頁單獨選擇是否啟用、啟用哪幾條。鏈式模式下僅對前置（目前）設定生效。列表開關是未單獨設定時的預設啟用。</string>
     <string name="overlay_scripts_empty">還沒有腳本。點右下角 +，可用程式碼、URL、檔案或示例匯入。</string>
     <string name="overlay_scripts_import">匯入</string>
     <string name="overlay_scripts_import_code">透過程式碼匯入</string>
@@ -735,6 +735,12 @@
     <string name="overlay_scripts_from_sample">示例腳本</string>
     <string name="overlay_scripts_imported">匯入的腳本</string>
     <string name="overlay_scripts_duplicate">複製</string>
+    <string name="overlay_scripts_sync">同步</string>
+    <string name="overlay_scripts_synced">已從 URL 同步</string>
+    <string name="overlay_scripts_sync_failed">同步失敗</string>
     <string name="overlay_scripts_failed">無法儲存腳本</string>
     <string name="overlay_scripts_empty_file">檔案是空的</string>
+    <string name="overlay_scripts_profile_enable">為此設定檔啟用腳本</string>
+    <string name="overlay_scripts_profile_hint">每個設定檔單獨選擇。鏈式模式下僅對前置（目前設定）生效，落地設定上的腳本不會執行。</string>
+    <string name="overlay_scripts_profile_empty">還沒有腳本。請到「工具 → 腳本」匯入。</string>
 </resources>

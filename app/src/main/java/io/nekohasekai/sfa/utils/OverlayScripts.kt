@@ -18,6 +18,11 @@ data class OverlayScript(
 /**
  * User-imported sing-box overlay scripts. Stored locally, applied at
  * start time, never written back into the subscription file.
+ *
+ * The catalog (list + enabled flag) is global. Each profile can bind a
+ * subset: missing key inherits catalog-enabled scripts; `[]` is off;
+ * a non-empty list is that profile's selection. Chain mode still runs
+ * scripts, but only against the entry (current) profile.
  */
 object OverlayScripts {
     const val MAX_SCRIPTS = 12
@@ -32,6 +37,41 @@ object OverlayScripts {
     fun list(): List<OverlayScript> = decode(Settings.overlayScriptsJson)
 
     fun enabled(): List<OverlayScript> = list().filter { it.enabled && it.code.isNotBlank() }
+
+    fun enabledFor(profileId: Long): List<OverlayScript> {
+        val catalog = list()
+        val byId = catalog.associateBy { it.id }
+        val selected = selectedIds(profileId)
+        val ids = selected ?: catalog.filter { it.enabled }.map { it.id }
+        return ids.mapNotNull { id -> byId[id] }.filter { it.code.isNotBlank() }
+    }
+
+    fun selectedIds(profileId: Long): List<String>? {
+        if (profileId < 0L) return emptyList()
+        val map = loadBindings()
+        return if (map.containsKey(profileId)) map[profileId] else null
+    }
+
+    fun isBound(profileId: Long): Boolean = enabledFor(profileId).isNotEmpty()
+
+    @Synchronized
+    fun setBinding(profileId: Long, scriptIds: List<String>?) {
+        if (profileId < 0L) return
+        val next = loadBindings().toMutableMap()
+        if (scriptIds == null) {
+            next.remove(profileId)
+        } else {
+            next[profileId] = scriptIds.distinct().filter { it.isNotBlank() }
+        }
+        saveBindings(next)
+    }
+
+    @Synchronized
+    fun removeProfile(profileId: Long) {
+        if (profileId < 0L) return
+        val next = loadBindings().toMutableMap()
+        if (next.remove(profileId) != null) saveBindings(next)
+    }
 
     fun save(items: List<OverlayScript>) {
         Settings.overlayScriptsJson = encode(items.take(MAX_SCRIPTS))
@@ -54,6 +94,8 @@ object OverlayScripts {
 
     fun remove(id: String) {
         save(list().filterNot { it.id == id })
+        val next = loadBindings().mapValues { (_, ids) -> ids.filterNot { it == id } }
+        saveBindings(next)
     }
 
     fun toggle(id: String, enabled: Boolean) {
@@ -104,5 +146,47 @@ object OverlayScripts {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    internal fun encodeBindings(map: Map<Long, List<String>>): String {
+        val root = JSONObject()
+        map.forEach { (id, ids) ->
+            if (id < 0L) return@forEach
+            val array = JSONArray()
+            ids.forEach { array.put(it) }
+            root.put(id.toString(), array)
+        }
+        return root.toString()
+    }
+
+    internal fun decodeBindings(raw: String): Map<Long, List<String>> {
+        if (raw.isBlank()) return emptyMap()
+        return try {
+            val root = JSONObject(raw)
+            val out = linkedMapOf<Long, List<String>>()
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val id = key.toLongOrNull() ?: continue
+                val array = root.optJSONArray(key) ?: continue
+                val ids = buildList {
+                    for (i in 0 until array.length()) {
+                        val item = array.optString(i).trim()
+                        if (item.isNotEmpty()) add(item)
+                    }
+                }
+                out[id] = ids
+            }
+            out
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun loadBindings(): Map<Long, List<String>> =
+        decodeBindings(Settings.overlayScriptBindingsJson)
+
+    private fun saveBindings(map: Map<Long, List<String>>) {
+        Settings.overlayScriptBindingsJson = encodeBindings(map)
     }
 }

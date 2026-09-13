@@ -4,6 +4,7 @@ import androidx.room.Room
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
+import io.nekohasekai.sfa.utils.OverlayScripts
 
 @Suppress("RedundantSuspendModifier")
 object ProfileManager {
@@ -81,6 +82,7 @@ object ProfileManager {
     suspend fun delete(profile: Profile): Int {
         try {
             runCatching { ChainBindings.removeProfile(profile.id) }
+            runCatching { OverlayScripts.removeProfile(profile.id) }
             return database().profileDao().delete(profile)
         } finally {
             for (callback in callbacks.toList()) {
@@ -93,6 +95,7 @@ object ProfileManager {
         try {
             profiles.forEach { p ->
                 runCatching { ChainBindings.removeProfile(p.id) }
+                runCatching { OverlayScripts.removeProfile(p.id) }
             }
             return database().profileDao().delete(profiles)
         } finally {

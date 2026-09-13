@@ -14,40 +14,28 @@ object ConfigQuicOverride {
         val warnings = mutableListOf<OverrideNotice>()
         var out = ConfigCompat.sanitize(content)
 
-        val binding = ChainBindings.get(Settings.selectedProfile)
-        if (binding != null) {
-            val savedEntry = binding.entryTag.trim()
-            val entryMissing = savedEntry.isNotEmpty() && !outboundExists(out, savedEntry)
-            try {
-                out = ConfigChainReapply.apply(out)
-                if (entryMissing) {
-                    warnings += OverrideNotice(
-                        title = "链式入口已随订阅更新",
-                        reason = "保存的入口「$savedEntry」在新订阅里不存在，已自动改用当前配置的主分组。落地绑定仍有效。",
-                        hint = "不必重新配链式。若入口不对，到「工具 → 链式代理」重选一次即可。",
-                    )
-                }
-            } catch (e: Exception) {
-                val notice = OverrideNotice(
-                    title = "链式代理未生效，已停止启动",
-                    reason = e.message ?: "无法串联出站",
-                    hint = "链路只绑定当前配置，订阅更新不会清掉绑定。请到「工具 → 链式代理」确认入口和落地。失败不会自动改走 DIRECT。",
-                )
-                OverrideStatus.set(warnings + notice)
-                throw ChainApplyException(notice.reason)
-            }
-        }
+        val profileId = Settings.selectedProfile
+        val binding = ChainBindings.get(profileId)
+        val savedEntry = binding?.entryTag?.trim().orEmpty()
+        val entryMissing = binding != null && savedEntry.isNotEmpty() && !outboundExists(out, savedEntry)
 
         try {
             var root = JSONObject(out)
             applyLogLevel(root)
             applyOne(warnings, "覆写脚本") {
-                ConfigScriptOverride.apply(root)
+                ConfigScriptOverride.apply(root, profileId)
             }
             out = ConfigCompat.sanitize(root.toString())
             if (binding != null) {
                 try {
                     out = ConfigChainReapply.apply(out)
+                    if (entryMissing) {
+                        warnings += OverrideNotice(
+                            title = "链式入口已随订阅更新",
+                            reason = "保存的入口「$savedEntry」在新订阅里不存在，已自动改用当前配置的主分组。落地绑定仍有效。",
+                            hint = "不必重新配链式。若入口不对，到「工具 → 链式代理」重选一次即可。",
+                        )
+                    }
                 } catch (e: Exception) {
                     val notice = OverrideNotice(
                         title = "链式代理未生效，已停止启动",

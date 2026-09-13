@@ -158,7 +158,8 @@ class ChainRuntimeCompilerTest {
             "rules",
             JSONArray()
                 .put(JSONObject().put("clash_mode", "Global").put("outbound", "节点选择"))
-                .put(JSONObject().put("geosite", "cn").put("outbound", "direct")),
+                .put(JSONObject().put("geosite", "cn").put("outbound", "direct"))
+                .put(JSONObject().put("domain_suffix", "google.com").put("outbound", "direct")),
         )
         src.put(
             "dns",
@@ -185,6 +186,7 @@ class ChainRuntimeCompilerTest {
         val rules = root.getJSONObject("route").getJSONArray("rules")
         assertEquals(chainTag, rules.getJSONObject(0).getString("outbound"))
         assertEquals("direct", rules.getJSONObject(1).getString("outbound"))
+        assertEquals(chainTag, rules.getJSONObject(2).getString("outbound"))
         val detour = root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0).getString("detour")
         assertEquals("节点选择", detour)
         val outs = root.getJSONArray("outbounds")

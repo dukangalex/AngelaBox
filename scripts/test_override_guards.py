@@ -603,16 +603,56 @@ def main() -> int:
         errors.append("live topology must match group tags with leading emoji stripped")
     if "looksLikeGroupTag" not in live:
         errors.append("displayNonDirect must not keep a group tag as 出口")
-    if "200.dp" not in path_card and "220.dp" not in path_card:
-        errors.append("running sankey must not stay at 280.dp; it sits too low")
-    if "280.dp" in path_card:
-        errors.append("sankey running height 280.dp pushes the path diagram too low")
+    if ".height(if (running) 200.dp" in path_card or ".height(if (running) 220.dp" in path_card:
+        errors.append("running sankey must size to requiredHeight, not a clipped 200.dp box")
+    if "requiredHeight" not in path_card:
+        errors.append("running sankey must use SankeyLayout.requiredHeight so 5+ rule nodes are fully visible")
+    if "480.dp" not in path_card:
+        errors.append("sankey must allow a tall requiredHeight so the path diagram is complete")
     if "contentAlignment = Alignment.Center" not in path_card:
         errors.append("sankey must be vertically centered in its slot")
     if "覆写脚本" not in override:
         errors.append("ConfigQuicOverride must apply overlay scripts")
     if "ConfigScriptOverride.apply" not in override:
         errors.append("runtime overlay must run user scripts")
+    script_idx = override.find("ConfigScriptOverride.apply")
+    chain_idx = override.find("ConfigChainReapply.apply")
+    if script_idx < 0 or chain_idx < 0 or chain_idx < script_idx:
+        errors.append("scripts must run on the entry profile before chain merge")
+    if override.count("ConfigChainReapply.apply") != 1:
+        errors.append("chain must be applied once after scripts, not before and after")
+    if "enabledFor" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("scripts must apply per selected profile via enabledFor")
+    if "fun enabledFor" not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
+        errors.append("OverlayScripts.enabledFor missing")
+    if "overlayScriptBindingsJson" not in settings:
+        errors.append("Settings.overlayScriptBindingsJson missing")
+    if "OVERLAY_SCRIPT_BINDINGS" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.OVERLAY_SCRIPT_BINDINGS missing")
+    if "ProfileScriptBinderCard" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/EditProfileScreen.kt"):
+        errors.append("edit profile must expose a script binder")
+    if "ProfileScriptBinderDialog" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt"):
+        errors.append("profile picker must let each profile choose scripts")
+    if "overlay_scripts_sync" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must offer URL sync")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if 'rule.put("override_destination"' in inbound or "override_destination\", true" in inbound:
+        errors.append("ConfigInboundCompat must not emit sniff override_destination (sing-box 1.14 rejects it)")
+    if "stripSniffOverrideDestination" not in inbound:
+        errors.append("leftover sniff override_destination must be stripped")
+    if "sniff_override_destination" in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("sample script must not set sniff_override_destination")
+    builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
+    if "所有非中国流量不可直连" not in builder:
+        errors.append("chain builder info must say non-China traffic cannot DIRECT")
+    if "落地配置上的脚本不会执行" not in builder:
+        errors.append("chain builder info must say landing scripts are ignored")
+    if "链路只绑定当前这一份配置。切换到其他配置时" in builder:
+        errors.append("chain builder on-page copy must move into the info dialog")
+    if "isBypassDirectRule" not in compiler:
+        errors.append("chain compiler must keep China/LAN DIRECT while pinning other DIRECT to chain")
+    if "isDirectLike" not in compiler:
+        errors.append("chain compiler must recognize DIRECT tags when pinning non-China traffic")
     if "function main" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("script engine must require function main(config)")
     if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
@@ -654,6 +694,10 @@ def main() -> int:
         errors.append("SettingsKey.OVERLAY_SCRIPTS missing")
     if 'name="overlay_scripts"' not in cn:
         errors.append("zh-rCN missing overlay_scripts")
+    if 'name="overlay_scripts_sync"' not in cn:
+        errors.append("zh-rCN missing overlay_scripts_sync")
+    if 'name="overlay_scripts_profile_enable"' not in cn:
+        errors.append("zh-rCN missing overlay_scripts_profile_enable")
     if "ScriptListScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
         errors.append("ScriptListScreen missing")
     if "painterResource(R.mipmap" in path_card:
