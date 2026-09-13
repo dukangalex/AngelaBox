@@ -471,8 +471,14 @@ object SankeyLayout {
         if (nodes.isEmpty()) return floor
         val byCol = nodes.groupBy { it.column }
         val needed = byCol.values.maxOf { col ->
-            val mins = col.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
-            pad * 2f + mins.sum() + gapY * (col.size - 1).coerceAtLeast(0)
+            val proxy = col.filter { !it.direct }
+            val direct = col.filter { it.direct }
+            fun mins(list: List<FlowNode>) =
+                list.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
+            val laneGap = if (proxy.isNotEmpty() && direct.isNotEmpty()) gapY * 2.2f else 0f
+            val extraGaps =
+                (proxy.size - 1).coerceAtLeast(0) + (direct.size - 1).coerceAtLeast(0)
+            pad * 2f + mins(proxy).sum() + mins(direct).sum() + gapY * extraGaps + laneGap
         }
         return needed.coerceAtLeast(floor)
     }
@@ -498,16 +504,29 @@ object SankeyLayout {
         val byId = HashMap<String, PlacedNode>(nodes.size)
         columns.entries.forEachIndexed { index, (_, colNodes) ->
             val x = pad + index * layerWidth
-            val mins = colNodes.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
-            val used = mins.sum() + gapY * (colNodes.size - 1).coerceAtLeast(0)
-            val inner = (height - pad * 2f).coerceAtLeast(used)
-            var y = pad + ((inner - used) / 2f).coerceAtLeast(0f)
-            colNodes.forEachIndexed { i, node ->
+            val proxy = colNodes.filter { !it.direct }
+            val direct = colNodes.filter { it.direct }
+            val ordered = proxy + direct
+            val hasSplit = proxy.isNotEmpty() && direct.isNotEmpty()
+            val laneGap = if (hasSplit) gapY * 2.2f else 0f
+            val mins = ordered.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
+            val extraGaps =
+                (proxy.size - 1).coerceAtLeast(0) + (direct.size - 1).coerceAtLeast(0)
+            val used = mins.sum() + gapY * extraGaps + laneGap
+            val innerH = (height - pad * 2f).coerceAtLeast(used)
+            var y = pad + ((innerH - used) / 2f).coerceAtLeast(0f)
+            ordered.forEachIndexed { i, node ->
                 val h = mins[i]
                 val item = PlacedNode(node, x, y, nodeWidth, h)
                 placed += item
                 byId[node.id] = item
-                y += h + gapY
+                y += h
+                val laneBreak = hasSplit && i == proxy.lastIndex
+                y += when {
+                    laneBreak -> laneGap
+                    i < ordered.lastIndex -> gapY
+                    else -> 0f
+                }
             }
         }
         val outgoing = links.groupBy { it.fromId }
@@ -515,7 +534,8 @@ object SankeyLayout {
         val outCursor = HashMap<String, Float>()
         val inCursor = HashMap<String, Float>()
         val ribbons = ArrayList<PlacedRibbon>(links.size)
-        links.forEach { link ->
+        val orderedLinks = links.sortedBy { if (it.direct) 1 else 0 }
+        orderedLinks.forEach { link ->
             val from = byId[link.fromId] ?: return@forEach
             val to = byId[link.toId] ?: return@forEach
             val fromTotal = outgoing[from.node.id]?.sumOf { it.weight }?.coerceAtLeast(1) ?: 1

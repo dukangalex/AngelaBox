@@ -45,11 +45,13 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
 
                 if (!updateInfo.releaseNotes.isNullOrBlank()) {
                     val processedNotes = remember(updateInfo.releaseNotes) {
-                        emojiCatalog.replaceShortcodes(updateInfo.releaseNotes)
+                        emojiCatalog.replaceShortcodes(userFacingReleaseNotes(updateInfo.releaseNotes))
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     MarkdownText(
                         markdown = processedNotes,
+                        syntaxHighlightColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        syntaxHighlightTextColor = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = MaterialTheme.colorScheme.onSurface,
                         ),
@@ -83,4 +85,17 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
             }
         },
     )
+}
+
+internal fun userFacingReleaseNotes(raw: String): String {
+    val lines = raw.replace("\r\n", "\n").lines()
+    val cut = lines.indexOfFirst { line ->
+        val t = line.trim()
+        t.startsWith("Install ") ||
+            t.startsWith("Verify:") ||
+            t.startsWith("- Package:") ||
+            t.startsWith("- Product:")
+    }
+    val kept = if (cut > 0) lines.take(cut) else lines
+    return kept.joinToString("\n").trim()
 }

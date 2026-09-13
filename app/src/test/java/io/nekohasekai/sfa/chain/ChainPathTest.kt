@@ -258,6 +258,23 @@ class ChainPathTest {
     }
 
     @Test
+    fun mixedColumnPutsDirectBelowProxy() {
+        val nodes = listOf(
+            FlowNode("0|app", "app", 0, 1, false),
+            FlowNode("0|DIRECT", "DIRECT", 0, 1, true),
+            FlowNode("1|hk", "hk", 1, 1, false),
+            FlowNode("1|d", "DIRECT", 1, 1, true),
+        )
+        val (placed, _) = SankeyLayout.layout(nodes, emptyList(), 400f, 240f, 12f, 8f, gapY = 8f)
+        placed.groupBy { it.node.column }.forEach { (_, col) ->
+            val proxy = col.filter { !it.node.direct }
+            val direct = col.filter { it.node.direct }
+            assertTrue(proxy.isNotEmpty() && direct.isNotEmpty())
+            assertTrue(direct.minOf { it.y } > proxy.maxOf { it.y + it.h })
+        }
+    }
+
+    @Test
     fun trafficFlowOverflowKeepsLinks() {
         val path = ChainPath.regular(profileName = "UOT", exitTag = "节点选择")
         val samples = (0 until 12).map { i ->

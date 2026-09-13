@@ -410,9 +410,9 @@ def main() -> int:
         errors.append("live topology must animate traffic flow")
     if "node.w + 5f" not in path_card:
         errors.append("sankey labels must sit beside thin bars, not inside wide pills")
-    if "0xFF6A6FC5" not in path_card:
+    if "0xFF22D3EE" not in path_card:
         errors.append("sankey colors should follow the radiating source-rule-hop-dest palette")
-    if "0xFF94A3B8" not in path_card:
+    if "0xFF64748B" not in path_card:
         errors.append("DIRECT hops and ribbons must use a distinct slate color")
     if "verticalScroll" not in path_card:
         errors.append("sankey must scroll instead of crushing overlapping labels")
@@ -702,6 +702,20 @@ def main() -> int:
     update_dlg = read("app/src/main/java/io/nekohasekai/sfa/compose/component/UpdateDialog.kt")
     if "onSurfaceVariant" in update_dlg:
         errors.append("update notes must use onSurface so dark theme caption stays readable")
+    if "syntaxHighlightColor" not in update_dlg or "syntaxHighlightTextColor" not in update_dlg:
+        errors.append("update markdown code chips must follow the theme, not LightGray")
+    if "fun userFacingReleaseNotes" not in update_dlg:
+        errors.append("in-app update notes must hide install/kernel dump from ordinary users")
+    sankey = read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt")
+    if "val proxy = colNodes.filter { !it.direct }" not in sankey:
+        errors.append("sankey layout must put proxy nodes above DIRECT")
+    if "laneGap" not in sankey:
+        errors.append("sankey must separate DIRECT and proxy lanes")
+    path_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt")
+    if "PathEffect.dashPathEffect" not in path_card:
+        errors.append("path diagram must draw a lane divider between proxy and DIRECT")
+    if "Color(0xFF22D3EE)" not in path_card:
+        errors.append("proxy path must use a brighter tech palette")
     if "color = MaterialTheme.colorScheme.onSurface" not in read(
         "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
     ):

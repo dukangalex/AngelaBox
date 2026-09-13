@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
@@ -577,11 +578,13 @@ private fun TrafficSankey(
         ),
         label = "phase",
     )
-    val source = Color(0xFF6A6FC5)
-    val rule = Color(0xFFA8D4A0)
-    val hop = Color(0xFFFDDB8A)
-    val dest = Color(0xFFF2A0A0)
-    val direct = Color(0xFF94A3B8)
+    val source = Color(0xFF22D3EE)
+    val rule = Color(0xFF4ADE80)
+    val hop = Color(0xFFA78BFA)
+    val dest = Color(0xFFF472B6)
+    val direct = Color(0xFF64748B)
+    val scan = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f)
+    val laneLine = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
     BoxWithConstraints(modifier = modifier) {
         if (nodes.isEmpty()) return@BoxWithConstraints
         val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
@@ -651,13 +654,32 @@ private fun TrafficSankey(
                 val lastCol = nodes.maxOf { it.column }
                 val colXs = placed.groupBy { it.node.column }.mapValues { (_, items) -> items.first().x }
                 val sortedCols = colXs.keys.sorted()
+                var yScan = 0f
+                val scanStep = 7.dp.toPx()
+                while (yScan < size.height) {
+                    drawLine(scan, Offset(0f, yScan), Offset(size.width, yScan), strokeWidth = 1f)
+                    yScan += scanStep
+                }
+                val proxyBottom = placed.filter { !it.node.direct }.maxOfOrNull { it.y + it.h }
+                val directTop = placed.filter { it.node.direct }.minOfOrNull { it.y }
+                if (proxyBottom != null && directTop != null && directTop > proxyBottom + 4f) {
+                    val mid = (proxyBottom + directTop) / 2f
+                    drawLine(
+                        color = laneLine,
+                        start = Offset(padPx, mid),
+                        end = Offset(size.width - padPx, mid),
+                        strokeWidth = 1.2.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                    )
+                }
                 ribbons.forEach { ribbon ->
                     val fromC = ink(ribbon.columnFrom, lastCol, ribbon.direct)
                     val toC = ink(ribbon.columnTo, lastCol, ribbon.direct)
+                    val alpha = if (ribbon.direct) 0.16f else 0.42f
                     drawPath(
                         path = ribbonPath(ribbon),
                         brush = Brush.horizontalGradient(
-                            colors = listOf(fromC.copy(alpha = 0.38f), toC.copy(alpha = 0.38f)),
+                            colors = listOf(fromC.copy(alpha = alpha), toC.copy(alpha = alpha)),
                             startX = ribbon.x0,
                             endX = ribbon.x1,
                         ),
@@ -670,7 +692,7 @@ private fun TrafficSankey(
                         val dx = (ribbon.x1 - ribbon.x0) * 0.48f
                         val y0 = (ribbon.y0Top + ribbon.y0Bottom) / 2f
                         val y1 = (ribbon.y1Top + ribbon.y1Bottom) / 2f
-                        val dots = 3
+                        val dots = if (ribbon.direct) 2 else 4
                         for (k in 0 until dots) {
                             val t = (phase + k / dots.toFloat()) % 1f
                             val p = cubicPoint(
@@ -681,14 +703,24 @@ private fun TrafficSankey(
                                 ribbon.x1, y1,
                             )
                             val glow = lerp(fromC, toC, t)
-                            drawCircle(glow.copy(alpha = 0.22f), radius = 6.dp.toPx(), center = p)
-                            drawCircle(glow.copy(alpha = 0.75f), radius = 2.4.dp.toPx(), center = p)
-                            drawCircle(Color.White.copy(alpha = 0.90f), radius = 1.1.dp.toPx(), center = p)
+                            if (ribbon.direct) {
+                                drawCircle(glow.copy(alpha = 0.45f), radius = 1.8.dp.toPx(), center = p)
+                            } else {
+                                drawCircle(glow.copy(alpha = 0.20f), radius = 7.dp.toPx(), center = p)
+                                drawCircle(glow.copy(alpha = 0.85f), radius = 2.6.dp.toPx(), center = p)
+                                drawCircle(Color.White.copy(alpha = 0.92f), radius = 1.15.dp.toPx(), center = p)
+                            }
                         }
                     }
                 }
                 placed.forEach { node ->
                     val color = ink(node.node.column, lastCol, node.node.direct)
+                    drawRoundRect(
+                        color = color.copy(alpha = if (node.node.direct) 0.16f else 0.28f),
+                        topLeft = Offset(node.x - 3.dp.toPx(), node.y - 2.dp.toPx()),
+                        size = Size(node.w + 6.dp.toPx(), node.h + 4.dp.toPx()),
+                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    )
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(node.x, node.y),
