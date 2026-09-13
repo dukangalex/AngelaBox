@@ -19,16 +19,18 @@ data class OverlayScript(
  * User-imported sing-box overlay scripts. Stored locally, applied at
  * start time, never written back into the subscription file.
  *
- * The catalog (list + enabled flag) is global. Each profile can bind a
- * subset: missing key inherits catalog-enabled scripts; `[]` is off;
- * a non-empty list is that profile's selection. Chain mode still runs
- * scripts, but only against the entry (current) profile.
+ * The catalog is a library. A profile only runs scripts after the user
+ * binds them on that profile (`[]` or missing key = off). Catalog
+ * `enabled` is a master kill: a bound script that is switched off in
+ * the list does not run. Chain mode still runs scripts, but only
+ * against the entry (current) profile.
  */
 object OverlayScripts {
     const val MAX_SCRIPTS = 12
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
+    const val SAMPLE_REVISION = "overlay-revision: 3"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"
@@ -52,9 +54,8 @@ object OverlayScripts {
     fun enabledFor(profileId: Long): List<OverlayScript> {
         val catalog = list()
         val byId = catalog.associateBy { it.id }
-        val selected = selectedIds(profileId)
-        val ids = selected ?: catalog.filter { it.enabled }.map { it.id }
-        return ids.mapNotNull { id -> byId[id] }.filter { it.code.isNotBlank() }
+        val selected = selectedIds(profileId) ?: return emptyList()
+        return selected.mapNotNull { id -> byId[id] }.filter { it.enabled && it.code.isNotBlank() }
     }
 
     fun selectedIds(profileId: Long): List<String>? {
@@ -118,6 +119,7 @@ object OverlayScripts {
 
     internal fun sampleLooksStale(code: String, name: String = ""): Boolean {
         if (name.isNotEmpty() && name != SAMPLE_NAME) return true
+        if (SAMPLE_REVISION !in code) return true
         return STALE_SAMPLE_MARKERS.any { it in code }
     }
 

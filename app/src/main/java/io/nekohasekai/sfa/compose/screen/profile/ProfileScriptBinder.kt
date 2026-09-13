@@ -88,7 +88,7 @@ private fun ProfileScriptBinderBody(profileId: Long) {
     var tick by remember { mutableIntStateOf(0) }
     val scripts = remember(tick) { OverlayScripts.list() }
     val bound = remember(tick, profileId) { OverlayScripts.selectedIds(profileId) }
-    val selected = bound ?: scripts.filter { it.enabled }.map { it.id }
+    val selected = bound ?: emptyList()
     val masterOn = selected.isNotEmpty()
 
     fun persist(ids: List<String>) {

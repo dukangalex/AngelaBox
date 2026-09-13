@@ -1,7 +1,8 @@
 /**
  * 默认覆写脚本。
- * 按节点名生成地区 urltest/selector，补充 DNS、嗅探、mixed 入站，
- * 以及中国直连与广告拦截所需的远程规则集。
+ * overlay-revision: 3
+ * 覆盖原配置的分组与分流，只保留节点；按节点名生成地区 urltest/selector，
+ * 并写入 DNS、嗅探与远程规则集。
  * function main(config)，config 为 sing-box JSON。
  */
 function main(config) {
@@ -189,6 +190,27 @@ function main(config) {
     }
   }
 
+  var REPLACE_GROUP_TYPES = {
+    selector: 1, urltest: 1, "url-test": 1,
+    "load-balance": 1, fallback: 1, relay: 1
+  };
+  var rebuilt = [];
+  for (var rj0 = 0; rj0 < outbounds.length; rj0++) {
+    if (hasOwn(REPLACE_GROUP_TYPES, typeOf(outbounds[rj0]))) continue;
+    rebuilt.push(outbounds[rj0]);
+  }
+  outbounds = rebuilt;
+  groupTags = {};
+  for (var gj = 0; gj < outbounds.length; gj++) {
+    var gob = outbounds[gj];
+    var gtg = tagOf(gob);
+    var gty = typeOf(gob);
+    if (!gtg) continue;
+    if (hasOwn(GROUP_TYPES, gty) || gtg.toLowerCase() === "direct" || gtg.toLowerCase() === "block") {
+      groupTags[gtg] = gty;
+    }
+  }
+
   function matchRegion(name) {
     var hits = [];
     for (var ri = 0; ri < REGIONS.length; ri++) {
@@ -217,9 +239,9 @@ function main(config) {
     }
   }
 
-  var OTHER_NAME = "🌐 其他地区";
-  var AUTO_NAME = "♻️ 自动选择";
-  var SELECT_NAME = "🔰 节点选择";
+  var OTHER_NAME = "其他地区";
+  var AUTO_NAME = "自动选择";
+  var SELECT_NAME = "节点选择";
   var regionNames = [];
   var activeRegions = [];
   for (var rj = 0; rj < REGIONS.length; rj++) {
@@ -316,7 +338,7 @@ function main(config) {
   addService("🐦 Twitter", serviceMembers([pickSelect, AUTO_NAME], false));
   addService("🎵 Spotify", serviceMembers([pickSelect, AUTO_NAME], false));
   var globalTag = addService("🌍 国外服务", serviceMembers([pickSelect, AUTO_NAME], false));
-  var finalTag = addService("🐟 漏网之鱼", serviceMembers([pickSelect, AUTO_NAME], false));
+  var finalTag = addService("漏网之鱼", serviceMembers([pickSelect, AUTO_NAME], false));
   if (!hasOwn(groupTags, "🔧 远控工具")) {
     var remoteOut = [];
     if (existingTag(outbounds, ["direct"])) remoteOut.push("direct");
@@ -341,28 +363,63 @@ function main(config) {
     { tag: "geosite-openai", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs" },
     { tag: "geosite-bilibili", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-bilibili.srs" },
     { tag: "geosite-geolocation-cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs" },
+    { tag: "geosite-geolocation-!cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs" },
     { tag: "geosite-cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs" },
     { tag: "geosite-youtube", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-youtube.srs" },
     { tag: "geosite-netflix", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-netflix.srs" },
+    { tag: "geosite-hulu", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-hulu.srs" },
     { tag: "geosite-disney", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-disney.srs" },
+    { tag: "geosite-hbo", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-hbo.srs" },
+    { tag: "geosite-amazon", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-amazon.srs" },
+    { tag: "geosite-bahamut", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-bahamut.srs" },
+    { tag: "geosite-spotify", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-spotify.srs" },
     { tag: "geosite-tiktok", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-tiktok.srs" },
-    { tag: "geosite-telegram", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs" },
+    { tag: "geosite-abema", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-abema.srs" },
+    { tag: "geosite-bbc", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-bbc.srs" },
     { tag: "geosite-google", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google.srs" },
     { tag: "geosite-github", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-github.srs" },
+    { tag: "geosite-gitlab", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-gitlab.srs" },
     { tag: "geosite-apple", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-apple.srs" },
+    { tag: "geosite-icloud", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-icloud.srs" },
     { tag: "geosite-microsoft", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-microsoft.srs" },
+    { tag: "geosite-microsoft@cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-microsoft@cn.srs" },
     { tag: "geosite-facebook", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-facebook.srs" },
+    { tag: "geosite-instagram", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-instagram.srs" },
     { tag: "geosite-twitter", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-twitter.srs" },
+    { tag: "geosite-linkedin", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-linkedin.srs" },
+    { tag: "geosite-discord", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-discord.srs" },
+    { tag: "geosite-snap", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-snap.srs" },
+    { tag: "geosite-telegram", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs" },
+    { tag: "geosite-steam", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-steam.srs" },
+    { tag: "geosite-epicgames", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-epicgames.srs" },
+    { tag: "geosite-ea", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-ea.srs" },
+    { tag: "geosite-ubisoft", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-ubisoft.srs" },
+    { tag: "geosite-blizzard", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-blizzard.srs" },
+    { tag: "geosite-steam@cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-steam@cn.srs" },
+    { tag: "geosite-category-games@cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-games@cn.srs" },
+    { tag: "geosite-paypal", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-paypal.srs" },
+    { tag: "geosite-aws", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-aws.srs" },
+    { tag: "geosite-azure", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-azure.srs" },
+    { tag: "geosite-dropbox", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-dropbox.srs" },
+    { tag: "geosite-onedrive", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-onedrive.srs" },
+    { tag: "geosite-category-scholar-!cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-scholar-!cn.srs" },
     { tag: "geoip-cn", url: "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs" }
   ];
 
   if (!config.route || typeof config.route !== "object") config.route = {};
   var route = config.route;
-  var ruleSets = ensureArray(route, "rule_set");
+  var oldSets = ensureArray(route, "rule_set");
+  var ruleSets = [];
   var haveSet = {};
-  for (var rsi = 0; rsi < ruleSets.length; rsi++) {
-    var rst = tagOf(ruleSets[rsi]);
-    if (rst) haveSet[rst] = 1;
+  for (var rsi = 0; rsi < oldSets.length; rsi++) {
+    var oldSet = oldSets[rsi];
+    var rst = tagOf(oldSet);
+    var rty = typeOf(oldSet);
+    if (!rst) continue;
+    if (rty === "local" || rty === "inline") {
+      ruleSets.push(oldSet);
+      haveSet[rst] = 1;
+    }
   }
   for (var rsk = 0; rsk < RULE_SETS.length; rsk++) {
     var rs = RULE_SETS[rsk];
@@ -410,36 +467,76 @@ function main(config) {
     return item;
   }
 
+  var youtubeTag = existingTag(outbounds, ["📺 YouTube", mediaTag]) || mapTarget("📺 Media");
+  var mediaOut = mapTarget("📺 Media");
+  var steamTag = existingTag(outbounds, ["🎮 Steam", pickSelect]) || pickSelect;
+  var appleTag = existingTag(outbounds, ["🍎 Apple", pickSelect]) || pickSelect;
+
   var prepend = [];
   function addRule(item) { if (item) prepend.push(item); }
   addRule({ rule_set: "geosite-category-ads-all", action: "reject" });
   addRule(rule("geosite-category-ai-!cn", mapTarget("🤖 AI服务")));
   addRule(rule("geosite-openai", mapTarget("🤖 AI服务")));
-  addRule(rule("geosite-youtube", existingTag(outbounds, ["📺 YouTube", mediaTag]) || mapTarget("📺 Media")));
-  addRule(rule("geosite-netflix", mapTarget("📺 Media")));
-  addRule(rule("geosite-disney", mapTarget("📺 Media")));
-  addRule(rule("geosite-tiktok", existingTag(outbounds, ["📱 TikTok", mediaTag]) || mapTarget("📺 Media")));
+  addRule(rule("geosite-youtube", youtubeTag));
+  addRule(rule("geosite-netflix", mediaOut));
+  addRule(rule("geosite-disney", mediaOut));
+  addRule(rule("geosite-hulu", mediaOut));
+  addRule(rule("geosite-hbo", mediaOut));
+  addRule(rule("geosite-amazon", mediaOut));
+  addRule(rule("geosite-bahamut", mediaOut));
+  addRule(rule("geosite-abema", mediaOut));
+  addRule(rule("geosite-bbc", mediaOut));
+  addRule(rule("geosite-spotify", existingTag(outbounds, ["🎵 Spotify", mediaTag]) || mediaOut));
+  addRule(rule("geosite-tiktok", existingTag(outbounds, ["📱 TikTok", mediaTag]) || mediaOut));
   addRule(rule("geosite-telegram", existingTag(outbounds, ["📲 Telegram", pickSelect]) || pickSelect));
   addRule(rule("geosite-google", existingTag(outbounds, ["🔍 Google", pickSelect]) || pickSelect));
   addRule(rule("geosite-github", pickSelect));
+  addRule(rule("geosite-gitlab", pickSelect));
   addRule(rule("geosite-microsoft", existingTag(outbounds, ["🪟 Microsoft", pickSelect]) || pickSelect));
-  addRule(rule("geosite-apple", existingTag(outbounds, ["🍎 Apple", pickSelect]) || pickSelect));
+  addRule(rule("geosite-apple", appleTag));
+  addRule(rule("geosite-icloud", appleTag));
   addRule(rule("geosite-twitter", existingTag(outbounds, ["🐦 Twitter", pickSelect]) || pickSelect));
   addRule(rule("geosite-facebook", pickSelect));
+  addRule(rule("geosite-instagram", pickSelect));
+  addRule(rule("geosite-discord", pickSelect));
+  addRule(rule("geosite-linkedin", pickSelect));
+  addRule(rule("geosite-snap", pickSelect));
+  addRule(rule("geosite-steam", steamTag));
+  addRule(rule("geosite-epicgames", steamTag));
+  addRule(rule("geosite-ea", steamTag));
+  addRule(rule("geosite-ubisoft", steamTag));
+  addRule(rule("geosite-blizzard", steamTag));
+  addRule(rule("geosite-paypal", pickSelect));
+  addRule(rule("geosite-aws", pickSelect));
+  addRule(rule("geosite-azure", pickSelect));
+  addRule(rule("geosite-dropbox", pickSelect));
+  addRule(rule("geosite-onedrive", pickSelect));
+  addRule(rule("geosite-category-scholar-!cn", pickSelect));
+  addRule(rule("geosite-geolocation-!cn", mapTarget("🌍 国外服务")));
+  addRule(rule("geosite-microsoft@cn", "direct"));
+  addRule(rule("geosite-steam@cn", "direct"));
+  addRule(rule("geosite-category-games@cn", "direct"));
   addRule(rule("geosite-bilibili", "direct"));
   addRule(rule("geosite-geolocation-cn", "direct"));
   addRule(rule("geosite-cn", "direct"));
   addRule(rule("geoip-cn", "direct"));
   addRule({ ip_is_private: true, outbound: "direct" });
 
+  function isInfraRule(item) {
+    if (!item || typeof item !== "object") return false;
+    var action = ("" + (item.action || "")).toLowerCase();
+    if (action === "sniff" || action === "resolve" || action === "hijack-dns") return true;
+    if (("" + (item.protocol || "")).toLowerCase() === "dns") return true;
+    return false;
+  }
   var oldRules = ensureArray(route, "rules");
   var merged = [];
   for (var p = 0; p < prepend.length; p++) merged.push(prepend[p]);
-  for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o]);
-  route.rules = merged;
-  if (!route.final || route.final === "") {
-    route.final = mapTarget("🐟 漏网之鱼");
+  for (var o = 0; o < oldRules.length; o++) {
+    if (isInfraRule(oldRules[o])) merged.push(oldRules[o]);
   }
+  route.rules = merged;
+  route.final = mapTarget("漏网之鱼");
   if (typeof route.auto_detect_interface === "undefined") {
     route.auto_detect_interface = true;
   }
@@ -496,17 +593,13 @@ function main(config) {
     servers.push({ type: "https", tag: "dns-remote", server: "8.8.8.8", server_port: 443, path: "/dns-query" });
   }
   dns.servers = servers;
-  var dnsRules = ensureArray(dns, "rules");
   var extraDns = [];
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
   if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
   extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
-  var dnsMerged = [];
-  for (var d1 = 0; d1 < extraDns.length; d1++) dnsMerged.push(extraDns[d1]);
-  for (var d2 = 0; d2 < dnsRules.length; d2++) dnsMerged.push(dnsRules[d2]);
-  dns.rules = dnsMerged;
-  if (!dns.final) dns.final = "dns-remote";
+  dns.rules = extraDns;
+  dns.final = "dns-remote";
   if (typeof dns.independent_cache === "undefined") dns.independent_cache = true;
 
   if (!config.log || typeof config.log !== "object") config.log = {};

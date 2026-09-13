@@ -720,7 +720,7 @@
     <string name="ads_block_summary">拒絕廣告規則集匹配的網域</string>
     <string name="overlay_scripts">腳本</string>
     <string name="overlay_scripts_subtitle">依設定檔選擇覆寫腳本（sing-box）</string>
-    <string name="overlay_scripts_hint">這裡是腳本庫。腳本只在啟動時改寫執行時設定，不改訂閱檔。需要 function main(config)，config 為 sing-box JSON。每個設定檔在編輯頁單獨選擇是否啟用、啟用哪幾條。鏈式模式下僅對前置（目前）設定生效。列表開關是未單獨設定時的預設啟用。</string>
+    <string name="overlay_scripts_hint">這裡是腳本庫。匯入後不會自動套到所有設定檔；請到編輯頁（或儀表設定列表的「腳本」）為需要的設定打開。打開後腳本覆蓋該設定原有分組與分流，只保留節點，不改訂閱檔。需要 function main(config)。鏈式模式下僅對前置（目前）設定生效。列表開關是總開關，關掉後所有設定都不跑這條。</string>
     <string name="overlay_scripts_empty">還沒有腳本。點右下角 +，可用程式碼、URL、檔案或預設腳本匯入。</string>
     <string name="overlay_scripts_import">匯入</string>
     <string name="overlay_scripts_import_code">透過程式碼匯入</string>
@@ -741,6 +741,6 @@
     <string name="overlay_scripts_failed">無法儲存腳本</string>
     <string name="overlay_scripts_empty_file">檔案是空的</string>
     <string name="overlay_scripts_profile_enable">為此設定檔啟用腳本</string>
-    <string name="overlay_scripts_profile_hint">每個設定檔單獨選擇。鏈式模式下僅對前置（目前設定）生效，落地設定上的腳本不會執行。</string>
+    <string name="overlay_scripts_profile_hint">預設不套用。打開後腳本覆蓋此設定的分組與分流，只保留節點。鏈式模式下僅對前置（目前設定）生效，落地設定上的腳本不會執行。</string>
     <string name="overlay_scripts_profile_empty">還沒有腳本。請到「工具 → 腳本」匯入。</string>
 </resources>

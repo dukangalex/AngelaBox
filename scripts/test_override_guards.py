@@ -649,6 +649,27 @@ def main() -> int:
         errors.append("default script must not inject rule-sets that 404 on testingcf jsDelivr")
     if "geoip-private" in sample or "geoip-telegram" in sample:
         errors.append("default script must not inject geoip files missing from sing-geoip rule-set")
+    if "geosite-geolocation-!cn" not in sample:
+        errors.append("default script must keep non-CN geolocation routing from the original sample")
+    if "geosite-spotify" not in sample or "geosite-steam" not in sample:
+        errors.append("default script must keep media/game rule-sets that exist on testingcf")
+    if "REPLACE_GROUP_TYPES" not in sample or "isInfraRule" not in sample:
+        errors.append("default script must replace original groups and routing, not merge a second set")
+    if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
+        errors.append("default script must not keep the original route strategy alongside the overlay")
+    if "overlay-revision: 3" not in sample:
+        errors.append("default script must stamp overlay-revision: 3 so stale copies refresh")
+    overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
+    if 'SAMPLE_REVISION = "overlay-revision: 3"' not in overlay_kt:
+        errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    if "inherits catalog-enabled" in overlay_kt:
+        errors.append("unbound profiles must not inherit catalog scripts")
+    if "?: return emptyList()" not in overlay_kt:
+        errors.append("enabledFor must return empty when the profile has no binding")
+    if "bound ?: emptyList()" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
+        errors.append("profile script binder must not treat unbound as catalog-on")
+    if "继承列表里的默认开关" in read("docs/USER_GUIDE.md"):
+        errors.append("user guide must not say unbound profiles inherit catalog scripts")
     if 'SAMPLE_NAME = "默认脚本"' not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
         errors.append("bundled script must be named 默认脚本")
     if "dropMissingRemoteRuleSets" not in inbound:
@@ -657,7 +678,6 @@ def main() -> int:
     drop_idx = max(override.rfind("ConfigInboundCompat.apply"), override.rfind("dropMissingRemoteRuleSets"))
     if ads_idx < 0 or drop_idx < ads_idx:
         errors.append("404 rule-sets must be dropped after chain merge and later overlays")
-    overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
     if "fun refreshStaleSample" not in overlay_kt or "fun sampleLooksStale" not in overlay_kt:
         errors.append("stale bundled sample must be replaced in place on start")
     if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
