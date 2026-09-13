@@ -369,6 +369,44 @@ class ConfigCompatTest {
     }
 
     @Test
+    fun dropsMissingRemoteRuleSetsAndDanglingRules() {
+        val src = JSONObject()
+            .put(
+                "route",
+                JSONObject()
+                    .put(
+                        "rule_set",
+                        JSONArray()
+                            .put(
+                                JSONObject()
+                                    .put("tag", "geoip-cn")
+                                    .put("type", "remote")
+                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"),
+                            )
+                            .put(
+                                JSONObject()
+                                    .put("tag", "geoip-fastly")
+                                    .put("type", "remote")
+                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"),
+                            ),
+                    )
+                    .put(
+                        "rules",
+                        JSONArray()
+                            .put(JSONObject().put("rule_set", "geoip-fastly").put("outbound", "direct"))
+                            .put(JSONObject().put("rule_set", "geoip-cn").put("outbound", "direct")),
+                    ),
+            )
+        val out = JSONObject(ConfigCompat.sanitize(src.toString()))
+        val sets = out.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(1, sets.length())
+        assertEquals("geoip-cn", sets.getJSONObject(0).getString("tag"))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        assertEquals("geoip-cn", rules.getJSONObject(0).getString("rule_set"))
+    }
+
+    @Test
     fun migratesDnsAndBlockOutbounds() {
         val src = JSONObject()
             .put(

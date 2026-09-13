@@ -28,13 +28,24 @@ object OverlayScripts {
     const val MAX_SCRIPTS = 12
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
-    const val SAMPLE_NAME = "机场地区分组（sing-box）"
+    const val SAMPLE_NAME = "默认脚本"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"
     const val SOURCE_SAMPLE = "sample"
 
-    fun list(): List<OverlayScript> = decode(Settings.overlayScriptsJson)
+    fun list(): List<OverlayScript> {
+        val items = decode(Settings.overlayScriptsJson)
+        val migrated = items.map { script ->
+            if (script.source == SOURCE_SAMPLE && script.name != SAMPLE_NAME) {
+                script.copy(name = SAMPLE_NAME)
+            } else {
+                script
+            }
+        }
+        if (migrated != items) save(migrated)
+        return migrated
+    }
 
     fun enabled(): List<OverlayScript> = list().filter { it.enabled && it.code.isNotBlank() }
 
@@ -76,6 +87,58 @@ object OverlayScripts {
     fun save(items: List<OverlayScript>) {
         Settings.overlayScriptsJson = encode(items.take(MAX_SCRIPTS))
     }
+
+    fun upsertSample(code: String): OverlayScript {
+        val existing = list().firstOrNull { it.source == SOURCE_SAMPLE }
+        val item = OverlayScript(
+            id = existing?.id ?: newId(),
+            name = SAMPLE_NAME,
+            enabled = existing?.enabled ?: true,
+            source = SOURCE_SAMPLE,
+            code = code,
+            updatedAt = System.currentTimeMillis(),
+        )
+        upsert(item)
+        return item
+    }
+
+    /**
+     * Previously imported copies of the bundled sample still contain
+     * third-party comments and remote rule-sets that 404. Replace those
+     * in place so start and the editor pick up the current asset without
+     * a re-import. User duplicates (source != sample) are left alone.
+     */
+    fun refreshStaleSample(bundled: String? = null) {
+        val code = bundled?.takeIf { it.isNotBlank() } ?: bundledSample() ?: return
+        val existing = decode(Settings.overlayScriptsJson).firstOrNull { it.source == SOURCE_SAMPLE }
+            ?: return
+        if (!sampleLooksStale(existing.code, existing.name)) return
+        upsertSample(code)
+    }
+
+    internal fun sampleLooksStale(code: String, name: String = ""): Boolean {
+        if (name.isNotEmpty() && name != SAMPLE_NAME) return true
+        return STALE_SAMPLE_MARKERS.any { it in code }
+    }
+
+    private fun bundledSample(): String? = runCatching {
+        io.nekohasekai.sfa.Application.application.assets
+            .open(SAMPLE_ASSET)
+            .bufferedReader()
+            .use { it.readText() }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    private val STALE_SAMPLE_MARKERS = arrayOf(
+        "Clash Meta",
+        "clash:",
+        "由 Clash",
+        "geoip-fastly",
+        "geosite-apple-cn",
+        "geosite-biliintl",
+        "geoip-private",
+        "机场地区分组",
+        "机场订阅覆写",
+    )
 
     fun upsert(script: OverlayScript) {
         val trimmed = script.copy(code = script.code.take(MAX_CODE_CHARS), name = script.name.trim().ifBlank { "脚本" })
@@ -130,12 +193,18 @@ object OverlayScripts {
                     val obj = array.optJSONObject(i) ?: continue
                     val code = obj.optString("code")
                     val id = obj.optString("id").ifBlank { newId() }
+                    val source = obj.optString("source").ifBlank { SOURCE_CODE }
+                    val name = if (source == SOURCE_SAMPLE) {
+                        SAMPLE_NAME
+                    } else {
+                        obj.optString("name").ifBlank { "脚本" }
+                    }
                     add(
                         OverlayScript(
                             id = id,
-                            name = obj.optString("name").ifBlank { "脚本" },
+                            name = name,
                             enabled = obj.optBoolean("enabled", false),
-                            source = obj.optString("source").ifBlank { SOURCE_CODE },
+                            source = source,
                             url = obj.optString("url"),
                             code = code,
                             updatedAt = obj.optLong("updatedAt", 0L),

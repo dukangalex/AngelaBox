@@ -159,11 +159,70 @@ def strip_sniff_override(root: dict) -> None:
     walk((root.get("route") or {}).get("rules"))
 
 
+def drop_missing_rulesets(root: dict) -> None:
+    missing = {
+        "geosite-biliintl.srs",
+        "geosite-apple-cn.srs",
+        "geosite-tracker.srs",
+        "geoip-private.srs",
+        "geoip-google.srs",
+        "geoip-telegram.srs",
+        "geoip-netflix.srs",
+        "geoip-facebook.srs",
+        "geoip-twitter.srs",
+        "geoip-cloudflare.srs",
+        "geoip-cloudfront.srs",
+        "geoip-fastly.srs",
+    }
+    route = root.get("route") or {}
+    sets = route.get("rule_set") or []
+    drop = set()
+    keep = []
+    for item in sets:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or item.get("download_url") or "").strip()
+        file = url.rsplit("/", 1)[-1].split("?", 1)[0].lower()
+        tag = str(item.get("tag") or "").strip()
+        remote = str(item.get("type") or "").lower() == "remote" or url.startswith("http")
+        if remote and file in missing:
+            if tag:
+                drop.add(tag)
+            continue
+        keep.append(item)
+    route["rule_set"] = keep
+    if drop:
+        root["route"] = route
+
+        def walk(rules):
+            if not isinstance(rules, list):
+                return
+            kept_rules = []
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                walk(rule.get("rules"))
+                rs = rule.get("rule_set")
+                if isinstance(rs, str) and rs.strip() in drop:
+                    continue
+                if isinstance(rs, list):
+                    leftover = [x for x in rs if str(x).strip() not in drop]
+                    if not leftover:
+                        continue
+                    rule["rule_set"] = leftover[0] if len(leftover) == 1 else leftover
+                kept_rules.append(rule)
+            rules[:] = kept_rules
+
+        walk(route.get("rules"))
+        walk((root.get("dns") or {}).get("rules"))
+
+
 def sanitize(root: dict) -> dict:
     migrate_inbounds(root)
     strip_sniff_override(root)
     migrate_special(root)
     rewrite_sets(root)
+    drop_missing_rulesets(root)
     return root
 
 
@@ -173,7 +232,7 @@ def main() -> int:
     inbound_src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt").read_text()
     if "ConfigInboundCompat.apply" not in src:
         errors.append("ConfigCompat.sanitize must call ConfigInboundCompat.apply")
-    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "legacy inbound fields"):
+    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "legacy inbound fields"):
         if needle not in inbound_src:
             errors.append(f"missing {needle}")
     if JSDELIVR_HOST not in inbound_src:
@@ -217,6 +276,35 @@ def main() -> int:
     )
     if leftover["route"]["rules"][0].get("override_destination"):
         errors.append("leftover sniff override_destination was not stripped")
+
+    dropped = sanitize(
+        {
+            "route": {
+                "rule_set": [
+                    {
+                        "tag": "geoip-cn",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+                    },
+                    {
+                        "tag": "geoip-fastly",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs",
+                    },
+                ],
+                "rules": [
+                    {"rule_set": "geoip-fastly", "outbound": "direct"},
+                    {"rule_set": "geoip-cn", "outbound": "direct"},
+                ],
+            }
+        }
+    )
+    tags = [x.get("tag") for x in dropped["route"]["rule_set"]]
+    if tags != ["geoip-cn"]:
+        errors.append(f"missing remote rule-set not dropped: {tags}")
+    kept_rules = [r.get("rule_set") for r in dropped["route"]["rules"]]
+    if kept_rules != ["geoip-cn"]:
+        errors.append(f"dangling rule-set refs survived: {kept_rules}")
 
     special = sanitize(
         {

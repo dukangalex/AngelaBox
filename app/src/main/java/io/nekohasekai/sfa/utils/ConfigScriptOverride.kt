@@ -15,6 +15,7 @@ object ConfigScriptOverride {
     private const val MAX_JSON_CHARS = 1_500_000
 
     fun apply(root: JSONObject, profileId: Long) {
+        OverlayScripts.refreshStaleSample()
         val scripts = OverlayScripts.enabledFor(profileId)
         if (scripts.isEmpty()) return
         var current = root.toString()

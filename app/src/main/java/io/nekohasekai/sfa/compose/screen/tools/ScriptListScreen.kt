@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.compose.screen.tools
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -10,7 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -83,7 +84,13 @@ fun ScriptListScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
-    var scripts by remember { mutableStateOf(OverlayScripts.list()) }
+    var scripts by remember {
+        val sample = runCatching {
+            context.assets.open(OverlayScripts.SAMPLE_ASSET).bufferedReader().use { it.readText() }
+        }.getOrNull()
+        if (!sample.isNullOrBlank()) OverlayScripts.refreshStaleSample(sample)
+        mutableStateOf(OverlayScripts.list())
+    }
     var showImport by remember { mutableStateOf(false) }
     var editor by remember { mutableStateOf<EditorState?>(null) }
     var urlDraft by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -133,6 +140,32 @@ fun ScriptListScreen(
                 ),
             )
         }
+    }
+
+    val edit = editor
+    if (edit != null) {
+        ScriptEditorPane(
+            state = edit,
+            onChange = { editor = it },
+            onSave = {
+                val current = editor
+                if (current != null) {
+                    upsert(
+                        OverlayScript(
+                            id = current.id,
+                            name = current.name.ifBlank { context.getString(R.string.overlay_scripts_imported) },
+                            enabled = scripts.firstOrNull { it.id == current.id }?.enabled ?: true,
+                            source = current.source,
+                            url = current.url,
+                            code = current.code,
+                        ),
+                    )
+                    editor = null
+                }
+            },
+            onCancel = { editor = null },
+        )
+        return
     }
 
     OverrideTopBar {
@@ -358,67 +391,19 @@ fun ScriptListScreen(
                             snackbar.showSnackbar(context.getString(R.string.overlay_scripts_empty_file))
                             return@launch
                         }
-                        upsert(
-                            OverlayScript(
-                                id = OverlayScripts.newId(),
-                                name = OverlayScripts.SAMPLE_NAME,
-                                enabled = true,
-                                source = OverlayScripts.SOURCE_SAMPLE,
-                                code = sample,
-                            ),
-                        )
+                        try {
+                            OverlayScripts.upsertSample(sample)
+                            scripts = OverlayScripts.list()
+                            reloadService()
+                        } catch (e: Exception) {
+                            snackbar.showSnackbar(
+                                e.message ?: context.getString(R.string.overlay_scripts_failed),
+                            )
+                        }
                     }
                 }
             }
         }
-    }
-
-    val edit = editor
-    if (edit != null) {
-        AlertDialog(
-            onDismissRequest = { editor = null },
-            title = { Text(stringResource(R.string.overlay_scripts_edit)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = edit.name,
-                        onValueChange = { editor = edit.copy(name = it) },
-                        label = { Text(stringResource(R.string.profile_name)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = edit.code,
-                        onValueChange = { editor = edit.copy(code = it) },
-                        label = { Text(stringResource(R.string.overlay_scripts_code)) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 220.dp, max = 420.dp),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        upsert(
-                            OverlayScript(
-                                id = edit.id,
-                                name = edit.name.ifBlank { context.getString(R.string.overlay_scripts_imported) },
-                                enabled = scripts.firstOrNull { it.id == edit.id }?.enabled ?: true,
-                                source = edit.source,
-                                url = edit.url,
-                                code = edit.code,
-                            ),
-                        )
-                        editor = null
-                    },
-                ) { Text(stringResource(R.string.save)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { editor = null }) { Text(stringResource(R.string.cancel)) }
-            },
-        )
     }
 
     val urlState = urlDraft
@@ -506,6 +491,55 @@ fun ScriptListScreen(
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.cancel)) }
             },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScriptEditorPane(
+    state: EditorState,
+    onChange: (EditorState) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    BackHandler(onBack = onCancel)
+    OverrideTopBar {
+        TopAppBar(
+            title = { Text(stringResource(R.string.overlay_scripts_edit)) },
+            navigationIcon = {
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                }
+            },
+            actions = {
+                TextButton(onClick = onSave) { Text(stringResource(R.string.save)) }
+            },
+        )
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(LocalScaffoldPadding.current)
+            .imePadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        OutlinedTextField(
+            value = state.name,
+            onValueChange = { onChange(state.copy(name = it)) },
+            label = { Text(stringResource(R.string.profile_name)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = state.code,
+            onValueChange = { onChange(state.copy(code = it)) },
+            label = { Text(stringResource(R.string.overlay_scripts_code)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         )
     }
 }

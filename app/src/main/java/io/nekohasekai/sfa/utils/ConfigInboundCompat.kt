@@ -18,6 +18,7 @@ object ConfigInboundCompat {
         if (stripSniffOverrideDestination(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
+        if (dropMissingRemoteRuleSets(root)) changed = true
         return changed
     }
 
@@ -245,6 +246,84 @@ object ConfigInboundCompat {
         return trimmed
     }
 
+    /**
+     * Remote rule-sets that 404 on the jsDelivr testingcf mirror abort kernel
+     * start and cancel the rest. Drop those files and any route/DNS rules
+     * that only pointed at them. Overlay scripts keep working after a
+     * previous import of the old default script.
+     */
+    internal fun dropMissingRemoteRuleSets(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: return false
+        val sets = route.optJSONArray("rule_set") ?: return false
+        val dropTags = mutableSetOf<String>()
+        val keep = JSONArray()
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val file = url.substringAfterLast('/').substringBefore('?').lowercase()
+            val tag = item.optString("tag").trim()
+            val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
+            if (remote && file in MISSING_RULESET_FILES) {
+                if (tag.isNotEmpty()) dropTags.add(tag)
+                continue
+            }
+            keep.put(item)
+        }
+        if (dropTags.isEmpty() && keep.length() == sets.length()) return false
+        replaceArray(sets, keep)
+        stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+        stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        return true
+    }
+
+    private fun stripDroppedRuleSets(rules: JSONArray?, dropTags: Set<String>): Boolean {
+        if (rules == null || dropTags.isEmpty()) return false
+        var changed = false
+        var i = 0
+        while (i < rules.length()) {
+            val rule = rules.optJSONObject(i)
+            if (rule == null) {
+                i++
+                continue
+            }
+            if (stripDroppedRuleSets(rule.optJSONArray("rules"), dropTags)) changed = true
+            val raw = rule.opt("rule_set")
+            var remove = false
+            when (raw) {
+                is String -> if (raw.trim() in dropTags) remove = true
+                is JSONArray -> {
+                    val kept = JSONArray()
+                    var listChanged = false
+                    for (j in 0 until raw.length()) {
+                        val t = raw.optString(j).trim()
+                        if (t in dropTags) {
+                            listChanged = true
+                        } else if (t.isNotEmpty()) {
+                            kept.put(t)
+                        }
+                    }
+                    if (listChanged) {
+                        changed = true
+                        if (kept.length() == 0) {
+                            remove = true
+                        } else if (kept.length() == 1) {
+                            rule.put("rule_set", kept.getString(0))
+                        } else {
+                            rule.put("rule_set", kept)
+                        }
+                    }
+                }
+            }
+            if (remove) {
+                rules.remove(i)
+                changed = true
+                continue
+            }
+            i++
+        }
+        return changed
+    }
+
     private fun prependRouteRules(root: JSONObject, extra: JSONArray) {
         if (extra.length() == 0) return
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
@@ -274,4 +353,18 @@ object ConfigInboundCompat {
         Regex("^https?://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$")
     private val GITHUB_RAW =
         Regex("^https?://github\\.com/([^/]+)/([^/]+)/raw/(.+)$")
+    private val MISSING_RULESET_FILES = setOf(
+        "geosite-biliintl.srs",
+        "geosite-apple-cn.srs",
+        "geosite-tracker.srs",
+        "geoip-private.srs",
+        "geoip-google.srs",
+        "geoip-telegram.srs",
+        "geoip-netflix.srs",
+        "geoip-facebook.srs",
+        "geoip-twitter.srs",
+        "geoip-cloudflare.srs",
+        "geoip-cloudfront.srs",
+        "geoip-fastly.srs",
+    )
 }

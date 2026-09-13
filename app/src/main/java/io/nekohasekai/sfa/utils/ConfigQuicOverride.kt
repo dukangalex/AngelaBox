@@ -70,6 +70,10 @@ object ConfigQuicOverride {
             applyOne(warnings, "广告拦截") {
                 if (Settings.adsBlock) ConfigAdBlock.apply(root)
             }
+            // After scripts and chain merge: drop remote rule-sets that 404
+            // on the testingcf mirror so a previously imported default
+            // script (or a landing profile) cannot fail-close start.
+            ConfigInboundCompat.apply(root)
             ConfigCompat.stripBrokenDnsDetours(root)
             out = root.toString()
         } catch (e: ChainApplyException) {

@@ -642,6 +642,40 @@ def main() -> int:
         errors.append("leftover sniff override_destination must be stripped")
     if "sniff_override_destination" in read("app/src/main/assets/scripts/airport-region.js"):
         errors.append("sample script must not set sniff_override_destination")
+    sample = read("app/src/main/assets/scripts/airport-region.js")
+    if "Clash Meta" in sample or "clash:" in sample or "由 Clash" in sample:
+        errors.append("default script must not mention third-party clients")
+    if "geoip-fastly" in sample or "geosite-apple-cn" in sample or "geosite-biliintl" in sample:
+        errors.append("default script must not inject rule-sets that 404 on testingcf jsDelivr")
+    if "geoip-private" in sample or "geoip-telegram" in sample:
+        errors.append("default script must not inject geoip files missing from sing-geoip rule-set")
+    if 'SAMPLE_NAME = "默认脚本"' not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
+        errors.append("bundled script must be named 默认脚本")
+    if "dropMissingRemoteRuleSets" not in inbound:
+        errors.append("startup must drop remote rule-sets that 404")
+    ads_idx = override.find("ConfigAdBlock.apply")
+    drop_idx = max(override.rfind("ConfigInboundCompat.apply"), override.rfind("dropMissingRemoteRuleSets"))
+    if ads_idx < 0 or drop_idx < ads_idx:
+        errors.append("404 rule-sets must be dropped after chain merge and later overlays")
+    overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
+    if "fun refreshStaleSample" not in overlay_kt or "fun sampleLooksStale" not in overlay_kt:
+        errors.append("stale bundled sample must be replaced in place on start")
+    if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("script apply must refresh a previously imported default script")
+    if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must refresh a stale default script so the editor is not the old copy")
+    if "ScriptEditorPane" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script editor must be a fullscreen page")
+    if "weight(1f)" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script editor code field must fill the screen")
+    zh_cn = read("app/src/main/res/values-zh-rCN/strings.xml")
+    zh_tw = read("app/src/main/res/values-zh-rTW/strings.xml")
+    if "示例脚本" in zh_cn or "机场地区分组" in zh_cn:
+        errors.append("zh-CN copy must not keep the old sample name")
+    if "示例匯入" in zh_tw:
+        errors.append("zh-TW empty-state must say 預設腳本, not 示例")
+    if "Clash 字段" in zh_cn or "Clash 欄位" in zh_tw:
+        errors.append("script catalog hint must not mention Clash keys")
     builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if "所有非中国流量不可直连" not in builder:
         errors.append("chain builder info must say non-China traffic cannot DIRECT")
