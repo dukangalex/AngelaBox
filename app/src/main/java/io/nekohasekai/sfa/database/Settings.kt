@@ -89,6 +89,7 @@ object Settings {
     var webrtcProtect by dataStore.boolean(SettingsKey.WEBRTC_PROTECT) { true }
     var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { true }
     var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { true }
+    var configNormalize by dataStore.boolean(SettingsKey.CONFIG_NORMALIZE) { true }
     var chinaDefaultsRev by dataStore.int(SettingsKey.CHINA_DEFAULTS_REV) { 0 }
     var chainEnabled by dataStore.boolean(SettingsKey.CHAIN_ENABLED) { false }
     var chainEntryTag by dataStore.string(SettingsKey.CHAIN_ENTRY_TAG) { "" }
@@ -116,16 +117,21 @@ object Settings {
 
     /** One-shot: turn on China-user safeguards for installs that still have the old off defaults. */
     fun applyChinaUserDefaultsIfNeeded() {
-        if (chinaDefaultsRev >= 1) return
-        chinaDirect = true
-        adsBlock = true
-        webrtcProtect = true
-        dnsProtect = true
-        strictRoute = true
-        disableIpv6 = true
-        disableQuic = true
-        excludeCnQuic = true
-        chinaDefaultsRev = 1
+        if (chinaDefaultsRev < 1) {
+            chinaDirect = true
+            adsBlock = true
+            webrtcProtect = true
+            dnsProtect = true
+            strictRoute = true
+            disableIpv6 = true
+            disableQuic = true
+            excludeCnQuic = true
+            chinaDefaultsRev = 1
+        }
+        if (chinaDefaultsRev < 2) {
+            configNormalize = true
+            chinaDefaultsRev = 2
+        }
     }
 
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }

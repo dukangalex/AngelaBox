@@ -13,7 +13,12 @@ import java.io.File
  * Bindings are per-profile: only the currently selected configuration is chained.
  */
 object ConfigChainReapply {
+    @Volatile
+    var lastLandingNotes: List<String> = emptyList()
+        private set
+
     suspend fun apply(content: String): String {
+        lastLandingNotes = emptyList()
         val currentProfileId = Settings.selectedProfile
         val binding = ChainBindings.get(currentProfileId) ?: return content
         val landingId = binding.landingProfileId
@@ -26,7 +31,13 @@ object ConfigChainReapply {
             val landingProfile = ProfileManager.get(landingId) ?: error("落地配置不存在或已被删除")
             val text = File(landingProfile.typed.path).readText()
             require(text.isNotBlank()) { "落地配置文件为空，无法跨配置组链" }
-            text
+            if (Settings.configNormalize) {
+                val healed = ConfigNormalize.heal(text)
+                lastLandingNotes = healed.notes
+                healed.content
+            } else {
+                ConfigCompat.sanitize(text)
+            }
         }
         return ChainRuntimeCompiler.apply(
             ChainRuntimeCompiler.ApplyRequest(

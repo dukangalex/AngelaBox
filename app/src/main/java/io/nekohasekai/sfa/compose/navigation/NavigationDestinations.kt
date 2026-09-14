@@ -1,7 +1,6 @@
 package io.nekohasekai.sfa.compose.navigation
 
-import androidx.navigation.NavController
-
+import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Dashboard
@@ -11,6 +10,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.ui.graphics.vector.ImageVector
 import io.nekohasekai.sfa.R
+import androidx.navigation.NavController
 
 sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
     object Dashboard : Screen(

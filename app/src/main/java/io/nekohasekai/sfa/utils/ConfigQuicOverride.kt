@@ -12,7 +12,26 @@ object ConfigQuicOverride {
     suspend fun apply(content: String, skipScripts: Boolean = false): String {
         OverrideStatus.clear()
         val warnings = mutableListOf<OverrideNotice>()
-        var out = ConfigCompat.sanitize(content)
+        // Pipeline (one set of rules at a time, no overlapping routing):
+        // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes
+        // 2. overlay script — if bound, it owns routing (China/ads/QUIC skipped)
+        // 3. chain — if bound, scripts were already turned off for this profile
+        // 4. China Direct / ads / QUIC — skipped while a script is on
+        // 5. DNS / IPv6 / strict route — leak shields, still apply with scripts
+        // 6. WebRTC last so STUN reject sits in front of China Direct
+        var out = if (Settings.configNormalize) {
+            val healed = ConfigNormalize.heal(content)
+            if (healed.changed) {
+                warnings += OverrideNotice(
+                    title = "配置已自动适配当前版本",
+                    reason = healed.notes.joinToString("；"),
+                    hint = "节点、分组、分流规则保留，不改订阅文件。链式落地同样会修正。可在「设置 → 配置覆盖」关闭。",
+                )
+            }
+            healed.content
+        } else {
+            ConfigCompat.sanitize(content)
+        }
 
         val profileId = Settings.selectedProfile
         val binding = ChainBindings.get(profileId)
@@ -32,6 +51,13 @@ object ConfigQuicOverride {
             if (binding != null) {
                 try {
                     out = ConfigChainReapply.apply(out)
+                    if (ConfigChainReapply.lastLandingNotes.isNotEmpty()) {
+                        warnings += OverrideNotice(
+                            title = "链式落地已自动适配当前版本",
+                            reason = ConfigChainReapply.lastLandingNotes.joinToString("；"),
+                            hint = "落地节点、分组、分流规则保留。不改落地配置文件。",
+                        )
+                    }
                     if (entryMissing) {
                         warnings += OverrideNotice(
                             title = "链式入口已随订阅更新",

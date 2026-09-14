@@ -83,6 +83,7 @@ fun ProfileOverrideScreen(
     var strictRoute by remember { mutableStateOf(Settings.strictRoute) }
     var dnsProtect by remember { mutableStateOf(Settings.dnsProtect) }
     var disableIpv6 by remember { mutableStateOf(Settings.disableIpv6) }
+    var configNormalize by remember { mutableStateOf(Settings.configNormalize) }
     var help by remember { mutableStateOf<SwitchHelp?>(null) }
 
     fun reload() {
@@ -138,6 +139,38 @@ fun ProfileOverrideScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
+            Text(
+                text = "兼容当前版本",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                OverrideSwitch(
+                    title = "配置规范化",
+                    subtitle = "自动修正当前内核无法识别的旧字段，节点和分流保留",
+                    checked = configNormalize,
+                    onHelp = {
+                        help = SwitchHelp(
+                            "配置规范化",
+                            "订阅或旧配置里若还有当前 sing-box 已删除的字段（旧 DNS/fakeip、入站 sniff、Clash 插件对象、空 direct detour、失效规则集地址等），开启后会在启动时自动改写成当前版本能跑的写法。\n\n" +
+                                "保留：节点服务器、端口、分组、你原来的分流规则。\n" +
+                                "不改：订阅文件本身。链式落地配置同样会修正。\n\n" +
+                                "脚本开着时仍会先规范化再跑脚本，避免脚本输出和内核打架。默认开启。只要节点本身可用，不必再为配置格式发愁。",
+                        )
+                    },
+                    onCheckedChange = {
+                        configNormalize = it
+                        scope.launch(Dispatchers.IO) {
+                            Settings.configNormalize = it
+                            withContext(Dispatchers.Main) { reload() }
+                        }
+                    },
+                )
+            }
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),

@@ -4,10 +4,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Shared overlay helpers (WebRTC STUN reject, CN domain list for QUIC).
- * This is not a config rewriter — subscription JSON is left intact.
+ * Compatibility rewriter for the current libbox. Nodes, selector/urltest
+ * groups and user routing stay intact; only fields this kernel cannot
+ * decode are rewritten. This is not China Direct / ads / QUIC — those
+ * overlays run later and can be skipped when a script owns routing.
  */
 object ConfigNormalize {
+
+    data class HealResult(val content: String, val notes: List<String>) {
+        val changed: Boolean get() = notes.isNotEmpty()
+    }
 
     val CN_DOMAIN_SUFFIXES: List<String> = listOf(
         "cn",
@@ -92,6 +98,53 @@ object ConfigNormalize {
         )
         return rules
     }
+
+    /**
+     * Rewrite [root] in place for the current kernel. Returns Chinese notes
+     * for each actual change so the dashboard can tell the user. Idempotent.
+     */
+    fun apply(root: JSONObject): List<String> {
+        val notes = mutableListOf<String>()
+        fun mark(changed: Boolean, message: String) {
+            if (changed) notes += message
+        }
+        val outs = root.optJSONArray("outbounds")
+        if (outs != null) {
+            var n = 0
+            for (i in 0 until outs.length()) {
+                val o = outs.optJSONObject(i) ?: continue
+                if (ConfigCompat.sanitizeOutbound(o)) n++
+            }
+            if (n > 0) notes += "已修正 $n 个节点的插件选项格式"
+        }
+        mark(ConfigCompat.migrateLegacyDns(root), "旧版 DNS / fakeip 已转为当前内核格式")
+        mark(ConfigInboundCompat.migrateLegacyInbounds(root), "入站 sniff 已转为路由动作")
+        mark(ConfigInboundCompat.stripSniffOverrideDestination(root), "已去掉内核不再支持的 sniff 覆盖字段")
+        mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
+        mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
+        mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
+        mark(ConfigInboundCompat.dropMissingRemoteRuleSets(root), "已跳过当前无法下载的远程规则集")
+        mark(ConfigInboundCompat.healDownloadClients(root), "规则集下载方式已按当前内核修正")
+        mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
+        mark(ConfigInboundCompat.ensureHijackDns(root), "已补上 DNS 劫持，避免系统解析失败")
+        mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
+        return notes
+    }
+
+    fun heal(content: String): HealResult {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty() || trimmed[0] != '{') return HealResult(content, emptyList())
+        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return HealResult(content, emptyList())
+        val root = try {
+            JSONObject(trimmed)
+        } catch (_: Exception) {
+            return HealResult(content, emptyList())
+        }
+        val notes = apply(root)
+        return if (notes.isEmpty()) HealResult(content, emptyList()) else HealResult(root.toString(), notes)
+    }
+
+    fun healString(content: String): String = heal(content).content
 
     private fun toArray(ports: IntArray): JSONArray {
         val a = JSONArray()

@@ -13,8 +13,12 @@ def read(rel: str) -> str:
 def main() -> int:
     errors: list[str] = []
     normalize = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt")
-    if "fun apply(" in normalize:
-        errors.append("ConfigNormalize rewriter was removed; do not add apply()")
+    if "fun apply(" not in normalize:
+        errors.append("ConfigNormalize.apply must rewrite kernel-illegal fields and keep nodes")
+    if "fun heal(" not in normalize:
+        errors.append("ConfigNormalize.heal must return Chinese notes for the dashboard prompt")
+    if "This is not China Direct" not in normalize:
+        errors.append("ConfigNormalize must not inject China Direct / ads / QUIC")
     if "webrtcRejectRules" not in normalize:
         errors.append("WebRTC STUN reject helper missing")
     if "STUN_UDP_PORTS" not in normalize or "domain_keyword" not in normalize:
@@ -23,14 +27,20 @@ def main() -> int:
         errors.append("CN domain helper missing")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    if "Settings.configNormalize" in override:
-        errors.append("ConfigQuicOverride must not call config normalize")
+    if "Settings.configNormalize" not in override:
+        errors.append("runtime overlay must run config normalize when the switch is on")
+    if "ConfigNormalize.heal" not in override:
+        errors.append("runtime overlay must call ConfigNormalize.heal")
+    if "配置已自动适配当前版本" not in override:
+        errors.append("config normalize must prompt the user in Chinese when it rewrites")
     if "ChainBindings.get" not in override:
         errors.append("runtime chain must look up the current profile binding")
 
     ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
-    if "配置规范化" in ui_override or "configNormalize" in ui_override:
-        errors.append("Profile override UI must not expose config normalize")
+    if "配置规范化" not in ui_override:
+        errors.append("Profile override UI must expose 配置规范化")
+    if "configNormalize" not in ui_override:
+        errors.append("Profile override UI must bind Settings.configNormalize")
 
     compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
     if "plugin_opts" not in compat or "objectToPluginOpts" not in compat:
@@ -67,6 +77,12 @@ def main() -> int:
     reapply = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChainReapply.kt")
     if "ChainBindings.get(currentProfileId)" not in reapply:
         errors.append("runtime reapply must only chain the selected profile")
+    if "ConfigNormalize.healString" not in reapply and "ConfigNormalize.heal(" not in reapply:
+        errors.append("cross-profile chain landing must run config normalize")
+    if "lastLandingNotes" not in reapply:
+        errors.append("chain landing normalize must collect notes for the dashboard prompt")
+    if "链式落地已自动适配当前版本" not in override:
+        errors.append("chain landing normalize must prompt the user in Chinese")
 
     ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if 'picker == "entry"' not in ui:
@@ -103,8 +119,12 @@ def main() -> int:
         errors.append("Settings.webrtcProtect missing")
     if 'WEBRTC_PROTECT) { false }' in settings or 'WEBRTC_PROTECT) {false}' in settings:
         errors.append("WebRTC protect should default on so Chinese STUN cannot leak by default")
-    if "configNormalize" in settings:
-        errors.append("Settings.configNormalize must stay removed")
+    if "configNormalize" not in settings:
+        errors.append("Settings.configNormalize missing")
+    if 'CONFIG_NORMALIZE) { true }' not in settings and 'CONFIG_NORMALIZE) {true}' not in settings:
+        errors.append("configNormalize should default on")
+    if "chinaDefaultsRev < 2" not in settings:
+        errors.append("existing installs must one-shot enable configNormalize")
     if "adsBlock" not in settings:
         errors.append("Settings.adsBlock missing")
     if "ADS_BLOCK" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
