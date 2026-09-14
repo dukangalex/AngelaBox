@@ -9,6 +9,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ConfigCompat
@@ -275,7 +276,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         configFile.writeText(configContent)
 
         // Create profile in database and select it
-        ProfileManager.create(profile, andSelect = true)
+        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return profile
     }
@@ -309,7 +310,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         configFile.writeText(configContent)
 
         // Create profile in database and select it
-        ProfileManager.create(profile, andSelect = true)
+        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         // Reconfigure updater if auto-update is enabled
         if (state.autoUpdate) {

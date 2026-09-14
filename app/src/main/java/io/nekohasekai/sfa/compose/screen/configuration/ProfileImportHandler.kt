@@ -8,6 +8,7 @@ import io.nekohasekai.libbox.ProfileContent
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
 import kotlinx.coroutines.Dispatchers
@@ -249,7 +250,7 @@ class ProfileImportHandler(private val context: Context) {
         typedProfile.path = configFile.path
 
         // Create profile in database and select it
-        ProfileManager.create(profile, andSelect = true)
+        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return ImportResult.Success(profile)
     }
@@ -277,7 +278,7 @@ class ProfileImportHandler(private val context: Context) {
         typedProfile.path = configFile.path
 
         // Create profile in database and select it
-        ProfileManager.create(profile, andSelect = true)
+        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return ImportResult.Success(profile)
     }
@@ -379,7 +380,7 @@ class ProfileImportHandler(private val context: Context) {
             typedProfile.path = configFile.path
 
             // Create profile in database and select it
-            ProfileManager.create(profile, andSelect = true)
+            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
             ImportResult.Success(profile)
         } catch (e: Exception) {

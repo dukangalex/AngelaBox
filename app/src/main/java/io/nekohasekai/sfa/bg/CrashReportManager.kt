@@ -121,10 +121,6 @@ object CrashReportManager {
             metadataFile.delete()
         }
         if (configFile.exists()) {
-            val configContent = runCatching { configFile.readText() }.getOrNull()?.trim()
-            if (!configContent.isNullOrEmpty()) {
-                configFile.copyTo(File(reportDir, CONFIG_FILE_NAME), overwrite = true)
-            }
             configFile.delete()
         }
     }

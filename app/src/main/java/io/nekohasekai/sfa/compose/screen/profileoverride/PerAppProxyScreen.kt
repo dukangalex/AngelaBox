@@ -1243,25 +1243,116 @@ object PerAppProxyScanner {
             "com.android.vending",
             "com.microsoft",
             "com.apple",
-            "com.zhiliaoapp.musically", // Banned by China
+            "com.zhiliaoapp.musically",
             "com.android.providers.downloads",
+            "org.telegram",
+            "org.mozilla",
+            "com.spotify",
+            "com.discord",
+            "com.reddit",
+            "com.twitter",
+            "com.facebook",
+            "com.instagram",
+            "com.whatsapp",
+            "com.netflix",
+            "com.amazon.avod",
+            "com.openai",
+            "com.anthropic",
+        )
+
+    private val wellKnownChinaPackages =
+        setOf(
+            "com.tencent.mm",
+            "com.tencent.mobileqq",
+            "com.tencent.androidqqmail",
+            "com.tencent.qqmusic",
+            "com.tencent.tmgp.sgame",
+            "com.eg.android.AlipayGphone",
+            "com.unionpay",
+            "com.chinatelecom.bestpayclient",
+            "cmb.pb",
+            "com.icbc",
+            "com.chinamworld.main",
+            "com.chinamworld.bocmbci",
+            "com.android.bankabc",
+            "com.yitong.mbank.psbc",
+            "com.cgbchina.xpt",
+            "com.bankcomm.Bankcomm",
+            "cn.com.spdb.mobilebank.per",
+            "com.ecitic.bank.mobile",
+            "com.cmbchina.ccd.pluto.cmbActivity",
+            "com.pingan.paces.ccmsapp",
+            "com.cs_credit_bank",
+            "com.cebbank.mobile.cemb",
+            "com.cib.cibmb",
+            "com.cmbc.cc.mbank",
+            "com.MobileTicket",
+            "cn.gov.tax.its",
+            "com.service.android.gov.cn",
+            "cn.hsa.app",
+            "com.hicorenational.antifraud",
+            "com.sankuai.meituan",
+            "com.sankuai.meituan.takeoutnew",
+            "me.ele",
+            "com.xunmeng.pinduoduo",
+            "com.taobao.taobao",
+            "com.taobao.idlefish",
+            "com.jingdong.app.mall",
+            "com.smile.gifmaker",
+            "com.ss.android.ugc.aweme",
+            "com.ss.android.article.news",
+            "com.ss.android.lark",
+            "com.alibaba.android.rimet",
+            "com.sina.weibo",
+            "com.zhihu.android",
+            "tv.danmaku.bili",
+            "com.baidu.searchbox",
+            "com.baidu.BaiduMap",
+            "com.autonavi.minimap",
+            "com.greenpoint.android.mc10086",
+            "com.sinovatech.unicom.ui",
+            "com.ct.client",
+            "ctrip.android.view",
+            "com.Qunar",
+            "com.sdu.didi.psnger",
+            "com.sdu.didi.gsui",
+            "com.netease.cloudmusic",
+            "com.kugou.android",
+            "cn.kuwo.player",
+            "com.xingin.xhs",
+            "com.achievo.vipshop",
+            "com.tmall.wireless",
+            "com.alibaba.wireless",
+            "com.wudaokou.hippo",
+            "com.lianjia.beike",
+            "com.anjuke.android.app",
+            "com.lianjia.industry",
+            "com.duokan.phone.remotecontroller",
+            "com.miui.weather2",
+            "com.xiaomi.smarthome",
+            "com.huawei.health",
+            "com.huawei.wallet",
+            "com.unionpay.tsmservice",
+            "com.chinatelecom.selfRegister",
         )
 
     private val chinaAppPrefixList =
         listOf(
             "com.tencent",
             "com.alibaba",
+            "com.alipay",
+            "com.taobao",
+            "com.tmall",
             "com.umeng",
             "com.qihoo",
             "com.ali",
-            "com.alipay",
             "com.amap",
             "com.sina",
             "com.weibo",
             "com.vivo",
             "com.xiaomi",
             "com.huawei",
-            "com.taobao",
+            "com.hihonor",
             "com.secneo",
             "s.h.e.l.l",
             "com.stub",
@@ -1276,10 +1367,14 @@ object PerAppProxyScanner {
             "com.qq.e",
             "com.baidu",
             "com.bytedance",
+            "com.ss.android",
             "com.bugly",
             "com.miui",
             "com.oppo",
             "com.coloros",
+            "com.heytap",
+            "com.realme",
+            "com.oneplus",
             "com.iqoo",
             "com.meizu",
             "com.gionee",
@@ -1288,6 +1383,65 @@ object PerAppProxyScanner {
             "andes.oplus",
             "com.unionpay",
             "cn.wps",
+            "com.jingdong",
+            "com.jd.",
+            "com.sankuai",
+            "com.xunmeng",
+            "com.eg.android",
+            "cmb.pb",
+            "com.chinamworld",
+            "com.icbc",
+            "com.ccb",
+            "com.bankcomm",
+            "com.cmbchina",
+            "com.pingan",
+            "com.citic",
+            "com.cmbc",
+            "com.cib.",
+            "com.cgb",
+            "com.cebbank",
+            "com.psbc",
+            "cn.gov",
+            "cn.gov.",
+            "gov.cn",
+            "com.gov",
+            "com.MobileTicket",
+            "ctrip.android",
+            "com.sdu.didi",
+            "com.didi.",
+            "com.kuaishou",
+            "com.smile.gifmaker",
+            "com.xingin",
+            "tv.danmaku",
+            "com.youku",
+            "com.qiyi",
+            "com.pplive",
+            "com.hunantv",
+            "com.duowan",
+            "com.meitu",
+            "com.meituan",
+            "me.ele",
+            "com.achievo.vipshop",
+            "com.suning",
+            "com.smzdm",
+            "com.coolapk",
+            "com.greenpoint",
+            "com.sinovatech",
+            "com.ct.client",
+            "com.chinamobile",
+            "cn.chinaunicom",
+            "com.chinatelecom",
+            "com.huawei.hwid",
+            "com.unionpay",
+            "cn.wps",
+            "com.intsig",
+            "com.tencent.android.qqdownloader",
+            "com.xiaomi.market",
+            "com.huawei.appmarket",
+            "com.oppo.market",
+            "com.heytap.market",
+            "com.bbk.appstore",
+            "com.sec.android.app.samsungapps",
         )
 
     private val chinaAppRegex by lazy {
@@ -1331,36 +1485,45 @@ object PerAppProxyScanner {
         skipPrefixList.forEach {
             if (packageName == it || packageName.startsWith("$it.")) return false
         }
-
-        if (packageName.matches(chinaAppRegex)) {
-            Log.d("PerAppProxyScanner", "Match package name: $packageName")
-            return true
+        if (packageName in wellKnownChinaPackages) return true
+        if (packageName.matches(chinaAppRegex)) return true
+        try {
+            val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Application.application.packageManager.getInstallSourceInfo(packageName).installingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                Application.application.packageManager.getInstallerPackageName(packageName)
+            }
+            if (installer != null && (
+                    installer.startsWith("com.xiaomi.market") ||
+                        installer.startsWith("com.huawei.appmarket") ||
+                        installer.startsWith("com.oppo.market") ||
+                        installer.startsWith("com.heytap.market") ||
+                        installer.startsWith("com.bbk.appstore") ||
+                        installer == "com.tencent.android.qqdownloader" ||
+                        installer == "com.baidu.appsearch" ||
+                        installer == "com.qihoo.appstore" ||
+                        installer == "com.dragon.read" ||
+                        installer.contains("coolapk")
+                    )
+            ) {
+                return true
+            }
+        } catch (_: Exception) {
         }
         try {
             val appInfo = packageInfo.applicationInfo ?: return false
             packageInfo.services?.forEach {
-                if (it.name.matches(chinaAppRegex)) {
-                    Log.d("PerAppProxyScanner", "Match service ${it.name} in $packageName")
-                    return true
-                }
+                if (it.name.matches(chinaAppRegex)) return true
             }
             packageInfo.activities?.forEach {
-                if (it.name.matches(chinaAppRegex)) {
-                    Log.d("PerAppProxyScanner", "Match activity ${it.name} in $packageName")
-                    return true
-                }
+                if (it.name.matches(chinaAppRegex)) return true
             }
             packageInfo.receivers?.forEach {
-                if (it.name.matches(chinaAppRegex)) {
-                    Log.d("PerAppProxyScanner", "Match receiver ${it.name} in $packageName")
-                    return true
-                }
+                if (it.name.matches(chinaAppRegex)) return true
             }
             packageInfo.providers?.forEach {
-                if (it.name.matches(chinaAppRegex)) {
-                    Log.d("PerAppProxyScanner", "Match provider ${it.name} in $packageName")
-                    return true
-                }
+                if (it.name.matches(chinaAppRegex)) return true
             }
             ZipFile(File(appInfo.publicSourceDir)).use {
                 for (packageEntry in it.entries()) {
@@ -1375,33 +1538,24 @@ object PerAppProxyScanner {
                         continue
                     }
                     if (packageEntry.size > 15000000) {
-                        Log.d(
-                            "PerAppProxyScanner",
-                            "Confirm $packageName due to large dex file",
-                        )
-                        return true
+                        continue
                     }
                     val input = it.getInputStream(packageEntry).buffered()
                     val dexFile =
                         try {
                             DexBackedDexFile.fromInputStream(null, input)
-                        } catch (e: Exception) {
-                            Log.e("PerAppProxyScanner", "Error reading dex file", e)
+                        } catch (_: Exception) {
                             return false
                         }
                     for (clazz in dexFile.classes) {
                         val clazzName =
                             clazz.type.substring(1, clazz.type.length - 1).replace("/", ".")
                                 .replace("$", ".")
-                        if (clazzName.matches(chinaAppRegex)) {
-                            Log.d("PerAppProxyScanner", "Match $clazzName in $packageName")
-                            return true
-                        }
+                        if (clazzName.matches(chinaAppRegex)) return true
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.e("PerAppProxyScanner", "Error scanning package $packageName", e)
+        } catch (_: Exception) {
         }
         return false
     }

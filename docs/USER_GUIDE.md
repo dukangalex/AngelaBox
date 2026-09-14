@@ -134,6 +134,15 @@ debug 与正式签名混过。卸载后装正式 `AngelaBox-android.apk`，以�
 **导入报 unknown transport type: rcode / legacy DNS fakeip / legacy inbound fields**  
 订阅仍用 1.11 写法。当前版本导入和启动时会自动迁移：`dns.fakeip` → `type: fakeip`，`rcode://` 与 `type: rcode` → DNS 规则 `action: predefined`，入站 `sniff` / `domain_strategy` → 路由动作，`type: dns` / `type: block` 出站 → `hijack-dns` / `reject`。请用当前发行版重新导入或直接启动（启动时也会迁移）。官方客户端同样会拒绝这些字段。
 
+**启动报 outbound detour not found: proxy-select / 规则集下载失败**  
+脚本改写了分组名字，订阅里的规则集下载仍指向旧出站。当前版本会按官方 1.14 写入无 detour 的 `http_clients`，国内镜像直连下载。若仍失败，应用会关掉脚本重试并弹出中文说明。修好脚本或在该配置上关闭脚本即可。
+
+**开启脚本后和中国直连/广告拦截打架**  
+同一配置同时只能跑一套规则。脚本开着时，中国直连、广告拦截、禁用 QUIC 不写入；DNS 防泄漏和 IPv6 开关仍生效。关掉脚本后这些开关重新生效。
+
+**新增配置变成了当前配置**  
+当前版本只有还没有任何当前配置时才会自动选中新建/导入的配置。已有当前配置时，新配置只加入列表，需要你再点选。
+
 **启动报 rule-set HTTP 404（geoip-cn / geosite-cn 等）**  
 订阅把规则集指到 `raw.githubusercontent.com`，Git LFS 或线路会返回 404。当前版本会改写到 jsDelivr testingcf 镜像。重新导入或重载即可。
 

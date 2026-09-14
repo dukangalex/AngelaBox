@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 5
+ * overlay-revision: 6
  * 覆盖原配置的分组与分流，只保留节点；按节点名生成地区 urltest/selector，
  * 并写入 DNS、嗅探与远程规则集。
  * function main(config)，config 为 sing-box JSON。
@@ -261,16 +261,16 @@ function main(config) {
   }
   if (otherMembers.length > 0) regionNames.push(OTHER_NAME);
 
-  function makeUrltest(tag, members) {
+  function makeUrltest(tag, members, interrupt) {
     return {
       type: "urltest",
       tag: tag,
       outbounds: members.slice(0),
       url: "https://www.gstatic.com/generate_204",
-      interval: "3m",
-      tolerance: 35,
+      interval: "1m",
+      tolerance: 50,
       idle_timeout: "30m",
-      interrupt_exist_connections: false
+      interrupt_exist_connections: !!interrupt
     };
   }
   function makeSelector(tag, members, defaultTag) {
@@ -324,7 +324,7 @@ function main(config) {
   if (autoMembers.length === 0) autoMembers = leafTags.slice(0);
   var autoGroup = null;
   if (autoMembers.length > 0) {
-    autoGroup = makeUrltest(AUTO_NAME, autoMembers);
+    autoGroup = makeUrltest(AUTO_NAME, autoMembers, true);
     groupTags[AUTO_NAME] = "urltest";
   }
   var selectMembers = [];
@@ -462,11 +462,14 @@ function main(config) {
       tag: rs.tag,
       type: "remote",
       format: "binary",
-      url: rs.url
+      url: rs.url,
+      http_client: "http-direct"
     });
     haveSet[rs.tag] = 1;
   }
   route.rule_set = ruleSets;
+  config.http_clients = [{ tag: "http-direct" }];
+  route.default_http_client = "http-direct";
 
   function mapTarget(name) {
     var TARGET_MAP = {
@@ -749,15 +752,8 @@ function main(config) {
 
   if (!config.dns || typeof config.dns !== "object") config.dns = {};
   var dns = config.dns;
-  var servers = ensureArray(dns, "servers");
-  function hasServerTag(tag) {
-    for (var i = 0; i < servers.length; i++) {
-      if (tagOf(servers[i]) === tag) return true;
-    }
-    return false;
-  }
-  if (!hasServerTag("dns-hosts")) {
-    servers.unshift({
+  dns.servers = [
+    {
       type: "hosts",
       tag: "dns-hosts",
       predefined: {
@@ -766,26 +762,21 @@ function main(config) {
         "dns.google": ["8.8.8.8", "8.8.4.4"],
         "cloudflare-dns.com": ["1.1.1.1", "1.0.0.1"]
       }
-    });
-  }
-  if (!hasServerTag("dns-local")) {
-    servers.push({ type: "local", tag: "dns-local" });
-  }
-  if (!hasServerTag("dns-cn")) {
-    servers.push({ type: "https", tag: "dns-cn", server: "223.5.5.5", server_port: 443, path: "/dns-query" });
-  }
-  if (!hasServerTag("dns-remote")) {
-    servers.push({ type: "https", tag: "dns-remote", server: "8.8.8.8", server_port: 443, path: "/dns-query" });
-  }
-  dns.servers = servers;
+    },
+    { type: "local", tag: "dns-local" },
+    { type: "https", tag: "dns-cn", server: "223.5.5.5", server_port: 443, path: "/dns-query" },
+    { type: "https", tag: "dns-remote", server: "8.8.8.8", server_port: 443, path: "/dns-query" }
+  ];
   var extraDns = [];
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
+  extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
   if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
   if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
   extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
   dns.rules = extraDns;
   dns.final = "dns-remote";
   if (typeof dns.independent_cache === "undefined") dns.independent_cache = true;
+  dns.strategy = "prefer_ipv4";
 
   if (!config.log || typeof config.log !== "object") config.log = {};
   if (!config.log.level) config.log.level = "info";

@@ -34,7 +34,11 @@ import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.ConfigDiagnose
 import io.nekohasekai.sfa.utils.ConfigQuicOverride
+import io.nekohasekai.sfa.utils.OverlayScripts
+import io.nekohasekai.sfa.utils.OverrideNotice
+import io.nekohasekai.sfa.utils.OverrideStatus
 import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -125,7 +129,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
             }
-            val content = ConfigQuicOverride.apply(rawContent)
 
             lastProfileName = profile.name
             withContext(Dispatchers.Main) {
@@ -134,27 +137,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             DefaultNetworkMonitor.start()
 
-            try {
-                commandServer.startOrReloadService(
-                    content,
-                    OverrideOptions().apply {
-                        autoRedirect = Settings.autoRedirect
-                        if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
-                            val appList = Settings.getEffectivePerAppProxyList()
-                            if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                                includePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                            } else {
-                                excludePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                            }
-                        }
-                    },
-                )
-            } catch (e: Exception) {
-                stopAndAlert(Alert.CreateService, e.message)
-                return
-            }
+            if (!startOrReloadKernel(rawContent, selectedProfileId)) return
 
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
@@ -175,7 +158,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             notification.start()
         } catch (e: Exception) {
-            stopAndAlert(Alert.StartService, e.message)
+            stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
             return
         }
     }
@@ -215,27 +198,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             stopAndAlert(Alert.EmptyConfiguration)
             return
         }
-        val content = ConfigQuicOverride.apply(rawContent)
         lastProfileName = profile.name
-        try {
-            commandServer.startOrReloadService(
-                content,
-                OverrideOptions().apply {
-                    autoRedirect = Settings.autoRedirect
-                    if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
-                        val appList = Settings.getEffectivePerAppProxyList()
-                        if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                            includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                        } else {
-                            excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                        }
-                    }
-                },
-            )
-        } catch (e: Exception) {
-            stopAndAlert(Alert.CreateService, e.message)
-            return
-        }
+        if (!startOrReloadKernel(rawContent, selectedProfileId)) return
 
         if (commandServer.needWIFIState()) {
             val wifiPermission =
@@ -266,6 +230,54 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     override fun setSystemProxyEnabled(isEnabled: Boolean) {
         serviceReload()
+    }
+
+    private fun buildOverrideOptions(): OverrideOptions = OverrideOptions().apply {
+        autoRedirect = Settings.autoRedirect
+        if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
+            val appList = Settings.getEffectivePerAppProxyList()
+            if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
+                includePackage =
+                    PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
+            } else {
+                excludePackage =
+                    PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
+            }
+        }
+    }
+
+    private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean {
+        val options = buildOverrideOptions()
+        val content = ConfigQuicOverride.apply(rawContent)
+        try {
+            commandServer.startOrReloadService(content, options)
+            return true
+        } catch (e: Exception) {
+            if (!OverlayScripts.isBound(profileId)) {
+                stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(e.message))
+                return false
+            }
+            val rolled = ConfigQuicOverride.apply(rawContent, skipScripts = true)
+            try {
+                commandServer.startOrReloadService(rolled, options)
+                OverrideStatus.add(
+                    OverrideNotice(
+                        title = "脚本启动失败，已回滚",
+                        reason = ConfigDiagnose.explain(e.message),
+                        hint = ConfigDiagnose.rollbackHint(),
+                    ),
+                )
+                return true
+            } catch (e2: Exception) {
+                stopAndAlert(
+                    Alert.CreateService,
+                    ConfigDiagnose.explain(e.message) +
+                        "\n\n关掉脚本后仍失败：" +
+                        ConfigDiagnose.explain(e2.message),
+                )
+                return false
+            }
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.M)

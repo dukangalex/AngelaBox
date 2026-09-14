@@ -84,11 +84,11 @@ object Settings {
     var disableQuic by dataStore.boolean(SettingsKey.DISABLE_QUIC) { false }
     var excludeCnQuic by dataStore.boolean(SettingsKey.EXCLUDE_CN_QUIC) { false }
     var strictRoute by dataStore.boolean(SettingsKey.STRICT_ROUTE) { false }
-    var dnsProtect by dataStore.boolean(SettingsKey.DNS_PROTECT) { false }
+    var dnsProtect by dataStore.boolean(SettingsKey.DNS_PROTECT) { true }
     var disableIpv6 by dataStore.boolean(SettingsKey.DISABLE_IPV6) { false }
     var webrtcProtect by dataStore.boolean(SettingsKey.WEBRTC_PROTECT) { true }
-    var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { false }
-    var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { false }
+    var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { true }
+    var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { true }
     var chainEnabled by dataStore.boolean(SettingsKey.CHAIN_ENABLED) { false }
     var chainEntryTag by dataStore.string(SettingsKey.CHAIN_ENTRY_TAG) { "" }
     var chainLandingProfileId by dataStore.long(SettingsKey.CHAIN_LANDING_PROFILE_ID) { -1L }
@@ -101,10 +101,10 @@ object Settings {
     var webdavRemoteFile by dataStore.string(SettingsKey.WEBDAV_REMOTE_FILE) { "backup.zip" }
     var webdavProbeOk by dataStore.int(SettingsKey.WEBDAV_PROBE_OK) { -1 }
     var restoreCompat by dataStore.boolean(SettingsKey.RESTORE_COMPAT) { false }
-    var perAppProxyEnabled by dataStore.boolean(SettingsKey.PER_APP_PROXY_ENABLED) { false }
+    var perAppProxyEnabled by dataStore.boolean(SettingsKey.PER_APP_PROXY_ENABLED) { true }
     var perAppProxyMode by dataStore.int(SettingsKey.PER_APP_PROXY_MODE) { PER_APP_PROXY_EXCLUDE }
     var perAppProxyList by dataStore.stringSet(SettingsKey.PER_APP_PROXY_LIST) { emptySet() }
-    var perAppProxyManagedMode by dataStore.boolean(SettingsKey.PER_APP_PROXY_MANAGED_MODE) { false }
+    var perAppProxyManagedMode by dataStore.boolean(SettingsKey.PER_APP_PROXY_MANAGED_MODE) { true }
     var perAppProxyManagedList by dataStore.stringSet(SettingsKey.PER_APP_PROXY_MANAGED_LIST) { emptySet() }
     const val PACKAGE_QUERY_MODE_SHIZUKU = "SHIZUKU"
     const val PACKAGE_QUERY_MODE_ROOT = "ROOT"

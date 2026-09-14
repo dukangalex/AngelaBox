@@ -20,6 +20,8 @@ object ConfigInboundCompat {
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
         if (dropMissingRemoteRuleSets(root)) changed = true
+        if (healDownloadClients(root)) changed = true
+        if (healMissingOutboundRefs(root)) changed = true
         return changed
     }
 
@@ -361,6 +363,259 @@ object ConfigInboundCompat {
             i++
         }
         return changed
+    }
+
+    /**
+     * sing-box 1.14 downloads remote rule-sets through `http_clients` /
+     * `route.default_http_client` (`download_detour` is deprecated). Airport
+     * templates still point those at `proxy-select`. Overlay scripts replace
+     * selector groups, so start dies with "outbound detour not found".
+     *
+     * Official 1.14 style: a shared HTTP client with no detour uses the
+     * default (system) dialer. testingcf.jsdelivr.net is reachable in China
+     * without a proxy, so that is the right client. Never detour to an
+     * empty `direct` — 1.12+ rejects that for any dialer.
+     */
+    internal const val HTTP_DIRECT_TAG = "angela-http-direct"
+
+    internal fun healDownloadClients(root: JSONObject): Boolean {
+        val tags = outboundTags(root)
+        val emptyDirect = emptyDirectTags(root)
+        var changed = false
+        val clients = root.optJSONArray("http_clients") ?: JSONArray().also {
+            root.put("http_clients", it)
+            changed = true
+        }
+        var i = 0
+        while (i < clients.length()) {
+            val client = clients.optJSONObject(i)
+            if (client == null) {
+                i++
+                continue
+            }
+            val detour = client.optString("detour").trim()
+            if (detour.isNotEmpty() && (detour !in tags || detour in emptyDirect)) {
+                client.remove("detour")
+                changed = true
+            }
+            i++
+        }
+        var safeTag = ""
+        for (j in 0 until clients.length()) {
+            val client = clients.optJSONObject(j) ?: continue
+            val tag = client.optString("tag").trim()
+            if (tag.isEmpty()) continue
+            if (client.optString("detour").isBlank() && safeTag.isEmpty()) safeTag = tag
+        }
+        if (safeTag.isEmpty()) {
+            safeTag = HTTP_DIRECT_TAG
+            if (!hasHttpClient(clients, safeTag)) {
+                clients.put(JSONObject().put("tag", safeTag))
+                changed = true
+            }
+        }
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val current = route.optString("default_http_client").trim()
+        if (current.isEmpty() || !hasHttpClient(clients, current)) {
+            route.put("default_http_client", safeTag)
+            changed = true
+        }
+        val sets = route.optJSONArray("rule_set")
+        if (sets != null) {
+            for (s in 0 until sets.length()) {
+                val item = sets.optJSONObject(s) ?: continue
+                val download = item.optString("download_detour").trim()
+                if (download.isNotEmpty() && (download !in tags || download in emptyDirect)) {
+                    item.remove("download_detour")
+                    item.put("http_client", safeTag)
+                    changed = true
+                }
+                when (val hc = item.opt("http_client")) {
+                    is String -> {
+                        if (hc.isNotBlank() && !hasHttpClient(clients, hc)) {
+                            item.put("http_client", safeTag)
+                            changed = true
+                        }
+                    }
+                    is JSONObject -> {
+                        val d = hc.optString("detour").trim()
+                        if (d.isNotEmpty() && (d !in tags || d in emptyDirect)) {
+                            hc.remove("detour")
+                            changed = true
+                        }
+                    }
+                }
+            }
+        }
+        val clash = root.optJSONObject("experimental")?.optJSONObject("clash_api")
+        if (clash != null) {
+            val ui = clash.optString("external_ui_download_detour").trim()
+            if (ui.isNotEmpty() && (ui !in tags || ui in emptyDirect)) {
+                clash.remove("external_ui_download_detour")
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /**
+     * After scripts rebuild groups, leftover DNS/route/outbound detours and
+     * selector members still name the old tags. Rewrite or drop them so the
+     * kernel can start. Missing non-China route targets fall back to the
+     * primary selector, never silently to DIRECT.
+     */
+    internal fun healMissingOutboundRefs(root: JSONObject): Boolean {
+        val tags = outboundTags(root)
+        if (tags.isEmpty()) return false
+        var changed = ConfigCompat.stripBrokenDnsDetours(root)
+        val outs = root.optJSONArray("outbounds") ?: JSONArray()
+        var selectorTag: String? = null
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val tag = o.optString("tag").trim()
+            val type = o.optString("type").trim().lowercase()
+            if ((type == "selector" || type == "urltest") && selectorTag == null && tag.isNotEmpty()) {
+                selectorTag = tag
+            }
+        }
+        val proxyFallback = selectorTag
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val detour = o.optString("detour").trim()
+            if (detour.isNotEmpty() && detour !in tags) {
+                o.remove("detour")
+                changed = true
+            }
+            val members = o.optJSONArray("outbounds") ?: continue
+            val kept = JSONArray()
+            var listChanged = false
+            for (j in 0 until members.length()) {
+                val item = members.opt(j)
+                val t = when (item) {
+                    is String -> item.trim()
+                    is JSONObject -> item.optString("tag").trim()
+                    else -> ""
+                }
+                if (t.isEmpty()) continue
+                if (t in tags) {
+                    kept.put(members.get(j))
+                } else {
+                    listChanged = true
+                }
+            }
+            if (listChanged) {
+                o.put("outbounds", kept)
+                changed = true
+            }
+            val defaultTag = o.optString("default").trim()
+            if (defaultTag.isNotEmpty() && defaultTag !in tags) {
+                val first = kept.optString(0).ifBlank {
+                    kept.optJSONObject(0)?.optString("tag").orEmpty()
+                }
+                if (first.isNotEmpty()) o.put("default", first) else o.remove("default")
+                changed = true
+            }
+        }
+        val dns = root.optJSONObject("dns")
+        if (dns != null) {
+            val servers = dns.optJSONArray("servers")
+            val serverTags = mutableSetOf<String>()
+            if (servers != null) {
+                for (i in 0 until servers.length()) {
+                    val tag = servers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                    if (tag.isNotEmpty()) serverTags.add(tag)
+                }
+            }
+            val resolver = dns.optString("domain_resolver").trim()
+            if (resolver.isNotEmpty() && resolver !in serverTags) {
+                dns.remove("domain_resolver")
+                changed = true
+            }
+        }
+        val route = root.optJSONObject("route") ?: return changed
+        val finalTag = route.optString("final").trim()
+        if (finalTag.isNotEmpty() && finalTag !in tags) {
+            if (!proxyFallback.isNullOrEmpty()) route.put("final", proxyFallback) else route.remove("final")
+            changed = true
+        }
+        val defaultResolver = route.opt("default_domain_resolver")
+        if (defaultResolver is String && defaultResolver.isNotBlank()) {
+            val dnsServers = root.optJSONObject("dns")?.optJSONArray("servers")
+            val serverTags = mutableSetOf<String>()
+            if (dnsServers != null) {
+                for (i in 0 until dnsServers.length()) {
+                    val tag = dnsServers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                    if (tag.isNotEmpty()) serverTags.add(tag)
+                }
+            }
+            if (defaultResolver !in serverTags && defaultResolver !in tags) {
+                route.remove("default_domain_resolver")
+                changed = true
+            }
+        }
+        if (rewriteMissingRuleOutbounds(route.optJSONArray("rules"), tags, proxyFallback)) {
+            changed = true
+        }
+        return changed
+    }
+
+    private fun rewriteMissingRuleOutbounds(
+        rules: JSONArray?,
+        tags: Set<String>,
+        proxyFallback: String?,
+    ): Boolean {
+        if (rules == null) return false
+        var changed = false
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rewriteMissingRuleOutbounds(rule.optJSONArray("rules"), tags, proxyFallback)) {
+                changed = true
+            }
+            val ob = rule.optString("outbound").trim()
+            if (ob.isEmpty() || ob in tags) continue
+            val action = rule.optString("action").trim().lowercase()
+            if (action == "reject" || action == "hijack-dns" || action == "sniff" || action == "resolve") {
+                rule.remove("outbound")
+                changed = true
+                continue
+            }
+            if (!proxyFallback.isNullOrEmpty()) {
+                rule.put("outbound", proxyFallback)
+            } else {
+                rule.remove("outbound")
+            }
+            changed = true
+        }
+        return changed
+    }
+
+    private fun outboundTags(root: JSONObject): Set<String> {
+        val outs = root.optJSONArray("outbounds") ?: return emptySet()
+        val tags = linkedSetOf<String>()
+        for (i in 0 until outs.length()) {
+            val tag = outs.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags.add(tag)
+        }
+        return tags
+    }
+
+    private fun emptyDirectTags(root: JSONObject): Set<String> {
+        val outs = root.optJSONArray("outbounds") ?: return emptySet()
+        val empty = linkedSetOf<String>()
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val tag = o.optString("tag").trim()
+            if (tag.isNotEmpty() && ConfigCompat.isEmptyDirect(o)) empty.add(tag)
+        }
+        return empty
+    }
+
+    private fun hasHttpClient(clients: JSONArray, tag: String): Boolean {
+        if (tag.isEmpty()) return false
+        for (i in 0 until clients.length()) {
+            if (clients.optJSONObject(i)?.optString("tag") == tag) return true
+        }
+        return false
     }
 
     private fun prependRouteRules(root: JSONObject, extra: JSONArray) {

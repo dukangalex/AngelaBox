@@ -252,7 +252,68 @@ def sanitize(root: dict) -> dict:
     migrate_special(root)
     rewrite_sets(root)
     drop_missing_rulesets(root)
+    heal_download_clients(root)
+    heal_missing_outbound_refs(root)
     return root
+
+
+HTTP_DIRECT_TAG = "angela-http-direct"
+
+
+def outbound_tags(root: dict) -> set[str]:
+    return {str(o.get("tag") or "").strip() for o in (root.get("outbounds") or []) if str(o.get("tag") or "").strip()}
+
+
+def heal_download_clients(root: dict) -> None:
+    tags = outbound_tags(root)
+    clients = root.setdefault("http_clients", [])
+    for client in clients:
+        detour = str(client.get("detour") or "").strip()
+        if detour and detour not in tags:
+            client.pop("detour", None)
+    safe = next((str(c.get("tag") or "").strip() for c in clients if str(c.get("tag") or "").strip() and not str(c.get("detour") or "").strip()), "")
+    if not safe:
+        safe = HTTP_DIRECT_TAG
+        if not any(str(c.get("tag") or "") == safe for c in clients):
+            clients.append({"tag": safe})
+    route = root.setdefault("route", {})
+    current = str(route.get("default_http_client") or "").strip()
+    if not current or not any(str(c.get("tag") or "") == current for c in clients):
+        route["default_http_client"] = safe
+    for item in route.get("rule_set") or []:
+        download = str(item.get("download_detour") or "").strip()
+        if download and download not in tags:
+            item.pop("download_detour", None)
+            item["http_client"] = safe
+
+
+def heal_missing_outbound_refs(root: dict) -> None:
+    tags = outbound_tags(root)
+    if not tags:
+        return
+    selector = None
+    for o in root.get("outbounds") or []:
+        t = str(o.get("type") or "").lower()
+        tag = str(o.get("tag") or "").strip()
+        if t in ("selector", "urltest") and tag and selector is None:
+            selector = tag
+        members = o.get("outbounds")
+        if isinstance(members, list):
+            o["outbounds"] = [m for m in members if (m if isinstance(m, str) else str((m or {}).get("tag") or "")) in tags]
+    route = root.get("route") or {}
+    final = str(route.get("final") or "").strip()
+    if final and final not in tags:
+        if selector:
+            route["final"] = selector
+        else:
+            route.pop("final", None)
+    for rule in route.get("rules") or []:
+        ob = str(rule.get("outbound") or "").strip()
+        if ob and ob not in tags:
+            if selector:
+                rule["outbound"] = selector
+            else:
+                rule.pop("outbound", None)
 
 
 def main() -> int:
@@ -415,6 +476,47 @@ def main() -> int:
     ]
     if got != expect:
         errors.append(f"url rewrite failed: {got}")
+
+    healed = sanitize(
+        {
+            "outbounds": [
+                {"type": "direct", "tag": "direct"},
+                {"type": "selector", "tag": "节点选择", "outbounds": ["a"]},
+                {"type": "shadowsocks", "tag": "a", "server": "1.1.1.1", "server_port": 1},
+            ],
+            "http_clients": [{"tag": "down", "detour": "proxy-select"}],
+            "route": {
+                "final": "proxy-select",
+                "default_http_client": "down",
+                "rule_set": [
+                    {
+                        "tag": "geosite-icloud",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-icloud.srs",
+                        "download_detour": "proxy-select",
+                    }
+                ],
+                "rules": [{"rule_set": "geosite-icloud", "outbound": "proxy-select"}],
+            },
+        }
+    )
+    if healed["http_clients"][0].get("detour") == "proxy-select":
+        errors.append("http_clients detour to missing proxy-select was not stripped")
+    if healed["route"].get("default_http_client") not in {c.get("tag") for c in healed["http_clients"]}:
+        errors.append("default_http_client must point at a real http client")
+    icloud = healed["route"]["rule_set"][0]
+    if icloud.get("download_detour") == "proxy-select":
+        errors.append("broken download_detour must be removed")
+    if healed["route"].get("final") == "proxy-select":
+        errors.append("route.final must not keep a missing outbound")
+    if healed["route"]["rules"][0].get("outbound") == "proxy-select":
+        errors.append("route rule outbound must not keep a missing tag")
+
+    inbound_src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt").read_text()
+    if "fun healDownloadClients" not in inbound_src or "fun healMissingOutboundRefs" not in inbound_src:
+        errors.append("ConfigInboundCompat must heal 1.14 http_clients and leftover outbound refs")
+    if "angela-http-direct" not in inbound_src:
+        errors.append("heal must inject a no-detour HTTP client for rule-set downloads")
 
     if errors:
         print("FAIL")

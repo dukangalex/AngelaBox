@@ -9,7 +9,7 @@ class ChainApplyException(message: String) : IllegalStateException(message)
 
 object ConfigQuicOverride {
 
-    suspend fun apply(content: String): String {
+    suspend fun apply(content: String, skipScripts: Boolean = false): String {
         OverrideStatus.clear()
         val warnings = mutableListOf<OverrideNotice>()
         var out = ConfigCompat.sanitize(content)
@@ -22,9 +22,11 @@ object ConfigQuicOverride {
         try {
             var root = JSONObject(out)
             applyLogLevel(root)
-            val scriptOn = OverlayScripts.enabledFor(profileId).isNotEmpty()
-            applyOne(warnings, "覆写脚本") {
-                ConfigScriptOverride.apply(root, profileId)
+            val scriptOn = !skipScripts && OverlayScripts.enabledFor(profileId).isNotEmpty()
+            if (!skipScripts) {
+                applyOne(warnings, "覆写脚本") {
+                    ConfigScriptOverride.apply(root, profileId)
+                }
             }
             out = ConfigCompat.sanitize(root.toString())
             if (binding != null) {

@@ -93,7 +93,10 @@ class LogViewModel :
     }
 
     override fun onDisconnected() {
+        allLogs.clear()
+        bufferedLogs.clear()
         _uiState.update { it.copy(isConnected = false) }
+        updateDisplayedLogs()
     }
 
     override fun setDefaultLogLevel(level: Int) {

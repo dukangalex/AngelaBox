@@ -672,10 +672,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 5" not in sample:
-        errors.append("default script must stamp overlay-revision: 5 so stale copies refresh")
+    if "overlay-revision: 6" not in sample:
+        errors.append("default script must stamp overlay-revision: 6 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 5"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 6"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "override_address" in sample:
         errors.append("default script must not emit removed direct override_address")
@@ -803,8 +803,47 @@ def main() -> int:
     sample = read("app/src/main/assets/scripts/airport-region.js")
     if '"type": "load-balance"' in sample or "type: \"load-balance\"" in sample:
         errors.append("bundled sample must not create load-balance outbounds (sing-box has no such type)")
+    if "http_client: \"http-direct\"" not in sample and "http_client: 'http-direct'" not in sample:
+        errors.append("default script must pin remote rule-sets to a 1.14 http_client with no detour")
     if "testingcf.jsdelivr.net" not in sample:
         errors.append("bundled sample rule-set URLs must use testingcf jsDelivr")
+    if 'tag: "http-direct"' not in sample:
+        errors.append("default script must emit official http_clients for rule-set download")
+    if "default_http_client" not in sample:
+        errors.append("default script must set route.default_http_client")
+    if "interrupt_exist_connections: !!interrupt" not in sample and "interrupt_exist_connections: true" not in sample:
+        errors.append("自动选择 urltest must interrupt connections so unhealthy nodes actually switch")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if "healDownloadClients" not in inbound or "healMissingOutboundRefs" not in inbound:
+        errors.append("startup must heal 1.14 http_clients and leftover outbound refs after scripts")
+    if "skipScripts" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt"):
+        errors.append("overlay apply must be able to skip scripts for rollback")
+    if "startOrReloadKernel" not in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("service start must retry without scripts when the overlay fails")
+    if "ConfigDiagnose" not in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("create-service errors must be explained in Chinese")
+    if "fun explain" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt"):
+        errors.append("ConfigDiagnose.explain missing")
+    if "andSelect = Settings.selectedProfile < 0L" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/NewProfileViewModel.kt"
+    ):
+        errors.append("creating a profile must not steal the current selection")
+    if "andSelect = Settings.selectedProfile < 0L" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/ProfileImportHandler.kt"
+    ):
+        errors.append("importing a profile must not steal the current selection")
+    if "wellKnownChinaPackages" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+    ):
+        errors.append("China app scanner must include a well-known bank/payment package list")
+    if 'CHINA_DIRECT) { false }' in settings or 'DNS_PROTECT) { false }' in settings:
+        errors.append("China Direct and DNS protect must default on for Chinese users")
+    if 'ADS_BLOCK) { false }' in settings:
+        errors.append("ad block must default on for Chinese users")
+    if "logMaxLines = 200" not in read("app/src/main/java/io/nekohasekai/sfa/Application.kt"):
+        errors.append("kernel log buffer must stay small; do not cache thousands of lines")
+    if "configFile.copyTo" in read("app/src/main/java/io/nekohasekai/sfa/bg/CrashReportManager.kt"):
+        errors.append("crash reports must not copy the live config (contains nodes and secrets)")
     if "Package: io.chainbox.app" in read("scripts/telegram_announce.py"):
         errors.append("Telegram copy must not show Package: to ordinary users")
     if "SHA256:" in read("scripts/telegram_announce.py") and "核对" not in read("scripts/telegram_announce.py"):

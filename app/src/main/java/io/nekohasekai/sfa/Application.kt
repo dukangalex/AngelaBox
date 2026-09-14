@@ -20,6 +20,7 @@ import io.nekohasekai.sfa.bg.OOMReportManager
 import io.nekohasekai.sfa.bg.PowerReportManager
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.compose.screen.tools.TaildropFiles
+import io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyScanner
 import io.nekohasekai.sfa.constant.Bugs
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
@@ -79,6 +80,15 @@ class Application : Application() {
             UpdateProfileWork.reconfigureUpdater()
             HookModuleUpdateNotifier.sync(this@Application)
             TaildropFiles.cleanCache()
+            if (Vendor.isPerAppProxyAvailable() &&
+                Settings.perAppProxyEnabled &&
+                Settings.perAppProxyManagedMode &&
+                Settings.perAppProxyManagedList.isEmpty()
+            ) {
+                runCatching {
+                    Settings.perAppProxyManagedList = PerAppProxyScanner.scanAllChinaApps()
+                }
+            }
         }
 
         if (Vendor.isPerAppProxyAvailable()) {
@@ -114,8 +124,8 @@ class Application : Application() {
         it.workingPath = workingDir.path
         it.tempPath = tempDir.path
         it.fixAndroidStack = Bugs.fixAndroidStack
-        it.logMaxLines = 3000
-        it.debug = BuildConfig.DEBUG
+        it.logMaxLines = 200
+        it.debug = false
         it.crashReportSource = "Application"
         it.appVersion = BuildConfig.VERSION_CODE.toString()
         it.appMarketingVersion = BuildConfig.VERSION_NAME

@@ -1597,7 +1597,7 @@ class MainActivity :
                 Alert.RequestVPNPermission -> stringResource(R.string.error_missing_vpn_permission)
                 Alert.RequestNotificationPermission -> stringResource(R.string.notification_permission_required_description)
                 Alert.EmptyConfiguration -> stringResource(R.string.error_empty_configuration)
-                else -> message
+                else -> message?.let { io.nekohasekai.sfa.utils.ConfigDiagnose.explain(it) }
             }
 
         AlertDialog(
