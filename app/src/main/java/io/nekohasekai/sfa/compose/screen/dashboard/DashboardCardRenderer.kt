@@ -73,6 +73,10 @@ fun DashboardCardRenderer(
                 memory = uiState.memory,
                 goroutines = uiState.goroutines,
                 serviceStatus = serviceStatus,
+                connectionsCount = uiState.connectionsCount,
+                groupsCount = uiState.groupsCount,
+                hasGroups = uiState.hasGroups,
+                serviceStartTime = uiState.serviceStartTime,
                 modifier = modifier,
             )
         }

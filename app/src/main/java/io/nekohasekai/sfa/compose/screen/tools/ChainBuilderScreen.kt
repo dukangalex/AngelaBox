@@ -2,12 +2,14 @@ package io.nekohasekai.sfa.compose.screen.tools
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -16,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -26,7 +29,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +66,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.chain.ChainBinding
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.constant.Status
@@ -115,13 +123,16 @@ fun ChainBuilderScreen(
     var picker by remember { mutableStateOf<String?>(null) }
     var pickerQuery by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
+    var profileMenu by remember { mutableStateOf(false) }
+    var barProfileMenu by remember { mutableStateOf(false) }
 
-    fun reload() {
+    fun reload(targetId: Long = -1L) {
+        val fallbackId = if (targetId > 0L) targetId else currentProfileId
         scope.launch(Dispatchers.IO) {
             try {
-                val selectedId = Settings.selectedProfile
                 val profiles = ProfileManager.list()
-                val current = profiles.find { it.id == selectedId }
+                val wantId = if (fallbackId > 0L) fallbackId else Settings.selectedProfile
+                val current = profiles.find { it.id == wantId } ?: profiles.find { it.id == Settings.selectedProfile }
                 if (current == null) {
                     withContext(Dispatchers.Main) { loadError = "未选择配置" }
                     return@launch
@@ -248,7 +259,9 @@ fun ChainBuilderScreen(
             if (result.isSuccess) {
                 chainActive = true
                 savedHint = "仅当前配置：${main.tag} → ${landing.displayLine}"
-                notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                if (boundId == Settings.selectedProfile) {
+                    notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                }
                 if (!navController.popBackStack("dashboard", false)) {
                     navController.popBackStack()
                 }
@@ -295,6 +308,38 @@ fun ChainBuilderScreen(
                 title = { Text(stringResource(R.string.chain_builder)) },
                 navigationIcon = { IconButton(onClick = { navController.navigateUp() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
                 actions = {
+                    if (allProfiles.isNotEmpty()) {
+                        Box {
+                            TextButton(onClick = { barProfileMenu = true }) {
+                                Text(
+                                    currentProfileName.ifBlank { stringResource(R.string.title_configuration) },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 140.dp),
+                                )
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                            }
+                            DropdownMenu(
+                                expanded = barProfileMenu,
+                                onDismissRequest = { barProfileMenu = false },
+                            ) {
+                                allProfiles.forEach { profile ->
+                                    DropdownMenuItem(
+                                        text = { Text(profile.name) },
+                                        onClick = {
+                                            barProfileMenu = false
+                                            if (profile.id != currentProfileId) {
+                                                currentProfileId = profile.id
+                                                entry = null
+                                                exit = null
+                                                reload(profile.id)
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(onClick = { showHelp = true }) { Icon(Icons.Default.Info, stringResource(R.string.read_more)) }
                     IconButton(onClick = { reload() }) { Icon(Icons.Default.Refresh, stringResource(R.string.action_reload)) }
                 },
@@ -318,7 +363,41 @@ fun ChainBuilderScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("当前配置：$currentProfileName", fontWeight = FontWeight.Medium)
+                    Text("绑定到哪一份配置", fontWeight = FontWeight.Medium)
+                    ExposedDropdownMenuBox(
+                        expanded = profileMenu,
+                        onExpandedChange = { profileMenu = it },
+                    ) {
+                        OutlinedTextField(
+                            value = currentProfileName.ifBlank { "选择配置" },
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = profileMenu) },
+                            modifier = Modifier
+                                .then(menuAnchorCompat(true))
+                                .fillMaxWidth(),
+                            label = { Text("配置") },
+                        )
+                        ExposedDropdownMenu(
+                            expanded = profileMenu,
+                            onDismissRequest = { profileMenu = false },
+                        ) {
+                            allProfiles.forEach { profile ->
+                                DropdownMenuItem(
+                                    text = { Text(profile.name) },
+                                    onClick = {
+                                        profileMenu = false
+                                        if (profile.id != currentProfileId) {
+                                            currentProfileId = profile.id
+                                            entry = null
+                                            exit = null
+                                            reload(profile.id)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
                     PathPreview(entry = entry, landing = exit)
                     savedHint?.let {
                         Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)

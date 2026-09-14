@@ -1,9 +1,9 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 6
- * 覆盖原配置的分组与分流，只保留节点；按节点名生成地区 urltest/selector，
- * 并写入 DNS、嗅探与远程规则集。
- * function main(config)，config 为 sing-box JSON。
+ * overlay-revision: 8
+ * 对齐 airport_overwrite.js：国内 IP/域名先直连，国外走代理；
+ * DNS 必须劫持；国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini）。
+ * 覆盖原配置的分组与分流，只保留节点。function main(config)。
  */
 function main(config) {
   if (!config || typeof config !== "object") return config;
@@ -175,6 +175,31 @@ function main(config) {
     { key: "zw", name: "🇿🇼 津巴布韦节点", pattern: "🇿🇼|津巴布韦|\\bZW\\b|zimbabwe" }
     ];
 
+  var CN_DOMAINS = [
+    "alipay.com", "alipayobjects.com", "antpay.com", "taobao.com", "tmall.com", "jd.com", "jdpay.com",
+    "pinduoduo.com", "pddpic.com", "meituan.com", "dianping.com", "ele.me", "amap.com", "autonavi.com",
+    "baidu.com", "weixin.qq.com", "weixin.com", "wx.qq.com", "wxs.qq.com", "qq.com", "tencent.com",
+    "servicewechat.com", "work.weixin.qq.com", "meeting.tencent.com", "weixinbridge.com", "url.cn",
+    "long.weixin.qq.com", "short.weixin.qq.com", "sz.weixin.qq.com", "szshort.weixin.qq.com",
+    "szlong.weixin.qq.com", "szminorshort.weixin.qq.com", "wechat.com", "wechatpay.cn",
+    "aliyun.com", "aliyuncs.com", "alicdn.com", "tbcdn.cn", "myqcloud.com", "qpic.cn", "qlogo.cn",
+    "gtimg.com", "gdtimg.com", "weibo.com", "zhihu.com", "12306.cn", "railway12306.cn", "chinatax.gov.cn",
+    "gjzwfw.gov.cn", "unionpay.com", "unionpaysecure.com", "chinapay.com", "yeepay.com", "95516.com",
+    "icbc.com.cn", "ccb.com", "boc.cn", "bankofchina.com", "abchina.com", "abchina.com.cn",
+    "cmbchina.com", "cmbi.com.cn", "bankcomm.com", "psbc.com", "spdb.com.cn", "cib.com.cn", "cmbc.com.cn",
+    "pingan.com", "pingan.com.cn", "cgbchina.com.cn", "cebbank.com", "citicbank.com", "ecitic.com",
+    "hxb.com.cn", "netsunion.org.cn", "tenpay.com", "99bill.com", "eastmoney.com", "htsc.com.cn", "gtja.com",
+    "dingtalk.com", "feishu.cn", "xiaohongshu.com", "kuaishou.com", "bilibili.com", "bilivideo.cn",
+    "163.com", "126.net", "netease.com", "ctrip.com", "qunar.com", "sf-express.com",
+    "xiaojukeji.com", "didichuxing.com", "xuexi.cn", "chsi.com.cn",
+    "umeng.com", "umengcloud.com", "geetest.com", "tongdun.net", "tongduncdn.com",
+    "rongcloud.cn", "rongcloud.com", "jpush.cn", "jpush.io", "jiguang.cn", "getui.com", "getui.net", "gepush.com",
+    "samsunghealth.com", "samsungosp.com", "mi.com", "xiaomi.com", "miui.com", "micloud.com",
+    "huawei.com", "hicloud.com", "vivo.com", "oppo.com", "meizu.com",
+    "iqiyi.com", "youku.com", "douyin.com", "toutiao.com", "bytedance.com",
+    "deepseek.com", "moonshot.cn", "zhipuai.cn", "iflytek.com"
+  ];
+
   var outbounds = ensureArray(config, "outbounds");
   var leafTags = [];
   var groupTags = {};
@@ -284,12 +309,25 @@ function main(config) {
     return g;
   }
 
-  var directTag = existingTag(outbounds, ["direct", "DIRECT"]);
-  if (!directTag) {
-    pushUniqueTag(outbounds, { type: "direct", tag: "direct" });
-    directTag = "direct";
-    groupTags[directTag] = "direct";
+  function outboundByTag(tag) {
+    var map = indexByTag(outbounds);
+    if (!hasOwn(map, tag)) return null;
+    return outbounds[map[tag]];
   }
+  var directTag = "";
+  var directCand = existingTag(outbounds, ["direct", "DIRECT"]);
+  var directItem = directCand ? outboundByTag(directCand) : null;
+  if (directItem && typeOf(directItem) === "direct") {
+    directTag = directCand;
+    if (directItem.detour) delete directItem.detour;
+  } else {
+    var cleanDirect = (directCand && directItem && typeOf(directItem) !== "direct") ? "angela-direct" : "direct";
+    if (!existingTag(outbounds, [cleanDirect])) {
+      pushUniqueTag(outbounds, { type: "direct", tag: cleanDirect });
+    }
+    directTag = cleanDirect;
+  }
+  groupTags[directTag] = "direct";
   var dropTag = "REJECT-DROP";
   var rejectTag = "REJECT";
   function makeBlackhole(tag) {
@@ -504,83 +542,36 @@ function main(config) {
     return item;
   }
 
+  var googleTag = existingTag(outbounds, ["🔍 Google", pickSelect]) || pickSelect;
   var youtubeTag = existingTag(outbounds, ["📺 YouTube", mediaTag]) || mapTarget("📺 Media");
   var mediaOut = mapTarget("📺 Media");
   var steamTag = existingTag(outbounds, ["🎮 Steam", pickSelect]) || pickSelect;
   var appleTag = existingTag(outbounds, ["🍎 Apple", pickSelect]) || pickSelect;
+  var aiOut = mapTarget("🤖 AI服务");
 
   var prepend = [];
   function addRule(item) { if (item) prepend.push(item); }
-  addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
-  addRule(rule("geosite-category-ai-!cn", mapTarget("🤖 AI服务")));
-  addRule(rule("geosite-openai", mapTarget("🤖 AI服务")));
-  addRule(rule("geosite-youtube", youtubeTag));
-  addRule(rule("geosite-netflix", mediaOut));
-  addRule(rule("geosite-disney", mediaOut));
-  addRule(rule("geosite-hulu", mediaOut));
-  addRule(rule("geosite-hbo", mediaOut));
-  addRule(rule("geosite-amazon", mediaOut));
-  addRule(rule("geosite-bahamut", mediaOut));
-  addRule(rule("geosite-abema", mediaOut));
-  addRule(rule("geosite-bbc", mediaOut));
-  addRule(rule("geosite-spotify", existingTag(outbounds, ["🎵 Spotify", mediaTag]) || mediaOut));
-  addRule(rule("geosite-tiktok", existingTag(outbounds, ["📱 TikTok", mediaTag]) || mediaOut));
-  addRule(rule("geosite-telegram", existingTag(outbounds, ["📲 Telegram", pickSelect]) || pickSelect));
-  addRule(rule("geosite-google", existingTag(outbounds, ["🔍 Google", pickSelect]) || pickSelect));
-  addRule(rule("geosite-github", pickSelect));
-  addRule(rule("geosite-gitlab", pickSelect));
-  addRule(rule("geosite-microsoft", existingTag(outbounds, ["🪟 Microsoft", pickSelect]) || pickSelect));
-  addRule(rule("geosite-apple", appleTag));
-  addRule(rule("geosite-icloud", appleTag));
-  addRule(rule("geosite-twitter", existingTag(outbounds, ["🐦 Twitter", pickSelect]) || pickSelect));
-  addRule(rule("geosite-facebook", pickSelect));
-  addRule(rule("geosite-instagram", pickSelect));
-  addRule(rule("geosite-discord", pickSelect));
-  addRule(rule("geosite-linkedin", pickSelect));
-  addRule(rule("geosite-snap", pickSelect));
-  addRule(rule("geosite-steam", steamTag));
-  addRule(rule("geosite-epicgames", steamTag));
-  addRule(rule("geosite-ea", steamTag));
-  addRule(rule("geosite-ubisoft", steamTag));
-  addRule(rule("geosite-blizzard", steamTag));
-  addRule(rule("geosite-paypal", pickSelect));
-  addRule(rule("geosite-aws", pickSelect));
-  addRule(rule("geosite-azure", pickSelect));
-  addRule(rule("geosite-dropbox", pickSelect));
-  addRule(rule("geosite-onedrive", pickSelect));
-  addRule(rule("geosite-category-scholar-!cn", pickSelect));
-  addRule(rule("geosite-geolocation-!cn", mapTarget("🌍 国外服务")));
-  addRule(rule("geosite-microsoft@cn", "direct"));
-  addRule(rule("geosite-steam@cn", "direct"));
-  addRule(rule("geosite-category-games@cn", "direct"));
-  addRule(rule("geosite-bilibili", "direct"));
-  addRule(rule("geosite-geolocation-cn", "direct"));
-  addRule(rule("geosite-cn", "direct"));
-  addRule(rule("geoip-cn", "direct"));
+
   addRule({ ip_is_private: true, outbound: directTag });
+  addRule(rule("geoip-cn", directTag));
   addRule({
-    ip_cidr: ["fe80::/10", "fc00::/7", "::1/128", "101.226.0.0/16", "140.207.0.0/16"],
-    outbound: directTag
-  });
-  addRule({ ip_cidr: ["ff00::/8"], action: "reject", method: "drop" });
-  addRule({
-    domain_suffix: [
-      "alipay.com", "alipayobjects.com", "antpay.com", "taobao.com", "jd.com", "jdpay.com",
-      "pinduoduo.com", "pddpic.com", "meituan.com", "dianping.com", "ele.me", "amap.com",
-      "baidu.com", "weixin.qq.com", "weixin.com", "wx.qq.com", "wxs.qq.com", "qq.com",
-      "servicewechat.com", "work.weixin.qq.com", "meeting.tencent.com",
-      "weibo.com", "zhihu.com", "12306.cn", "railway12306.cn", "chinatax.gov.cn",
-      "gjzwfw.gov.cn", "unionpay.com", "unionpaysecure.com", "chinapay.com", "yeepay.com",
-      "icbc.com.cn", "ccb.com", "boc.cn", "bankofchina.com", "abchina.com", "abchina.com.cn",
-      "cmbchina.com", "bankcomm.com", "psbc.com", "spdb.com.cn", "cib.com.cn", "cmbc.com.cn",
-      "pingan.com", "pingan.com.cn", "cgbchina.com.cn", "cebbank.com", "citicbank.com",
-      "dingtalk.com", "feishu.cn", "xiaohongshu.com", "kuaishou.com", "bilibili.com",
-      "163.com", "ctrip.com", "qunar.com", "sf-express.com", "xiaojukeji.com", "didichuxing.com",
-      "xuexi.cn", "chsi.com.cn", "umeng.com", "umengcloud.com", "geetest.com", "tongdun.net",
-      "rongcloud.cn", "samsunghealth.com", "samsungosp.com"
+    ip_cidr: [
+      "fe80::/10", "fc00::/7", "::1/128",
+      "101.226.0.0/16", "140.207.0.0/16",
+      "52.80.0.0/16", "54.223.0.0/16",
+      "223.5.5.5/32", "223.6.6.6/32", "1.12.12.12/32", "120.53.53.53/32"
     ],
     outbound: directTag
   });
+  addRule({ ip_cidr: ["ff00::/8"], action: "reject", method: "drop" });
+  addRule({ domain_suffix: CN_DOMAINS, outbound: directTag });
+  addRule({ domain: ["connectivitycheck.gstatic.com"], outbound: directTag });
+  addRule(rule("geosite-microsoft@cn", directTag));
+  addRule(rule("geosite-steam@cn", directTag));
+  addRule(rule("geosite-category-games@cn", directTag));
+  addRule(rule("geosite-bilibili", directTag));
+  addRule(rule("geosite-geolocation-cn", directTag));
+  addRule(rule("geosite-cn", directTag));
   addRule({
     package_name: [
       "com.tencent.mm", "com.eg.android.AlipayGphone", "com.unionpay",
@@ -593,29 +584,7 @@ function main(config) {
     ],
     outbound: directTag
   });
-  addRule({
-    package_name: [
-      "com.anydesk.anydeskandroid", "com.oray.todesk",
-      "com.teamviewer.teamviewer.market.mobile", "com.carriez.flutter_hbb",
-      "com.tailscale.ipn", "com.zerotier.one"
-    ],
-    outbound: remoteTag
-  });
-  addRule({
-    process_name: [
-      "AnyDesk", "ToDesk", "TeamViewer", "RustDesk", "rustdesk",
-      "tailscale", "tailscaled", "zerotier", "ngrok", "frpc", "frps", "cloudflared",
-      "natapp", "nblink"
-    ],
-    outbound: remoteTag
-  });
-  addRule({
-    package_name: [
-      "com.google.android.youtube", "com.google.android.apps.youtube.music",
-      "app.revanced.android.youtube", "com.vanced.android.youtube"
-    ],
-    outbound: youtubeTag
-  });
+  addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
   addRule({
     network: ["udp", "tcp"],
     port_range: "3478:3480",
@@ -686,9 +655,111 @@ function main(config) {
     method: "drop"
   });
   addRule({
-    domain: ["connectivitycheck.gstatic.com"],
+    type: "logical",
+    mode: "and",
+    rules: [
+      { network: "udp", port: 443 },
+      { rule_set: "geoip-cn" }
+    ],
     outbound: directTag
   });
+  addRule({
+    network: "udp",
+    port: 443,
+    domain_suffix: CN_DOMAINS,
+    outbound: directTag
+  });
+  addRule({
+    network: "udp",
+    port: 443,
+    action: "reject",
+    method: "drop"
+  });
+  addRule({
+    package_name: [
+      "com.anydesk.anydeskandroid", "com.oray.todesk",
+      "com.teamviewer.teamviewer.market.mobile", "com.carriez.flutter_hbb",
+      "com.tailscale.ipn", "com.zerotier.one"
+    ],
+    outbound: remoteTag
+  });
+  addRule({
+    process_name: [
+      "AnyDesk", "ToDesk", "TeamViewer", "RustDesk", "rustdesk",
+      "tailscale", "tailscaled", "zerotier", "ngrok", "frpc", "frps", "cloudflared",
+      "natapp", "nblink"
+    ],
+    outbound: remoteTag
+  });
+  addRule({
+    package_name: [
+      "com.google.android.youtube", "com.google.android.apps.youtube.music",
+      "app.revanced.android.youtube", "com.vanced.android.youtube"
+    ],
+    outbound: youtubeTag
+  });
+  addRule({
+    domain_suffix: ["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtubekids.com"],
+    outbound: youtubeTag
+  });
+  addRule({
+    package_name: [
+      "com.google.android.apps.bard",
+      "com.google.android.apps.googleassistant",
+      "com.google.android.googlequicksearchbox"
+    ],
+    outbound: aiOut
+  });
+  addRule(rule("geosite-category-ai-!cn", aiOut));
+  addRule(rule("geosite-openai", aiOut));
+  addRule({
+    domain_suffix: [
+      "gemini.google.com", "deepmind.com", "deepmind.google",
+      "generativelanguage.googleapis.com", "ai.google.dev",
+      "makersuite.google.com", "alkalimakersuite-pa.clients6.google.com"
+    ],
+    outbound: aiOut
+  });
+  addRule(rule("geosite-youtube", youtubeTag));
+  addRule(rule("geosite-netflix", mediaOut));
+  addRule(rule("geosite-disney", mediaOut));
+  addRule(rule("geosite-hulu", mediaOut));
+  addRule(rule("geosite-hbo", mediaOut));
+  addRule(rule("geosite-amazon", mediaOut));
+  addRule(rule("geosite-bahamut", mediaOut));
+  addRule(rule("geosite-abema", mediaOut));
+  addRule(rule("geosite-bbc", mediaOut));
+  addRule(rule("geosite-spotify", existingTag(outbounds, ["🎵 Spotify", mediaTag]) || mediaOut));
+  addRule(rule("geosite-tiktok", existingTag(outbounds, ["📱 TikTok", mediaTag]) || mediaOut));
+  addRule(rule("geosite-telegram", existingTag(outbounds, ["📲 Telegram", pickSelect]) || pickSelect));
+  addRule(rule("geosite-google", googleTag));
+  addRule({
+    domain_suffix: ["googleapis.com", "googleusercontent.com", "gvt1.com", "gvt2.com"],
+    outbound: googleTag
+  });
+  addRule(rule("geosite-github", pickSelect));
+  addRule(rule("geosite-gitlab", pickSelect));
+  addRule(rule("geosite-microsoft", existingTag(outbounds, ["🪟 Microsoft", pickSelect]) || pickSelect));
+  addRule(rule("geosite-apple", appleTag));
+  addRule(rule("geosite-icloud", appleTag));
+  addRule(rule("geosite-twitter", existingTag(outbounds, ["🐦 Twitter", pickSelect]) || pickSelect));
+  addRule(rule("geosite-facebook", pickSelect));
+  addRule(rule("geosite-instagram", pickSelect));
+  addRule(rule("geosite-discord", pickSelect));
+  addRule(rule("geosite-linkedin", pickSelect));
+  addRule(rule("geosite-snap", pickSelect));
+  addRule(rule("geosite-steam", steamTag));
+  addRule(rule("geosite-epicgames", steamTag));
+  addRule(rule("geosite-ea", steamTag));
+  addRule(rule("geosite-ubisoft", steamTag));
+  addRule(rule("geosite-blizzard", steamTag));
+  addRule(rule("geosite-paypal", pickSelect));
+  addRule(rule("geosite-aws", pickSelect));
+  addRule(rule("geosite-azure", pickSelect));
+  addRule(rule("geosite-dropbox", pickSelect));
+  addRule(rule("geosite-onedrive", pickSelect));
+  addRule(rule("geosite-category-scholar-!cn", pickSelect));
+  addRule(rule("geosite-geolocation-!cn", mapTarget("🌍 国外服务")));
   addRule({
     domain_suffix: [
       "browserleaks.com", "browserleaks.org", "browserleaks.info",
@@ -719,12 +790,24 @@ function main(config) {
   }
   var oldRules = ensureArray(route, "rules");
   var merged = [];
-  for (var p = 0; p < prepend.length; p++) merged.push(prepend[p]);
-  for (var o = 0; o < oldRules.length; o++) {
-    if (isInfraRule(oldRules[o])) merged.push(oldRules[o]);
+  var seenInfra = {};
+  function pushInfra(item) {
+    if (!item) return;
+    var action = ("" + (item.action || "")).toLowerCase();
+    var key = action + "|" + (item.protocol || "") + "|" + JSON.stringify(item.port || "");
+    if (seenInfra[key]) return;
+    seenInfra[key] = 1;
+    merged.push(item);
   }
+  pushInfra({ protocol: "dns", action: "hijack-dns" });
+  pushInfra({ port: 53, network: ["udp", "tcp"], action: "hijack-dns" });
+  for (var o = 0; o < oldRules.length; o++) {
+    if (isInfraRule(oldRules[o])) pushInfra(oldRules[o]);
+  }
+  for (var p = 0; p < prepend.length; p++) merged.push(prepend[p]);
   route.rules = merged;
   route.final = mapTarget("漏网之鱼");
+  route.find_process = false;
   if (typeof route.auto_detect_interface === "undefined") {
     route.auto_detect_interface = true;
   }
@@ -752,6 +835,23 @@ function main(config) {
 
   if (!config.dns || typeof config.dns !== "object") config.dns = {};
   var dns = config.dns;
+  var remoteDns = {
+    type: "https",
+    tag: "dns-remote",
+    server: "8.8.8.8",
+    server_port: 443,
+    path: "/dns-query"
+  };
+  var remoteDetour = existingTag(outbounds, [pickSelect, AUTO_NAME, SELECT_NAME]);
+  if (remoteDetour) remoteDns.detour = remoteDetour;
+  var cnDns = {
+    type: "https",
+    tag: "dns-cn",
+    server: "223.5.5.5",
+    server_port: 443,
+    path: "/dns-query",
+    detour: directTag
+  };
   dns.servers = [
     {
       type: "hosts",
@@ -764,12 +864,14 @@ function main(config) {
       }
     },
     { type: "local", tag: "dns-local" },
-    { type: "https", tag: "dns-cn", server: "223.5.5.5", server_port: 443, path: "/dns-query" },
-    { type: "https", tag: "dns-remote", server: "8.8.8.8", server_port: 443, path: "/dns-query" }
+    cnDns,
+    remoteDns
   ];
   var extraDns = [];
+  extraDns.push({ query_type: [64, 65], action: "reject" });
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
+  extraDns.push({ domain_suffix: CN_DOMAINS, server: "dns-cn" });
   if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
   if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
   extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
@@ -777,6 +879,7 @@ function main(config) {
   dns.final = "dns-remote";
   if (typeof dns.independent_cache === "undefined") dns.independent_cache = true;
   dns.strategy = "prefer_ipv4";
+  route.default_domain_resolver = "dns-local";
 
   if (!config.log || typeof config.log !== "object") config.log = {};
   if (!config.log.level) config.log.level = "info";

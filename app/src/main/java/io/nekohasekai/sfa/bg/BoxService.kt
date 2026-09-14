@@ -265,6 +265,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         title = "脚本启动失败，已回滚",
                         reason = ConfigDiagnose.explain(e.message),
                         hint = ConfigDiagnose.rollbackHint(),
+                        error = true,
                     ),
                 )
                 return true

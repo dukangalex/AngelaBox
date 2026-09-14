@@ -833,6 +833,7 @@ class MainActivity :
         val isConnectionsRoute = currentRootRoute == Screen.Connections.route
         val isGroupsRoute = currentRootRoute == Screen.Groups.route
         val isLogRoute = currentRootRoute == Screen.Log.route
+        val isDashboardRoute = currentRootRoute == Screen.Dashboard.route
 
         val isSubScreen = isSettingsSubScreen || isToolsSubScreen || isConnectionsDetail || isProfileRoute
         // Get LogViewModel instance if we're on the Log screen
@@ -1018,6 +1019,14 @@ class MainActivity :
                         }
                     }
 
+                    is UiEvent.OpenConnections -> {
+                        showConnectionsSheet = true
+                    }
+
+                    is UiEvent.OpenGroups -> {
+                        showGroupsSheet = true
+                    }
+
                     is UiEvent.ApplyServiceChange -> enqueueApplyServiceChange(event.mode)
                 }
             }
@@ -1076,7 +1085,7 @@ class MainActivity :
                             )
                         } else {
                             ServiceStatusBar(
-                                visible = showStatusBar && !isSubScreen,
+                                visible = showStatusBar && !isSubScreen && !isDashboardRoute,
                                 serviceStatus = currentServiceStatus,
                                 startTime = dashboardUiState.serviceStartTime,
                                 groupsCount = dashboardUiState.groupsCount,

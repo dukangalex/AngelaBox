@@ -254,6 +254,7 @@ def sanitize(root: dict) -> dict:
     drop_missing_rulesets(root)
     heal_download_clients(root)
     heal_missing_outbound_refs(root)
+    ensure_hijack_dns(root)
     return root
 
 
@@ -316,13 +317,25 @@ def heal_missing_outbound_refs(root: dict) -> None:
                 rule.pop("outbound", None)
 
 
+def ensure_hijack_dns(root: dict) -> None:
+    route = root.setdefault("route", {})
+    rules = list(route.get("rules") or [])
+    if any(str(r.get("action") or "") == "hijack-dns" for r in rules if isinstance(r, dict)):
+        return
+    extra = [
+        {"protocol": "dns", "action": "hijack-dns"},
+        {"port": 53, "network": ["udp", "tcp"], "action": "hijack-dns"},
+    ]
+    route["rules"] = extra + rules
+
+
 def main() -> int:
     errors: list[str] = []
     src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt").read_text()
     inbound_src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt").read_text()
     if "ConfigInboundCompat.apply" not in src:
         errors.append("ConfigCompat.sanitize must call ConfigInboundCompat.apply")
-    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "healDirectDestinationOverride", "legacy inbound fields"):
+    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "healDirectDestinationOverride", "ensureHijackDns", "legacy inbound fields"):
         if needle not in inbound_src:
             errors.append(f"missing {needle}")
     if JSDELIVR_HOST not in inbound_src:
@@ -366,6 +379,10 @@ def main() -> int:
     )
     if leftover["route"]["rules"][0].get("override_destination"):
         errors.append("leftover sniff override_destination was not stripped")
+
+    missing_dns = sanitize({"route": {"rules": [{"ip_is_private": True, "outbound": "direct"}]}})
+    if missing_dns["route"]["rules"][0].get("action") != "hijack-dns":
+        errors.append(f"hijack-dns must be injected when missing: {missing_dns['route']['rules']}")
 
     healed = sanitize(
         {
@@ -417,7 +434,7 @@ def main() -> int:
     tags = [x.get("tag") for x in dropped["route"]["rule_set"]]
     if tags != ["geoip-cn"]:
         errors.append(f"missing remote rule-set not dropped: {tags}")
-    kept_rules = [r.get("rule_set") for r in dropped["route"]["rules"]]
+    kept_rules = [r.get("rule_set") for r in dropped["route"]["rules"] if r.get("action") != "hijack-dns"]
     if kept_rules != ["geoip-cn"]:
         errors.append(f"dangling rule-set refs survived: {kept_rules}")
 

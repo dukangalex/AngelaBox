@@ -22,6 +22,7 @@ object ConfigInboundCompat {
         if (dropMissingRemoteRuleSets(root)) changed = true
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
+        if (ensureHijackDns(root)) changed = true
         return changed
     }
 
@@ -616,6 +617,30 @@ object ConfigInboundCompat {
             if (clients.optJSONObject(i)?.optString("tag") == tag) return true
         }
         return false
+    }
+
+    /**
+     * TUN DNS must be hijacked before any routing rule. Overlay scripts
+     * inject this; keep a startup fallback so a subscription without
+     * hijack-dns cannot leak port 53 or drop YouTube/Gemini lookups.
+     */
+    internal fun ensureHijackDns(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val rules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("action").equals("hijack-dns", true)) return false
+        }
+        val extra = JSONArray()
+            .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+            .put(
+                JSONObject()
+                    .put("port", 53)
+                    .put("network", JSONArray().put("udp").put("tcp"))
+                    .put("action", "hijack-dns"),
+            )
+        prependRouteRules(root, extra)
+        return true
     }
 
     private fun prependRouteRules(root: JSONObject, extra: JSONArray) {

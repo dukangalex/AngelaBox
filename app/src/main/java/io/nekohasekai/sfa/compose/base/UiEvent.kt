@@ -17,6 +17,10 @@ sealed class UiEvent {
 
     data class Navigate(val route: String) : UiEvent()
 
+    object OpenConnections : UiEvent()
+
+    object OpenGroups : UiEvent()
+
     object RequestStartService : UiEvent()
 
     object RequestReconnectService : UiEvent()

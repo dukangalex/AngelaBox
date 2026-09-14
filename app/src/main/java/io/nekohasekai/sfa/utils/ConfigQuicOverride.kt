@@ -44,6 +44,7 @@ object ConfigQuicOverride {
                         title = "链式代理未生效，已停止启动",
                         reason = e.message ?: "无法串联出站",
                         hint = "链路只绑定当前配置，订阅更新不会清掉绑定。请到「工具 → 链式代理」确认入口和落地。失败不会自动改走 DIRECT。",
+                        error = true,
                     )
                     OverrideStatus.set(warnings + notice)
                     throw ChainApplyException(notice.reason)
@@ -53,9 +54,9 @@ object ConfigQuicOverride {
             applyLogLevel(root)
             if (scriptOn && (Settings.chinaDirect || Settings.adsBlock || Settings.disableQuic)) {
                 warnings += OverrideNotice(
-                    title = "脚本已接管分流",
-                    reason = "此配置开启了覆写脚本，中国直连、广告拦截、禁用 QUIC 本次不写入，只跑一套规则。",
-                    hint = "关掉脚本后，配置覆盖里的开关会重新生效。DNS 防泄漏和 IPv6 开关仍会写入。",
+                    title = "脚本分流中",
+                    reason = "当前配置只跑脚本这一套规则：国内直连、国外走代理。",
+                    hint = "关掉脚本后，中国直连 / 广告拦截 / 禁用 QUIC 会重新生效。DNS 防泄漏仍写入。",
                 )
             }
             applyOne(warnings, "中国直连") {
@@ -93,6 +94,7 @@ object ConfigQuicOverride {
                 title = "网络增强开关部分未生效",
                 reason = e.message ?: "覆盖失败",
                 hint = "请检查配置是否含 TUN/路由段，或临时关闭对应开关。",
+                error = true,
             )
         }
 
@@ -108,6 +110,7 @@ object ConfigQuicOverride {
                 title = "$title 未完全生效",
                 reason = e.message ?: "覆盖失败",
                 hint = "该开关会强制覆盖运行时配置，不改订阅文件。其它已开启的开关仍会继续写入。",
+                error = true,
             )
         }
     }

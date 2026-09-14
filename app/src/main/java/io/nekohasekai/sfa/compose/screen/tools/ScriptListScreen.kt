@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
@@ -30,6 +32,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,14 +64,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.OverlayScript
 import io.nekohasekai.sfa.utils.OverlayScripts
@@ -97,6 +108,19 @@ fun ScriptListScreen(
     var menuFor by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<OverlayScript?>(null) }
     var syncingId by remember { mutableStateOf<String?>(null) }
+    var profiles by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var bindProfileId by remember { mutableStateOf(-1L) }
+    var bindMenu by remember { mutableStateOf(false) }
+    var barMenu by remember { mutableStateOf(false) }
+    var bindTick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        val list = withContext(Dispatchers.IO) { ProfileManager.list() }
+        profiles = list
+        bindProfileId = Settings.selectedProfile.takeIf { id -> list.any { it.id == id } }
+            ?: list.firstOrNull()?.id
+            ?: -1L
+    }
 
     fun reloadService() {
         scope.launch { notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload) }
@@ -176,6 +200,33 @@ fun ScriptListScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                 }
             },
+            actions = {
+                if (profiles.isNotEmpty()) {
+                    Box {
+                        TextButton(onClick = { barMenu = true }) {
+                            Text(
+                                profiles.find { it.id == bindProfileId }?.name
+                                    ?: stringResource(R.string.title_configuration),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 148.dp),
+                            )
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = barMenu, onDismissRequest = { barMenu = false }) {
+                            profiles.forEach { profile ->
+                                DropdownMenuItem(
+                                    text = { Text(profile.name) },
+                                    onClick = {
+                                        barMenu = false
+                                        bindProfileId = profile.id
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
         )
     }
 
@@ -196,6 +247,96 @@ fun ScriptListScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                 )
+            }
+            if (profiles.isNotEmpty() && scripts.isNotEmpty()) {
+                item {
+                    val bindProfile = profiles.find { it.id == bindProfileId } ?: profiles.first()
+                    val boundIds = remember(bindProfile.id, bindTick, scripts) {
+                        OverlayScripts.selectedIds(bindProfile.id).orEmpty()
+                    }
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.overlay_scripts_profile_enable),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            ExposedDropdownMenuBox(
+                                expanded = bindMenu,
+                                onExpandedChange = { bindMenu = it },
+                            ) {
+                                OutlinedTextField(
+                                    value = bindProfile.name,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = bindMenu) },
+                                    modifier = Modifier
+                                        .then(menuAnchorCompat(true))
+                                        .fillMaxWidth(),
+                                    label = { Text(stringResource(R.string.title_configuration)) },
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = bindMenu,
+                                    onDismissRequest = { bindMenu = false },
+                                ) {
+                                    profiles.forEach { profile ->
+                                        DropdownMenuItem(
+                                            text = { Text(profile.name) },
+                                            onClick = {
+                                                bindMenu = false
+                                                bindProfileId = profile.id
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            scripts.forEach { script ->
+                                ListItem(
+                                    headlineContent = { Text(script.name) },
+                                    supportingContent = {
+                                        Text(
+                                            if (script.id in boundIds && script.enabled) {
+                                                stringResource(R.string.overlay_scripts_bound_on)
+                                            } else {
+                                                stringResource(R.string.overlay_scripts_bound_off)
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    },
+                                    trailingContent = {
+                                        Switch(
+                                            checked = script.enabled && script.id in boundIds,
+                                            onCheckedChange = { on ->
+                                                val current = OverlayScripts.selectedIds(bindProfile.id)
+                                                    .orEmpty()
+                                                    .toMutableList()
+                                                if (on) {
+                                                    if (script.id !in current) current += script.id
+                                                    if (!script.enabled) OverlayScripts.toggle(script.id, true)
+                                                    ChainBindings.remove(bindProfile.id)
+                                                } else {
+                                                    current.remove(script.id)
+                                                }
+                                                OverlayScripts.setBinding(bindProfile.id, current)
+                                                scripts = OverlayScripts.list()
+                                                bindTick++
+                                                if (bindProfile.id == Settings.selectedProfile) reloadService()
+                                            },
+                                        )
+                                    },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
+                        }
+                    }
+                }
             }
             if (scripts.isEmpty()) {
                 item {

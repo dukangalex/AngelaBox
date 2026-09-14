@@ -11,6 +11,7 @@ data class OverrideNotice(
     val title: String,
     val reason: String,
     val hint: String,
+    val error: Boolean = false,
 )
 
 object OverrideStatus {
@@ -23,8 +24,9 @@ object OverrideStatus {
 
     fun set(items: List<OverrideNotice>) {
         _notices.value = items
-        if (items.isNotEmpty()) {
-            val text = items.joinToString("\n\n") { "${it.title}\n${it.reason}\n${it.hint}" }
+        val errors = items.filter { it.error }
+        if (errors.isNotEmpty()) {
+            val text = errors.joinToString("\n\n") { "${it.title}\n${it.reason}\n${it.hint}" }
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(Application.application, text, Toast.LENGTH_LONG).show()
             }

@@ -63,6 +63,29 @@ class ConfigScriptOverrideTest {
         })
         val mixed = out.getJSONArray("inbounds")
         assertTrue((0 until mixed.length()).any { mixed.getJSONObject(it).optString("type") == "mixed" })
+        val remote = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
+            (0 until servers.length()).map { servers.getJSONObject(it) }
+                .first { it.optString("tag") == "dns-remote" }
+        }
+        assertTrue(remote.optString("detour").isNotBlank())
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        val ruleText = (0 until rules.length()).joinToString("\n") { rules.getJSONObject(it).toString() }
+        val geoip = ruleText.indexOf("geoip-cn")
+        val notCn = ruleText.indexOf("geolocation-!cn")
+        assertTrue(geoip >= 0 && (notCn < 0 || geoip < notCn))
+        assertEquals(false, out.getJSONObject("route").optBoolean("find_process", true))
+        assertTrue("hijack-dns", ruleText.contains("hijack-dns"))
+        val firstAction = rules.getJSONObject(0).optString("action")
+        assertEquals("hijack-dns", firstAction)
+        assertTrue("quic drop", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        val cnDns = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
+            (0 until servers.length()).map { servers.getJSONObject(it) }
+                .first { it.optString("tag") == "dns-cn" }
+        }
+        assertEquals("direct", cnDns.optString("detour"))
+        val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
+        val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
+        assertTrue(dnsRuleText.contains("65"))
     }
 
     @Test

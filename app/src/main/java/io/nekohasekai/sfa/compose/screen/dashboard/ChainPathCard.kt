@@ -39,7 +39,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,8 +78,11 @@ import io.nekohasekai.sfa.chain.LiveTopology
 import io.nekohasekai.sfa.chain.PlacedRibbon
 import io.nekohasekai.sfa.chain.SankeyLayout
 import io.nekohasekai.sfa.chain.TrafficFlowBuilder
+import io.nekohasekai.sfa.compose.base.GlobalEventBus
+import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.LineChart
 import io.nekohasekai.sfa.constant.Status
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -108,6 +113,10 @@ fun ChainPathCard(
     memory: String = "",
     goroutines: String = "",
     serviceStatus: Status = Status.Stopped,
+    connectionsCount: Int = 0,
+    groupsCount: Int = 0,
+    hasGroups: Boolean = false,
+    serviceStartTime: Long? = null,
 ) {
     val running = topology.running
     val busy = serviceStatus == Status.Starting || serviceStatus == Status.Stopping
@@ -243,29 +252,54 @@ fun ChainPathCard(
             )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
             if (running) {
                 StatusChip(stringResource(R.string.chain_path_running), emphasized = true)
                 if (topology.chained) {
-                    Spacer(modifier = Modifier.width(6.dp))
                     StatusChip(stringResource(R.string.chain_path_chained), emphasized = false)
                 }
                 if (topology.mode.equals("direct", ignoreCase = true)) {
-                    Spacer(modifier = Modifier.width(6.dp))
                     StatusChip(stringResource(R.string.chain_path_mode_direct), emphasized = false)
                 }
                 if (systemProxyVisible) {
-                    Spacer(modifier = Modifier.width(6.dp))
                     StatusChip(
                         label = stringResource(R.string.system_proxy),
                         emphasized = systemProxyEnabled,
                         onClick = { onSystemProxyToggle(!systemProxyEnabled) },
                     )
                 }
+                StatusChip(
+                    label = "$connectionsCount ${stringResource(R.string.title_connections)}",
+                    emphasized = false,
+                    onClick = { GlobalEventBus.tryEmit(UiEvent.OpenConnections) },
+                )
+                if (hasGroups) {
+                    StatusChip(
+                        label = "$groupsCount ${stringResource(R.string.title_groups)}",
+                        emphasized = false,
+                        onClick = { GlobalEventBus.tryEmit(UiEvent.OpenGroups) },
+                    )
+                }
+                if (serviceStartTime != null) {
+                    StatusChip(
+                        label = formatUptime(serviceStartTime),
+                        emphasized = true,
+                        onClick = onToggleService,
+                    )
+                }
             } else {
                 StatusChip(stringResource(R.string.chain_path_idle), emphasized = false)
             }
-            Spacer(modifier = Modifier.weight(1f))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
             Column(horizontalAlignment = Alignment.End) {
                 if (downlinkTotal.isNotEmpty() || uplinkTotal.isNotEmpty()) {
                     Text(
@@ -494,6 +528,26 @@ private fun StatusChip(label: String, emphasized: Boolean, onClick: (() -> Unit)
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun formatUptime(startTime: Long): String {
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(startTime) {
+        while (true) {
+            delay(1000)
+            currentTime = System.currentTimeMillis()
+        }
+    }
+    val elapsedSeconds = ((currentTime - startTime) / 1000).coerceAtLeast(0)
+    val hours = elapsedSeconds / 3600
+    val minutes = (elapsedSeconds % 3600) / 60
+    val seconds = elapsedSeconds % 60
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
     }
 }
 

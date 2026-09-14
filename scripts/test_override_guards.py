@@ -672,11 +672,45 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 6" not in sample:
-        errors.append("default script must stamp overlay-revision: 6 so stale copies refresh")
+    if "overlay-revision: 8" not in sample:
+        errors.append("default script must stamp overlay-revision: 8 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 6"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 8"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
+    geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
+    if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
+        errors.append("default script must route geoip-cn DIRECT before geosite-geolocation-!cn")
+    if "remoteDns.detour" not in sample and "remoteDns.detour =" not in sample:
+        errors.append("dns-remote must detour through a proxy group so foreign DoH works in China")
+    if "find_process = false" not in sample:
+        errors.append("default script must disable find_process to avoid procfs spam on Android")
+    if "angela-direct" not in sample:
+        errors.append("default script must create a clean direct outbound when tag direct is not type=direct")
+    if '"hijack-dns"' not in sample:
+        errors.append("default script must hijack DNS before routing so system lookups are not dropped")
+    if "query_type: [64, 65]" not in sample:
+        errors.append("default script must reject HTTPS/SVCB DNS so YouTube/Gemini fall back from HTTP3")
+    if "port: 443" not in sample or 'method: "drop"' not in sample:
+        errors.append("default script must reject non-CN QUIC (UDP 443) like the original airport overwrite")
+    if "detour: directTag" not in sample:
+        errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
+    if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:
+        errors.append("default script must keep Gemini domains on the AI group")
+    if "com.google.android.apps.bard" not in sample:
+        errors.append("default script must route the Gemini Android package")
+    if "ensureHijackDns" not in inbound:
+        errors.append("startup must inject hijack-dns if the subscription omitted it")
+    if "barProfileMenu" not in ui:
+        errors.append("chain builder top bar must expose a profile dropdown")
+    script_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt")
+    if "barMenu" not in script_ui:
+        errors.append("script list top bar must expose a profile dropdown")
+    banner = read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt")
+    if "surfaceContainerHigh" not in banner:
+        errors.append("script notice banner must not use a red error container for info")
+    if "脚本已接管分流" in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt"):
+        errors.append("script overlay notice must stay a calm info banner, not 脚本已接管分流")
     if "override_address" in sample:
         errors.append("default script must not emit removed direct override_address")
     if 'type: "socks"' not in sample or "server_port: 9" not in sample:
@@ -756,6 +790,20 @@ def main() -> int:
         errors.append("default script must use sing-box port_range for STUN")
     if "isAnnouncement" not in sample:
         errors.append("default script must skip announcement/fake leaf nodes")
+    if "errorContainer" in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt") and "surfaceContainerHigh" not in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt") and "secondaryContainer" not in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt"):
+        errors.append("script takeover banner must not always use error red")
+    if "OpenConnections" not in read("app/src/main/java/io/nekohasekai/sfa/compose/base/UiEvent.kt"):
+        errors.append("dashboard chips need OpenConnections / OpenGroups events")
+    if "connectionsCount" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard must embed connection/group/uptime chips")
+    if "isDashboardRoute" not in read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"):
+        errors.append("service status bar must hide on the dashboard once chips moved up")
+    if "ExposedDropdownMenuBox" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt"):
+        errors.append("chain builder must offer a profile dropdown")
+    if "ExposedDropdownMenuBox" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must offer a profile dropdown to bind scripts")
+    if "注重隐私" not in read("README.md"):
+        errors.append("README must put privacy/security/perf/out-of-box on the front")
     if "链路只绑定当前这一份配置。切换到其他配置时" in builder:
         errors.append("chain builder on-page copy must move into the info dialog")
     if "isBypassDirectRule" not in compiler:
