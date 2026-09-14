@@ -77,7 +77,6 @@ import io.nekohasekai.sfa.chain.PlacedRibbon
 import io.nekohasekai.sfa.chain.SankeyLayout
 import io.nekohasekai.sfa.chain.TrafficFlowBuilder
 import io.nekohasekai.sfa.compose.LineChart
-import io.nekohasekai.sfa.compose.navigation.NewProfileArgs
 import io.nekohasekai.sfa.constant.Status
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -96,7 +95,7 @@ fun ChainPathCard(
     selectedClashMode: String = "",
     onClashModeSelected: (String) -> Unit = {},
     onShowProfilePicker: () -> Unit = {},
-    onOpenNewProfile: (NewProfileArgs) -> Unit = {},
+    onShowAddProfile: () -> Unit = {},
     onToggleService: () -> Unit = {},
     onRequestDelayTest: () -> Unit = {},
     onUpdateCurrentProfile: () -> Unit = {},
@@ -164,7 +163,7 @@ fun ChainPathCard(
                 )
             }
             IconButton(
-                onClick = { onOpenNewProfile(NewProfileArgs()) },
+                onClick = onShowAddProfile,
                 modifier = Modifier.size(28.dp),
             ) {
                 Icon(

@@ -22,6 +22,7 @@ object ConfigQuicOverride {
         try {
             var root = JSONObject(out)
             applyLogLevel(root)
+            val scriptOn = OverlayScripts.enabledFor(profileId).isNotEmpty()
             applyOne(warnings, "覆写脚本") {
                 ConfigScriptOverride.apply(root, profileId)
             }
@@ -48,11 +49,18 @@ object ConfigQuicOverride {
             }
             root = JSONObject(out)
             applyLogLevel(root)
+            if (scriptOn && (Settings.chinaDirect || Settings.adsBlock || Settings.disableQuic)) {
+                warnings += OverrideNotice(
+                    title = "脚本已接管分流",
+                    reason = "此配置开启了覆写脚本，中国直连、广告拦截、禁用 QUIC 本次不写入，只跑一套规则。",
+                    hint = "关掉脚本后，配置覆盖里的开关会重新生效。DNS 防泄漏和 IPv6 开关仍会写入。",
+                )
+            }
             applyOne(warnings, "中国直连") {
-                if (Settings.chinaDirect) ConfigChinaDirect.apply(root)
+                if (Settings.chinaDirect && !scriptOn) ConfigChinaDirect.apply(root)
             }
             applyOne(warnings, "禁用 QUIC") {
-                if (Settings.disableQuic) applyQuic(root)
+                if (Settings.disableQuic && !scriptOn) applyQuic(root)
             }
             applyOne(warnings, "严格路由") {
                 if (Settings.strictRoute) applyStrictRoute(root)
@@ -68,7 +76,7 @@ object ConfigQuicOverride {
                 if (Settings.webrtcProtect) applyWebrtc(root)
             }
             applyOne(warnings, "广告拦截") {
-                if (Settings.adsBlock) ConfigAdBlock.apply(root)
+                if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
             }
             // After scripts and chain merge: drop remote rule-sets that 404
             // on the testingcf mirror so a previously imported default
@@ -156,6 +164,9 @@ object ConfigQuicOverride {
     internal fun applyDnsProtect(root: JSONObject) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         dns.put("independent_cache", true)
+        if (!Settings.disableIpv6 && dns.optString("strategy").isBlank()) {
+            dns.put("strategy", "prefer_ipv4")
+        }
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
     }

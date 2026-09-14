@@ -215,7 +215,16 @@ fun DashboardScreen(
             onProfileEdit = viewModel::editProfile,
             onProfileDelete = viewModel::deleteProfile,
             onProfileMove = viewModel::moveProfile,
+            onAddProfile = viewModel::showAddProfileFromPicker,
             onDismiss = viewModel::hideProfilePickerSheet,
+        )
+    }
+
+    if (uiState.showAddProfileSheet) {
+        AddProfileSheet(
+            onDismiss = viewModel::hideAddProfileSheet,
+            onOpenNewProfile = onOpenNewProfile,
+            onProfileImported = { profile -> viewModel.editProfile(profile) },
         )
     }
 }

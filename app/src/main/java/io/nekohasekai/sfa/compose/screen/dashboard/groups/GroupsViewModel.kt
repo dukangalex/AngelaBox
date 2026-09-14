@@ -25,6 +25,8 @@ data class GroupsUiState(
     val isLoading: Boolean = false,
     val expandedGroups: Set<String> = emptySet(),
     val testingGroups: Set<String> = emptySet(),
+    val testingStartedAt: Map<String, Long> = emptyMap(),
+    val testingItems: Set<String> = emptySet(),
     val showCloseConnectionsSnackbar: Boolean = false,
 )
 
@@ -224,17 +226,27 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     fun urlTest(outboundTag: String) {
+        updateState { copy(testingItems = testingItems + outboundTag) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 CommandTarget.standaloneClient().urlTest(outboundTag)
             } catch (e: Exception) {
                 sendError(e)
+            } finally {
+                withContext(Dispatchers.Main) {
+                    updateState { copy(testingItems = testingItems - outboundTag) }
+                }
             }
         }
     }
 
     fun urlTestGroup(groupTag: String) {
-        updateState { copy(testingGroups = testingGroups + groupTag) }
+        updateState {
+            copy(
+                testingGroups = testingGroups + groupTag,
+                testingStartedAt = testingStartedAt + (groupTag to System.currentTimeMillis()),
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 CommandTarget.standaloneClient().urlTest(groupTag)
@@ -242,7 +254,12 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 sendError(e)
             } finally {
                 withContext(Dispatchers.Main) {
-                    updateState { copy(testingGroups = testingGroups - groupTag) }
+                    updateState {
+                        copy(
+                            testingGroups = testingGroups - groupTag,
+                            testingStartedAt = testingStartedAt - groupTag,
+                        )
+                    }
                 }
             }
         }

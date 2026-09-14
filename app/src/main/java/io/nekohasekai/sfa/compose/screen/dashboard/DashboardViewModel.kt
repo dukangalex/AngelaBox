@@ -525,6 +525,10 @@ class DashboardViewModel :
         updateState { copy(showProfilePickerSheet = false) }
     }
 
+    fun showAddProfileFromPicker() {
+        updateState { copy(showProfilePickerSheet = false, showAddProfileSheet = true) }
+    }
+
     fun updateServiceStatus(status: Status) {
         viewModelScope.launch {
             _serviceStatus.emit(status)

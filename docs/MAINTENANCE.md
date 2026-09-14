@@ -42,7 +42,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 ## 对外身份（已落地）
 
 - 对外产品名、README、About、Release、APK 文件名、仓库路径都是 AngelaBox。包名仍为 `io.chainbox.app`。
-- 同时发布 `ChainBox-android.apk`（与 AngelaBox 包内容相同，仅文件名不同），供旧版覆盖安装。用户只需安装其中一个。
+- 只发布 `AngelaBox-android.apk`。曾用名 ChainBox 不再出安装包。
 - 发版后 `build-chainbox.yml` 会向 [t.me/AngelaBox](https://t.me/AngelaBox) **先发**带更新说明和下载按钮的文字（关闭 GitHub 链接预览，避免错图），再上传 `AngelaBox-android.apk`。安装包约 40MB，上传按块写入并超时重试；即使上传失败，频道也已经有说明和 GitHub 下载按钮。需仓库 Secrets：`TG_BOT_TOKEN`、`TG_CHANNEL_ID`。手动补发工作流是 **Telegram Release**（文件 `telegram.yml`）。
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`（旧仓库名会重定向）。
 - 不走 F-Droid / 官方 SagerNet 更新源。
@@ -114,8 +114,9 @@ git merge upstream/dev
 
 1. 改 `version.properties`（`VERSION_NAME` 与 tag 一致，`VERSION_CODE` 必须递增）。
 2. Actions → **Build ChainBox APK** → `publish_release=true` → `version_tag=vX.Y.Z`。
-3. 用户安装 `AngelaBox-android.apk`，并用 `AngelaBox-android.apk.sha256` 校验。`ChainBox-android.apk` 为同内容兼容包。
-4. 发版说明必须包含：内核 commit SHA、官方基线 tag、官方类型常量检查结果。
+3. 用户安装 `AngelaBox-android.apk`，并用 `AngelaBox-android.apk.sha256` 校验。
+4. 发版前对照上游 `scripts/upstream_strings/`：简体用词与官方一致，仅保留 AngelaBox 新增条目。
+5. 发版说明必须包含：内核 commit SHA、官方基线 tag、官方类型常量检查结果。
 
 Secrets：`KEYSTORE_BASE64`，以及 `KEYSTORE_PASSWORD`/`KEYSTORE_PASS`、`KEY_ALIAS`/`ALIAS_NAME`、`KEY_PASSWORD`/`ALIAS_PASS`。
 

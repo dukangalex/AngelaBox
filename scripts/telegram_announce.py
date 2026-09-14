@@ -36,7 +36,7 @@ def main() -> None:
             "",
             notes or f"AngelaBox {tag} 已发布。",
             "",
-            "请安装 AngelaBox-android.apk（ChainBox-android.apk 是同内容别名，不必下两个）。",
+            "请安装 AngelaBox-android.apk。",
         ]
     )
     if sha:
@@ -65,7 +65,7 @@ def main() -> None:
     caption = [
         f"AngelaBox {tag}",
         "",
-        "点这条消息即可安装。ChainBox-android.apk 是同内容别名，不必另下。",
+        "点这条消息即可安装。",
     ]
     if sha:
         caption.extend(

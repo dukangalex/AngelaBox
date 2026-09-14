@@ -812,6 +812,6 @@
     <string name="overlay_scripts_failed">Could not save the script</string>
     <string name="overlay_scripts_empty_file">The file is empty</string>
     <string name="overlay_scripts_profile_enable">Enable scripts for this profile</string>
-    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups and routing and keeps the nodes. Turning on a chain mutes scripts for this profile; turning on scripts clears the chain. They do not run together.</string>
+    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups, routing, and matching app switches (China Direct, ad block) so only one ruleset runs. Nodes are kept. A chain mutes scripts; scripts clear the chain.</string>
     <string name="overlay_scripts_profile_empty">No scripts yet. Import some from Tools → Scripts.</string>
 </resources>

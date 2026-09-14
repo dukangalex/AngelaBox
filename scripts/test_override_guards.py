@@ -506,8 +506,8 @@ def main() -> int:
         errors.append("release workflow must check official type constants")
     if "AngelaBox-android.apk" not in workflow:
         errors.append("release must publish AngelaBox-android.apk")
-    if "ChainBox-android.apk.sha256" not in workflow:
-        errors.append("release workflow must attach APK SHA-256")
+    if "ChainBox-android.apk" in workflow:
+        errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
     if "KERNEL_COMMIT" not in workflow:
         errors.append("release workflow must record the kernel commit SHA")
     if "TG_BOT_TOKEN" not in workflow:
@@ -541,8 +541,8 @@ def main() -> int:
         errors.append("build-chainbox.yml Telegram step must be unbuffered so upload progress is visible")
     if "body_path: release-body.md" not in workflow:
         errors.append("GitHub release body must come from generated notes")
-    if "same-bytes alias" not in workflow:
-        errors.append("release notes must say ChainBox-android.apk is the same file")
+    if "same-bytes alias" in workflow or "ChainBox-android.apk" in workflow:
+        errors.append("release notes must not mention a ChainBox APK alias")
     telegram = read(".github/workflows/telegram.yml")
     if "TG_BOT_TOKEN" not in telegram or "TG_CHANNEL_ID" not in telegram:
         errors.append("telegram.yml must use TG_BOT_TOKEN and TG_CHANNEL_ID")
@@ -821,6 +821,36 @@ def main() -> int:
         errors.append("zh-rCN missing overlay_scripts_sync")
     if 'name="overlay_scripts_profile_enable"' not in cn:
         errors.append("zh-rCN missing overlay_scripts_profile_enable")
+    if 'name="title_new_profile">新建配置</string>' not in cn:
+        errors.append("zh-rCN title_new_profile must follow official 新建配置")
+    if 'name="profile_create">创建</string>' not in cn:
+        errors.append("zh-rCN profile_create must follow official 创建")
+    if 'name="profile_source_import">导入</string>' not in cn:
+        errors.append("zh-rCN profile_source_import must follow official 导入")
+    if 'name="basic_information">基本信息</string>' not in cn:
+        errors.append("zh-rCN basic_information must follow official 基本信息")
+    if 'name="add_profile">添加配置文件</string>' not in cn:
+        errors.append("zh-rCN add_profile must follow official 添加配置文件")
+    if "AddProfileSheet" not in dash:
+        errors.append("dashboard must show the official three-option add profile sheet")
+    groups_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/GroupsCard.kt")
+    if "UrlTestAction" not in groups_card or "rememberInfiniteTransition" not in groups_card:
+        errors.append("url test button must animate with progress instead of a static swap")
+    if "testingStartedAt" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/groups/GroupsViewModel.kt"):
+        errors.append("url test must track per-group start time so nodes can show progress")
+    quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "scriptOn" not in quic or "&& !scriptOn" not in quic:
+        errors.append("China Direct and ad block must not write when a script is already running")
+    if "prefer_ipv4" not in quic:
+        errors.append("DNS protect must set dual-stack prefer_ipv4")
+    if "2400:3200::1/128" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChinaDirect.kt"):
+        errors.append("China Direct must include IPv6 public DNS")
+    if "cmbchina.com" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt"):
+        errors.append("China Direct domain list must include major banks")
+    if "ChainBox-android.apk" in read("scripts/telegram_announce.py"):
+        errors.append("Telegram copy must not mention ChainBox-android.apk")
+    if "Copy official SagerNet zh strings" not in read("scripts/sync_upstream_strings.py"):
+        errors.append("missing scripts/sync_upstream_strings.py")
     if "ScriptListScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
         errors.append("ScriptListScreen missing")
     if "painterResource(R.mipmap" in path_card:

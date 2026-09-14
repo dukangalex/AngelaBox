@@ -15,6 +15,7 @@ class ConfigChinaDirectTest {
         val text = rules.toString()
         assertTrue(text.contains("ip_is_private"))
         assertTrue(text.contains("114.114.114.114/32"))
+        assertTrue(text.contains("2400:3200::1/128"))
         assertTrue(text.contains("dns.alidns.com"))
         assertTrue(text.contains("qq.com"))
         assertTrue(text.contains("local"))

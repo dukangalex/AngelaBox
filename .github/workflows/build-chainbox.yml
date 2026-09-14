@@ -221,9 +221,7 @@ jobs:
           if [ -z "$PREFERRED" ]; then PREFERRED=$(ls dist/*arm64-v8a*.apk 2>/dev/null | head -n1 || true); fi
           if [ -z "$PREFERRED" ]; then PREFERRED=$(ls dist/*.apk | head -n1); fi
           cp -f "$PREFERRED" dist/AngelaBox-android.apk
-          cp -f dist/AngelaBox-android.apk dist/ChainBox-android.apk
           sha256sum dist/AngelaBox-android.apk | tee dist/AngelaBox-android.apk.sha256
-          sha256sum dist/ChainBox-android.apk | tee dist/ChainBox-android.apk.sha256
           ls -lah dist
 
       - name: Upload APKs
@@ -234,8 +232,6 @@ jobs:
           path: |
             dist/AngelaBox-android.apk
             dist/AngelaBox-android.apk.sha256
-            dist/ChainBox-android.apk
-            dist/ChainBox-android.apk.sha256
           if-no-files-found: error
 
       - name: Build release notes
@@ -246,8 +242,6 @@ jobs:
           {
             if [ -f "$NOTES" ]; then cat "$NOTES"; echo; fi
             echo "Install \`AngelaBox-android.apk\` (arm64). That is the only file you need."
-            echo
-            echo "\`ChainBox-android.apk\` is a **same-bytes alias** for overlay updates from the old name. Do not install both."
             echo
             echo "Verify:"
             echo
@@ -274,8 +268,6 @@ jobs:
           files: |
             dist/AngelaBox-android.apk
             dist/AngelaBox-android.apk.sha256
-            dist/ChainBox-android.apk
-            dist/ChainBox-android.apk.sha256
           draft: false
           prerelease: false
           make_latest: true

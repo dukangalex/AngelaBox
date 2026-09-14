@@ -58,7 +58,7 @@ fun DashboardCardRenderer(
                 selectedClashMode = uiState.selectedClashMode,
                 onClashModeSelected = onClashModeSelected,
                 onShowProfilePicker = onShowProfilePickerSheet,
-                onOpenNewProfile = onOpenNewProfile,
+                onShowAddProfile = onShowAddProfileSheet,
                 onToggleService = onToggleService,
                 onRequestDelayTest = onRequestDelayTest,
                 onUpdateCurrentProfile = {

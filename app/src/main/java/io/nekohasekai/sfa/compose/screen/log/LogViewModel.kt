@@ -78,7 +78,10 @@ class LogViewModel :
         }
         when (status) {
             Status.Stopped, Status.Stopping -> {
-                _uiState.update { it.copy(isConnected = false) }
+                allLogs.clear()
+                bufferedLogs.clear()
+                _uiState.update { it.copy(isConnected = false, isPaused = false) }
+                updateDisplayedLogs()
             }
 
             else -> {}

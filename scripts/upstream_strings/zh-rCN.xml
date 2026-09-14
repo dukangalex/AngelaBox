@@ -1,9 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name" translatable="false">AngelaBox</string>
+    <!-- App -->
+    <string name="app_name" translatable="false">sing-box</string>
     <string name="app_version_title">应用版本</string>
     <string name="language">语言</string>
     <string name="system_default">跟随系统</string>
+
+    <!-- Common Actions -->
     <string name="ok">好</string>
     <string name="cancel">取消</string>
     <string name="save">保存</string>
@@ -33,6 +36,8 @@
     <string name="no_thanks">不，谢谢</string>
     <string name="options">选项</string>
     <string name="more_options">更多选项</string>
+
+    <!-- Common States -->
     <string name="enabled">启用</string>
     <string name="disabled">禁用</string>
     <string name="loading">加载中...</string>
@@ -40,20 +45,13 @@
     <string name="auto">自动</string>
     <string name="success">成功</string>
     <string name="default_text">默认</string>
+
+    <!-- Navigation Titles -->
     <string name="title_dashboard">仪表</string>
     <string name="title_configuration">配置</string>
     <string name="title_log">日志</string>
     <string name="title_settings">设置</string>
     <string name="title_app_settings">应用</string>
-    <string name="theme_settings">主题</string>
-    <string name="theme_mode">主题模式</string>
-    <string name="theme_mode_system">自动</string>
-    <string name="theme_mode_light">浅色</string>
-    <string name="theme_mode_dark">深色</string>
-    <string name="theme_color">主题色彩</string>
-    <string name="theme_pure_black">纯黑模式</string>
-    <string name="theme_pure_black_summary">深色模式下使用纯黑背景</string>
-    <string name="theme_color_dynamic">壁纸色彩</string>
     <string name="title_new_profile">新建配置</string>
     <string name="title_edit_profile">编辑配置</string>
     <string name="title_edit_configuration">编辑配置</string>
@@ -62,10 +60,14 @@
     <string name="title_connections">连接</string>
     <string name="title_others">其他</string>
     <string name="title_scan_result">扫描结果</string>
+
+    <!-- Status -->
     <string name="status_default">服务未启动</string>
     <string name="status_starting">启动中</string>
     <string name="status_stopping">停止中</string>
     <string name="status_started">已启动</string>
+
+    <!-- Dashboard -->
     <string name="dashboard_items">仪表项</string>
     <string name="memory">内存</string>
     <string name="goroutines">协程</string>
@@ -80,6 +82,8 @@
     <string name="drag_handle_to_reorder">拖动手柄重新排序项目</string>
     <string name="drag_to_reorder">拖动重新排序</string>
     <string name="reset_order">重置顺序</string>
+
+    <!-- Connections -->
     <string name="search_connections">搜索连接…</string>
     <string name="close_connections_confirm">关闭所有连接？</string>
     <string name="connection_state_all">全部</string>
@@ -119,10 +123,11 @@
     <string name="connection_user_name">用户名</string>
     <string name="connection_process_path">进程路径</string>
     <string name="connection_package_name">包名</string>
+
+    <!-- Profiles -->
     <string name="no_profiles">没有配置的配置文件</string>
     <string name="add_profile">添加配置文件</string>
     <string name="update_profile">更新配置文件</string>
-    <string name="update_current_profile">更新当前配置</string>
     <string name="import_remote_profile">导入远程配置</string>
     <string name="import_remote_profile_message">您确定要导入远程配置文件 %1$s 吗？您将连接到 %2$s 来下载配置。</string>
     <string name="import_from_file_description">从本地文件导入配置</string>
@@ -166,7 +171,11 @@
     <string name="import_profile_confirm_title">导入配置</string>
     <string name="import_profile_confirm_message">导入配置「%s」？</string>
     <string name="import_action">导入</string>
+
+    <!-- Groups -->
     <string name="group_selected_title">选中</string>
+
+    <!-- Log -->
     <string name="log_level">日志级别</string>
     <string name="filter_label">过滤器：%s</string>
     <string name="clear_filter">清除</string>
@@ -180,6 +189,8 @@
     <string name="not_selected">未选择</string>
     <string name="save_to_clipboard">复制到剪贴板</string>
     <string name="save_to_file">保存到文件</string>
+
+    <!-- Settings -->
     <string name="service">服务</string>
     <string name="core">核心</string>
     <string name="core_version_title">核心版本</string>
@@ -203,8 +214,9 @@
     <string name="auto_redirect">自动重定向</string>
     <string name="auto_redirect_description">需要 ROOT 权限</string>
     <string name="system_http_proxy">系统 HTTP 代理</string>
-    <string name="system_http_proxy_summary">把 HTTP 代理提供给会读取系统代理的应用</string>
     <string name="update_settings">更新设置</string>
+
+    <!-- Per-App Proxy -->
     <string name="per_app_proxy">分应用代理</string>
     <string name="per_app_proxy_mode">代理模式</string>
     <string name="per_app_proxy_mode_include">白名单</string>
@@ -241,6 +253,8 @@
     <string name="per_app_proxy_shizuku_required">通过 Play 商店安装时，分应用代理需要 Shizuku。Google Play 拒绝允许我们使用 QUERY_ALL_PACKAGES 权限（同时不禁止其他类似应用这样做），而这是列出应用程序所必需的。</string>
     <string name="per_app_proxy_root_required">通过 Play 商店安装时，分应用代理需要 ROOT。Google Play 拒绝允许我们使用 QUERY_ALL_PACKAGES 权限（同时不禁止其他类似应用这样做），而这是列出应用程序所必需的。</string>
     <string name="privileged_access_required">需要 Root 或 Shizuku 权限来获取完整应用列表</string>
+
+    <!-- Permissions -->
     <string name="background_permission">后台权限</string>
     <string name="background_permission_description">申请必要的权限以使 VPN 正常运行。  如果您使用的是中国公司生产的设备，则授予权限后该卡可能不会消失。</string>
     <string name="request_background_permission">忽略电池优化</string>
@@ -253,16 +267,12 @@
     <string name="notification_permission_required_description">sing-box 无法在没有发送通知权限的情况下显示实时网速。请授予权限或禁用实时网速通知后再启动服务。</string>
     <string name="root_access_required">需要 Root 权限</string>
     <string name="root_access_denied">Root 权限被拒绝</string>
+
+    <!-- Updates -->
     <string name="check_update">检查更新</string>
     <string name="check_update_automatic">自动检查更新</string>
     <string name="check_update_prompt_play">是否启用从 **Play Store** 自动检查更新？</string>
     <string name="check_update_prompt_github">是否启用从 **GitHub** 自动检查更新？</string>
-    <string name="update_source">更新来源</string>
-    <string name="update_source_github">GitHub</string>
-    <string name="update_source_fdroid">F-Droid</string>
-    <string name="github_token">GitHub Token</string>
-    <string name="github_token_description">获取更高的 GitHub API 速率限制</string>
-    <string name="update_hash_mismatch">APK SHA-256 与发行校验和不符，已中止下载。</string>
     <string name="update_track">更新轨道</string>
     <string name="update_track_stable">稳定版</string>
     <string name="update_track_beta">Beta 版</string>
@@ -271,12 +281,14 @@
     <string name="downloading">下载中…</string>
     <string name="exporting">导出中…</string>
     <string name="no_updates_available">没有可用的更新</string>
-    <string name="no_updates_current">当前已是最新版本：%s</string>
-    <string name="checking_update">正在检查更新…</string>
-    <string name="update_check_failed">检查更新失败：%s</string>
     <string name="new_version_available">有新版本可用：%s</string>
     <string name="auto_update">自动更新</string>
     <string name="auto_update_description">在后台自动下载和安装更新</string>
+    <string name="update_source">更新来源</string>
+    <string name="update_source_github">GitHub</string>
+    <string name="update_source_fdroid">F-Droid</string>
+    <string name="github_token">GitHub Token</string>
+    <string name="github_token_description">获取更高的 GitHub API 速率限制</string>
     <string name="fdroid_mirror">F-Droid 镜像</string>
     <string name="fdroid_mirror_test_all">根据延迟自动选择</string>
     <string name="fdroid_mirror_testing">测试中…</string>
@@ -290,6 +302,8 @@
     <string name="fdroid_mirror_invalid_url">无效的 URL</string>
     <string name="fdroid_mirror_add_action">添加</string>
     <string name="fdroid_mirror_delete">删除</string>
+
+    <!-- Silent Install -->
     <string name="silent_install">静默安装</string>
     <string name="silent_install_description">无需交互即可安装更新</string>
     <string name="silent_install_method">安装方式</string>
@@ -300,11 +314,15 @@
     <string name="package_installer_not_available">未授予安装权限</string>
     <string name="grant_install_permission">授予安装权限</string>
     <string name="grant_install_permission_description">允许从此来源安装应用</string>
+
+    <!-- Shizuku -->
     <string name="shizuku_not_available">Shizuku 未安装或未运行</string>
     <string name="shizuku_description">Shizuku 允许应用以更高权限直接使用系统 API</string>
     <string name="get_shizuku">获取 Shizuku</string>
     <string name="start_shizuku">启动 Shizuku</string>
     <string name="request_shizuku">授权 Shizuku</string>
+
+    <!-- Time -->
     <string name="time_just_now">刚刚</string>
     <string name="time_yesterday">昨天</string>
     <string name="time_now">现在</string>
@@ -312,11 +330,24 @@
     <string name="time_minutes_short">%d分</string>
     <string name="time_hours_short">%d时</string>
     <string name="time_days_short">%d天</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="other">%d 分钟前</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="other">%d 小时前</item>
+    </plurals>
+    <plurals name="time_days_ago">
+        <item quantity="other">%d 天前</item>
+    </plurals>
+
+    <!-- Menu -->
     <string name="menu_undo">撤销</string>
     <string name="menu_redo">重做</string>
     <string name="menu_format">格式化</string>
     <string name="menu_delete">删除</string>
     <string name="menu_share">分享</string>
+
+    <!-- Errors -->
     <string name="error_title">错误</string>
     <string name="error_missing_vpn_permission">缺少 VPN 权限</string>
     <string name="error_empty_configuration">空配置</string>
@@ -330,23 +361,33 @@
     <string name="error_deprecated_documentation">文档</string>
     <string name="file_manager_missing">您的设备缺少 Android 标准文件选择器，请安装一个，例如 Material Files。</string>
     <string name="no_file_manager">未找到文件管理器</string>
+
+    <!-- Failed Operations -->
     <string name="failed_save_profile">保存配置文件失败：%s</string>
     <string name="failed_save_logs">保存日志失败：%s</string>
     <string name="failed_share_logs">分享日志失败：%s</string>
     <string name="failed_read_configuration">读取配置失败：%s</string>
+
+    <!-- Success Messages -->
     <string name="success_profile_saved">配置文件保存成功</string>
     <string name="success_logs_saved">日志保存成功</string>
     <string name="success_configuration_saved">配置已保存</string>
     <string name="copied_to_clipboard">已复制到剪贴板</string>
+
+    <!-- Toast Messages -->
     <string name="toast_clipboard_empty">剪切板为空</string>
     <string name="toast_copied_to_clipboard">已导出到剪切板</string>
     <string name="toast_imported_from_clipboard">已从剪贴板导入</string>
+
+    <!-- Scanning -->
     <string name="profile_add_scan_use_front_camera">前置摄像头</string>
     <string name="profile_add_scan_use_vendor_analyzer">使用 MLKit 扫描</string>
     <string name="profile_add_scan_enable_torch">灯光</string>
     <string name="message_scanning">扫描中...</string>
     <string name="message_scan_app_no_apps_found">未找到匹配的应用</string>
     <string name="message_scan_app_found">找到以下应用程序，请选择您想要的操作。</string>
+
+    <!-- Icon Selection -->
     <string name="icon">图标</string>
     <string name="icon_count_format">%d 个图标</string>
     <string name="no_icons_found">未找到图标</string>
@@ -361,11 +402,19 @@
     <string name="categories">分类</string>
     <string name="all_icons">所有图标</string>
     <string name="back_to_categories">返回分类</string>
+
+    <!-- QR Code -->
+
+    <!-- QR Stream (QRS) -->
     <string name="share_as_qrs">分享为 QRS</string>
     <string name="qrs_fps">帧率</string>
     <string name="qrs_slice_size">分块大小</string>
     <string name="qrs_what_is_qrs">什么是 QRS</string>
+
+    <!-- Search -->
     <string name="search_placeholder">在文档中查找</string>
+
+    <!-- Content Descriptions (Accessibility) -->
     <string name="content_description_back">返回</string>
     <string name="content_description_scroll_to_bottom">滚动到底部</string>
     <string name="content_description_exit_selection_mode">退出选择模式</string>
@@ -377,6 +426,8 @@
     <string name="content_description_collapse_search">折叠搜索</string>
     <string name="content_description_search_logs">搜索日志</string>
     <string name="content_description_more_options">更多选项</string>
+
+    <!-- Tools -->
     <string name="title_tools">工具</string>
     <string name="title_network">网络</string>
     <string name="network_quality">网络质量</string>
@@ -403,13 +454,15 @@
     <string name="tool_results">结果</string>
     <string name="tool_outbound">出站</string>
     <string name="tool_default_outbound">默认</string>
-    <string name="tailscale" translatable="false">Tailscale</string>
-    <string name="tailscale_with_tag" translatable="false">Tailscale：%s</string>
+
+    <!-- STUN Test -->
+    <!-- Tailscale -->
     <string name="tailscale_endpoints">端点</string>
+    <string name="title_services">服务</string>
+
     <string name="tailscale_status">状态</string>
     <string name="tailscale_state">状态</string>
     <string name="tailscale_network">网络</string>
-    <string name="tailscale_magic_dns" translatable="false">MagicDNS</string>
     <string name="tailscale_hostname">主机名</string>
     <string name="tailscale_open_auth_url">打开认证链接</string>
     <string name="tailscale_open_auth_url_qr_code">显示认证链接二维码</string>
@@ -420,11 +473,8 @@
     <string name="tailscale_addresses">Tailscale 地址</string>
     <string name="tailscale_details">详情</string>
     <string name="tailscale_key_expiry">密钥过期</string>
-    <string name="tailscale_os" translatable="false">系统</string>
     <string name="tailscale_exit_node">出口节点</string>
     <string name="tailscale_active">活跃</string>
-    <string name="tailscale_ipv4" translatable="false">IPv4</string>
-    <string name="tailscale_ipv6" translatable="false">IPv6</string>
     <string name="tailscale_ping">Ping</string>
     <string name="tailscale_ping_start">启动</string>
     <string name="tailscale_ping_stop">停止</string>
@@ -441,9 +491,10 @@
     <string name="tailscale_expires_relative">%1$s过期</string>
     <string name="tailscale_key_expiry_disabled">密钥过期已禁用</string>
     <string name="tailscale_last_seen">最后在线</string>
-    <string name="tailscale_ssh" translatable="false">SSH</string>
     <string name="tailscale_available">可用</string>
     <string name="tailscale_yes">是</string>
+
+    <!-- Tailscale SSH -->
     <string name="tailscale_ssh_connect">通过 SSH 连接</string>
     <string name="tailscale_ssh_options">SSH 选项</string>
     <string name="tailscale_ssh_username">用户名</string>
@@ -460,6 +511,8 @@
     <string name="tailscale_ssh_new_session">新建会话</string>
     <string name="tailscale_ssh_close_session">关闭会话</string>
     <string name="terminal_notification_channel">终端通知</string>
+
+    <!-- Terminal Configuration -->
     <string name="tailscale_terminal_config">Ghostty 配置</string>
     <string name="tailscale_terminal_light_theme">浅色主题</string>
     <string name="tailscale_terminal_dark_theme">深色主题</string>
@@ -481,23 +534,7 @@
     <string name="tailscale_terminal_dark_custom_config">深色自定义配置</string>
     <string name="tailscale_terminal_font_follow_theme">跟随主题</string>
     <string name="tailscale_terminal_import_config">从文件导入</string>
-    <string name="taildrop" translatable="false">Taildrop</string>
-    <string name="taildrop_send">发送</string>
-    <string name="taildrop_receive">接收</string>
-    <string name="taildrop_files">文件</string>
-    <string name="taildrop_to">发送至 %1$s</string>
-    <string name="taildrop_from">来自 %1$s</string>
-    <string name="taildrop_save">保存</string>
-    <string name="taildrop_share">分享</string>
-    <string name="taildrop_delete">删除</string>
-    <string name="taildrop_drop_zone">拖放文件到此处发送，或轻点选择</string>
-    <string name="taildrop_done">完成</string>
-    <string name="taildrop_no_targets">没有可接收文件的设备</string>
-    <string name="taildrop_no_files_selected">未选择文件</string>
-    <string name="taildrop_connecting">正在连接…</string>
-    <string name="taildrop_dismiss">关闭</string>
-    <string name="taildrop_open_app">打开 sing-box</string>
-    <string name="taildrop_notification_title">正在发送文件</string>
+
     <string name="stun_test">STUN 测试</string>
     <string name="stun_server">服务器</string>
     <string name="stun_start">开始测试</string>
@@ -508,6 +545,8 @@
     <string name="stun_nat_filtering">NAT 过滤</string>
     <string name="stun_nat_type_detection">NAT 类型检测</string>
     <string name="stun_nat_not_supported">服务器不支持</string>
+
+    <!-- Shared Report -->
     <string name="report_empty">空</string>
     <string name="report_section_reports">报告</string>
     <string name="report_section_files">文件</string>
@@ -527,10 +566,14 @@
     <string name="service_not_started">服务未启动</string>
     <string name="service_reload_required">需要重载服务以应用更改</string>
     <string name="service_restart_required">需要重启服务以应用更改</string>
+
+    <!-- Crash Report -->
     <string name="crash_report">崩溃报告</string>
     <string name="crash_report_go_log">Go Crash Log</string>
     <string name="crash_report_jvm_log">JVM Crash Log</string>
     <string name="crash_report_description">当遇到崩溃时，您将会收到报告。</string>
+
+    <!-- OOM Report -->
     <string name="oom_report">内存不足报告</string>
     <string name="oom_report_description">启用内存限制后，当服务内存超出限制时，您将会收到报告。您也可以手动触发收集报告。</string>
     <string name="oom_report_fetch">获取内存报告</string>
@@ -539,16 +582,17 @@
     <string name="oom_report_memory_limit">内存限制</string>
     <string name="oom_report_kill_connections">终止连接</string>
     <string name="oom_report_kill_connections_description">当服务内存超出限制时，终止所有连接以释放内存。</string>
+
+    <!-- Power Report -->
     <string name="power_report">电源报告</string>
     <string name="power_report_enable">启用电源报告</string>
     <string name="power_report_enable_description">每次运行服务都会保存一份报告</string>
+
+    <!-- Xposed Module -->
     <string name="xposed_description">sing-box 的特权增强</string>
-    <string name="privilege_module_title">特权模块</string>
-    <string name="lsposed_module_activated">LSPosed 模块已激活</string>
-    <string name="lsposed_module_pending_update">LSPosed 模块待更新</string>
-    <string name="lsposed_module_pending_downgrade">LSPosed 模块待降级</string>
-    <string name="lsposed_module_not_activated">LSPosed 模块未激活</string>
+    <!-- Privileged Enhancement -->
     <string name="privilege_settings">特权增强</string>
+    <string name="privilege_module_title">特权模块</string>
     <string name="privilege_settings_hide_title">隐藏设置</string>
     <string name="privilege_settings_hide_description">对选中应用抵抗 VPN 检测</string>
     <string name="privilege_settings_hide_manage">管理</string>
@@ -575,6 +619,12 @@
     <string name="privilege_module_restart_notification_title">需要重启</string>
     <string name="privilege_module_restart_notification_message">LSPosed 模块已更新，请重启以应用改动。</string>
     <string name="privilege_module_restart_channel">LSPosed 模块</string>
+    <string name="lsposed_module_activated">LSPosed 模块已激活</string>
+    <string name="lsposed_module_pending_update">LSPosed 模块待更新</string>
+    <string name="lsposed_module_pending_downgrade">LSPosed 模块待降级</string>
+    <string name="lsposed_module_not_activated">LSPosed 模块未激活</string>
+
+    <!-- Remote Control -->
     <string name="remote_control">远程控制</string>
     <string name="remote_servers">服务器</string>
     <string name="remote_no_servers">无服务器</string>
@@ -592,119 +642,30 @@
     <string name="remote_checking">检查中…</string>
     <string name="remote_available">可用</string>
     <string name="remote_unavailable">不可用</string>
-    <string name="title_services">服务</string>
-    <string name="title_usbip">USB/IP</string>
-    <string name="usbip_with_tag">USB/IP：%1$s</string>
-    <string name="usbip_no_server">未找到 usbip-server</string>
-    <string name="usbip_no_devices">选择要通过此 usbip-server 共享的 USB 设备。</string>
-    <string name="usbip_no_usb_devices">没有已连接的 USB 设备</string>
-    <string name="usbip_connect_device">连接 USB 设备</string>
-    <string name="usbip_detach">断开</string>
-    <string name="usbip_state_attaching">正在连接…</string>
-    <string name="usbip_state_ready">就绪</string>
-    <string name="usbip_state_error">错误</string>
-    <string name="usbip_state_idle">空闲</string>
-    <string name="usbip_state_attached">已连接</string>
-    <string name="usbip_state_unavailable">不可用</string>
-    <string name="usbip_identity">标识</string>
-    <string name="usbip_connection">连接</string>
-    <string name="usbip_class_interfaces">类别与接口</string>
-    <string name="usbip_product">产品</string>
-    <string name="usbip_serial">序列号</string>
-    <string name="usbip_version">版本</string>
-    <string name="usbip_bus_id">总线 ID</string>
-    <string name="usbip_backend">后端</string>
-    <string name="usbip_speed">速度</string>
-    <string name="usbip_bus_device">总线 / 设备</string>
-    <string name="usbip_device_class">设备类别</string>
-    <string name="usbip_configuration">配置</string>
-    <string name="usbip_interface">接口 %1$d</string>
-    <string name="usbip_notification_title">USB/IP 共享</string>
-    <string name="openconnect" translatable="false">OpenConnect</string>
-    <string name="openconnect_with_tag" translatable="false">OpenConnect：%1$s</string>
-    <string name="openvpn" translatable="false">OpenVPN</string>
-    <string name="openvpn_with_tag" translatable="false">OpenVPN：%1$s</string>
-    <string name="endpoint_status">状态</string>
-    <string name="endpoint_state">状态</string>
-    <string name="endpoint_authentication">认证</string>
-    <string name="endpoint_open_auth_url">打开认证链接</string>
-    <string name="endpoint_open_auth_url_qr_code">显示认证链接二维码</string>
-    <string name="endpoint_server">服务器</string>
-    <string name="endpoint_network">网络</string>
-    <string name="endpoint_cipher">加密</string>
-    <string name="endpoint_flavor">变体</string>
-    <string name="endpoint_transport">传输</string>
-    <string name="endpoint_ipv4" translatable="false">IPv4</string>
-    <string name="endpoint_ipv6" translatable="false">IPv6</string>
-    <string name="endpoint_dns" translatable="false">DNS</string>
-    <string name="endpoint_mtu" translatable="false">MTU</string>
-    <string name="endpoint_connected">已连接</string>
-    <string name="endpoint_username">用户名</string>
-    <string name="endpoint_password">密码</string>
-    <string name="endpoint_response">响应</string>
-    <string name="endpoint_submit">提交</string>
-    <string name="endpoint_continue">继续</string>
-    <string name="endpoint_verifying">正在验证</string>
     <string name="endpoint_globalprotect_sso_unsupported_android">Android 不支持 GlobalProtect SAML 浏览器认证。</string>
     <string name="endpoint_browser_cookie_missing">浏览器认证已完成，但未取得所需的 VPN Cookie。</string>
     <string name="endpoint_browser_navigation_failed">浏览器导航失败：%1$s</string>
     <string name="endpoint_browser_too_many_windows">认证页面打开了过多浏览器窗口。</string>
     <string name="endpoint_browser_profile_unavailable">此设备无法使用浏览器认证。</string>
-    <string name="backup_and_restore">备份与恢复</string>
-    <string name="chain_builder">链式代理</string>
-    <string name="chain_builder_title">链式代理生成器</string>
-    <string name="chain_builder_subtitle">为当前配置单独绑定入口和落地，其他配置互不影响</string>
-    <string name="chain_path_title">链路</string>
-    <string name="chain_path_chained">链式代理</string>
-    <string name="chain_path_regular">常规链路</string>
-    <string name="chain_path_device">设备</string>
-    <string name="chain_path_entry">入口</string>
-    <string name="chain_path_exit">出口</string>
-    <string name="chain_path_landing">落地</string>
-    <string name="chain_path_destination">目标</string>
-    <string name="chain_path_expand">展开链路</string>
-    <string name="chain_path_hint_chained">出站公网地址是落地节点。入口只作为第一跳，不会成为出口。</string>
-    <string name="chain_path_hint_regular">当前配置未绑定链式代理，走该配置的默认出口。</string>
-    <string name="chain_path_idle">未启动</string>
-    <string name="chain_path_live_chained">实时链式</string>
-    <string name="chain_path_live_regular">实时</string>
-    <string name="chain_path_mode_direct">直连</string>
-    <string name="chain_path_waiting_dest">等待连接</string>
-    <string name="chain_path_live_summary">%1$d 条连接 · %2$s</string>
-    <string name="chain_path_unknown">未知</string>
-    <string name="chain_path_final">最终</string>
-    <string name="chain_path_downlink">下行</string>
-    <string name="chain_path_uplink">上行</string>
-    <string name="chain_path_node">节点</string>
-    <string name="chain_path_delay">延迟</string>
-    <string name="chain_path_running">运行中</string>
-    <string name="chain_path_ms">%1$d ms</string>
-    <string name="telegram_channel">Telegram 频道</string>
-    <string name="ads_block">广告拦截</string>
-    <string name="ads_block_summary">拒绝广告规则集匹配的域名</string>
-    <string name="overlay_scripts">脚本</string>
-    <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
-    <string name="overlay_scripts_hint">这里是脚本库。导入后不会自动套到所有配置；请到编辑配置页（或仪表配置列表的「脚本」）为需要的配置打开。打开后脚本覆盖该配置原有分组和分流，只保留节点，不改订阅文件。需要 function main(config)。开启链式会自动关掉该配置的脚本。列表开关是总开关，关掉后所有配置都不跑这条。</string>
-    <string name="overlay_scripts_empty">还没有脚本。点右下角 +，可用代码、URL、文件或默认脚本导入。</string>
-    <string name="overlay_scripts_import">导入</string>
-    <string name="overlay_scripts_import_code">通过代码导入</string>
-    <string name="overlay_scripts_import_url">通过 URL 导入</string>
-    <string name="overlay_scripts_import_file">通过文件导入</string>
-    <string name="overlay_scripts_import_sample">导入默认脚本</string>
-    <string name="overlay_scripts_edit">编辑脚本</string>
-    <string name="overlay_scripts_code">代码</string>
-    <string name="overlay_scripts_from_code">代码导入</string>
-    <string name="overlay_scripts_from_url">URL 导入</string>
-    <string name="overlay_scripts_from_file">文件导入</string>
-    <string name="overlay_scripts_from_sample">默认脚本</string>
-    <string name="overlay_scripts_imported">导入的脚本</string>
-    <string name="overlay_scripts_duplicate">复制</string>
-    <string name="overlay_scripts_sync">同步</string>
-    <string name="overlay_scripts_synced">已从 URL 同步</string>
-    <string name="overlay_scripts_sync_failed">同步失败</string>
-    <string name="overlay_scripts_failed">无法保存脚本</string>
-    <string name="overlay_scripts_empty_file">文件是空的</string>
-    <string name="overlay_scripts_profile_enable">为此配置启用脚本</string>
-    <string name="overlay_scripts_profile_hint">默认不套用。打开后脚本覆盖此配置的分组、分流和对应的应用开关（中国直连、广告拦截），只保留节点，同时只跑一套规则。开启链式会自动关掉该配置的脚本；开启脚本会取消该配置的链式。</string>
-    <string name="overlay_scripts_profile_empty">还没有脚本。请到「工具 → 脚本」导入。</string>
+
+    <!-- Taildrop -->
+    <plurals name="taildrop_file_count">
+        <item quantity="other">%1$d 个文件</item>
+    </plurals>
+    <string name="taildrop_send">发送</string>
+    <string name="taildrop_receive">接收</string>
+    <string name="taildrop_files">文件</string>
+    <string name="taildrop_from">来自 %1$s</string>
+    <string name="taildrop_to">发送至 %1$s</string>
+    <string name="taildrop_save">保存</string>
+    <string name="taildrop_share">分享</string>
+    <string name="taildrop_delete">删除</string>
+    <string name="taildrop_drop_zone">拖放文件到此处发送，或轻点选择</string>
+    <string name="taildrop_done">完成</string>
+    <string name="taildrop_no_targets">没有可接收文件的设备</string>
+    <string name="taildrop_no_files_selected">未选择文件</string>
+    <string name="taildrop_connecting">正在连接…</string>
+    <string name="taildrop_dismiss">关闭</string>
+    <string name="taildrop_open_app">打开 sing-box</string>
+    <string name="taildrop_notification_title">正在发送文件</string>
 </resources>

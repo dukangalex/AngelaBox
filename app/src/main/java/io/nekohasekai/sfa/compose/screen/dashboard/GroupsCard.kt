@@ -1,6 +1,12 @@
 package io.nekohasekai.sfa.compose.screen.dashboard
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -260,11 +266,20 @@ private fun GroupsCardContent(
             else -> {
                 uiState.groups.forEach { group ->
                     val isExpanded = uiState.expandedGroups.contains(group.tag)
+                    val isTesting = uiState.testingGroups.contains(group.tag)
+                    val startedAt = uiState.testingStartedAt[group.tag] ?: 0L
+                    val testedCount =
+                        if (isTesting && startedAt > 0L) {
+                            group.items.count { item -> urlTestTimeMs(item.urlTestTime) >= startedAt - 1500L }
+                        } else {
+                            0
+                        }
                     val headerContent: @Composable (Modifier) -> Unit = { headerModifier ->
                         GroupHeader(
                             group = group,
                             isExpanded = isExpanded,
-                            isTesting = uiState.testingGroups.contains(group.tag),
+                            isTesting = isTesting,
+                            testedCount = testedCount,
                             onToggleExpanded = { onToggleExpanded(group.tag) },
                             onUrlTest = { onUrlTest(group.tag) },
                             modifier = headerModifier,
@@ -292,6 +307,9 @@ private fun GroupsCardContent(
                                     isSelectable = group.selectable,
                                     isLast = rowIndex == rowItems.lastIndex,
                                     palette = palette,
+                                    isTesting = isTesting,
+                                    startedAt = startedAt,
+                                    testingItems = uiState.testingItems,
                                     onItemSelected = { itemTag -> onItemSelected(group.tag, itemTag) },
                                     onItemUrlTest = onItemUrlTest,
                                     modifier = Modifier.animateItem(),
@@ -303,6 +321,8 @@ private fun GroupsCardContent(
                             GroupDotsGrid(
                                 group = group,
                                 palette = palette,
+                                isTesting = isTesting,
+                                startedAt = startedAt,
                                 onClick = { onToggleExpanded(group.tag) },
                                 modifier = Modifier.animateItem(),
                             )
@@ -330,6 +350,17 @@ private data class UrlTestPalette(
         delay < 1500 -> medium
         else -> bad
     }
+}
+
+private fun urlTestTimeMs(urlTestTime: Long): Long {
+    if (urlTestTime <= 0L) return 0L
+    return if (urlTestTime < 100_000_000_000L) urlTestTime * 1000L else urlTestTime
+}
+
+private fun GroupItem.hasFreshDelay(startedAt: Long): Boolean {
+    if (startedAt <= 0L || urlTestDelay <= 0) return false
+    val t = urlTestTimeMs(urlTestTime)
+    return t >= startedAt - 1500L
 }
 
 @Composable
@@ -361,6 +392,7 @@ private fun GroupHeader(
     group: Group,
     isExpanded: Boolean,
     isTesting: Boolean,
+    testedCount: Int,
     onToggleExpanded: () -> Unit,
     onUrlTest: () -> Unit,
     modifier: Modifier = Modifier,
@@ -410,25 +442,12 @@ private fun GroupHeader(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
-            IconButton(
+            UrlTestAction(
+                isTesting = isTesting,
+                testedCount = testedCount,
+                totalCount = group.items.size,
                 onClick = onUrlTest,
-                enabled = !isTesting,
-                modifier = Modifier.size(40.dp),
-            ) {
-                if (isTesting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Speed,
-                        contentDescription = stringResource(R.string.url_test),
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            )
             val rotationAngle by animateFloatAsState(
                 targetValue = if (isExpanded) 180f else 0f,
                 animationSpec = tween(200),
@@ -453,9 +472,85 @@ private fun GroupHeader(
 }
 
 @Composable
+private fun UrlTestAction(
+    isTesting: Boolean,
+    testedCount: Int,
+    totalCount: Int,
+    onClick: () -> Unit,
+) {
+    val infinite = rememberInfiniteTransition(label = "UrlTestMotion")
+    val rotation by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "UrlTestSpin",
+    )
+    val pulse by infinite.animateFloat(
+        initialValue = 0.72f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(520, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "UrlTestPulse",
+    )
+    val progress = if (totalCount > 0) testedCount.toFloat() / totalCount.toFloat() else 0f
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(
+            onClick = onClick,
+            enabled = !isTesting,
+            modifier = Modifier.size(40.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) {
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        progress = { progress.coerceIn(0.08f, 1f) },
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.Speed,
+                    contentDescription = stringResource(R.string.url_test),
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer {
+                            if (isTesting) {
+                                rotationZ = rotation
+                                scaleX = pulse
+                                scaleY = pulse
+                            }
+                        },
+                    tint = if (isTesting) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+        if (isTesting && totalCount > 0) {
+            Text(
+                text = "$testedCount/$totalCount",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
 private fun GroupDotsGrid(
     group: Group,
     palette: UrlTestPalette,
+    isTesting: Boolean,
+    startedAt: Long,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -479,6 +574,15 @@ private fun GroupDotsGrid(
             val columns = maxOf(1, ((maxWidth + dotSpacing) / (dotSize + dotSpacing)).toInt())
             val rows = (group.items.size + columns - 1) / columns
             val gridHeight = dotSize * rows + dotSpacing * maxOf(0, rows - 1)
+            val pulse by rememberInfiniteTransition(label = "DotPulse").animateFloat(
+                initialValue = 0.35f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(700, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "DotPulseValue",
+            )
             Canvas(
                 modifier =
                 Modifier
@@ -492,8 +596,10 @@ private fun GroupDotsGrid(
                 group.items.forEachIndexed { index, item ->
                     val x = (index % columns) * (dotSizePx + dotSpacingPx)
                     val y = (index / columns) * (dotSizePx + dotSpacingPx)
+                    val pending = isTesting && !item.hasFreshDelay(startedAt)
+                    val color = palette.forDelay(item.urlTestDelay)
                     drawRoundRect(
-                        color = palette.forDelay(item.urlTestDelay),
+                        color = if (pending) color.copy(alpha = 0.25f + 0.55f * pulse) else color,
                         topLeft = Offset(x, y),
                         size = Size(dotSizePx, dotSizePx),
                         cornerRadius = cornerRadius,
@@ -518,6 +624,9 @@ private fun GroupItemRow(
     isSelectable: Boolean,
     isLast: Boolean,
     palette: UrlTestPalette,
+    isTesting: Boolean,
+    startedAt: Long,
+    testingItems: Set<String>,
     onItemSelected: (String) -> Unit,
     onItemUrlTest: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -546,6 +655,7 @@ private fun GroupItemRow(
                     isSelected = item.tag == selectedTag,
                     isSelectable = isSelectable,
                     palette = palette,
+                    pending = (isTesting && !item.hasFreshDelay(startedAt)) || item.tag in testingItems,
                     onClick = { onItemSelected(item.tag) },
                     onUrlTest = { onItemUrlTest(item.tag) },
                     modifier = Modifier.weight(1f),
@@ -565,12 +675,22 @@ private fun ProxyChip(
     isSelected: Boolean,
     isSelectable: Boolean,
     palette: UrlTestPalette,
+    pending: Boolean,
     onClick: () -> Unit,
     onUrlTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
     val chipShape = RoundedCornerShape(12.dp)
+    val pulse by rememberInfiniteTransition(label = "ChipPulse").animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(640, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ChipPulseValue",
+    )
     Box(modifier = modifier) {
         Surface(
             modifier =
@@ -585,6 +705,8 @@ private fun ProxyChip(
             color =
             if (isSelected) {
                 MaterialTheme.colorScheme.primaryContainer
+            } else if (pending) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f + 0.10f * pulse)
             } else {
                 MaterialTheme.colorScheme.surface
             },
@@ -621,7 +743,14 @@ private fun ProxyChip(
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     )
-                    if (item.urlTestDelay > 0) {
+                    if (pending) {
+                        Text(
+                            text = "…",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = pulse),
+                        )
+                    } else if (item.urlTestDelay > 0) {
                         Text(
                             text = "${item.urlTestDelay}ms",
                             style = MaterialTheme.typography.labelSmall,

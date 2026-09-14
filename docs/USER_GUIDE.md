@@ -4,7 +4,7 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 
 ## 安装
 
-1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新在发行附带校验和时会验证 SHA-256。`ChainBox-android.apk` 与前者是同一份文件、不同文件名，只为旧名覆盖安装保留，**不必两个都下**。
+1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新在发行附带校验和时会验证 SHA-256。
 2. 允许安装未知来源应用后安装。
 3. 同一签名且 versionCode 更大的新版可直接覆盖。
 
