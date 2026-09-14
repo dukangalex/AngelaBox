@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -18,8 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -29,7 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -40,7 +38,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -69,6 +66,9 @@ import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
+import io.nekohasekai.sfa.compose.navigation.popToDashboard
+import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
+import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
@@ -124,7 +124,6 @@ fun ChainBuilderScreen(
     var pickerQuery by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
     var profileMenu by remember { mutableStateOf(false) }
-    var barProfileMenu by remember { mutableStateOf(false) }
 
     fun reload(targetId: Long = -1L) {
         val fallbackId = if (targetId > 0L) targetId else currentProfileId
@@ -302,57 +301,34 @@ fun ChainBuilderScreen(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.chain_builder)) },
-                navigationIcon = { IconButton(onClick = { navController.navigateUp() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-                actions = {
-                    if (allProfiles.isNotEmpty()) {
-                        Box {
-                            TextButton(onClick = { barProfileMenu = true }) {
-                                Text(
-                                    currentProfileName.ifBlank { stringResource(R.string.title_configuration) },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 140.dp),
-                                )
-                                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-                            }
-                            DropdownMenu(
-                                expanded = barProfileMenu,
-                                onDismissRequest = { barProfileMenu = false },
-                            ) {
-                                allProfiles.forEach { profile ->
-                                    DropdownMenuItem(
-                                        text = { Text(profile.name) },
-                                        onClick = {
-                                            barProfileMenu = false
-                                            if (profile.id != currentProfileId) {
-                                                currentProfileId = profile.id
-                                                entry = null
-                                                exit = null
-                                                reload(profile.id)
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    IconButton(onClick = { showHelp = true }) { Icon(Icons.Default.Info, stringResource(R.string.read_more)) }
-                    IconButton(onClick = { reload() }) { Icon(Icons.Default.Refresh, stringResource(R.string.action_reload)) }
-                },
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-    ) { padding ->
+    OverrideTopBar {
+        TopAppBar(
+            title = { Text(stringResource(R.string.chain_builder)) },
+            navigationIcon = {
+                IconButton(onClick = { navController.navigateUp() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                }
+            },
+            actions = {
+                IconButton(onClick = { navController.popToDashboard() }) {
+                    Icon(Icons.Filled.Home, contentDescription = stringResource(R.string.action_home))
+                }
+                IconButton(onClick = { showHelp = true }) {
+                    Icon(Icons.Default.Info, stringResource(R.string.read_more))
+                }
+                IconButton(onClick = { reload() }) {
+                    Icon(Icons.Default.Refresh, stringResource(R.string.action_reload))
+                }
+            },
+        )
+    }
+
+    Box(Modifier.fillMaxSize().padding(LocalScaffoldPadding.current)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (loadError != null) {
@@ -445,6 +421,7 @@ fun ChainBuilderScreen(
                 Text("取消当前配置的链式")
             }
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
 
     if (picker != null) {

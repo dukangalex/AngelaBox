@@ -684,7 +684,11 @@
     <string name="ads_block_summary">拒绝广告规则集匹配的域名</string>
     <string name="overlay_scripts">脚本</string>
     <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
-    <string name="overlay_scripts_hint">脚本库。顶部下拉选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式与脚本不能同时开。</string>
+    <string name="overlay_scripts_hint">脚本库。选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式与脚本不能同时开。</string>
+    <string name="pull_drag_hint">下拉返回</string>
+    <string name="pull_release_home">松开返回主页</string>
+    <string name="pull_release_up">松开返回上级</string>
+    <string name="action_home">主页</string>
     <string name="overlay_scripts_empty">还没有脚本。点右下角 +，可用代码、URL、文件或默认脚本导入。</string>
     <string name="overlay_scripts_import">导入</string>
     <string name="overlay_scripts_import_code">通过代码导入</string>

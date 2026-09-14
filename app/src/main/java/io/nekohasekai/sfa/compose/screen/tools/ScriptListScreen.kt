@@ -13,14 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
@@ -64,7 +63,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
@@ -72,6 +70,8 @@ import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
+import io.nekohasekai.sfa.compose.component.PullToPopContainer
+import io.nekohasekai.sfa.compose.navigation.popToDashboard
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
@@ -111,7 +111,6 @@ fun ScriptListScreen(
     var profiles by remember { mutableStateOf<List<Profile>>(emptyList()) }
     var bindProfileId by remember { mutableStateOf(-1L) }
     var bindMenu by remember { mutableStateOf(false) }
-    var barMenu by remember { mutableStateOf(false) }
     var bindTick by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
@@ -201,30 +200,8 @@ fun ScriptListScreen(
                 }
             },
             actions = {
-                if (profiles.isNotEmpty()) {
-                    Box {
-                        TextButton(onClick = { barMenu = true }) {
-                            Text(
-                                profiles.find { it.id == bindProfileId }?.name
-                                    ?: stringResource(R.string.title_configuration),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 148.dp),
-                            )
-                            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = barMenu, onDismissRequest = { barMenu = false }) {
-                            profiles.forEach { profile ->
-                                DropdownMenuItem(
-                                    text = { Text(profile.name) },
-                                    onClick = {
-                                        barMenu = false
-                                        bindProfileId = profile.id
-                                    },
-                                )
-                            }
-                        }
-                    }
+                IconButton(onClick = { navController.popToDashboard() }) {
+                    Icon(Icons.Filled.Home, contentDescription = stringResource(R.string.action_home))
                 }
             },
         )
@@ -237,7 +214,7 @@ fun ScriptListScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -658,30 +635,36 @@ private fun ScriptEditorPane(
             },
         )
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(LocalScaffoldPadding.current)
-            .imePadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    PullToPopContainer(
+        enabled = true,
+        releaseHint = stringResource(R.string.pull_release_up),
+        onPop = onCancel,
     ) {
-        OutlinedTextField(
-            value = state.name,
-            onValueChange = { onChange(state.copy(name = it)) },
-            label = { Text(stringResource(R.string.profile_name)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = state.code,
-            onValueChange = { onChange(state.copy(code = it)) },
-            label = { Text(stringResource(R.string.overlay_scripts_code)) },
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-        )
+                .fillMaxSize()
+                .padding(LocalScaffoldPadding.current)
+                .imePadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = state.name,
+                onValueChange = { onChange(state.copy(name = it)) },
+                label = { Text(stringResource(R.string.profile_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = state.code,
+                onValueChange = { onChange(state.copy(code = it)) },
+                label = { Text(stringResource(R.string.overlay_scripts_code)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            )
+        }
     }
 }
 

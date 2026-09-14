@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.compose.navigation
 
-import androidx.annotation.StringRes
+import androidx.navigation.NavController
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Dashboard
@@ -56,3 +57,10 @@ val bottomNavigationScreens =
         Screen.Tools,
         Screen.Settings,
     )
+
+fun NavController.popToDashboard() {
+    if (!popBackStack(Screen.Dashboard.route, inclusive = false)) {
+        navigate(Screen.Dashboard.route) { launchSingleTop = true }
+    }
+}
+

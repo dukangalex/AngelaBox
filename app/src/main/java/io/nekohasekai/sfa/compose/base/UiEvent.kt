@@ -21,6 +21,8 @@ sealed class UiEvent {
 
     object OpenGroups : UiEvent()
 
+    object OpenLogs : UiEvent()
+
     object RequestStartService : UiEvent()
 
     object RequestReconnectService : UiEvent()

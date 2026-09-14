@@ -720,7 +720,11 @@
     <string name="ads_block_summary">拒絕廣告規則集匹配的網域</string>
     <string name="overlay_scripts">腳本</string>
     <string name="overlay_scripts_subtitle">依設定檔選擇覆寫腳本（sing-box）</string>
-    <string name="overlay_scripts_hint">腳本庫。匯入後不會套到所有設定，請在下方選一份設定開關，或到編輯頁打開。打開後只跑腳本這一套規則，節點保留，不改訂閱。開啟鏈式會關掉該設定的腳本。列表開關是總開關。</string>
+    <string name="overlay_scripts_hint">腳本庫。選一份設定後開關；打開後只跑腳本這一套規則（國內直連、國外代理），不改訂閱。鏈式與腳本不能同時開。</string>
+    <string name="pull_drag_hint">下拉返回</string>
+    <string name="pull_release_home">鬆開返回主頁</string>
+    <string name="pull_release_up">鬆開返回上級</string>
+    <string name="action_home">主頁</string>
     <string name="overlay_scripts_empty">還沒有腳本。點右下角 +，可用程式碼、URL、檔案或預設腳本匯入。</string>
     <string name="overlay_scripts_import">匯入</string>
     <string name="overlay_scripts_import_code">透過程式碼匯入</string>

@@ -77,6 +77,7 @@ class Application : Application() {
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
             initialize(baseDir, workingDir, tempDir)
+            Settings.applyChinaUserDefaultsIfNeeded()
             UpdateProfileWork.reconfigureUpdater()
             HookModuleUpdateNotifier.sync(this@Application)
             TaildropFiles.cleanCache()

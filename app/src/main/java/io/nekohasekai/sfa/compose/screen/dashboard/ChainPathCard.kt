@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -100,7 +99,6 @@ fun ChainPathCard(
     selectedClashMode: String = "",
     onClashModeSelected: (String) -> Unit = {},
     onShowProfilePicker: () -> Unit = {},
-    onShowAddProfile: () -> Unit = {},
     onToggleService: () -> Unit = {},
     onRequestDelayTest: () -> Unit = {},
     onUpdateCurrentProfile: () -> Unit = {},
@@ -171,17 +169,6 @@ fun ChainPathCard(
                     },
                 )
             }
-            IconButton(
-                onClick = onShowAddProfile,
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = stringResource(R.string.add_profile),
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             if (clashModes.isNotEmpty()) {
                 ModeChip(
                     modes = clashModes,
@@ -206,7 +193,12 @@ fun ChainPathCard(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { GlobalEventBus.tryEmit(UiEvent.OpenConnections) },
+            ) {
                 Text(
                     text = stringResource(R.string.chain_path_downlink),
                     style = MaterialTheme.typography.labelLarge,
@@ -259,9 +251,17 @@ fun ChainPathCard(
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             if (running) {
-                StatusChip(stringResource(R.string.chain_path_running), emphasized = true)
+                StatusChip(
+                    stringResource(R.string.chain_path_running),
+                    emphasized = true,
+                    onClick = { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
+                )
                 if (topology.chained) {
-                    StatusChip(stringResource(R.string.chain_path_chained), emphasized = false)
+                    StatusChip(
+                        stringResource(R.string.chain_path_chained),
+                        emphasized = false,
+                        onClick = onOpenChainBuilder,
+                    )
                 }
                 if (topology.mode.equals("direct", ignoreCase = true)) {
                     StatusChip(stringResource(R.string.chain_path_mode_direct), emphasized = false)
@@ -289,15 +289,22 @@ fun ChainPathCard(
                     StatusChip(
                         label = formatUptime(serviceStartTime),
                         emphasized = true,
-                        onClick = onToggleService,
+                        onClick = { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
                     )
                 }
             } else {
-                StatusChip(stringResource(R.string.chain_path_idle), emphasized = false)
+                StatusChip(
+                    stringResource(R.string.chain_path_idle),
+                    emphasized = false,
+                    onClick = onToggleService,
+                )
             }
         }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
             horizontalArrangement = Arrangement.End,
         ) {
             Column(horizontalAlignment = Alignment.End) {
@@ -328,7 +335,12 @@ fun ChainPathCard(
         Spacer(modifier = Modifier.height(6.dp))
         if (topology.chained) {
             Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { GlobalEventBus.tryEmit(UiEvent.OpenGroups) },
+                ) {
                     Text(
                         text = stringResource(R.string.chain_path_entry),
                         style = MaterialTheme.typography.labelSmall,
@@ -342,7 +354,12 @@ fun ChainPathCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { GlobalEventBus.tryEmit(UiEvent.OpenGroups) },
+                ) {
                     Text(
                         text = stringResource(R.string.chain_path_exit),
                         style = MaterialTheme.typography.labelSmall,
@@ -384,7 +401,12 @@ fun ChainPathCard(
             }
         } else {
             Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { GlobalEventBus.tryEmit(UiEvent.OpenGroups) },
+                ) {
                     Text(
                         text = stringResource(R.string.chain_path_node),
                         style = MaterialTheme.typography.labelSmall,
@@ -431,7 +453,9 @@ fun ChainPathCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(28.dp),
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { GlobalEventBus.tryEmit(UiEvent.OpenConnections) },
                 contentAlignment = Alignment.Center,
             ) {
                 if (downlinkHistory.any { it > 0f }) {
@@ -473,7 +497,7 @@ fun ChainPathCard(
             compact = !running,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onOpenChainBuilder),
+                .clickable { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
         )
     }
 }
@@ -507,26 +531,39 @@ private fun ModeChip(
 
 @Composable
 private fun StatusChip(label: String, emphasized: Boolean, onClick: (() -> Unit)? = null) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (emphasized) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        contentColor = if (emphasized) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        onClick = onClick ?: {},
-    ) {
+    val container = if (emphasized) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = if (emphasized) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val text: @Composable () -> Unit = {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+    }
+    if (onClick != null) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = container,
+            contentColor = content,
+            onClick = onClick,
+            content = text,
+        )
+    } else {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = container,
+            contentColor = content,
+            content = text,
         )
     }
 }

@@ -81,14 +81,15 @@ object Settings {
     const val PER_APP_PROXY_INCLUDE = 2
 
     var autoRedirect by dataStore.boolean(SettingsKey.AUTO_REDIRECT) { false }
-    var disableQuic by dataStore.boolean(SettingsKey.DISABLE_QUIC) { false }
-    var excludeCnQuic by dataStore.boolean(SettingsKey.EXCLUDE_CN_QUIC) { false }
-    var strictRoute by dataStore.boolean(SettingsKey.STRICT_ROUTE) { false }
+    var disableQuic by dataStore.boolean(SettingsKey.DISABLE_QUIC) { true }
+    var excludeCnQuic by dataStore.boolean(SettingsKey.EXCLUDE_CN_QUIC) { true }
+    var strictRoute by dataStore.boolean(SettingsKey.STRICT_ROUTE) { true }
     var dnsProtect by dataStore.boolean(SettingsKey.DNS_PROTECT) { true }
-    var disableIpv6 by dataStore.boolean(SettingsKey.DISABLE_IPV6) { false }
+    var disableIpv6 by dataStore.boolean(SettingsKey.DISABLE_IPV6) { true }
     var webrtcProtect by dataStore.boolean(SettingsKey.WEBRTC_PROTECT) { true }
     var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { true }
     var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { true }
+    var chinaDefaultsRev by dataStore.int(SettingsKey.CHINA_DEFAULTS_REV) { 0 }
     var chainEnabled by dataStore.boolean(SettingsKey.CHAIN_ENABLED) { false }
     var chainEntryTag by dataStore.string(SettingsKey.CHAIN_ENTRY_TAG) { "" }
     var chainLandingProfileId by dataStore.long(SettingsKey.CHAIN_LANDING_PROFILE_ID) { -1L }
@@ -112,6 +113,20 @@ object Settings {
 
     fun getEffectivePerAppProxyMode(): Int = if (perAppProxyManagedMode) PER_APP_PROXY_EXCLUDE else perAppProxyMode
     fun getEffectivePerAppProxyList(): Set<String> = if (perAppProxyManagedMode) perAppProxyManagedList else perAppProxyList
+
+    /** One-shot: turn on China-user safeguards for installs that still have the old off defaults. */
+    fun applyChinaUserDefaultsIfNeeded() {
+        if (chinaDefaultsRev >= 1) return
+        chinaDirect = true
+        adsBlock = true
+        webrtcProtect = true
+        dnsProtect = true
+        strictRoute = true
+        disableIpv6 = true
+        disableQuic = true
+        excludeCnQuic = true
+        chinaDefaultsRev = 1
+    }
 
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }

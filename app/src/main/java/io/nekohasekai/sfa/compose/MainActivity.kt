@@ -111,6 +111,7 @@ import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.component.RemoteStatusBar
 import io.nekohasekai.sfa.compose.component.ServiceStatusBar
 import io.nekohasekai.sfa.compose.component.SnackbarHost
+import io.nekohasekai.sfa.compose.component.PullToPopContainer
 import io.nekohasekai.sfa.compose.component.UpdateAvailableDialog
 import io.nekohasekai.sfa.compose.component.UptimeText
 import io.nekohasekai.sfa.compose.model.Connection
@@ -1027,6 +1028,16 @@ class MainActivity :
                         showGroupsSheet = true
                     }
 
+                    is UiEvent.OpenLogs -> {
+                        navController.navigate(Screen.Log.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+
                     is UiEvent.ApplyServiceChange -> enqueueApplyServiceChange(event.mode)
                 }
             }
@@ -1048,26 +1059,46 @@ class MainActivity :
                     val showStatusBar = isRemote || serviceRunning || currentServiceStatus == Status.Stopping
                     val showStartFab = !isRemote && !serviceRunning && dashboardUiState.selectedProfileId != -1L
                     val bottomOverlayPadding = paddingValues.calculateBottomPadding()
-
-                    NavHost(
-                        navController = navController,
-                        serviceStatus = currentServiceStatus,
-                        showStartFab = showStartFab,
-                        showStatusBar = showStatusBar,
-                        newProfileArgs = newProfileArgs,
-                        onClearNewProfileArgs = { newProfileArgs = NewProfileArgs() },
-                        onOpenNewProfile = openNewProfile,
-                        dashboardViewModel = dashboardViewModel,
-                        logViewModel = logViewModel,
-                        groupsViewModel = groupsViewModel,
-                        connectionsViewModel = connectionsViewModel,
-                        tailscaleStatusViewModel = tailscaleStatusViewModel,
-                        tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
-                        usbIPStatusViewModel = usbIPStatusViewModel,
-                        openConnectStatusViewModel = openConnectStatusViewModel,
-                        openVPNStatusViewModel = openVPNStatusViewModel,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val pullEnabled = isSubScreen || (currentRootRoute != null && currentRootRoute != Screen.Dashboard.route)
+                    PullToPopContainer(
+                        enabled = pullEnabled,
+                        releaseHint = stringResource(
+                            if (isSubScreen) R.string.pull_release_up else R.string.pull_release_home,
+                        ),
+                        onPop = {
+                            if (isSubScreen) {
+                                navController.navigateUp()
+                            } else {
+                                navController.navigate(Screen.Dashboard.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
+                    ) {
+                        NavHost(
+                            navController = navController,
+                            serviceStatus = currentServiceStatus,
+                            showStartFab = showStartFab,
+                            showStatusBar = showStatusBar,
+                            newProfileArgs = newProfileArgs,
+                            onClearNewProfileArgs = { newProfileArgs = NewProfileArgs() },
+                            onOpenNewProfile = openNewProfile,
+                            dashboardViewModel = dashboardViewModel,
+                            logViewModel = logViewModel,
+                            groupsViewModel = groupsViewModel,
+                            connectionsViewModel = connectionsViewModel,
+                            tailscaleStatusViewModel = tailscaleStatusViewModel,
+                            tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
+                            usbIPStatusViewModel = usbIPStatusViewModel,
+                            openConnectStatusViewModel = openConnectStatusViewModel,
+                            openVPNStatusViewModel = openVPNStatusViewModel,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                     if (!useNavigationRail) {
                         if (isRemote) {
                             RemoteStatusBar(

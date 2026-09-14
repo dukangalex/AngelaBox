@@ -701,11 +701,33 @@ def main() -> int:
         errors.append("default script must route the Gemini Android package")
     if "ensureHijackDns" not in inbound:
         errors.append("startup must inject hijack-dns if the subscription omitted it")
-    if "barProfileMenu" not in ui:
-        errors.append("chain builder top bar must expose a profile dropdown")
+    if "barProfileMenu" in ui:
+        errors.append("chain builder top bar must not duplicate the in-card profile dropdown")
     script_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt")
-    if "barMenu" not in script_ui:
-        errors.append("script list top bar must expose a profile dropdown")
+    if "barMenu" in script_ui:
+        errors.append("script list top bar must not duplicate the in-card profile dropdown")
+    if "OverrideTopBar" not in ui:
+        errors.append("chain builder must use OverrideTopBar so it is not flush with the status bar")
+    if "ExposedDropdownMenuBox" not in script_ui:
+        errors.append("script list card must keep a profile dropdown")
+    if "PullToPopContainer" not in read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"):
+        errors.append("nested pages must support pull-to-go-back")
+    if "OpenLogs" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard running chip / sankey should open logs, not the chain page")
+    if "Icons.Outlined.Add" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard must not duplicate the add-profile + next to 配置")
+    if "applyChinaUserDefaultsIfNeeded" not in settings:
+        errors.append("existing installs must one-shot enable China-user defaults")
+    if "CHINA_DEFAULTS_REV" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.CHINA_DEFAULTS_REV missing")
+    if "DISABLE_QUIC) { true }" not in settings:
+        errors.append("disableQuic should default on for China HTTP3 leak protection")
+    if "STRICT_ROUTE) { true }" not in settings:
+        errors.append("strictRoute should default on")
+    if "DISABLE_IPV6) { true }" not in settings:
+        errors.append("disableIpv6 should default on to block IPv6 bypass")
+    if "EXCLUDE_CN_QUIC) { true }" not in settings:
+        errors.append("excludeCnQuic should default on so domestic QUIC still works")
     banner = read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt")
     if "surfaceContainerHigh" not in banner:
         errors.append("script notice banner must not use a red error container for info")
