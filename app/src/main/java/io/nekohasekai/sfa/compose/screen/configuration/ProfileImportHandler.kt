@@ -45,6 +45,7 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
         try {
+            require(uri.scheme == "content") { "Only content:// profile imports are supported" }
             val data = readUriBytes(uri)
                 ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
 
@@ -73,10 +74,7 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
-            // Do not read or parse the URI here. The confirmation dialog must not
-            // trigger a second read of a mutable ContentProvider later. Import is
-            // performed exactly once, after the user confirms, with the size limit
-            // and full configuration validation applied there.
+            require(uri.scheme == "content") { "Only content:// profile imports are supported" }
             val filename = getFileNameFromUri(uri)
             UriParseResult.Success(filename)
         } catch (e: Exception) {
