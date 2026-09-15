@@ -505,7 +505,7 @@ private class OpenConnectWebViewBrowser(
         val parsedURL = Uri.parse(url)
         return when (parsedURL.scheme?.lowercase()) {
             "http", "https" -> parsedURL.host != null
-            "data", "about", "blob" -> true
+            "about", "blob" -> true
             else -> false
         }
     }

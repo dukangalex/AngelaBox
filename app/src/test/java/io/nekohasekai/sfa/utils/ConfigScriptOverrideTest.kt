@@ -118,4 +118,36 @@ class ConfigScriptOverrideTest {
         assertEquals(emptyList<String>(), decoded[13L])
         assertEquals(true, OverlayScripts.decodeBindings("").isEmpty())
     }
+
+    @Test
+    fun runtimeJavaEscapeIsRejected() {
+        val input = JSONObject().put("outbounds", JSONArray()).toString()
+        val payloads = listOf(
+            """function main(config) { java.lang.Runtime.getRuntime().exec("id"); return config; }""",
+            """function main(config) { var R = Java.type("java.lang.Runtime"); return config; }""",
+            """function main(config) { var x = Packages.java.lang.System; return config; }""",
+        )
+        payloads.forEach { code ->
+            try {
+                ConfigScriptOverride.ScriptEngine.run(code, input, "evil")
+                throw AssertionError("expected sandbox reject for $code")
+            } catch (e: Exception) {
+                assertTrue(e.message.orEmpty().isNotBlank())
+            }
+        }
+    }
+
+    @Test
+    fun infiniteLoopTimesOut() {
+        val input = JSONObject().put("outbounds", JSONArray()).toString()
+        val code = """function main(config) { while (true) {} }"""
+        val started = System.currentTimeMillis()
+        try {
+            ConfigScriptOverride.ScriptEngine.run(code, input, "loop")
+            throw AssertionError("expected timeout")
+        } catch (e: Exception) {
+            assertTrue(e.message.orEmpty().contains("超时") || e.message.orEmpty().isNotBlank())
+        }
+        assertTrue(System.currentTimeMillis() - started < 20_000)
+    }
 }

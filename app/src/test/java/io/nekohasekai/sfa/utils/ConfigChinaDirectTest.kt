@@ -137,4 +137,16 @@ class ConfigChinaDirectTest {
             .first { it.optString("tag") == tag }
         assertEquals("direct", created.getString("type"))
     }
+
+    @Test
+    fun doesNotTreatGoogleRuleSetAsChina() {
+        val rules = ConfigChinaDirect.chinaRouteRules(
+            "direct",
+            setOf("geosite-google", "geoip-google", "geosite-geolocation-!cn", "geoip-cn-ads"),
+        )
+        val text = rules.toString()
+        assertFalse(text.contains("geosite-google"))
+        assertFalse(text.contains("geoip-google"))
+        assertFalse(text.contains("geoip-cn-ads"))
+    }
 }

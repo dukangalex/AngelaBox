@@ -30,6 +30,7 @@ jobs:
           python3 scripts/test_dns_migrate.py
           python3 scripts/test_inbound_compat.py
           python3 scripts/test_adblock_overlay.py
+          python3 scripts/test_security_guards.py
 
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -86,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
-          sudo -E go test $packages
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test $packages
 
   android-compile:
     name: ChainBox Android compile

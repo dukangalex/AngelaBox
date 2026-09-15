@@ -69,16 +69,26 @@ object ConfigScriptOverride {
                 cx.languageVersion = Context.VERSION_ES6
                 cx.setInstructionObserverThreshold(20_000)
                 val scope: Scriptable = cx.initSafeStandardObjects()
+                arrayOf(
+                    "Packages", "JavaAdapter", "JavaImporter", "getClass",
+                    "Java", "java", "javax", "org", "com", "edu", "net", "android",
+                ).forEach { name ->
+                    if (scope.has(name, scope)) scope.delete(name)
+                }
                 cx.setClassShutter { className ->
-                    className.startsWith("org.mozilla.javascript.") ||
-                        className == "java.lang.String" ||
-                        className == "java.lang.Boolean" ||
-                        className == "java.lang.Integer" ||
-                        className == "java.lang.Long" ||
-                        className == "java.lang.Double" ||
-                        className == "java.lang.Float" ||
-                        className == "java.lang.Number" ||
-                        className == "java.lang.Object"
+                    val n = className ?: return@setClassShutter false
+                    if (n.startsWith("org.mozilla.javascript.")) {
+                        val leaf = n.substringAfterLast('.')
+                        return@setClassShutter !leaf.contains("Java") && !leaf.contains("LiveConnect")
+                    }
+                    n == "java.lang.String" ||
+                        n == "java.lang.Boolean" ||
+                        n == "java.lang.Integer" ||
+                        n == "java.lang.Long" ||
+                        n == "java.lang.Double" ||
+                        n == "java.lang.Float" ||
+                        n == "java.lang.Number" ||
+                        n == "java.lang.Object"
                 }
                 val quoted = JSONObject.quote(configJson)
                 val wrapped = """
@@ -86,6 +96,9 @@ object ConfigScriptOverride {
                     (function () {
                       if (typeof main !== "function") {
                         throw new Error("script must define function main(config)");
+                      }
+                      if (typeof Packages !== "undefined" || typeof Java !== "undefined") {
+                        throw new Error("java bridge is disabled");
                       }
                       var cfg = JSON.parse($quoted);
                       var out = main(cfg);
@@ -95,7 +108,7 @@ object ConfigScriptOverride {
                 """.trimIndent()
                 val result = cx.evaluateString(scope, wrapped, name.ifBlank { "overlay" }, 1, null)
                 return Context.toString(result)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 val message = e.message?.take(240) ?: "脚本执行失败"
                 throw IllegalStateException(message, e)
             } finally {

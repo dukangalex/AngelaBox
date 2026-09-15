@@ -1,10 +1,10 @@
-name: ChainBox Release
+name: AngelaBox Release
 
 on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: "Release tag (e.g. v1.0.10)"
+        description: "Release tag (e.g. v1.0.53)"
         required: true
         type: string
 
@@ -16,10 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: Checkout ChainBox app
+      - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: sing-box-for-android
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -34,7 +43,15 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
           echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Verify official types in audited kernel
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          git clone --depth 1 --branch "v${UPSTREAM}" https://github.com/SagerNet/sing-box.git sing-box-official
+          python3 sing-box-for-android/scripts/check_upstream_features.py --official sing-box-official --fork sing-box
 
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
@@ -65,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
-          sudo -E go test $packages
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test $packages
           sudo chown -R "$(id -u):$(id -g)" "$(go env GOPATH)" "$(go env GOCACHE)" "$(go env GOMODCACHE)"
 
       - name: Install gomobile
@@ -73,7 +90,7 @@ jobs:
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          "$(go env GOPATH)/bin/gomobile" init || true
+          "$(go env GOPATH)/bin/gomobile" version || "$(go env GOPATH)/bin/gomobile" init || true
 
       - name: Build libbox AAR
         working-directory: sing-box
@@ -82,7 +99,7 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
           export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
           java --version
-          go run ./cmd/internal/build_libbox -target android -platform android/arm64 -debug
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64
           mkdir -p ../sing-box-for-android/app/libs
           cp -f libbox.aar ../sing-box-for-android/app/libs/libbox.aar
           if [ -f libbox-legacy.aar ]; then cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/; else cp -f libbox.aar ../sing-box-for-android/app/libs/libbox-legacy.aar; fi
@@ -112,6 +129,7 @@ jobs:
           } >> local.properties
           CERT_SHA256=$(keytool -list -v -keystore app/release.keystore -storepass "$STORE_PASS" -alias "$ALIAS" -keypass "$KEY_PASS" | awk -F': ' '/^[[:space:]]*SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
           echo "$CERT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+          test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
           echo "RELEASE_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
       - name: Assemble release APK
@@ -134,22 +152,26 @@ jobs:
           CERT_SHA256=$(printf '%s\n' "$SIGNING_INFO" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
           echo "$CERT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
           test "$CERT_SHA256" = "$RELEASE_CERT_SHA256"
+          test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
           "$APKSIGNER" verify "$APK"
-          sha256sum "$APK" > ChainBox-android.apk.sha256
-          cp -f "$APK" ChainBox-android.apk
-          sha256sum -c ChainBox-android.apk.sha256
+          python3 scripts/verify_apk_signature.py --require-release "$APK"
+          cp -f "$APK" AngelaBox-android.apk
+          sha256sum AngelaBox-android.apk > AngelaBox-android.apk.sha256
+          test -s AngelaBox-android.apk.sha256
+          sha256sum -c AngelaBox-android.apk.sha256
+          grep -q 'AngelaBox-android.apk' AngelaBox-android.apk.sha256
 
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.version_tag }}
-          name: ChainBox ${{ inputs.version_tag }}
+          name: AngelaBox ${{ inputs.version_tag }}
           body: |
-            ChainBox official signed Android client.
+            AngelaBox official signed Android client.
             Kernel commit: 03ad0a1d7c659e863c7100d25fa74681b5465a34
           files: |
-            sing-box-for-android/ChainBox-android.apk
-            sing-box-for-android/ChainBox-android.apk.sha256
+            sing-box-for-android/AngelaBox-android.apk
+            sing-box-for-android/AngelaBox-android.apk.sha256
           draft: false
           prerelease: false
           make_latest: true

@@ -43,8 +43,9 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 - 对外产品名、README、About、Release、APK 文件名、仓库路径都是 AngelaBox。包名仍为 `io.chainbox.app`。
 - 只发布 `AngelaBox-android.apk`。曾用名 ChainBox 不再出安装包。
-- 发版后 `build-chainbox.yml` 会向 [t.me/AngelaBox](https://t.me/AngelaBox) **先发**带更新说明和下载按钮的文字（关闭 GitHub 链接预览，避免错图），再上传 `AngelaBox-android.apk`。安装包约 40MB，上传按块写入并超时重试；即使上传失败，频道也已经有说明和 GitHub 下载按钮。需仓库 Secrets：`TG_BOT_TOKEN`、`TG_CHANNEL_ID`。手动补发工作流是 **Telegram Release**（文件 `telegram.yml`）。
-- App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`（旧仓库名会重定向）。
+- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secrets：`TG_BOT_TOKEN`、`TG_CHANNEL_ID`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
+- App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
+- **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。清理 git 历史用 `git filter-repo` + GitHub Support purge，那不是换钥匙。
 - 不走 F-Droid / 官方 SagerNet 更新源。
 - 不得用官方名称上架应用商店。
 
@@ -54,7 +55,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
-GitHub Release 发布成功后，`build-chainbox.yml` 会按 `docs/RELEASE_NOTES.md` 往频道发更新说明：先发文字（关闭网页预览），再把 `AngelaBox-android.apk` 作为可直接安装的文件上传（分块 + 超时重试，避免 180 秒写超时把整条通知吃掉）。`telegram.yml`（Actions 里显示为 **Telegram Release**）可手动补发。需仓库管理员一次性配置：
+GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` 往频道发更新说明：先发文字（关闭网页预览），再把 `AngelaBox-android.apk` 作为可直接安装的文件上传。`telegram.yml`（Actions 里显示为 **Telegram Release**）也可手动补发。需仓库管理员一次性配置：
 
 1. Telegram 打开 [@BotFather](https://t.me/BotFather)，`/newbot` 拿到 token。
 2. 把该 bot 加进频道 **AngelaBox**，授予「发布消息」权限。
@@ -74,6 +75,7 @@ GitHub Release 发布成功后，`build-chainbox.yml` 会按 `docs/RELEASE_NOTES
 | 本仓库 | dukangalex/sing-box 分支 `chain-dev` |
 | 已对齐基线 | 官方 1.14 系（Go 1.25.5） |
 | 内核 tag | v1.12.0-chain.4（历史命名；代码基线为 1.14） |
+| 发版钉死的 commit | `03ad0a1d7c659e863c7100d25fa74681b5465a34`（`version.properties` 的 `KERNEL_COMMIT`） |
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。相关提交多为 Apple / Windows / Tailscale / netlink，以及 **Go 1.26.8**。chain-dev 的 `oomprofile` 用 go:linkname 钉在 Go 1.25.5 的 `runtime/pprof` 内部符号上，跟进 1.14.1 需先在 `chain-dev` 验证该符号与 Android 编译。按「不为跟版而跟版」，本版继续钉 **v1.14.0**。
 
@@ -110,12 +112,12 @@ git checkout dev
 git merge upstream/dev
 ```
 
-冲突时以 AngelaBox 为准：包名、签名、组链、配置覆盖、备份、更新检查、`build-chainbox.yml`、`version.properties`。
+冲突时以 AngelaBox 为准：包名、签名、组链、配置覆盖、备份、更新检查、`release-chainbox.yml`、`version.properties`。
 
 ## 发版
 
 1. 改 `version.properties`（`VERSION_NAME` 与 tag 一致，`VERSION_CODE` 必须递增）。
-2. Actions → **Build ChainBox APK** → `publish_release=true` → `version_tag=vX.Y.Z`。
+2. Actions → **AngelaBox Release** → `version_tag=vX.Y.Z`。
 3. 用户安装 `AngelaBox-android.apk`，并用 `AngelaBox-android.apk.sha256` 校验。
 4. 发版前对照上游 `scripts/upstream_strings/`：简体用词与官方一致，仅保留 AngelaBox 新增条目。
 5. 发版说明必须包含：内核 commit SHA、官方基线 tag、官方类型常量检查结果。

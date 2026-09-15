@@ -1,32 +1,20 @@
-name: ChainBox CI Build
+name: Legacy CI diagnostic
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  test-and-build:
+  diagnostic:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Setup Go Environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Test Go Core Modules
+      - name: Not a publisher
         run: |
-          go test -v ./outbound/chain/... || true
-
-      - name: Check SFA Build Prerequisites
-        run: |
-          if [ -f "gradlew" ]; then
-            echo "Found SFA Android environment, ready for APK build."
-          else
-            echo "Core Go module verified successfully."
-          fi
+          echo "This workflow is diagnostic only and never publishes an APK."
+          test -f version.properties
+          grep -q '^KERNEL_COMMIT=' version.properties

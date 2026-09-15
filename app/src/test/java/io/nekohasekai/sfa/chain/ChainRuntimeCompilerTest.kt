@@ -387,4 +387,39 @@ class ChainRuntimeCompilerTest {
         val huge = "x".repeat(ChainRuntimeCompiler.MAX_CONFIG_CHARS + 8)
         ChainRuntimeCompiler.parseConfig(huge, "测试")
     }
+
+    @Test
+    fun mixedOrChinaAndGoogleIsNotBypass() {
+        val rule = JSONObject()
+            .put("rule_set", JSONArray().put("geoip-cn").put("geosite-google"))
+            .put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun chinaOnlyRuleSetIsBypass() {
+        val rule = JSONObject().put("rule_set", JSONArray().put("geoip-cn")).put("outbound", "direct")
+        assertTrue(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun haystackChinaAirlinesIsNotBypass() {
+        val rule = JSONObject().put("domain", JSONArray().put("www.china-airlines.com")).put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun privateCidrLiteralOnly() {
+        assertTrue(ChainRuntimeCompiler.isPrivateCidr("10.0.0.0/8"))
+        assertTrue(ChainRuntimeCompiler.isPrivateCidr("192.168.1.1/32"))
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("1.1.1.1/32"))
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("evil.example/32"))
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("geoip-cn"))
+    }
+
+    @Test
+    fun notCnRuleSetIsNotBypass() {
+        val rule = JSONObject().put("rule_set", JSONArray().put("geosite-geolocation-!cn")).put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
 }

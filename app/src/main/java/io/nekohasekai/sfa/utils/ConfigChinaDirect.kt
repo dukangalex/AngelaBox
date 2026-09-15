@@ -97,12 +97,13 @@ object ConfigChinaDirect {
                 .put("outbound", directTag),
         )
         val geoip = existingRuleSets.filter { tag ->
-            val t = tag.lowercase()
-            t.contains("geoip-cn") || t.contains("geoip_cn") || t == "cn-ip" || t == "china-ip"
+            val token = tag.trim().lowercase().substringAfterLast('/')
+            token == "geoip-cn" || token == "geoip_cn"
         }
         val geosite = existingRuleSets.filter { tag ->
-            val t = tag.lowercase()
-            t.contains("geosite-cn") || t.contains("geosite_cn") || t == "cn" || t == "china"
+            val token = tag.trim().lowercase().substringAfterLast('/')
+            token == "geosite-cn" || token == "geosite_cn" ||
+                token == "geosite-geolocation-cn" || token == "cn"
         }
         if (geoip.isNotEmpty()) {
             rules.put(JSONObject().put("rule_set", toArray(geoip)).put("outbound", directTag))

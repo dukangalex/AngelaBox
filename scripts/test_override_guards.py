@@ -540,7 +540,7 @@ def main() -> int:
         errors.append("GitHub update checker must fetch the APK SHA-256 asset")
     if "dukangalex/AngelaBox/releases" not in checker:
         errors.append("GitHub update checker must query dukangalex/AngelaBox")
-    workflow = read(".github/workflows/build-chainbox.yml")
+    workflow = read(".github/workflows/release-chainbox.yml")
     if "check_upstream_features.py" not in workflow:
         errors.append("release workflow must check official type constants")
     if "AngelaBox-android.apk" not in workflow:
@@ -549,21 +549,24 @@ def main() -> int:
         errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
     if "KERNEL_COMMIT" not in workflow:
         errors.append("release workflow must record the kernel commit SHA")
-    if "TG_BOT_TOKEN" not in workflow:
-        errors.append("build-chainbox.yml must notify Telegram after publish")
-    if "api.telegram.org" not in workflow and "telegram_send.py" not in workflow:
-        errors.append("build-chainbox.yml must notify Telegram after publish")
-    if "sendDocument" not in workflow and "telegram_send.py" not in workflow:
-        errors.append("build-chainbox.yml must upload the APK to Telegram")
-    if "telegram_announce.py" not in workflow:
-        errors.append("build-chainbox.yml must build Telegram notes from telegram_announce.py")
-    if "telegram_send.py" not in workflow:
-        errors.append("build-chainbox.yml must send Telegram posts via telegram_send.py (curl -F hits secret masking)")
-    if "reply_markup" not in workflow and "telegram_send.py" not in workflow:
+    if "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151" not in workflow:
+        errors.append("release workflow must pin the CN=ChainBox certificate")
+    telegram = read(".github/workflows/telegram.yml")
+    if "TG_BOT_TOKEN" not in telegram:
+        errors.append("telegram.yml must notify Telegram after publish")
+    if "api.telegram.org" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must notify Telegram after publish")
+    if "sendDocument" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must upload the APK to Telegram")
+    if "telegram_announce.py" not in telegram:
+        errors.append("telegram.yml must build Telegram notes from telegram_announce.py")
+    if "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must send Telegram posts via telegram_send.py (curl -F hits secret masking)")
+    if "reply_markup" not in telegram and "telegram_send.py" not in telegram:
         errors.append("Telegram notify must include a download button")
-    if "disable_web_page_preview" not in workflow and "telegram_send.py" not in workflow:
+    if "disable_web_page_preview" not in telegram and "telegram_send.py" not in telegram:
         errors.append("Telegram notify must disable GitHub link preview so the channel shows notes+APK")
-    if "telegram-caption.txt" not in read("scripts/telegram_send.py") and "telegram-caption.txt" not in workflow:
+    if "telegram-caption.txt" not in read("scripts/telegram_send.py") and "telegram-caption.txt" not in telegram:
         errors.append("Telegram APK caption must come from telegram_announce.py")
     if "filename=AngelaBox-android.apk" not in read("scripts/telegram_send.py") and '"AngelaBox-android.apk"' not in read("scripts/telegram_send.py"):
         errors.append("Telegram sendDocument must set filename so the APK is installable")
@@ -576,13 +579,10 @@ def main() -> int:
         errors.append("telegram_send.py must retry sendDocument after write timeout")
     if "CHUNK" not in send_py:
         errors.append("telegram_send.py must stream the APK in chunks instead of one ssl.sendall")
-    if "PYTHONUNBUFFERED" not in workflow:
-        errors.append("build-chainbox.yml Telegram step must be unbuffered so upload progress is visible")
-    if "body_path: release-body.md" not in workflow:
-        errors.append("GitHub release body must come from generated notes")
+    if "PYTHONUNBUFFERED" not in telegram:
+        errors.append("telegram.yml Telegram step must be unbuffered so upload progress is visible")
     if "same-bytes alias" in workflow or "ChainBox-android.apk" in workflow:
         errors.append("release notes must not mention a ChainBox APK alias")
-    telegram = read(".github/workflows/telegram.yml")
     if "TG_BOT_TOKEN" not in telegram or "TG_CHANNEL_ID" not in telegram:
         errors.append("telegram.yml must use TG_BOT_TOKEN and TG_CHANNEL_ID")
     if "sendDocument" not in telegram and "telegram_send.py" not in telegram:

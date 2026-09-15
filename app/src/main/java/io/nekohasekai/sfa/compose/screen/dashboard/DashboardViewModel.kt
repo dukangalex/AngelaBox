@@ -439,7 +439,9 @@ class DashboardViewModel :
 
             try {
                 // Fetch remote config
-                val content = ConfigCompat.sanitize(HTTPClient().use { it.getString(profile.typed.remoteURL) })
+                val content = ConfigCompat.sanitize(
+                    HTTPClient().use { it.getString(profile.typed.remoteURL, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+                )
                 Libbox.checkConfig(content)
 
                 // Check if content changed

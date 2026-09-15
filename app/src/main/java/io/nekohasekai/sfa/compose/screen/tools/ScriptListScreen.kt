@@ -413,7 +413,7 @@ fun ScriptListScreen(
                                                     scope.launch {
                                                         try {
                                                             val body = withContext(Dispatchers.IO) {
-                                                                HTTPClient().use { it.getString(script.url) }
+                                                                HTTPClient().use { it.getString(script.url, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT) }
                                                             }
                                                             if (body.isBlank()) {
                                                                 snackbar.showSnackbar(
@@ -556,7 +556,7 @@ fun ScriptListScreen(
                         scope.launch {
                             try {
                                 val body = withContext(Dispatchers.IO) {
-                                    HTTPClient().use { it.getString(url) }
+                                    HTTPClient().use { it.getString(url, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT) }
                                 }
                                 if (body.isBlank()) {
                                     snackbar.showSnackbar(context.getString(R.string.overlay_scripts_empty_file))
@@ -581,7 +581,7 @@ fun ScriptListScreen(
                             }
                         }
                     },
-                    enabled = urlState.second.startsWith("http://") || urlState.second.startsWith("https://"),
+                    enabled = urlState.second.startsWith("https://"),
                 ) { Text(stringResource(R.string.ok)) }
             },
             dismissButton = {

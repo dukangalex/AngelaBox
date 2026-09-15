@@ -6,9 +6,9 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 
 ## 安装
 
-1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新在发行附带校验和时会验证 SHA-256。
+1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新必须校验 SHA-256 和发行证书。
 2. 允许安装未知来源应用后安装。
-3. 同一签名且 versionCode 更大的新版可直接覆盖。
+3. 同一签名且 versionCode 更大的新版可直接覆盖。**v0.1.x 是调试签名，不能覆盖安装 1.0.x，必须先卸载。**
 
 设置 → 应用版本 应与 Release tag 一致。快捷设置磁贴名称与图标为 AngelaBox 立方体；覆盖安装后若仍显示旧名或旧图标，长按磁贴移除后再添加一次。
 
@@ -23,6 +23,8 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 1. 仪表 → 添加配置。
 2. 导入订阅或本地 JSON，设为当前配置。
 3. 如需跨配置串联，再导入另一份落地配置。落地不必设为当前配置。
+
+远程订阅可用 HTTPS 或你明确信任的 HTTP 地址。HTTP 会拦截回环、链路本地和云元数据，但仍可能被局域网中间人改写，能上 HTTPS 请尽量用 HTTPS。脚本导入只允许 HTTPS。
 
 远程订阅若含 Clash 风格 `plugin_opts` 对象，或仍使用 sing-box 1.11 的 `dns.fakeip` / `servers[].address` / `rcode://` / `type: rcode`，或入站仍写 `sniff` / `domain_strategy`、出站仍用 `type: dns` / `type: block`，导入和启动时会自动转成 1.12+ 的 typed DNS 与路由动作，避免内核拒绝。GitHub `raw.githubusercontent.com` 规则集地址会改写到 jsDelivr testingcf 镜像，避免 raw/LFS 404 导致无法启动。
 

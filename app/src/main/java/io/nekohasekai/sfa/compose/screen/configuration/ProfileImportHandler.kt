@@ -45,7 +45,7 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
         try {
-            require(uri.scheme == "content") { "Only content:// profile imports are supported" }
+            io.nekohasekai.sfa.utils.ImportPathGuard.requireContentScheme(uri.scheme)
             val data = readUriBytes(uri)
                 ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
 
@@ -74,7 +74,7 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
-            require(uri.scheme == "content") { "Only content:// profile imports are supported" }
+            io.nekohasekai.sfa.utils.ImportPathGuard.requireContentScheme(uri.scheme)
             val filename = getFileNameFromUri(uri)
             UriParseResult.Success(filename)
         } catch (e: Exception) {
@@ -210,8 +210,13 @@ class ProfileImportHandler(private val context: Context) {
 
     private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
         val secureUrl = url.trim()
-        if (!secureUrl.startsWith("https://", ignoreCase = true)) {
-            return ImportResult.Error("HTTPS is required for remote profile subscriptions")
+        try {
+            io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
+                secureUrl,
+                io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
+            )
+        } catch (e: Exception) {
+            return ImportResult.Error(e.message ?: "订阅地址不安全")
         }
 
         val typedProfile = TypedProfile().apply {
@@ -237,20 +242,7 @@ class ProfileImportHandler(private val context: Context) {
 
     private fun readUriBytes(uri: Uri): ByteArray? {
         return context.contentResolver.openInputStream(uri)?.use { input ->
-            val output = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                if (count == 0) continue
-                total += count
-                if (total > MAX_IMPORT_BYTES) {
-                    throw IllegalArgumentException("Imported profile exceeds 8 MiB limit")
-                }
-                output.write(buffer, 0, count)
-            }
-            output.toByteArray()
+            io.nekohasekai.sfa.utils.ImportPathGuard.readLimited(input, MAX_IMPORT_BYTES)
         }
     }
 

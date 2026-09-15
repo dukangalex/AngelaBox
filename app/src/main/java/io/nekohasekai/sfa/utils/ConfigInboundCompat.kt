@@ -23,6 +23,7 @@ object ConfigInboundCompat {
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
+        if (bindLoopbackOnly(root)) changed = true
         return changed
     }
 
@@ -763,6 +764,47 @@ object ConfigInboundCompat {
     private fun replaceArray(target: JSONArray, keep: JSONArray) {
         while (target.length() > 0) target.remove(0)
         for (i in 0 until keep.length()) target.put(keep.get(i))
+    }
+
+    internal fun bindLoopbackOnly(root: JSONObject): Boolean {
+        val clash = root.optJSONObject("experimental")?.optJSONObject("clash_api") ?: return false
+        var changed = false
+        for (key in listOf("external_controller", "listen")) {
+            if (!clash.has(key)) continue
+            val raw = clash.optString(key).trim()
+            if (raw.isEmpty()) continue
+            val rebound = rebindToLoopback(raw)
+            if (rebound != raw) {
+                clash.put(key, rebound)
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    internal fun rebindToLoopback(listen: String): String {
+        val s = listen.trim()
+        if (s.isEmpty() || s.startsWith("/")) return s
+        val host: String
+        val port: String
+        if (s.startsWith("[")) {
+            val end = s.indexOf(']')
+            if (end < 0) return "127.0.0.1:9090"
+            host = s.substring(1, end)
+            port = s.substring(end + 1).trimStart(':').ifBlank { "9090" }
+        } else {
+            val colon = s.lastIndexOf(':')
+            if (colon < 0) {
+                host = s
+                port = "9090"
+            } else {
+                host = s.substring(0, colon)
+                port = s.substring(colon + 1).ifBlank { "9090" }
+            }
+        }
+        val h = host.lowercase()
+        if (h == "127.0.0.1" || h == "localhost") return "127.0.0.1:$port"
+        return "127.0.0.1:$port"
     }
 
     private const val JSDELIVR_HOST = "testingcf.jsdelivr.net"

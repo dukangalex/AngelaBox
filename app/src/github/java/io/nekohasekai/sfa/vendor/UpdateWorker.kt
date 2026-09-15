@@ -72,7 +72,12 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
 
             if (Settings.silentInstallEnabled && ApkInstaller.canSilentInstall()) {
                 Log.d(TAG, "Downloading update...")
-                val apkFile = ApkDownloader().use { it.download(updateInfo.downloadUrl, updateInfo.sha256) }
+                val sha256 = updateInfo.sha256
+                    ?.trim()
+                    ?.lowercase()
+                    ?.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+                    ?: throw IllegalStateException("Update is missing a valid APK SHA-256")
+                val apkFile = ApkDownloader().use { it.download(updateInfo.downloadUrl, sha256) }
 
                 Log.d(TAG, "Installing update...")
                 ApkInstaller.install(appContext, apkFile)

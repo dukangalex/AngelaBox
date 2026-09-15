@@ -114,12 +114,12 @@ sha256sum -c AngelaBox-android.apk.sha256
 
 ## 构建
 
-使用工作流 `.github/workflows/build-chainbox.yml`：
+使用工作流 `.github/workflows/release-chainbox.yml`（Actions 里显示为 **AngelaBox Release**）：
 
-1. 从 `chain-dev` 编译 `libbox.aar`
+1. 从钉死的 `KERNEL_COMMIT` 编译 `libbox.aar`
 2. 与官方 sing-box 核对 inbound/outbound 类型常量
-3. 组装 Android APK，生成 `AngelaBox-android.apk.sha256`
-4. 若 `publish_release=true` 并指定 `version_tag`，则发布至 GitHub Releases（含内核 commit SHA）
+3. 校验发行证书 SHA-256 后组装 Android APK，生成 `AngelaBox-android.apk.sha256`
+4. 指定 `version_tag` 后发布至 GitHub Releases（只出 `AngelaBox-android.apk`）
 
 客户端版本号以 `version.properties` 为准。
 

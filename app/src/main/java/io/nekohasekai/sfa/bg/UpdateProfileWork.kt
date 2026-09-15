@@ -76,7 +76,9 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    val content = ConfigCompat.sanitize(HTTPClient().use { it.getString(profile.typed.remoteURL) })
+                    val content = ConfigCompat.sanitize(
+                        HTTPClient().use { it.getString(profile.typed.remoteURL, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+                    )
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
                     if (file.readText() != content) {

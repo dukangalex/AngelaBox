@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Date
 
@@ -266,9 +265,10 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun createRemoteProfile(state: NewProfileUiState): Profile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
-        if (!remoteUrl.startsWith("https://", ignoreCase = true)) {
-            throw Exception("HTTPS is required for remote profile subscriptions")
-        }
+        io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
+            remoteUrl,
+            io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
+        )
 
         val typedProfile =
             TypedProfile().apply {
@@ -289,7 +289,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
-        val content = ConfigCompat.sanitize(HTTPClient().use { it.getString(remoteUrl) })
+        val content = ConfigCompat.sanitize(
+            HTTPClient().use { it.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+        )
         Libbox.checkConfig(content)
         val configContent = content
 
@@ -307,21 +309,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     private fun readImportText(context: Application, uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
             ?: throw Exception("Unable to open imported profile")
-        inputStream.use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                if (count == 0) continue
-                total += count
-                if (total > MAX_IMPORT_BYTES) {
-                    throw IllegalArgumentException("Imported profile exceeds 8 MiB limit")
-                }
-                output.write(buffer, 0, count)
-            }
-            return output.toString(Charsets.UTF_8.name())
+        return inputStream.use { input ->
+            io.nekohasekai.sfa.utils.ImportPathGuard.readLimited(input, MAX_IMPORT_BYTES)
+                .toString(Charsets.UTF_8)
         }
     }
 }

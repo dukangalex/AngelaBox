@@ -3,6 +3,11 @@ package io.nekohasekai.sfa.chain
 import org.json.JSONArray
 import org.json.JSONObject
 
+/**
+ * Materializes a two-hop native chain: entry first, landing/exit last.
+ * Packet path is entry → landing → public IP. DNS detours stay on the
+ * original outbound (one hop) and are not rewritten onto the chain.
+ */
 object ChainRuntimeCompiler {
     const val NATIVE_CHAIN_TYPE = "chain"
     const val GENERATED_PREFIX = "chainbox-chain-"
@@ -17,7 +22,10 @@ object ChainRuntimeCompiler {
     private val forbiddenTypes = setOf("direct", "block", "dns", NATIVE_CHAIN_TYPE)
     private val forbiddenTags = setOf("direct", "block", "dns")
     private val groupTypes = setOf("selector", "urltest")
-    private val CN_TOKEN = Regex("""(?<![a-z0-9_-])cn(?![a-z0-9_-])""")
+    private val CN_RULE_SET_TOKENS = setOf(
+        "geoip-cn", "geosite-cn", "geosite-geolocation-cn",
+        "geoip_cn", "geosite_cn", "cn",
+    )
 
     data class ApplyRequest(
         val content: String,
@@ -148,18 +156,65 @@ object ChainRuntimeCompiler {
     }
 
     internal fun isBypassDirectRule(rule: JSONObject): Boolean {
-        if (rule.optBoolean("ip_is_private", false)) return true
-        val haystack = buildString {
-            listOf("rule_set", "geosite", "geoip", "domain_suffix", "domain", "domain_keyword", "ip_cidr").forEach { key ->
-                textsOf(rule, key).forEach { append(' ').append(it.lowercase()) }
-            }
+        val sets = textsOf(rule, "rule_set") + textsOf(rule, "geosite") + textsOf(rule, "geoip")
+        if (sets.any { it.contains('!') }) return false
+        val suffixes = textsOf(rule, "domain_suffix")
+        val cidrs = textsOf(rule, "ip_cidr")
+        val extra = textsOf(rule, "domain") + textsOf(rule, "domain_keyword") +
+            textsOf(rule, "domain_regex") + textsOf(rule, "ip_cidr6")
+        if (extra.isNotEmpty()) return false
+        if (sets.any { !isExplicitCnRuleSet(it) }) return false
+        if (suffixes.any { !isCnSuffix(it) }) return false
+        if (cidrs.any { !isPrivateCidr(it) }) return false
+        val privateFlag = rule.optBoolean("ip_is_private", false)
+        return privateFlag || sets.isNotEmpty() || suffixes.isNotEmpty() || cidrs.isNotEmpty()
+    }
+
+    internal fun isExplicitCnRuleSet(raw: String): Boolean {
+        val token = raw.trim().lowercase().substringAfterLast('/')
+        return token in CN_RULE_SET_TOKENS
+    }
+
+    internal fun isCnSuffix(raw: String): Boolean {
+        val s = raw.trim().lowercase().trimStart('.')
+        return s == "cn" || s.endsWith(".cn")
+    }
+
+    internal fun isPrivateCidr(raw: String): Boolean {
+        val s = raw.trim()
+        if (s.isEmpty()) return false
+        val slash = s.indexOf('/')
+        val ip = if (slash >= 0) s.substring(0, slash) else s
+        val prefix = if (slash >= 0) s.substring(slash + 1).toIntOrNull() ?: return false else null
+        return if (':' in ip) isPrivateIpv6Literal(ip, prefix) else isPrivateIpv4Literal(ip, prefix)
+    }
+
+    private fun isPrivateIpv4Literal(ip: String, prefix: Int?): Boolean {
+        val parts = ip.split('.')
+        if (parts.size != 4) return false
+        val b = IntArray(4)
+        for (i in 0..3) {
+            val n = parts[i].toIntOrNull() ?: return false
+            if (n !in 0..255) return false
+            if (parts[i] != n.toString()) return false
+            b[i] = n
         }
-        if (haystack.contains("geoip-cn") || haystack.contains("geosite-cn") || haystack.contains("geoip_cn") || haystack.contains("geosite_cn")) return true
-        if (CN_TOKEN.containsMatchIn(haystack) || haystack.contains("china") || haystack.contains("中国")) return true
-        if (haystack.contains(".cn") || haystack.contains("cn.")) return true
-        val lan = listOf("local", "lan", "localhost", "home.arpa", "internal", "intranet", "private", "localdomain")
-        if (lan.any { haystack.contains(it) }) return true
-        return haystack.contains("10.") || haystack.contains("192.168.") || haystack.contains("172.16.") || haystack.contains("127.0.0.") || haystack.contains("fc00") || haystack.contains("fe80")
+        if (prefix != null && prefix !in 0..32) return false
+        val a = b[0]
+        val c = b[1]
+        return a == 10 || a == 127 || a == 0 ||
+            (a == 192 && c == 168) ||
+            (a == 172 && c in 16..31) ||
+            (a == 169 && c == 254)
+    }
+
+    private fun isPrivateIpv6Literal(ip: String, prefix: Int?): Boolean {
+        val t = ip.lowercase()
+        if (t.any { it !in '0'..'9' && it !in 'a'..'f' && it != ':' }) return false
+        if (prefix != null && prefix !in 0..128) return false
+        if (t == "::1" || t == "::") return true
+        if (t.startsWith("fc") || t.startsWith("fd") || t.startsWith("fe80")) return true
+        return false
     }
 
     internal fun isDirectLike(tag: String): Boolean {

@@ -153,7 +153,7 @@ object ConfigQuicOverride {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val oldRules = route.optJSONArray("rules") ?: JSONArray()
         val injected = JSONArray()
-        if (Settings.excludeCnQuic) {
+        if (Settings.excludeCnQuic && Settings.chinaDirect) {
             injected.put(
                 JSONObject()
                     .put("network", "udp")

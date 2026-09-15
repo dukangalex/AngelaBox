@@ -7,6 +7,7 @@ import io.nekohasekai.sfa.ktx.unwrap
 import io.nekohasekai.sfa.update.UpdateInfo
 import io.nekohasekai.sfa.update.UpdateTrack
 import io.nekohasekai.sfa.utils.HTTPClient
+import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,9 +19,9 @@ class GitHubUpdateChecker : Closeable {
             "https://api.github.com/repos/dukangalex/AngelaBox/releases"
         const val RELEASES_PAGE_URL =
             "https://github.com/dukangalex/AngelaBox/releases"
-        private const val LEGACY_RELEASES_URL =
-            "https://api.github.com/repos/dukangalex/ChainBox/releases"
         private const val PREFERRED_APK = "AngelaBox-android.apk"
+        private const val LEGACY_APK = "AngelaBox-legacy.apk"
+        private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
     }
 
     private val client = Libbox.newHTTPClient().apply {
@@ -39,31 +40,31 @@ class GitHubUpdateChecker : Closeable {
             val versionName = normalizeVersion(release.tagName.ifBlank { release.name })
             if (versionName.isEmpty()) continue
             if (!isNewerThanCurrent(versionName)) continue
+            val isLegacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+            val apkAsset = pickApkAsset(release.assets, isLegacy) ?: continue
+            val sha256 = pickSha256(release.assets, apkAsset, githubToken) ?: continue
             val metadata = VersionMetadata(
                 versionCode = versionCodeFromName(versionName),
                 versionName = versionName,
             )
             val currentBest = selected
             if (currentBest == null || isBetterVersion(metadata, currentBest.metadata)) {
-                selected = ReleaseCandidate(release, metadata)
+                selected = ReleaseCandidate(release, metadata, apkAsset, sha256)
             }
         }
 
-        val release = selected?.release ?: return null
-        val metadata = selected.metadata
-
-        val isLegacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
-        val apkAsset = pickApkAsset(release.assets, isLegacy)
+        val candidate = selected ?: return null
+        RemoteUrlGuard.requireAllowed(candidate.apk.browserDownloadUrl, RemoteUrlGuard.Kind.UPDATE)
 
         return UpdateInfo(
-            versionCode = metadata.versionCode,
-            versionName = metadata.versionName,
-            downloadUrl = apkAsset?.browserDownloadUrl ?: release.htmlUrl,
-            releaseUrl = release.htmlUrl.ifBlank { RELEASES_PAGE_URL },
-            releaseNotes = release.body,
-            isPrerelease = release.prerelease,
-            fileSize = apkAsset?.size ?: 0,
-            sha256 = runCatching { pickSha256(release.assets, apkAsset, githubToken) }.getOrNull(),
+            versionCode = candidate.metadata.versionCode,
+            versionName = candidate.metadata.versionName,
+            downloadUrl = candidate.apk.browserDownloadUrl,
+            releaseUrl = candidate.release.htmlUrl.ifBlank { RELEASES_PAGE_URL },
+            releaseNotes = candidate.release.body,
+            isPrerelease = candidate.release.prerelease,
+            fileSize = candidate.apk.size,
+            sha256 = candidate.sha256,
         )
     }
 
@@ -74,32 +75,18 @@ class GitHubUpdateChecker : Closeable {
         }
         if (apks.isEmpty()) return null
         if (isLegacy) {
-            return apks.find { it.name.contains("legacy", ignoreCase = true) } ?: apks.first()
+            return apks.find { it.name.equals(LEGACY_APK, ignoreCase = true) }
+                ?: apks.find { it.name.equals(PREFERRED_APK, ignoreCase = true) }
         }
         return apks.find { it.name.equals(PREFERRED_APK, ignoreCase = true) }
-            ?: apks.find { it.name.equals("ChainBox-android.apk", ignoreCase = true) }
-            ?: apks.find {
-                (it.name.contains("AngelaBox", ignoreCase = true) ||
-                    it.name.contains("ChainBox", ignoreCase = true)) &&
-                    !it.name.contains("legacy", ignoreCase = true)
-            }
-            ?: apks.find { !it.name.contains("legacy", ignoreCase = true) }
-            ?: apks.first()
     }
 
     private fun getReleases(githubToken: String): List<GitHubRelease> {
-        return try {
-            fetchReleaseList(RELEASES_URL, githubToken)
-        } catch (first: Exception) {
-            try {
-                fetchReleaseList(LEGACY_RELEASES_URL, githubToken)
-            } catch (_: Exception) {
-                throw first
-            }
-        }
+        return fetchReleaseList(RELEASES_URL, githubToken)
     }
 
     private fun fetchReleaseList(url: String, githubToken: String): List<GitHubRelease> {
+        RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.UPDATE)
         val request = client.newRequest()
         request.setURL(url)
         request.setHeader("Accept", "application/vnd.github.v3+json")
@@ -118,6 +105,9 @@ class GitHubUpdateChecker : Closeable {
                 e,
             )
         }
+        if (content.length > HTTPClient.MAX_UPDATE_CHARS) {
+            throw IllegalStateException("GitHub Releases 响应过大")
+        }
         val trimmed = content.trim()
         if (trimmed.isEmpty()) {
             throw IllegalStateException("GitHub Releases 返回空响应")
@@ -133,15 +123,13 @@ class GitHubUpdateChecker : Closeable {
         return json.decodeFromString(trimmed)
     }
 
-    private fun pickSha256(assets: List<GitHubAsset>, apk: GitHubAsset?, githubToken: String): String? {
-        val apkName = apk?.name ?: PREFERRED_APK
-        val shaAsset = assets.find { it.name.equals("$apkName.sha256", ignoreCase = true) }
-            ?: assets.find { it.name.equals("$PREFERRED_APK.sha256", ignoreCase = true) }
-            ?: assets.find { it.name.equals("ChainBox-android.apk.sha256", ignoreCase = true) }
+    private fun pickSha256(assets: List<GitHubAsset>, apk: GitHubAsset, githubToken: String): String? {
+        val shaAsset = assets.find { it.name.equals("${apk.name}.sha256", ignoreCase = true) }
             ?: return null
+        RemoteUrlGuard.requireAllowed(shaAsset.browserDownloadUrl, RemoteUrlGuard.Kind.UPDATE)
         val body = getText(shaAsset.browserDownloadUrl, githubToken)
         val hex = body.trim().substringBefore(' ').substringBefore('\t').lowercase()
-        return hex.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+        return hex.takeIf { it.matches(SHA256_HEX) }
     }
 
     private fun getText(url: String, githubToken: String): String {
@@ -153,7 +141,11 @@ class GitHubUpdateChecker : Closeable {
             request.setHeader("Authorization", "Bearer $token")
         }
         request.setUserAgent(HTTPClient.userAgent)
-        return request.execute().content.unwrap
+        val body = request.execute().content.unwrap
+        if (body.length > 4096) {
+            throw IllegalStateException("SHA-256 sidecar 过大")
+        }
+        return body
     }
 
     private fun isReleaseInTrack(release: GitHubRelease, track: UpdateTrack): Boolean {
@@ -237,5 +229,7 @@ class GitHubUpdateChecker : Closeable {
     private data class ReleaseCandidate(
         val release: GitHubRelease,
         val metadata: VersionMetadata,
+        val apk: GitHubAsset,
+        val sha256: String,
     )
 }

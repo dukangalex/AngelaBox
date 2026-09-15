@@ -36,7 +36,7 @@
 
     <application
         android:name=".Application"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:description="@string/xposed_description"
         android:fullBackupContent="@xml/backup_rules"
@@ -77,7 +77,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <category android:name="android.intent.category.OPENABLE" />
-                <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:host="*" />
                 <data android:mimeType="application/octet-stream" />
@@ -93,7 +92,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <category android:name="android.intent.category.OPENABLE" />
-                <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
