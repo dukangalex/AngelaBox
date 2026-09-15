@@ -276,12 +276,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             val recovered = ConfigQuicOverride.apply(
                 rawContent,
                 skipScripts = true,
-                dropRuleSetNeedles = needles,
+                replaceRuleSetNeedles = needles,
             )
             result = tryStart(recovered)
             if (result.isSuccess) {
                 val bits = mutableListOf<String>()
-                if (needles.isNotEmpty()) bits += "已跳过无效规则集 " + needles.joinToString("、")
+                if (needles.isNotEmpty()) bits += "已将无效规则集替换为官方地址 " + needles.joinToString("、")
                 if (scriptBound) bits += "已关闭该配置上的脚本，避免两套规则打架"
                 if (bits.isEmpty()) bits += "已按当前内核修正无法识别的字段"
                 OverrideStatus.add(

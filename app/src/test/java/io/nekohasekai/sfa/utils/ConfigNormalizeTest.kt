@@ -137,33 +137,102 @@ class ConfigNormalizeTest {
     }
 
     @Test
-    fun dropRemoteRuleSetsMatchingRemovesOnlyTheBadSet() {
+    fun dropRemoteRuleSetsMatchingIgnoresDigitAndSubstringNeedles() {
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "geosite-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs"},
+                  {"tag": "geosite-google", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google.srs"}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        assertFalse(ConfigInboundCompat.dropRemoteRuleSetsMatching(root, listOf("1", "3", "github")))
+        assertEquals(2, root.getJSONObject("route").getJSONArray("rule_set").length())
+    }
+
+    @Test
+    fun replaceRemoteRuleSetsKeepsTagAndOfficialUrl() {
         val root = JSONObject(
             """
             {
               "outbounds": [{"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443}],
               "route": {
                 "rule_set": [
-                  {"tag": "geoip-cn", "type": "remote", "url": "https://example.com/geoip-cn.srs"},
-                  {"tag": "geosite-cn", "type": "remote", "url": "https://example.com/geosite-cn.srs"}
+                  {"tag": "telegram", "type": "remote", "url": "https://example.com/telegram.srs"},
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://example.com/geoip-cn.srs"}
                 ],
                 "rules": [
-                  {"rule_set": "geoip-cn", "outbound": "direct"},
-                  {"rule_set": "geosite-cn", "outbound": "direct"}
+                  {"rule_set": "telegram", "outbound": "n1"},
+                  {"rule_set": "geoip-cn", "outbound": "direct"}
                 ],
                 "final": "n1"
               }
             }
             """.trimIndent(),
         )
-        assertTrue(ConfigInboundCompat.dropRemoteRuleSetsMatching(root, listOf("geosite-cn.srs")))
+        assertTrue(
+            ConfigInboundCompat.replaceRemoteRuleSetsMatching(
+                root,
+                listOf("telegram.srs", "github.srs", "3", "google", "1"),
+            ),
+        )
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
-        assertEquals(1, sets.length())
-        assertEquals("geoip-cn", sets.getJSONObject(0).getString("tag"))
+        assertEquals(2, sets.length())
+        val telegram = (0 until sets.length()).map { sets.getJSONObject(it) }.first { it.getString("tag") == "telegram" }
+        assertTrue(telegram.getString("url").contains("SagerNet/sing-geosite@rule-set/geosite-telegram.srs"))
         val rules = root.getJSONObject("route").getJSONArray("rules")
-        assertEquals(1, rules.length())
-        assertEquals("geoip-cn", rules.getJSONObject(0).getString("rule_set"))
+        assertEquals("telegram", rules.getJSONObject(0).getString("rule_set"))
         assertEquals("n1", root.getJSONObject("route").getString("final"))
-        assertEquals("1.2.3.4", root.getJSONArray("outbounds").getJSONObject(0).getString("server"))
+    }
+
+    @Test
+    fun healReplacesShortAndMissingGeoipWithGeosite() {
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"},
+                  {"tag": "geoip-telegram", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs"},
+                  {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                ],
+                "rules": [
+                  {"rule_set": "telegram", "outbound": "proxy"},
+                  {"rule_set": "geoip-telegram", "outbound": "proxy"},
+                  {"rule_set": "geoip-fastly", "outbound": "direct"},
+                  {"rule_set": "geoip-cn", "outbound": "direct"}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        ConfigInboundCompat.rewriteRuleSetUrls(root)
+        assertTrue(ConfigInboundCompat.healRemoteRuleSets(root))
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+            byTag["telegram"],
+        )
+        assertEquals(
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+            byTag["geoip-telegram"],
+        )
+        assertFalse(byTag.containsKey("geoip-fastly"))
+        assertTrue(byTag["geoip-cn"]!!.contains("geoip-cn.srs"))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
+        assertTrue(refs.contains("telegram"))
+        assertTrue(refs.contains("geoip-telegram"))
+        assertFalse(refs.contains("geoip-fastly"))
+        assertTrue(refs.contains("geoip-cn"))
     }
 }

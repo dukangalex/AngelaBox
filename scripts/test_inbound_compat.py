@@ -160,20 +160,29 @@ def strip_sniff_override(root: dict) -> None:
 
 
 def drop_missing_rulesets(root: dict) -> None:
-    missing = {
-        "geosite-biliintl.srs",
-        "geosite-apple-cn.srs",
-        "geosite-tracker.srs",
+    unreplaceable = {
         "geoip-private.srs",
-        "geoip-google.srs",
-        "geoip-telegram.srs",
-        "geoip-netflix.srs",
-        "geoip-facebook.srs",
-        "geoip-twitter.srs",
-        "geoip-cloudflare.srs",
-        "geoip-cloudfront.srs",
         "geoip-fastly.srs",
+        "geoip-cloudfront.srs",
     }
+    aliases = {
+        "telegram.srs": "geosite-telegram.srs",
+        "github.srs": "geosite-github.srs",
+        "google.srs": "geosite-google.srs",
+        "gitlab.srs": "geosite-gitlab.srs",
+        "telegram-ip.srs": "geosite-telegram.srs",
+        "geoip-telegram.srs": "geosite-telegram.srs",
+        "geoip-google.srs": "geosite-google.srs",
+        "geoip-netflix.srs": "geosite-netflix.srs",
+        "geoip-facebook.srs": "geosite-facebook.srs",
+        "geoip-twitter.srs": "geosite-twitter.srs",
+        "geoip-cloudflare.srs": "geosite-cloudflare.srs",
+        "geosite-biliintl.srs": "geosite-bilibili.srs",
+        "geosite-apple-cn.srs": "geosite-apple@cn.srs",
+        "geosite-tracker.srs": "geosite-category-ads-all.srs",
+        "category-ai!cn.srs": "geosite-category-ai-!cn.srs",
+    }
+    geosite_base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
     route = root.get("route") or {}
     sets = route.get("rule_set") or []
     drop = set()
@@ -181,11 +190,23 @@ def drop_missing_rulesets(root: dict) -> None:
     for item in sets:
         if not isinstance(item, dict):
             continue
-        url = str(item.get("url") or item.get("download_url") or "").strip()
+        url_key = "url" if str(item.get("url") or "").strip() else "download_url"
+        url = str(item.get(url_key) or "").strip()
         file = url.rsplit("/", 1)[-1].split("?", 1)[0].lower()
         tag = str(item.get("tag") or "").strip()
         remote = str(item.get("type") or "").lower() == "remote" or url.startswith("http")
-        if remote and file in missing:
+        if not remote:
+            keep.append(item)
+            continue
+        mapped = aliases.get(file)
+        stem = file[:-4] if file.endswith(".srs") else file
+        if mapped is None and not stem.startswith("geosite-") and not stem.startswith("geoip-"):
+            mapped = aliases.get(f"{stem}.srs")
+        if mapped:
+            item[url_key] = geosite_base + mapped
+            keep.append(item)
+            continue
+        if remote and file in unreplaceable:
             if tag:
                 drop.add(tag)
             continue
@@ -534,6 +555,53 @@ def main() -> int:
         errors.append("ConfigInboundCompat must heal 1.14 http_clients and leftover outbound refs")
     if "angela-http-direct" not in inbound_src:
         errors.append("heal must inject a no-detour HTTP client for rule-set downloads")
+
+    if inbound_src.find("fun healRemoteRuleSets") < 0:
+        errors.append("ConfigInboundCompat must heal 404 rule-sets by replacing URLs")
+    if "replaceRemoteRuleSetsMatching" not in inbound_src:
+        errors.append("ConfigInboundCompat must replace the rule-set named in a kernel 404")
+    if "needle in blob" in inbound_src:
+        errors.append("rule-set matching must not substring-match the URL")
+
+    replaced = sanitize(
+        {
+            "route": {
+                "rule_set": [
+                    {
+                        "tag": "telegram",
+                        "type": "remote",
+                        "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs",
+                    },
+                    {
+                        "tag": "geoip-telegram",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs",
+                    },
+                    {
+                        "tag": "geoip-cn",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+                    },
+                ],
+                "rules": [
+                    {"rule_set": "telegram", "outbound": "proxy"},
+                    {"rule_set": "geoip-telegram", "outbound": "proxy"},
+                    {"rule_set": "geoip-cn", "outbound": "direct"},
+                ],
+            }
+        }
+    )
+    by_tag = {x["tag"]: x["url"] for x in replaced["route"]["rule_set"]}
+    official_tg = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs"
+    if by_tag.get("telegram") != official_tg:
+        errors.append(f"short telegram.srs must become official geosite-telegram: {by_tag.get('telegram')}")
+    if by_tag.get("geoip-telegram") != official_tg:
+        errors.append(f"missing geoip-telegram must become geosite-telegram: {by_tag.get('geoip-telegram')}")
+    if "geoip-cn" not in by_tag:
+        errors.append("working geoip-cn must be kept")
+    refs = [r.get("rule_set") for r in replaced["route"]["rules"] if r.get("action") != "hijack-dns"]
+    if "telegram" not in refs or "geoip-telegram" not in refs:
+        errors.append(f"replaced rule-sets must keep original tags in routes: {refs}")
 
     if errors:
         print("FAIL")

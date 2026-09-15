@@ -12,7 +12,7 @@ object ConfigQuicOverride {
     suspend fun apply(
         content: String,
         skipScripts: Boolean = false,
-        dropRuleSetNeedles: Collection<String> = emptyList(),
+        replaceRuleSetNeedles: Collection<String> = emptyList(),
     ): String {
         OverrideStatus.clear()
         val warnings = mutableListOf<OverrideNotice>()
@@ -97,13 +97,13 @@ object ConfigQuicOverride {
             applyOne(warnings, "广告拦截") {
                 if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
             }
-            // After scripts and chain merge: drop remote rule-sets that 404
-            // on the testingcf mirror so a previously imported default
-            // script (or a landing profile) cannot fail-close start.
+            // After scripts and chain merge: rewrite 404 remote rule-sets to
+            // official testingcf geosite/geoip URLs so APP routing still
+            // matches the original tags. Chain landing is untouched.
             ConfigInboundCompat.apply(root)
             ConfigCompat.stripBrokenDnsDetours(root)
-            if (dropRuleSetNeedles.isNotEmpty()) {
-                ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
+            if (replaceRuleSetNeedles.isNotEmpty()) {
+                ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
             }
             out = root.toString()
         } catch (e: ChainApplyException) {

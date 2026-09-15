@@ -31,10 +31,10 @@ object ConfigDiagnose {
                     else "应用会改成直连下载后再试。"
             }
             looksLike(text, "initialize rule-set") || looksLike(text, "initial rule-set") -> {
-                "远程规则集下载失败。应用会跳过这份无效规则集后再启动。$scriptHint"
+                "远程规则集下载失败。应用会换成官方规则集后再启动。$scriptHint"
             }
             looksLike(text, "missing rule_set") || looksLike(text, "rule-set not found") -> {
-                "路由引用了不存在的规则集。应用会跳过它后再启动。$scriptHint"
+                "路由引用了不存在的规则集。应用会换成官方规则集后再启动。$scriptHint"
             }
             looksLike(text, "outbound not found") || looksLike(text, "unknown outbound") -> {
                 val tag = extractAfter(text, "outbound not found:").ifBlank {
@@ -63,7 +63,7 @@ object ConfigDiagnose {
                 "脚本需要 function main(config)，并且返回官方 sing-box JSON。"
             }
             looksLike(text, "404") || (looksLike(text, "not found") && looksLike(text, ".srs")) -> {
-                "规则集文件不存在（404）。应用会跳过无效规则集后再启动。$scriptHint"
+                "规则集文件不存在（404）。应用会换成官方规则集后再启动。$scriptHint"
             }
             else -> text.take(400)
         }
@@ -85,15 +85,37 @@ object ConfigDiagnose {
         val text = raw.orEmpty()
         if (text.isBlank()) return emptyList()
         val out = linkedSetOf<String>()
-        Regex("""[\w.\-!]+\.srs""", RegexOption.IGNORE_CASE).findAll(text).forEach {
-            out += it.value.lowercase()
+        Regex("""[A-Za-z][\w.\-!]+\.srs""", RegexOption.IGNORE_CASE).findAll(text).forEach {
+            val name = it.value.lowercase()
+            if (isPlausibleRuleSetName(name)) out += name
         }
-        Regex("""rule[-_ ]?set[:\s\[\(]+([A-Za-z0-9_\-!.]+)""", RegexOption.IGNORE_CASE).findAll(text).forEach {
-            val tag = it.groupValues[1].trim()
-            if (tag.isNotEmpty() && !tag.equals("not", true)) out += tag
+        Regex(
+            """(?:rule[-_ ]?set|geosite|geoip)[:\s\[\(]+([A-Za-z][A-Za-z0-9_\-!.]{2,})""",
+            RegexOption.IGNORE_CASE,
+        ).findAll(text).forEach {
+            val tag = it.groupValues[1].trim().trimEnd('.', ',', ';', ']', ')')
+            if (isPlausibleRuleSetName(tag)) out += tag
         }
         return out.toList()
     }
+
+    internal fun isPlausibleRuleSetName(raw: String): Boolean {
+        val stem = raw.trim().lowercase()
+            .substringAfterLast('/')
+            .substringBefore('?')
+            .removeSuffix(".srs")
+        if (stem.length < 3) return false
+        if (stem.all { it.isDigit() || it == '.' }) return false
+        if (!stem.any { it.isLetter() }) return false
+        if (stem in NEEDLE_STOPWORDS) return false
+        return true
+    }
+
+    private val NEEDLE_STOPWORDS = setOf(
+        "http", "https", "www", "rule", "set", "srs", "not", "found",
+        "error", "initialize", "status", "download", "remote", "file", "get",
+        "from", "with", "code", "html",
+    )
 
     private fun looksLike(text: String, needle: String): Boolean =
         text.contains(needle, ignoreCase = true)

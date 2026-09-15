@@ -19,7 +19,7 @@ object ConfigInboundCompat {
         if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
-        if (dropMissingRemoteRuleSets(root)) changed = true
+        if (healRemoteRuleSets(root)) changed = true
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
@@ -290,40 +290,110 @@ object ConfigInboundCompat {
 
     /**
      * Remote rule-sets that 404 on the jsDelivr testingcf mirror abort kernel
-     * start and cancel the rest. Drop those files and any route/DNS rules
-     * that only pointed at them. Overlay scripts keep working after a
-     * previous import of the old default script.
+     * start. Rewrite short / missing filenames to the official SagerNet
+     * geosite/geoip URL and keep the original tag so route rules still match.
+     * Only drop a set when there is no known replacement (e.g. geoip-fastly).
      */
-    internal fun dropMissingRemoteRuleSets(root: JSONObject): Boolean {
+    internal fun healRemoteRuleSets(root: JSONObject): Boolean {
         val route = root.optJSONObject("route") ?: return false
         val sets = route.optJSONArray("rule_set") ?: return false
         val dropTags = mutableSetOf<String>()
         val keep = JSONArray()
+        var changed = false
         for (i in 0 until sets.length()) {
             val item = sets.optJSONObject(i) ?: continue
-            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val urlKey = if (item.optString("url").isNotBlank()) "url" else "download_url"
+            val url = item.optString(urlKey).trim()
             val file = url.substringAfterLast('/').substringBefore('?').lowercase()
             val tag = item.optString("tag").trim()
             val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
-            if (remote && file in MISSING_RULESET_FILES) {
-                if (tag.isNotEmpty()) dropTags.add(tag)
+            if (!remote) {
+                keep.put(item)
                 continue
             }
-            keep.put(item)
+            val official = officialRuleSetUrl(file)
+            when {
+                official.isNotEmpty() && url != official && looksBrokenRuleSet(file, url) -> {
+                    item.put(urlKey, official)
+                    keep.put(item)
+                    changed = true
+                }
+                file in UNREPLACEABLE_RULESET_FILES -> {
+                    if (tag.isNotEmpty()) dropTags.add(tag)
+                    changed = true
+                }
+                else -> keep.put(item)
+            }
         }
-        if (dropTags.isEmpty() && keep.length() == sets.length()) return false
+        if (!changed && dropTags.isEmpty() && keep.length() == sets.length()) return false
         replaceArray(sets, keep)
-        stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
-        stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        if (dropTags.isNotEmpty()) {
+            stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+            stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        }
+        return true
+    }
+
+    /** @deprecated Name kept so older tests still compile; delegates to [healRemoteRuleSets]. */
+    internal fun dropMissingRemoteRuleSets(root: JSONObject): Boolean = healRemoteRuleSets(root)
+
+    /**
+     * After a kernel 404: rewrite matching remote rule-sets to the official
+     * testingcf URL. Tag stays so existing route/DNS rules keep working.
+     * Drop only when there is no known replacement. Matching is exact on
+     * tag/filename — never a substring of the URL (that used to wipe every
+     * GitHub-hosted set when the needle was "github" or "1").
+     */
+    internal fun replaceRemoteRuleSetsMatching(root: JSONObject, needles: Collection<String>): Boolean {
+        val want = needles.map { ruleSetStem(it) }.filter { ConfigDiagnose.isPlausibleRuleSetName(it) }
+        if (want.isEmpty()) return false
+        val route = root.optJSONObject("route") ?: return false
+        val sets = route.optJSONArray("rule_set") ?: return false
+        val dropTags = mutableSetOf<String>()
+        val keep = JSONArray()
+        var changed = false
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val urlKey = if (item.optString("url").isNotBlank()) "url" else "download_url"
+            val url = item.optString(urlKey).trim()
+            val file = url.substringAfterLast('/').substringBefore('?').lowercase()
+            val tag = item.optString("tag").trim()
+            val hit = want.any { needle -> ruleSetMatchesNeedle(tag, file, needle) }
+            if (!hit) {
+                keep.put(item)
+                continue
+            }
+            val official = officialRuleSetUrl(file).ifBlank {
+                officialRuleSetUrl(tag).ifBlank {
+                    want.firstOrNull { ruleSetMatchesNeedle(tag, file, it) }?.let { officialRuleSetUrl(it) }.orEmpty()
+                }
+            }
+            if (official.isNotEmpty() && official != url) {
+                item.put(urlKey, official)
+                keep.put(item)
+                changed = true
+            } else if (official.isNotEmpty()) {
+                keep.put(item)
+            } else {
+                if (tag.isNotEmpty()) dropTags.add(tag)
+                changed = true
+            }
+        }
+        if (!changed && dropTags.isEmpty()) return false
+        replaceArray(sets, keep)
+        if (dropTags.isNotEmpty()) {
+            stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+            stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        }
         return true
     }
 
     /**
-     * Drop remote rule-sets whose tag, filename or URL matches [needles]
-     * (from a kernel 404). User nodes / groups / remaining routes stay.
+     * Last-resort exact drop used by tests. Same matching rules as replace;
+     * no substring-in-URL.
      */
     internal fun dropRemoteRuleSetsMatching(root: JSONObject, needles: Collection<String>): Boolean {
-        val want = needles.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        val want = needles.map { ruleSetStem(it) }.filter { ConfigDiagnose.isPlausibleRuleSetName(it) }
         if (want.isEmpty()) return false
         val route = root.optJSONObject("route") ?: return false
         val sets = route.optJSONArray("rule_set") ?: return false
@@ -334,10 +404,7 @@ object ConfigInboundCompat {
             val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
             val file = url.substringAfterLast('/').substringBefore('?').lowercase()
             val tag = item.optString("tag").trim()
-            val blob = "${tag.lowercase()} $file ${url.lowercase()}"
-            val hit = want.any { needle ->
-                needle == file || tag.equals(needle, true) || needle in blob
-            }
+            val hit = want.any { needle -> ruleSetMatchesNeedle(tag, file, needle) }
             if (hit) {
                 if (tag.isNotEmpty()) dropTags.add(tag)
                 continue
@@ -699,12 +766,23 @@ object ConfigInboundCompat {
     }
 
     private const val JSDELIVR_HOST = "testingcf.jsdelivr.net"
+    private const val GEOSITE_BASE =
+        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+    private const val GEOIP_BASE =
+        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
     private val JSDELIVR =
         Regex("^https?://([^/]*jsdelivr\\.net)/gh/(.+)$")
     private val RAW_GITHUB =
         Regex("^https?://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$")
     private val GITHUB_RAW =
         Regex("^https?://github\\.com/([^/]+)/([^/]+)/raw/(.+)$")
+
+    private val UNREPLACEABLE_RULESET_FILES = setOf(
+        "geoip-private.srs",
+        "geoip-fastly.srs",
+        "geoip-cloudfront.srs",
+    )
+
     private val MISSING_RULESET_FILES = setOf(
         "geosite-biliintl.srs",
         "geosite-apple-cn.srs",
@@ -719,4 +797,78 @@ object ConfigInboundCompat {
         "geoip-cloudfront.srs",
         "geoip-fastly.srs",
     )
+
+    private val KNOWN_GEOSITE_STEMS = setOf(
+        "telegram", "github", "gitlab", "google", "youtube", "netflix",
+        "facebook", "twitter", "apple", "microsoft", "instagram", "discord",
+        "steam", "openai", "tiktok", "spotify", "amazon", "paypal", "aws",
+        "azure", "dropbox", "onedrive", "icloud", "linkedin", "snap", "hulu",
+        "disney", "hbo", "bbc", "bahamut", "abema", "blizzard", "epicgames",
+        "ea", "ubisoft", "bilibili", "cloudflare",
+    )
+
+    internal fun ruleSetStem(raw: String): String {
+        var s = raw.trim().lowercase()
+        s = s.substringAfterLast('/')
+        s = s.substringBefore('?')
+        if (s.endsWith(".srs")) s = s.dropLast(4)
+        return s
+    }
+
+    internal fun officialRuleSetUrl(raw: String): String {
+        val file = officialRuleSetFile(raw) ?: return ""
+        return if (file.startsWith("geoip-")) GEOIP_BASE + file else GEOSITE_BASE + file
+    }
+
+    internal fun officialRuleSetFile(raw: String): String? {
+        val stem = ruleSetStem(raw)
+        if (stem.isEmpty()) return null
+        val aliased = when (stem) {
+            "telegram-ip", "geoip-telegram" -> "geosite-telegram"
+            "geoip-google" -> "geosite-google"
+            "geoip-netflix" -> "geosite-netflix"
+            "geoip-facebook" -> "geosite-facebook"
+            "geoip-twitter" -> "geosite-twitter"
+            "geoip-cloudflare" -> "geosite-cloudflare"
+            "biliintl", "geosite-biliintl" -> "geosite-bilibili"
+            "apple-cn", "geosite-apple-cn" -> "geosite-apple@cn"
+            "tracker", "geosite-tracker" -> "geosite-category-ads-all"
+            "category-ai!cn", "geosite-category-ai!cn",
+            "category-ai-!cn", "geosite-category-ai-!cn",
+            -> "geosite-category-ai-!cn"
+            "geoip-private", "geoip-fastly", "geoip-cloudfront" -> return null
+            else -> stem
+        }
+        return when {
+            aliased.startsWith("geosite-") -> "$aliased.srs"
+            aliased.startsWith("geoip-") -> {
+                val cc = aliased.removePrefix("geoip-")
+                if (cc.length == 2 && cc.all { it.isLetter() }) "$aliased.srs" else "geosite-$cc.srs"
+            }
+            aliased.startsWith("category-") -> "geosite-$aliased.srs"
+            aliased in KNOWN_GEOSITE_STEMS -> "geosite-$aliased.srs"
+            else -> null
+        }
+    }
+
+    internal fun ruleSetMatchesNeedle(tag: String, file: String, needle: String): Boolean {
+        val n = ruleSetStem(needle)
+        if (!ConfigDiagnose.isPlausibleRuleSetName(n)) return false
+        val t = tag.trim().lowercase()
+        val f = ruleSetStem(file)
+        return t == n || f == n ||
+            t == "geosite-$n" || f == "geosite-$n" ||
+            t == "geoip-$n" || f == "geoip-$n" ||
+            n == "geosite-$t" || n == "geoip-$t" ||
+            n == "geosite-$f" || n == "geoip-$f"
+    }
+
+    private fun looksBrokenRuleSet(file: String, url: String): Boolean {
+        val stem = ruleSetStem(file)
+        if (file in MISSING_RULESET_FILES) return true
+        if (stem.isNotEmpty() && !stem.startsWith("geosite-") && !stem.startsWith("geoip-")) return true
+        if (url.contains("sing-geosite", true) && !stem.startsWith("geosite-")) return true
+        if (url.contains("sing-geoip", true) && file in MISSING_RULESET_FILES) return true
+        return false
+    }
 }

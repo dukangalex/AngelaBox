@@ -151,12 +151,13 @@ fun ProfileOverrideScreen(
             ) {
                 OverrideSwitch(
                     title = "配置规范化",
-                    subtitle = "静默值守：只有配置出错才修正，节点和分流保留",
+                    subtitle = "静默值守：出错才修正，无效规则集换成官方地址",
                     checked = configNormalize,
                     onHelp = {
                         help = SwitchHelp(
                             "配置规范化",
                             "平时不打扰。只有启动因语法、规则集、格式失败时，才改写除节点、分组、分流以外的错误字段，然后再试一次。\n\n" +
+                                "无效规则集不会丢掉，会换成官方 sing-geosite / sing-geoip 地址，原来的名字保留，APP 分流还能对上。\n" +
                                 "修正成功会提示改了什么。不改订阅文件。链式落地同样会修，链式本身不受影响。\n" +
                                 "若该配置开了脚本，修正时会关掉脚本，避免两套规则同时跑。\n\n" +
                                 "默认开启。只要节点本身可用，不必再为配置格式发愁。",

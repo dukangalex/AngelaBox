@@ -33,8 +33,8 @@ def main() -> int:
         errors.append("runtime overlay must call ConfigNormalize.heal")
     if "配置已自动适配当前版本" in override:
         errors.append("config normalize must stay silent on first start; prompt only after recovery")
-    if "dropRuleSetNeedles" not in override:
-        errors.append("runtime overlay must drop 404 rule-sets passed from a failed start")
+    if "dropRuleSetNeedles" not in override and "replaceRuleSetNeedles" not in override:
+        errors.append("runtime overlay must replace 404 rule-sets passed from a failed start")
     if "ChainBindings.get" not in override:
         errors.append("runtime chain must look up the current profile binding")
 
@@ -790,14 +790,38 @@ def main() -> int:
         errors.append("user guide must not say unbound profiles inherit catalog scripts")
     if 'SAMPLE_NAME = "默认脚本"' not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
         errors.append("bundled script must be named 默认脚本")
-    if "dropMissingRemoteRuleSets" not in inbound:
-        errors.append("startup must drop remote rule-sets that 404")
-    if "dropRemoteRuleSetsMatching" not in inbound:
-        errors.append("startup must drop the specific rule-set named in a kernel 404")
+    if "dropMissingRemoteRuleSets" not in inbound and "healRemoteRuleSets" not in inbound:
+        errors.append("startup must heal remote rule-sets that 404")
+    if "replaceRemoteRuleSetsMatching" not in inbound:
+        errors.append("startup must replace the specific rule-set named in a kernel 404")
+    if "needle in blob" in inbound:
+        errors.append("rule-set matching must not substring-match URLs (that wipes github/google/1)")
     ads_idx = override.find("ConfigAdBlock.apply")
-    drop_idx = max(override.rfind("ConfigInboundCompat.apply"), override.rfind("dropMissingRemoteRuleSets"))
+    drop_idx = max(
+        override.rfind("ConfigInboundCompat.apply"),
+        override.rfind("healRemoteRuleSets"),
+        override.rfind("replaceRemoteRuleSetsMatching"),
+        override.rfind("dropMissingRemoteRuleSets"),
+    )
     if ads_idx < 0 or drop_idx < ads_idx:
-        errors.append("404 rule-sets must be dropped after chain merge and later overlays")
+        errors.append("404 rule-sets must be healed after chain merge and later overlays")
+    settings_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SettingsScreen.kt")
+    if "OverrideTopBar" not in settings_ui:
+        errors.append("SettingsScreen must use OverrideTopBar so the title is not flush with the status bar")
+    backup_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/BackupRestoreScreen.kt")
+    if "OverrideTopBar" not in backup_ui:
+        errors.append("BackupRestoreScreen must use OverrideTopBar so the title is not flush with the status bar")
+    theme_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ThemeSettingsScreen.kt")
+    if "OverrideTopBar" not in theme_ui:
+        errors.append("ThemeSettingsScreen must use OverrideTopBar so the title is not flush with the status bar")
+    box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    if "已跳过无效规则集" in box:
+        errors.append("recovery notice must replace invalid rule-sets, not skip them")
+    diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
+    if "应用会跳过这份无效规则集" in diagnose or "应用会跳过无效规则集" in diagnose:
+        errors.append("diagnose must say invalid rule-sets are replaced, not skipped")
+    if "isPlausibleRuleSetName" not in diagnose:
+        errors.append("rule-set needle extractor must reject digits and stopwords")
     if "fun refreshStaleSample" not in overlay_kt or "fun sampleLooksStale" not in overlay_kt:
         errors.append("stale bundled sample must be replaced in place on start")
     if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):

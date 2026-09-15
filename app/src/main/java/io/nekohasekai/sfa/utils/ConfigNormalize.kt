@@ -124,7 +124,7 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
-        mark(ConfigInboundCompat.dropMissingRemoteRuleSets(root), "已跳过当前无法下载的远程规则集")
+        mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
         mark(ConfigInboundCompat.healDownloadClients(root), "规则集下载方式已按当前内核修正")
         mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
         mark(ConfigInboundCompat.ensureHijackDns(root), "已补上 DNS 劫持，避免系统解析失败")

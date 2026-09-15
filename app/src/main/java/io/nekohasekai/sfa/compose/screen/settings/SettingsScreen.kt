@@ -21,38 +21,37 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
+import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.title_settings)) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
+    OverrideTopBar {
+        TopAppBar(
+            title = { Text(stringResource(R.string.title_settings)) },
+            navigationIcon = {
+                IconButton(onClick = { navController.navigateUp() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                }
+            },
+        )
+    }
+    val scaffoldPadding = LocalScaffoldPadding.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(scaffoldPadding)
+            .verticalScroll(rememberScrollState()),
+    ) {
             ListItem(
                 headlineContent = { Text(stringResource(R.string.title_app_settings), style = MaterialTheme.typography.bodyLarge) },
                 leadingContent = {
@@ -118,5 +117,4 @@ fun SettingsScreen(navController: NavController) {
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
-    }
 }
