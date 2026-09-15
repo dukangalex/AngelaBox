@@ -28,22 +28,17 @@ data class NewProfileUiState(
     val name: String = "",
     val profileType: ProfileType = ProfileType.Local,
     val profileSource: ProfileSource = ProfileSource.CreateNew,
-    // Remote profile fields
     val remoteUrl: String = "",
     val autoUpdate: Boolean = true,
     val autoUpdateInterval: Int = 60,
-    // File import
     val importUri: Uri? = null,
     val importFileName: String? = null,
-    // QRS import
     val qrsData: ByteArray? = null,
-    // State
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val isSuccess: Boolean = false,
     val createdProfile: Profile? = null,
-    // Field errors
     val nameError: String? = null,
     val remoteUrlError: String? = null,
     val importError: String? = null,
@@ -103,7 +98,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update {
             it.copy(
                 profileSource = source,
-                importError = null, // Clear import error when changing source
+                importError = null,
             )
         }
     }
@@ -131,7 +126,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 importUri = uri,
                 importFileName = fileName,
-                importError = null, // Clear error when file is selected
+                importError = null,
                 name =
                 if (it.name.isEmpty()) {
                     fileName?.substringBeforeLast(".") ?: "Imported Profile"
@@ -150,7 +145,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val state = _uiState.value
         val context = getApplication<Application>()
 
-        // Clear previous errors
         _uiState.update {
             it.copy(
                 nameError = null,
@@ -161,13 +155,11 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 
         var hasError = false
 
-        // Validate name
         if (state.name.isBlank()) {
             _uiState.update { it.copy(nameError = context.getString(R.string.profile_input_required)) }
             hasError = true
         }
 
-        // Validate based on profile type
         when (state.profileType) {
             ProfileType.Local -> {
                 if (state.profileSource == ProfileSource.Import && state.importUri == null && state.qrsData == null) {
@@ -176,8 +168,8 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             ProfileType.Remote -> {
-                if (state.remoteUrl.isBlank()) {
-                    _uiState.update { it.copy(remoteUrlError = context.getString(R.string.profile_input_required)) }
+                if (!state.remoteUrl.trim().startsWith("https://", ignoreCase = true)) {
+                    _uiState.update { it.copy(remoteUrlError = "HTTPS is required for remote profile subscriptions") }
                     hasError = true
                 }
             }
@@ -187,7 +179,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             return false
         }
 
-        // If validation passes, create the profile
         createProfile()
         return true
     }
@@ -241,7 +232,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
-        // Get config content
         val configContent = ConfigCompat.sanitize(
             when (state.profileSource) {
                 ProfileSource.CreateNew -> "{}"
@@ -251,31 +241,21 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                         content.config
                     } else {
                         state.importUri?.let { uri ->
-                            val sourceURL = uri.toString()
-                            when {
-                                sourceURL.startsWith("content://") -> {
-                                    val inputStream = context.contentResolver.openInputStream(uri) as InputStream
-                                    inputStream.use { it.bufferedReader().readText() }
-                                }
-                                sourceURL.startsWith("file://") -> {
-                                    File(Uri.parse(sourceURL).path!!).readText()
-                                }
-                                sourceURL.startsWith("http://") || sourceURL.startsWith("https://") -> {
-                                    HTTPClient().use { it.getString(sourceURL) }
-                                }
-                                else -> throw Exception("Unsupported source: $sourceURL")
+                            if (uri.scheme != "content") {
+                                throw Exception("Only content:// profile imports are supported")
                             }
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                                ?: throw Exception("Unable to open imported profile")
+                            inputStream.use { it.bufferedReader().readText() }
                         } ?: "{}"
                     }
                 }
             },
         )
 
-        // Validate config
         Libbox.checkConfig(configContent)
         configFile.writeText(configContent)
 
-        // Create profile in database and select it
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return profile
@@ -283,10 +263,15 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun createRemoteProfile(state: NewProfileUiState): Profile {
         val context = getApplication<Application>()
+        val remoteUrl = state.remoteUrl.trim()
+        if (!remoteUrl.startsWith("https://", ignoreCase = true)) {
+            throw Exception("HTTPS is required for remote profile subscriptions")
+        }
+
         val typedProfile =
             TypedProfile().apply {
                 type = TypedProfile.Type.Remote
-                remoteURL = state.remoteUrl
+                remoteURL = remoteUrl
                 autoUpdate = state.autoUpdate
                 autoUpdateInterval = state.autoUpdateInterval
                 lastUpdated = Date()
@@ -302,17 +287,14 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
-        // Fetch initial config - this MUST succeed for remote profiles
-        val content = ConfigCompat.sanitize(HTTPClient().use { it.getString(state.remoteUrl) })
+        val content = ConfigCompat.sanitize(HTTPClient().use { it.getString(remoteUrl) })
         Libbox.checkConfig(content)
         val configContent = content
 
         configFile.writeText(configContent)
 
-        // Create profile in database and select it
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
-        // Reconfigure updater if auto-update is enabled
         if (state.autoUpdate) {
             UpdateProfileWork.reconfigureUpdater()
         }
