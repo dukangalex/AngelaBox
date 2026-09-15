@@ -21,13 +21,20 @@ jobs:
         with:
           path: sing-box-for-android
 
-      - name: Checkout Chain kernel
+      - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: chain-dev
+          ref: 03ad0a1d7c659e863c7100d25fa74681b5465a34
           path: sing-box
-          fetch-depth: 0
+          fetch-depth: 1
+
+      - name: Record kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+          echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
@@ -91,7 +98,7 @@ jobs:
           ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          set -e
+          set -euo pipefail
           test -n "$KEYSTORE_BASE64"
           STORE_PASS="${KEYSTORE_PASS:-$KEYSTORE_PASSWORD}"
           ALIAS="${ALIAS_NAME:-$KEY_ALIAS}"
@@ -104,32 +111,26 @@ jobs:
             echo "ALIAS_PASS=$KEY_PASS"
           } >> local.properties
 
-      - name: Ensure debug keystore
-        working-directory: sing-box-for-android
-        run: |
-          set -e
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -keystore debug.keystore -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
       - name: Assemble release APK
         working-directory: sing-box-for-android
         run: |
-          set -e
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:assembleOtherRelease --no-daemon --stacktrace
 
-      - name: Collect APK
+      - name: Verify release APK signing and checksum
+        working-directory: sing-box-for-android
         run: |
-          set -e
-          mkdir -p dist
-          find sing-box-for-android -type f -name "*.apk" -exec cp -v {} dist/ \;
-          PREFERRED=$(ls dist/*arm64-v8a*.apk 2>/dev/null | grep -v debug | head -n1 || true)
-          if [ -z "$PREFERRED" ]; then PREFERRED=$(ls dist/*.apk | head -n1); fi
-          cp -f "$PREFERRED" dist/ChainBox-android.apk
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk -type f -name '*.apk' | grep -v debug | head -n1)"
+          test -n "$APK"
+          APKSIGNER="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$APKSIGNER" verify "$APK"
+          sha256sum "$APK" > ChainBox-android.apk.sha256
+          cp -f "$APK" ChainBox-android.apk
+          sha256sum -c ChainBox-android.apk.sha256
 
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
@@ -138,7 +139,10 @@ jobs:
           name: ChainBox ${{ inputs.version_tag }}
           body: |
             ChainBox official signed Android client.
-          files: dist/ChainBox-android.apk
+            Kernel commit: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+          files: |
+            sing-box-for-android/ChainBox-android.apk
+            sing-box-for-android/ChainBox-android.apk.sha256
           draft: false
           prerelease: false
           make_latest: true
