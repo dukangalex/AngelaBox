@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.github.libxposed.service.XposedServiceHelper
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.compose.screen.qrscan.QRCodeCropArea
@@ -125,12 +126,24 @@ object Vendor : VendorInterface {
     }
 
     override suspend fun downloadAndInstall(context: android.content.Context, downloadUrl: String) {
-        val cachedApk = UpdateState.cachedApkFile.value
-        val apkFile = if (cachedApk != null && cachedApk.exists() && cachedApk.length() > 0) {
-            cachedApk
-        } else {
-            ApkDownloader().use { it.download(downloadUrl, UpdateState.updateInfo.value?.sha256) }
+        val expectedSha256 = UpdateState.updateInfo.value?.sha256
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+            ?: throw IllegalStateException("Update is missing a valid APK SHA-256")
+
+        ApkDownloader().use { downloader ->
+            val cachedApk = UpdateState.cachedApkFile.value
+            val apkFile = if (cachedApk != null && cachedApk.exists() && cachedApk.length() > 0) {
+                if (downloader.verifyCachedApk(cachedApk, expectedSha256)) {
+                    cachedApk
+                } else {
+                    downloader.download(downloadUrl, expectedSha256)
+                }
+            } else {
+                downloader.download(downloadUrl, expectedSha256)
+            }
+            ApkInstaller.install(context, apkFile)
         }
-        ApkInstaller.install(context, apkFile)
     }
 }
