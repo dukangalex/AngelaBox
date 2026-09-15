@@ -6,7 +6,6 @@ import android.net.Uri
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import io.github.libxposed.service.XposedServiceHelper
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.compose.screen.qrscan.QRCodeCropArea
