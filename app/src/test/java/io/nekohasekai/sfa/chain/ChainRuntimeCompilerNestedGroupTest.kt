@@ -18,7 +18,8 @@ class ChainRuntimeCompilerNestedGroupTest {
         val config = JSONObject()
             .put("outbounds", JSONArray()
                 .put(node("proxy-1"))
-                .put(JSONObject().put("type", "selector").put("tag", "nested").put("outbounds", JSONArray().put("proxy-1").put("direct")))
+                .put(node("proxy-2"))
+                .put(JSONObject().put("type", "selector").put("tag", "nested").put("outbounds", JSONArray().put("proxy-2").put("direct")))
                 .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("nested")))
                 .put(JSONObject().put("type", "direct").put("tag", "direct"))
             .put("route", JSONObject().put("final", "entry"))
@@ -40,7 +41,7 @@ class ChainRuntimeCompilerNestedGroupTest {
         val nested = (0 until outs.length()).map { outs.getJSONObject(it) }.first { it.optString("tag") == nestedTag }
         val members = (0 until nested.getJSONArray("outbounds").length()).map { nested.getJSONArray("outbounds").getString(it) }
         assertFalse(members.contains("direct"))
-        assertTrue(members.contains("proxy-1"))
+        assertTrue(members.contains("proxy-2"))
     }
 
     @Test(expected = IllegalArgumentException::class)
