@@ -18,8 +18,7 @@ class ApkDownloader : Closeable {
     }
 
     suspend fun download(url: String, expectedSha256: String): File = withContext(Dispatchers.IO) {
-        val expected = expectedSha256.trim().lowercase()
-        require(expected.matches(SHA256_HEX)) { "Missing or invalid APK SHA-256" }
+        val expected = requireSha256(expectedSha256)
 
         val cacheDir = File(Application.application.cacheDir, "updates")
         cacheDir.mkdirs()
@@ -46,14 +45,29 @@ class ApkDownloader : Closeable {
             throw Exception("Download failed: empty file")
         }
 
-        val actual = sha256Hex(apkFile)
-        if (actual != expected) {
-            apkFile.delete()
-            throw Exception("APK SHA-256 mismatch (expected $expected, got $actual)")
-        }
-
+        verifySha256(apkFile, expected)
         UpdateState.saveApkPath(apkFile)
         apkFile
+    }
+
+    fun verifyCachedApk(file: File, expectedSha256: String): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        val expected = requireSha256(expectedSha256)
+        return runCatching { verifySha256(file, expected) }.isSuccess
+    }
+
+    private fun verifySha256(file: File, expected: String) {
+        val actual = sha256Hex(file)
+        if (actual != expected) {
+            file.delete()
+            throw Exception("APK SHA-256 mismatch (expected $expected, got $actual)")
+        }
+    }
+
+    private fun requireSha256(value: String): String {
+        val expected = value.trim().lowercase()
+        require(expected.matches(SHA256_HEX)) { "Missing or invalid APK SHA-256" }
+        return expected
     }
 
     override fun close() {
