@@ -80,11 +80,11 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (signingConfigs.findByName("releaseConfig") != null) {
-                signingConfigs.getByName("releaseConfig")
-            } else {
-                signingConfigs.getByName("debugConfig")
-            }
+            val releaseSigning = signingConfigs.findByName("releaseConfig")
+                ?: throw GradleException(
+                    "Release signing is unavailable. Configure release.keystore and signing properties; refusing debug-signed release builds.",
+                )
+            signingConfig = releaseSigning
             vcsInfo.include = false
         }
     }
@@ -111,9 +111,6 @@ android {
     }
 
     androidResources {
-        // Manifest already points at res/xml/locales_config.xml. AGP refuses
-        // to also auto-generate localeConfig ("Locale config generation was
-        // requested but user locale config is present in manifest").
         generateLocaleConfig = false
     }
 
@@ -137,11 +134,7 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-
-    // libbox
     implementation(files("libs/libbox.aar"))
-
-    // Common dependencies
     val lifecycleVersion = "2.11.0"
     val roomVersion = "2.8.4"
     val workVersion = "2.11.2"
@@ -150,7 +143,6 @@ dependencies {
     val webkitVersion = "1.16.0"
     val coreVersion = "1.19.0"
     val materialVersion = "1.14.0"
-
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
     implementation("androidx.navigation:navigation-fragment-ktx:2.9.8")
@@ -164,7 +156,6 @@ dependencies {
         exclude(group = "com.google.guava", module = "guava")
     }
     implementation("com.google.guava:guava:33.6.0-android")
-
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-process:$lifecycleVersion")
@@ -178,30 +169,21 @@ dependencies {
     implementation("androidx.webkit:webkit:$webkitVersion")
     implementation("androidx.core:core-ktx:$coreVersion")
     implementation("com.google.android.material:material:$materialVersion")
-
-    // Configuration editor: sora-editor (tree-sitter)
     val soraVersion = "0.23.6"
     val treeSitterVersion = "4.3.2"
     implementation("io.github.Rosemoe.sora-editor:editor:$soraVersion")
     implementation("io.github.Rosemoe.sora-editor:language-treesitter:$soraVersion")
     implementation("com.itsaky.androidide.treesitter:android-tree-sitter:$treeSitterVersion")
     implementation("com.itsaky.androidide.treesitter:tree-sitter-json:$treeSitterVersion")
-
-    // Shizuku
     val shizukuVersion = "13.1.5"
     implementation("dev.rikka.shizuku:api:$shizukuVersion")
     implementation("dev.rikka.shizuku:provider:$shizukuVersion")
-
-    // libsu for ROOT package query
     val libsuVersion = "6.0.0"
     implementation("com.github.topjohnwu.libsu:core:$libsuVersion")
     implementation("com.github.topjohnwu.libsu:service:$libsuVersion")
-
-    // Compose dependencies
     val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     val activityVersion = "1.13.0"
     val lifecycleComposeVersion = "2.11.0"
-
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material3.adaptive:adaptive")
@@ -212,29 +194,19 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleComposeVersion")
     implementation("androidx.compose.runtime:runtime-livedata")
-
-    // Debug/Test dependencies
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
-
-    // Common Compose-related libraries
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("com.github.jeziellago:compose-markdown:0.7.2")
     implementation("org.kodein.emoji:emoji-kt:2.5.0")
     implementation("org.mozilla:rhino:1.7.15")
-
-    // Terminal emulator
     val libghosttyVersion = "0.1.0-alpha01"
     implementation("io.github.sagernet:libghostty-android:$libghosttyVersion")
     implementation("io.github.sagernet:libghostty-android-extras:$libghosttyVersion")
     implementation("io.github.sagernet:libghostty-android-compose:$libghosttyVersion")
-
-    // Hidden API bypass
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
-
-    // Xposed API for self-hooking VPN hide module
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly(project(":libxposed-api"))
 }
@@ -275,4 +247,3 @@ tasks.register("assembleOtherDebug") {
 tasks.register("assembleOtherRelease") {
     dependsOn("assembleRelease")
 }
-
