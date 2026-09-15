@@ -25,27 +25,22 @@ class ProfileImportHandler(private val context: Context) {
 
     sealed class ImportResult {
         data class Success(val profile: Profile) : ImportResult()
-
         data class Error(val message: String) : ImportResult()
     }
 
     sealed class QRCodeParseResult {
         data class RemoteProfile(val name: String, val host: String, val url: String) : QRCodeParseResult()
-
         data class LocalProfile(val name: String) : QRCodeParseResult()
-
         data class Error(val message: String) : QRCodeParseResult()
     }
 
     sealed class QRSParseResult {
         data class Success(val name: String) : QRSParseResult()
-
         data class Error(val message: String) : QRSParseResult()
     }
 
     sealed class UriParseResult {
         data class Success(val name: String, val contentHash: String) : UriParseResult()
-
         data class Error(val message: String) : UriParseResult()
     }
 
@@ -64,17 +59,16 @@ class ProfileImportHandler(private val context: Context) {
                 return@withContext importJsonConfiguration(dataString, filename)
             }
 
-            val content =
-                try {
-                    Libbox.decodeProfileContent(data)
-                } catch (e: Exception) {
-                    if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
-                        return@withContext importJsonConfiguration(dataString, filename)
-                    }
-                    return@withContext ImportResult.Error(
-                        context.getString(R.string.error_decode_profile, e.message),
-                    )
+            val content = try {
+                Libbox.decodeProfileContent(data)
+            } catch (e: Exception) {
+                if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
+                    return@withContext importJsonConfiguration(dataString, filename)
                 }
+                return@withContext ImportResult.Error(
+                    context.getString(R.string.error_decode_profile, e.message),
+                )
+            }
 
             importProfile(content)
         } catch (e: Exception) {
@@ -92,22 +86,21 @@ class ProfileImportHandler(private val context: Context) {
             val contentHash = sha256(data)
 
             if (isJsonConfiguration(dataString)) {
-                return@withContext UriParseResult.Success(name = filename, contentHash = contentHash)
+                return@withContext UriParseResult.Success(filename, contentHash)
             }
 
-            val content =
-                try {
-                    Libbox.decodeProfileContent(data)
-                } catch (e: Exception) {
-                    if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
-                        return@withContext UriParseResult.Success(name = filename, contentHash = contentHash)
-                    }
-                    return@withContext UriParseResult.Error(
-                        context.getString(R.string.error_decode_profile, e.message),
-                    )
+            val content = try {
+                Libbox.decodeProfileContent(data)
+            } catch (e: Exception) {
+                if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
+                    return@withContext UriParseResult.Success(filename, contentHash)
                 }
+                return@withContext UriParseResult.Error(
+                    context.getString(R.string.error_decode_profile, e.message),
+                )
+            }
 
-            UriParseResult.Success(name = content.name, contentHash = contentHash)
+            UriParseResult.Success(content.name, contentHash)
         } catch (e: Exception) {
             UriParseResult.Error(e.message ?: "Unknown error")
         }
@@ -139,16 +132,14 @@ class ProfileImportHandler(private val context: Context) {
                 )
             }
 
-            val content =
-                try {
-                    Libbox.decodeProfileContent(data.toByteArray())
-                } catch (e: Exception) {
-                    return@withContext QRCodeParseResult.Error(
-                        context.getString(R.string.error_decode_profile, e.message),
-                    )
-                }
-
-            return@withContext QRCodeParseResult.LocalProfile(name = content.name)
+            val content = try {
+                Libbox.decodeProfileContent(data.toByteArray())
+            } catch (e: Exception) {
+                return@withContext QRCodeParseResult.Error(
+                    context.getString(R.string.error_decode_profile, e.message),
+                )
+            }
+            QRCodeParseResult.LocalProfile(name = content.name)
         } catch (e: Exception) {
             QRCodeParseResult.Error(e.message ?: "Unknown error")
         }
@@ -171,14 +162,13 @@ class ProfileImportHandler(private val context: Context) {
                 val profileName = extractProfileNameFromUrl(data)
                 importRemoteProfile(profileName, data)
             } else {
-                val content =
-                    try {
-                        Libbox.decodeProfileContent(data.toByteArray())
-                    } catch (e: Exception) {
-                        return@withContext ImportResult.Error(
-                            context.getString(R.string.error_decode_profile, e.message),
-                        )
-                    }
+                val content = try {
+                    Libbox.decodeProfileContent(data.toByteArray())
+                } catch (e: Exception) {
+                    return@withContext ImportResult.Error(
+                        context.getString(R.string.error_decode_profile, e.message),
+                    )
+                }
                 importProfile(content)
             }
         } catch (e: Exception) {
@@ -195,7 +185,7 @@ class ProfileImportHandler(private val context: Context) {
                     context.getString(R.string.error_decode_profile, e.message),
                 )
             }
-            QRSParseResult.Success(name = content.name)
+            QRSParseResult.Success(content.name)
         } catch (e: Exception) {
             QRSParseResult.Error(e.message ?: "Unknown error")
         }
@@ -222,12 +212,8 @@ class ProfileImportHandler(private val context: Context) {
         profile.userOrder = ProfileManager.nextOrder()
 
         when (content.type) {
-            Libbox.ProfileTypeLocal -> {
-                typedProfile.type = TypedProfile.Type.Local
-            }
-            Libbox.ProfileTypeiCloud -> {
-                return ImportResult.Error(context.getString(R.string.icloud_profile_unsupported))
-            }
+            Libbox.ProfileTypeLocal -> typedProfile.type = TypedProfile.Type.Local
+            Libbox.ProfileTypeiCloud -> return ImportResult.Error(context.getString(R.string.icloud_profile_unsupported))
             Libbox.ProfileTypeRemote -> {
                 typedProfile.type = TypedProfile.Type.Remote
                 typedProfile.remoteURL = content.remotePath
@@ -242,36 +228,34 @@ class ProfileImportHandler(private val context: Context) {
         val configFile = File(configDirectory, "$fileID.json")
         configFile.writeText(content.config)
         typedProfile.path = configFile.path
-
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-
         return ImportResult.Success(profile)
     }
 
     private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
-        val typedProfile =
-            TypedProfile().apply {
-                type = TypedProfile.Type.Remote
-                remoteURL = url
-                autoUpdate = true
-                autoUpdateInterval = 60
-                lastUpdated = Date()
-            }
+        val secureUrl = url.trim()
+        if (!secureUrl.startsWith("https://", ignoreCase = true)) {
+            return ImportResult.Error("HTTPS is required for remote profile subscriptions")
+        }
 
-        val profile =
-            Profile(name = name, typed = typedProfile).apply {
-                userOrder = ProfileManager.nextOrder()
-            }
+        val typedProfile = TypedProfile().apply {
+            type = TypedProfile.Type.Remote
+            remoteURL = secureUrl
+            autoUpdate = true
+            autoUpdateInterval = 60
+            lastUpdated = Date()
+        }
+
+        val profile = Profile(name = name, typed = typedProfile).apply {
+            userOrder = ProfileManager.nextOrder()
+        }
 
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json"
-        )
+        val configFile = File(configDirectory, "$fileID.json")
         configFile.writeText("{}")
         typedProfile.path = configFile.path
-
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-
         return ImportResult.Success(profile)
     }
 
@@ -313,7 +297,6 @@ class ProfileImportHandler(private val context: Context) {
 
     private fun getFileNameFromUri(uri: Uri): String {
         var filename = "Imported Profile"
-
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (nameIndex >= 0 && cursor.moveToFirst()) {
@@ -326,29 +309,19 @@ class ProfileImportHandler(private val context: Context) {
 
         if (filename == "Imported Profile") {
             uri.lastPathSegment?.let { segment ->
-                filename = segment
-                    .substringBeforeLast(".")
-                    .takeIf { it.isNotEmpty() }
-                    ?: filename
+                filename = segment.substringBeforeLast(".").takeIf { it.isNotEmpty() } ?: filename
             }
         }
-
         return filename
     }
 
     private fun isJsonConfiguration(content: String): Boolean {
         val trimmed = content.trim()
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-            return false
-        }
-
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false
         return try {
             val json = JSONObject(content)
-            json.has("inbounds") ||
-                json.has("outbounds") ||
-                json.has("route") ||
-                json.has("dns") ||
-                json.has("experimental")
+            json.has("inbounds") || json.has("outbounds") || json.has("route") ||
+                json.has("dns") || json.has("experimental")
         } catch (e: Exception) {
             trimmed.startsWith("[") && trimmed.endsWith("]")
         }
@@ -365,27 +338,18 @@ class ProfileImportHandler(private val context: Context) {
                 )
             }
 
-            val typedProfile =
-                TypedProfile().apply {
-                    type = TypedProfile.Type.Local
-                }
-
-            val profile =
-                Profile(
-                    name = profileName.ifEmpty { "Imported Profile" },
-                    typed = typedProfile,
-                ).apply {
-                    userOrder = ProfileManager.nextOrder()
-                }
+            val typedProfile = TypedProfile().apply { type = TypedProfile.Type.Local }
+            val profile = Profile(
+                name = profileName.ifEmpty { "Imported Profile" },
+                typed = typedProfile,
+            ).apply { userOrder = ProfileManager.nextOrder() }
 
             val fileID = ProfileManager.nextFileID()
             val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
             val configFile = File(configDirectory, "$fileID.json")
             configFile.writeText(sanitized)
             typedProfile.path = configFile.path
-
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-
             ImportResult.Success(profile)
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "Unknown error importing JSON configuration")
