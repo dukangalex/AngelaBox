@@ -644,8 +644,10 @@ def main() -> int:
         errors.append("theme page must not copy ROM-specific font/icon toggles")
     if 'name="theme_settings"' not in cn:
         errors.append("zh-rCN missing theme_settings")
-    if "PathPreview" not in ui:
-        errors.append("chain builder should show an entry → landing path preview")
+    if "HopOrb" not in ui or "LinkPulse" not in ui:
+        errors.append("chain builder should show circular entry / landing nodes, not stacked PPT cards")
+    if "HopPickCard" in ui:
+        errors.append("chain builder must not use the old full-width HopPickCard stack")
     if "surfaceContainer" not in ui:
         errors.append("chain builder polish should use surface cards")
 
