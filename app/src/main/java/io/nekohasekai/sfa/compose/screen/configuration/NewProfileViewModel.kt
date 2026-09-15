@@ -11,8 +11,8 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
-import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,8 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.InputStream
 import java.util.Date
 
 data class NewProfileUiState(
@@ -55,6 +55,10 @@ enum class ProfileSource {
 }
 
 class NewProfileViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val MAX_IMPORT_BYTES = 8L * 1024L * 1024L
+    }
+
     private val _uiState = MutableStateFlow(NewProfileUiState())
     val uiState: StateFlow<NewProfileUiState> = _uiState.asStateFlow()
 
@@ -244,9 +248,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                             if (uri.scheme != "content") {
                                 throw Exception("Only content:// profile imports are supported")
                             }
-                            val inputStream = context.contentResolver.openInputStream(uri)
-                                ?: throw Exception("Unable to open imported profile")
-                            inputStream.use { it.bufferedReader().readText() }
+                            readImportText(context, uri)
                         } ?: "{}"
                     }
                 }
@@ -300,5 +302,26 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         return profile
+    }
+
+    private fun readImportText(context: Application, uri: Uri): String {
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: throw Exception("Unable to open imported profile")
+        inputStream.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                total += count
+                if (total > MAX_IMPORT_BYTES) {
+                    throw IllegalArgumentException("Imported profile exceeds 8 MiB limit")
+                }
+                output.write(buffer, 0, count)
+            }
+            return output.toString(Charsets.UTF_8.name())
+        }
     }
 }
