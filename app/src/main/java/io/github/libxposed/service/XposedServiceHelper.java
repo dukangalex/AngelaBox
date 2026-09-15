@@ -10,14 +10,11 @@ import java.util.Set;
 @SuppressWarnings("unused")
 public final class XposedServiceHelper {
 
+  private static final int MAX_CACHED_SERVICES = 4;
+
   /** Callback interface for Xposed service. */
   public interface OnServiceListener {
-    /**
-     * Callback when the service is connected.<br>
-     * This method could be called multiple times if multiple Xposed frameworks exist.
-     *
-     * @param service Service instance
-     */
+    /** Callback when the service is connected. */
     void onServiceBind(@NonNull XposedService service);
 
     /** Callback when the service is dead. */
@@ -34,6 +31,10 @@ public final class XposedServiceHelper {
       try {
         XposedService service = new XposedService(IXposedService.Stub.asInterface(binder));
         if (mListener == null) {
+          if (mCache.size() >= MAX_CACHED_SERVICES) {
+            Log.w(TAG, "Ignoring Xposed binder: service cache is full");
+            return;
+          }
           mCache.add(service);
         } else {
           binder.linkToDeath(() -> mListener.onServiceDied(service), 0);
@@ -45,12 +46,7 @@ public final class XposedServiceHelper {
     }
   }
 
-  /**
-   * Register a ServiceListener to receive service binders from Xposed frameworks.<br>
-   * This method should only be called once.
-   *
-   * @param listener Listener to register
-   */
+  /** Register a ServiceListener to receive service binders from Xposed frameworks. */
   public static void registerListener(OnServiceListener listener) {
     synchronized (mCache) {
       mListener = listener;
