@@ -18,6 +18,10 @@ import java.io.File
 import java.util.Date
 
 class ProfileImportHandler(private val context: Context) {
+    companion object {
+        private const val MAX_IMPORT_BYTES = 8L * 1024L * 1024L
+    }
+
     sealed class ImportResult {
         data class Success(val profile: Profile) : ImportResult()
 
@@ -46,26 +50,19 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
         try {
-            val data =
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
+            val data = readUriBytes(uri)
+                ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
 
-            // Get the filename from the URI
             val filename = getFileNameFromUri(uri)
-
-            // Try to detect if it's a JSON configuration file
             val dataString = String(data)
             if (isJsonConfiguration(dataString)) {
-                // It's a JSON configuration, import it directly as a local profile
                 return@withContext importJsonConfiguration(dataString, filename)
             }
 
-            // Try to decode as ProfileContent (the old way)
             val content =
                 try {
                     Libbox.decodeProfileContent(data)
                 } catch (e: Exception) {
-                    // If it fails, try one more time as JSON
                     if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
                         return@withContext importJsonConfiguration(dataString, filename)
                     }
@@ -82,9 +79,8 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
-            val data =
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: return@withContext UriParseResult.Error(context.getString(R.string.error_empty_file))
+            val data = readUriBytes(uri)
+                ?: return@withContext UriParseResult.Error(context.getString(R.string.error_empty_file))
 
             val filename = getFileNameFromUri(uri)
             val dataString = String(data)
@@ -113,7 +109,6 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun parseQRCode(data: String): QRCodeParseResult = withContext(Dispatchers.IO) {
         try {
-            // Check if it's a sing-box remote profile import link
             if (data.startsWith("sing-box://import-remote-profile")) {
                 try {
                     val profileInfo = Libbox.parseRemoteProfileImportLink(data)
@@ -129,7 +124,6 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
-            // Check if it's a direct URL
             if (data.startsWith("http://") || data.startsWith("https://")) {
                 val profileName = extractProfileNameFromUrl(data)
                 return@withContext QRCodeParseResult.RemoteProfile(
@@ -139,7 +133,6 @@ class ProfileImportHandler(private val context: Context) {
                 )
             }
 
-            // Try to decode as profile content
             val content =
                 try {
                     Libbox.decodeProfileContent(data.toByteArray())
@@ -157,7 +150,6 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun importFromQRCode(data: String): ImportResult = withContext(Dispatchers.IO) {
         try {
-            // Check if it's a sing-box remote profile import link
             if (data.startsWith("sing-box://import-remote-profile")) {
                 try {
                     val profileInfo = Libbox.parseRemoteProfileImportLink(data)
@@ -169,13 +161,10 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
-            // Check if it's a URL or direct profile content
             if (data.startsWith("http://") || data.startsWith("https://")) {
-                // Handle remote profile URL
                 val profileName = extractProfileNameFromUrl(data)
                 importRemoteProfile(profileName, data)
             } else {
-                // Try to decode as profile content
                 val content =
                     try {
                         Libbox.decodeProfileContent(data.toByteArray())
@@ -242,14 +231,12 @@ class ProfileImportHandler(private val context: Context) {
             }
         }
 
-        // Save config file
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
         configFile.writeText(content.config)
         typedProfile.path = configFile.path
 
-        // Create profile in database and select it
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return ImportResult.Success(profile)
@@ -270,21 +257,37 @@ class ProfileImportHandler(private val context: Context) {
                 userOrder = ProfileManager.nextOrder()
             }
 
-        // Create empty config file for remote profile
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
         configFile.writeText("{}")
         typedProfile.path = configFile.path
 
-        // Create profile in database and select it
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
         return ImportResult.Success(profile)
     }
 
+    private fun readUriBytes(uri: Uri): ByteArray? {
+        return context.contentResolver.openInputStream(uri)?.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                total += count
+                if (total > MAX_IMPORT_BYTES) {
+                    throw IllegalArgumentException("Imported profile exceeds 8 MiB limit")
+                }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+    }
+
     private fun extractProfileNameFromUrl(url: String): String {
-        // Extract name from URL or use default
         return url.substringAfterLast("/")
             .substringBeforeLast(".")
             .takeIf { it.isNotEmpty() }
@@ -301,18 +304,16 @@ class ProfileImportHandler(private val context: Context) {
     private fun getFileNameFromUri(uri: Uri): String {
         var filename = "Imported Profile"
 
-        // Try to get filename from content resolver
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (nameIndex >= 0 && cursor.moveToFirst()) {
                 filename = cursor.getString(nameIndex)
-                    ?.substringBeforeLast(".") // Remove extension
+                    ?.substringBeforeLast(".")
                     ?.takeIf { it.isNotEmpty() }
                     ?: filename
             }
         }
 
-        // Fallback to getting from URI path
         if (filename == "Imported Profile") {
             uri.lastPathSegment?.let { segment ->
                 filename = segment
@@ -332,23 +333,19 @@ class ProfileImportHandler(private val context: Context) {
         }
 
         return try {
-            // Try to parse as JSON and check for sing-box configuration fields
             val json = JSONObject(content)
-            // Check for common sing-box configuration fields
             json.has("inbounds") ||
                 json.has("outbounds") ||
                 json.has("route") ||
                 json.has("dns") ||
                 json.has("experimental")
         } catch (e: Exception) {
-            // If it's an array, it might still be valid
             trimmed.startsWith("[") && trimmed.endsWith("]")
         }
     }
 
     private suspend fun importJsonConfiguration(jsonContent: String, profileName: String): ImportResult {
         return try {
-            // Validate the JSON configuration using sing-box
             val sanitized = ConfigCompat.sanitize(jsonContent)
             try {
                 Libbox.checkConfig(sanitized)
@@ -358,7 +355,6 @@ class ProfileImportHandler(private val context: Context) {
                 )
             }
 
-            // Create a local profile with the JSON configuration
             val typedProfile =
                 TypedProfile().apply {
                     type = TypedProfile.Type.Local
@@ -372,14 +368,12 @@ class ProfileImportHandler(private val context: Context) {
                     userOrder = ProfileManager.nextOrder()
                 }
 
-            // Save the configuration file
             val fileID = ProfileManager.nextFileID()
             val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
             val configFile = File(configDirectory, "$fileID.json")
             configFile.writeText(sanitized)
             typedProfile.path = configFile.path
 
-            // Create profile in database and select it
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
             ImportResult.Success(profile)
