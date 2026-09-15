@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import java.util.Date
 
 class ProfileImportHandler(private val context: Context) {
@@ -43,15 +44,19 @@ class ProfileImportHandler(private val context: Context) {
     }
 
     sealed class UriParseResult {
-        data class Success(val name: String) : UriParseResult()
+        data class Success(val name: String, val contentHash: String) : UriParseResult()
 
         data class Error(val message: String) : UriParseResult()
     }
 
-    suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun importFromUri(uri: Uri, expectedContentHash: String? = null): ImportResult = withContext(Dispatchers.IO) {
         try {
             val data = readUriBytes(uri)
                 ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
+
+            if (expectedContentHash != null && sha256(data) != expectedContentHash) {
+                return@withContext ImportResult.Error("Imported file changed after confirmation; import aborted")
+            }
 
             val filename = getFileNameFromUri(uri)
             val dataString = String(data)
@@ -84,9 +89,10 @@ class ProfileImportHandler(private val context: Context) {
 
             val filename = getFileNameFromUri(uri)
             val dataString = String(data)
+            val contentHash = sha256(data)
 
             if (isJsonConfiguration(dataString)) {
-                return@withContext UriParseResult.Success(name = filename)
+                return@withContext UriParseResult.Success(name = filename, contentHash = contentHash)
             }
 
             val content =
@@ -94,14 +100,14 @@ class ProfileImportHandler(private val context: Context) {
                     Libbox.decodeProfileContent(data)
                 } catch (e: Exception) {
                     if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
-                        return@withContext UriParseResult.Success(name = filename)
+                        return@withContext UriParseResult.Success(name = filename, contentHash = contentHash)
                     }
                     return@withContext UriParseResult.Error(
                         context.getString(R.string.error_decode_profile, e.message),
                     )
                 }
 
-            UriParseResult.Success(name = content.name)
+            UriParseResult.Success(name = content.name, contentHash = contentHash)
         } catch (e: Exception) {
             UriParseResult.Error(e.message ?: "Unknown error")
         }
@@ -259,7 +265,8 @@ class ProfileImportHandler(private val context: Context) {
 
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
+        val configFile = File(configDirectory, "$fileID.json"
+        )
         configFile.writeText("{}")
         typedProfile.path = configFile.path
 
@@ -286,6 +293,9 @@ class ProfileImportHandler(private val context: Context) {
             output.toByteArray()
         }
     }
+
+    private fun sha256(data: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
     private fun extractProfileNameFromUrl(url: String): String {
         return url.substringAfterLast("/")
