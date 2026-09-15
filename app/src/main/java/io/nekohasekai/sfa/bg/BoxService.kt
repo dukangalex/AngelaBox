@@ -248,37 +248,92 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean {
         val options = buildOverrideOptions()
-        val content = ConfigQuicOverride.apply(rawContent)
-        try {
+        val scriptBound = OverlayScripts.isBound(profileId)
+        fun tryStart(content: String): Result<Unit> = runCatching {
             commandServer.startOrReloadService(content, options)
-            return true
-        } catch (e: Exception) {
-            if (!OverlayScripts.isBound(profileId)) {
-                stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(e.message))
-                return false
+        }
+
+        var content = ConfigQuicOverride.apply(rawContent)
+        var result = tryStart(content)
+        if (result.isSuccess) return true
+        var err = result.exceptionOrNull()?.message
+
+        if (ConfigDiagnose.looksLikeRpcDeath(err)) {
+            restartCommandServer()
+            result = tryStart(content)
+            if (result.isSuccess) return true
+            err = result.exceptionOrNull()?.message
+        }
+
+        if (Settings.configNormalize) {
+            val needles = ConfigDiagnose.ruleSetNeedles(err)
+            if (scriptBound) OverlayScripts.setBinding(profileId, emptyList())
+            if (ConfigDiagnose.looksLikeRpcDeath(err)) {
+                restartCommandServer()
+            } else {
+                runCatching { commandServer.closeService() }
             }
+            val recovered = ConfigQuicOverride.apply(
+                rawContent,
+                skipScripts = true,
+                dropRuleSetNeedles = needles,
+            )
+            result = tryStart(recovered)
+            if (result.isSuccess) {
+                val bits = mutableListOf<String>()
+                if (needles.isNotEmpty()) bits += "已跳过无效规则集 " + needles.joinToString("、")
+                if (scriptBound) bits += "已关闭该配置上的脚本，避免两套规则打架"
+                if (bits.isEmpty()) bits += "已按当前内核修正无法识别的字段"
+                OverrideStatus.add(
+                    OverrideNotice(
+                        title = "配置已自动修正",
+                        reason = bits.joinToString("。"),
+                        hint = "节点、分组、分流规则保留。链式不受影响。可在「设置 → 配置覆盖」关闭规范化。",
+                    ),
+                )
+                return true
+            }
+            stopAndAlert(
+                Alert.CreateService,
+                ConfigDiagnose.explain(
+                    result.exceptionOrNull()?.message ?: err,
+                    scriptsBound = false,
+                ),
+            )
+            return false
+        }
+
+        if (scriptBound) {
             val rolled = ConfigQuicOverride.apply(rawContent, skipScripts = true)
-            try {
-                commandServer.startOrReloadService(rolled, options)
+            result = tryStart(rolled)
+            if (result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
                         title = "脚本启动失败，已回滚",
-                        reason = ConfigDiagnose.explain(e.message),
+                        reason = ConfigDiagnose.explain(err, scriptsBound = true),
                         hint = ConfigDiagnose.rollbackHint(),
                         error = true,
                     ),
                 )
                 return true
-            } catch (e2: Exception) {
-                stopAndAlert(
-                    Alert.CreateService,
-                    ConfigDiagnose.explain(e.message) +
-                        "\n\n关掉脚本后仍失败：" +
-                        ConfigDiagnose.explain(e2.message),
-                )
-                return false
             }
+            stopAndAlert(
+                Alert.CreateService,
+                ConfigDiagnose.explain(err, scriptsBound = true) +
+                    "\n\n关掉脚本后仍失败：" +
+                    ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false),
+            )
+            return false
         }
+
+        stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(err, scriptsBound = false))
+        return false
+    }
+
+    private fun restartCommandServer() {
+        runCatching { commandServer.closeService() }
+        runCatching { commandServer.close() }
+        startCommandServer()
     }
 
     @RequiresApi(Build.VERSION_CODES.M)

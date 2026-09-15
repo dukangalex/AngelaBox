@@ -318,6 +318,39 @@ object ConfigInboundCompat {
         return true
     }
 
+    /**
+     * Drop remote rule-sets whose tag, filename or URL matches [needles]
+     * (from a kernel 404). User nodes / groups / remaining routes stay.
+     */
+    internal fun dropRemoteRuleSetsMatching(root: JSONObject, needles: Collection<String>): Boolean {
+        val want = needles.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        if (want.isEmpty()) return false
+        val route = root.optJSONObject("route") ?: return false
+        val sets = route.optJSONArray("rule_set") ?: return false
+        val dropTags = mutableSetOf<String>()
+        val keep = JSONArray()
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val file = url.substringAfterLast('/').substringBefore('?').lowercase()
+            val tag = item.optString("tag").trim()
+            val blob = "${tag.lowercase()} $file ${url.lowercase()}"
+            val hit = want.any { needle ->
+                needle == file || tag.equals(needle, true) || needle in blob
+            }
+            if (hit) {
+                if (tag.isNotEmpty()) dropTags.add(tag)
+                continue
+            }
+            keep.put(item)
+        }
+        if (dropTags.isEmpty() && keep.length() == sets.length()) return false
+        replaceArray(sets, keep)
+        stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+        stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        return true
+    }
+
     private fun stripDroppedRuleSets(rules: JSONArray?, dropTags: Set<String>): Boolean {
         if (rules == null || dropTags.isEmpty()) return false
         var changed = false

@@ -13,7 +13,7 @@
 | 注重隐私 | 不上传配置与日志，崩溃报告不含配置明文，日志不落盘 |
 | 安全防护 | 校验 APK、防篡改覆盖安装；启动失败明示并回滚，不静默直连 |
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑 |
-| 开箱即用 | 配置规范化 / 中国直连 / DNS 防泄漏 / 广告拦截 / 严格路由 / 禁用 IPv6 / 禁用 QUIC（放行国内）默认开；节点能用就能代理 |
+| 开箱即用 | 配置规范化静默值守（出错才修）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 严格路由 / 禁用 IPv6 / 禁用 QUIC（放行国内）默认开；节点能用就能代理 |
 
 AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 Android 代理客户端。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
 
@@ -57,7 +57,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 2. **内核：** `git fetch` 官方 `SagerNet/sing-box`，merge 进 `chain-dev`，只解决与 Chain outbound 相关的冲突。
 3. **App：** `git fetch` 官方 `SagerNet/sing-box-for-android`，merge 进本仓库 `dev`。冲突以 AngelaBox 为准（包名、组链、覆盖层、备份、更新检查、发版工作流）。
 4. **Fail Closed：** 链路失败必须报错并停止启动，不得静默落到 DIRECT。
-5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。
+5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型，且把 Go 升到 1.26.8；`chain-dev` 的 oomprofile 依赖 Go 1.25.5 内部符号，本版仍钉 **v1.14.0**。
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 

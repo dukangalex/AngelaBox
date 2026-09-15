@@ -8,6 +8,7 @@ import org.json.JSONObject
  * groups and user routing stay intact; only fields this kernel cannot
  * decode are rewritten. This is not China Direct / ads / QUIC — those
  * overlays run later and can be skipped when a script owns routing.
+ * First start is silent; BoxService only prompts after a failed start.
  */
 object ConfigNormalize {
 

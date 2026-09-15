@@ -135,4 +135,35 @@ class ConfigNormalizeTest {
         assertEquals("{not json", healed.content)
         assertTrue(healed.notes.isEmpty())
     }
+
+    @Test
+    fun dropRemoteRuleSetsMatchingRemovesOnlyTheBadSet() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [{"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443}],
+              "route": {
+                "rule_set": [
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://example.com/geoip-cn.srs"},
+                  {"tag": "geosite-cn", "type": "remote", "url": "https://example.com/geosite-cn.srs"}
+                ],
+                "rules": [
+                  {"rule_set": "geoip-cn", "outbound": "direct"},
+                  {"rule_set": "geosite-cn", "outbound": "direct"}
+                ],
+                "final": "n1"
+              }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(ConfigInboundCompat.dropRemoteRuleSetsMatching(root, listOf("geosite-cn.srs")))
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(1, sets.length())
+        assertEquals("geoip-cn", sets.getJSONObject(0).getString("tag"))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        assertEquals("geoip-cn", rules.getJSONObject(0).getString("rule_set"))
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+        assertEquals("1.2.3.4", root.getJSONArray("outbounds").getJSONObject(0).getString("server"))
+    }
 }

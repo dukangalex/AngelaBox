@@ -75,6 +75,8 @@ GitHub Release 发布成功后，`build-chainbox.yml` 会按 `docs/RELEASE_NOTES
 | 已对齐基线 | 官方 1.14 系（Go 1.25.5） |
 | 内核 tag | v1.12.0-chain.4（历史命名；代码基线为 1.14） |
 
+官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。相关提交多为 Apple / Windows / Tailscale / netlink，以及 **Go 1.26.8**。chain-dev 的 `oomprofile` 用 go:linkname 钉在 Go 1.25.5 的 `runtime/pprof` 内部符号上，跟进 1.14.1 需先在 `chain-dev` 验证该符号与 Android 编译。按「不为跟版而跟版」，本版继续钉 **v1.14.0**。
+
 官方上游：`https://github.com/SagerNet/sing-box`
 
 ```bash

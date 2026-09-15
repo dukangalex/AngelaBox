@@ -31,8 +31,10 @@ def main() -> int:
         errors.append("runtime overlay must run config normalize when the switch is on")
     if "ConfigNormalize.heal" not in override:
         errors.append("runtime overlay must call ConfigNormalize.heal")
-    if "配置已自动适配当前版本" not in override:
-        errors.append("config normalize must prompt the user in Chinese when it rewrites")
+    if "配置已自动适配当前版本" in override:
+        errors.append("config normalize must stay silent on first start; prompt only after recovery")
+    if "dropRuleSetNeedles" not in override:
+        errors.append("runtime overlay must drop 404 rule-sets passed from a failed start")
     if "ChainBindings.get" not in override:
         errors.append("runtime chain must look up the current profile binding")
 
@@ -41,6 +43,8 @@ def main() -> int:
         errors.append("Profile override UI must expose 配置规范化")
     if "configNormalize" not in ui_override:
         errors.append("Profile override UI must bind Settings.configNormalize")
+    if "静默" not in ui_override:
+        errors.append("config normalize UI must say it stays silent until a config error")
 
     compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
     if "plugin_opts" not in compat or "objectToPluginOpts" not in compat:
@@ -81,8 +85,23 @@ def main() -> int:
         errors.append("cross-profile chain landing must run config normalize")
     if "lastLandingNotes" not in reapply:
         errors.append("chain landing normalize must collect notes for the dashboard prompt")
-    if "链式落地已自动适配当前版本" not in override:
-        errors.append("chain landing normalize must prompt the user in Chinese")
+    if "链式落地已自动适配当前版本" in override:
+        errors.append("chain landing heal must stay silent unless start recovery prompts")
+
+    box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    if "配置已自动修正" not in box:
+        errors.append("normalize recovery must prompt only after a failed start")
+    if "OverlayScripts.setBinding(profileId, emptyList())" not in box:
+        errors.append("normalize recovery must turn off scripts on that profile")
+    if "restartCommandServer" not in box:
+        errors.append("RPC EOF after a failed start must restart the command server")
+    diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
+    if "scriptsBound" not in diagnose:
+        errors.append("ConfigDiagnose must not blame scripts when the profile has none")
+    if "fun ruleSetNeedles" not in diagnose:
+        errors.append("ConfigDiagnose must extract 404 rule-set names for recovery")
+    if "仍缺关键规则就关掉脚本" in diagnose:
+        errors.append("404 diagnose must not always tell the user to close scripts")
 
     ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if 'picker == "entry"' not in ui:
@@ -773,6 +792,8 @@ def main() -> int:
         errors.append("bundled script must be named 默认脚本")
     if "dropMissingRemoteRuleSets" not in inbound:
         errors.append("startup must drop remote rule-sets that 404")
+    if "dropRemoteRuleSetsMatching" not in inbound:
+        errors.append("startup must drop the specific rule-set named in a kernel 404")
     ads_idx = override.find("ConfigAdBlock.apply")
     drop_idx = max(override.rfind("ConfigInboundCompat.apply"), override.rfind("dropMissingRemoteRuleSets"))
     if ads_idx < 0 or drop_idx < ads_idx:
