@@ -25,6 +25,10 @@ def main() -> int:
         errors.append("WebRTC overlay must cover extra STUN ports and stun./turn. hostnames")
     if "cnDomainSuffixArray" not in normalize:
         errors.append("CN domain helper missing")
+    if 'mark(ConfigInboundCompat.healDownloadClients' in normalize:
+        errors.append("healDownloadClients must not create a standing 已修正 banner on valid configs")
+    if 'mark(ConfigInboundCompat.ensureHijackDns' in normalize:
+        errors.append("ensureHijackDns must not create a standing 已修正 banner on valid configs")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
     if "Settings.configNormalize" not in override:
@@ -33,8 +37,12 @@ def main() -> int:
         errors.append("runtime overlay must call ConfigNormalize.heal")
     if "配置已自动适配当前版本" in override:
         errors.append("config normalize must not use the long first-start paragraph")
-    if 'title = "配置规范化"' not in override or 'reason = "启用中"' not in override:
-        errors.append("config normalize dashboard banner must be 配置规范化 / 启用中")
+    if 'reason = "启用中"' in override:
+        errors.append("config normalize must not show a permanent 启用中 banner")
+    if "healed.changed" not in override:
+        errors.append("config normalize banner must only appear when heal actually changed the config")
+    if 'reason = "已修正"' not in override:
+        errors.append("config normalize dashboard banner must say 已修正 when it rewrote the config")
     if "脚本启用中" not in override:
         errors.append("script overlay dashboard banner must say 脚本启用中")
     if "脚本分流中" in override:
@@ -51,7 +59,7 @@ def main() -> int:
         errors.append("Profile override UI must expose 配置规范化")
     if "configNormalize" not in ui_override:
         errors.append("Profile override UI must bind Settings.configNormalize")
-    if "静默" not in ui_override:
+    if "没有错误不提示" not in ui_override:
         errors.append("config normalize UI must say it stays silent until a config error")
 
     compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
@@ -723,10 +731,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 8" not in sample:
-        errors.append("default script must stamp overlay-revision: 8 so stale copies refresh")
+    if "overlay-revision: 9" not in sample:
+        errors.append("default script must stamp overlay-revision: 9 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 8"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 9"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
@@ -883,9 +891,9 @@ def main() -> int:
         errors.append("chain builder info must say chain mutes scripts on the current profile")
     if "落地配置上的脚本不会执行" in builder or "脚本只对前置生效" in builder or "落地配置开启了脚本" in builder:
         errors.append("chain mode must no longer run scripts on the entry profile")
-    if "port: \"3478:3480\"" in sample or "port: \"5349:5355\"" in sample:
+    if "port: \"3478:3480\"" in sample or "port: \"3478:3481\"" in sample or "port: \"5349:5355\"" in sample:
         errors.append("STUN port ranges must use port_range, not port")
-    if "port_range: \"3478:3480\"" not in sample:
+    if "port_range: \"3478:3481\"" not in sample:
         errors.append("default script must use sing-box port_range for STUN")
     if "isAnnouncement" not in sample:
         errors.append("default script must skip announcement/fake leaf nodes")
@@ -987,6 +995,40 @@ def main() -> int:
         "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
     ):
         errors.append("China classifier must keep Alipay in the well-known list")
+    classifier = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
+    )
+    if "isDevicePlumbing" not in classifier:
+        errors.append("per-app scan must skip OEM/AOSP plumbing")
+    if "NetworkUse" not in classifier:
+        errors.append("per-app scan must classify by network purpose")
+    if "if (system) return NetworkUse.SKIP" not in classifier:
+        errors.append("per-app scan must skip FLAG_SYSTEM unless the package is a well-known consumer app")
+    if "com.google.android.ext" not in classifier:
+        errors.append("per-app scan must skip Google system plumbing")
+    perapp = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+    )
+    if "else !china" in perapp:
+        errors.append("overseas scan must not treat every non-China package as foreign")
+    if "scanForeignPackage" not in perapp:
+        errors.append("overseas scan must positively identify foreign apps")
+    if "sortItemsByDelay" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/model/Groups.kt"
+    ):
+        errors.append("urltest results must sort nodes by delay")
+    sample = read("app/src/main/assets/scripts/airport-region.js")
+    if "http://" in sample:
+        errors.append("default script must not use cleartext HTTP")
+    if "raw.githubusercontent.com" in sample:
+        errors.append("default script must not fetch GitHub raw rule-sets")
+    if "19302:19310" not in sample:
+        errors.append("default script STUN range must cover 19302-19310")
+    if "3478:3481" not in sample:
+        errors.append("default script STUN range must cover 3478-3481")
+    release_wf = read(".github/workflows/release-chainbox.yml")
+    if "telegram_send.py" not in release_wf:
+        errors.append("release workflow must notify Telegram itself; GITHUB_TOKEN cannot trigger on:release")
     if "per_app_proxy_scan_foreign_apps" not in read(
         "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
     ):

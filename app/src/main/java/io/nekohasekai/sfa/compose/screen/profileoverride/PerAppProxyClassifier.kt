@@ -1,44 +1,88 @@
 package io.nekohasekai.sfa.compose.screen.profileoverride
 
 /**
- * China vs overseas app classification for per-app proxy.
+ * Per-app proxy classification by **network purpose**, not OEM brand.
  *
- * Official SagerNet scanning treated any Tencent/Umeng/Bugly *class* inside
- * an APK as "China app", so overseas apps with a WeChat-share SDK were
- * mis-tagged. AngelaBox classifies by package identity, installer and label
- * only — no dex sniffing.
+ * - [NetworkUse.CHINA]: apps that work on the Chinese internet without a
+ *   proxy (WeChat, Alipay, banks, mainland stores).
+ * - [NetworkUse.FOREIGN]: apps that need an overseas path in China
+ *   (Google, Telegram, YouTube, Play Store).
+ * - [NetworkUse.SKIP]: device plumbing (AOSP / Samsung / Qualcomm
+ *   framework), other VPN/proxy clients, and unknowns. Auto-scan never
+ *   selects these — putting telephony/settings through a VPN breaks
+ *   networking. The user can still tick an app by hand.
+ *
+ * Official SagerNet scanned dex for Tencent/Umeng classes and treated
+ * every non-hit as overseas, which selected hundreds of system packages.
+ * AngelaBox does not sniff dex and does not define overseas as
+ * "not China".
  */
 object PerAppProxyClassifier {
 
-    fun isChinaApp(packageName: String, installer: String? = null, label: String? = null): Boolean {
+    enum class NetworkUse { CHINA, FOREIGN, SKIP }
+
+    fun networkUse(
+        packageName: String,
+        installer: String? = null,
+        label: String? = null,
+        system: Boolean = false,
+    ): NetworkUse {
         val pkg = packageName.trim()
-        if (pkg.isEmpty()) return false
-        if (isForeignPackage(pkg)) return false
-        if (isChinaPackage(pkg)) return true
-        if (isChinaInstaller(installer)) return true
-        if (hasChineseLabel(label)) return true
-        return false
+        if (pkg.isEmpty()) return NetworkUse.SKIP
+        if (isProxyOrSelf(pkg)) return NetworkUse.SKIP
+        if (isDevicePlumbing(pkg)) return NetworkUse.SKIP
+        if (pkg in wellKnownForeignPackages) return NetworkUse.FOREIGN
+        if (pkg in wellKnownChinaPackages) return NetworkUse.CHINA
+        if (system) return NetworkUse.SKIP
+        if (isForeignPackageName(pkg)) return NetworkUse.FOREIGN
+        if (isChinaPackageName(pkg)) return NetworkUse.CHINA
+        if (isChinaInstaller(installer)) return NetworkUse.CHINA
+        if (hasChineseLabel(label)) return NetworkUse.CHINA
+        return NetworkUse.SKIP
     }
 
-    fun isForeignPackage(packageName: String): Boolean {
-        val pkg = packageName.trim()
+    fun isChinaApp(
+        packageName: String,
+        installer: String? = null,
+        label: String? = null,
+        system: Boolean = false,
+    ): Boolean = networkUse(packageName, installer, label, system) == NetworkUse.CHINA
+
+    fun isForeignPackage(
+        packageName: String,
+        installer: String? = null,
+        label: String? = null,
+        system: Boolean = false,
+    ): Boolean = networkUse(packageName, installer, label, system) == NetworkUse.FOREIGN
+
+    fun isChinaPackage(packageName: String): Boolean = isChinaPackageName(packageName.trim())
+
+    internal fun isChinaPackageName(pkg: String): Boolean {
+        if (pkg.isEmpty()) return false
+        if (isForeignPackageName(pkg) || isDevicePlumbing(pkg) || isProxyOrSelf(pkg)) return false
+        if (pkg in wellKnownChinaPackages) return true
+        if (pkg.startsWith("cn.") || pkg.contains(".cn.")) return true
+        return matchesPrefix(pkg, chinaPrefixes)
+    }
+
+    internal fun isForeignPackageName(pkg: String): Boolean {
         if (pkg.isEmpty()) return false
         if (pkg in wellKnownForeignPackages) return true
-        if (matchesPrefix(pkg, foreignPrefixes)) return true
-        if (isAospPackage(pkg) && pkg !in wellKnownChinaPackages && !matchesPrefix(pkg, chinaPrefixes)) {
+        return matchesPrefix(pkg, foreignPrefixes)
+    }
+
+    internal fun isDevicePlumbing(pkg: String): Boolean {
+        if (pkg == "android" || pkg.startsWith("android.")) return true
+        if (matchesPrefix(pkg, plumbingPrefixes)) return true
+        if (pkg.startsWith("com.android.")) {
+            if (pkg in wellKnownChinaPackages || pkg in wellKnownForeignPackages) return false
+            if (matchesPrefix(pkg, chinaPrefixes) || matchesPrefix(pkg, foreignPrefixes)) return false
             return true
         }
         return false
     }
 
-    fun isChinaPackage(packageName: String): Boolean {
-        val pkg = packageName.trim()
-        if (pkg.isEmpty()) return false
-        if (isForeignPackage(pkg)) return false
-        if (pkg in wellKnownChinaPackages) return true
-        if (pkg.startsWith("cn.") || pkg.contains(".cn.")) return true
-        return matchesPrefix(pkg, chinaPrefixes)
-    }
+    internal fun isProxyOrSelf(pkg: String): Boolean = matchesPrefix(pkg, proxyPrefixes)
 
     internal fun isChinaInstaller(installer: String?): Boolean {
         val id = installer?.trim().orEmpty()
@@ -63,12 +107,6 @@ object PerAppProxyClassifier {
         return han >= 2 && han > kana && han > hangul
     }
 
-    internal fun isAospPackage(packageName: String): Boolean {
-        if (packageName == "android") return true
-        if (packageName == "com.android.bankabc") return false
-        return packageName.startsWith("com.android.")
-    }
-
     internal fun matchesPrefix(packageName: String, prefixes: Collection<String>): Boolean {
         for (prefix in prefixes) {
             if (packageName == prefix) return true
@@ -81,9 +119,86 @@ object PerAppProxyClassifier {
         return false
     }
 
+    private val plumbingPrefixes = listOf(
+        "com.samsung",
+        "com.sec",
+        "com.sem",
+        "com.qualcomm",
+        "com.qti",
+        "com.mediatek",
+        "com.trustonic",
+        "com.gd.mobicore",
+        "com.skms",
+        "com.dsi.ant",
+        "com.knox",
+        "com.wssyncmldm",
+        "com.ws.dm",
+        "com.android.providers",
+        "com.android.systemui",
+        "com.android.settings",
+        "com.android.phone",
+        "com.android.server",
+        "com.android.documentsui",
+        "com.android.permissioncontroller",
+        "com.android.hotwordenrollment",
+        "com.android.webview",
+        "com.android.bluetooth",
+        "com.android.nfc",
+        "com.android.stk",
+        "com.android.mms",
+        "com.android.mtp",
+        "com.android.bips",
+        "com.android.captiveportallogin",
+        "com.android.proxyhandler",
+        "com.android.pacprocessor",
+        "com.android.location",
+        "com.android.keychain",
+        "com.android.inputdevices",
+        "com.android.wallpaperbackup",
+        "com.android.calllogbackup",
+        "com.android.managedprovisioning",
+        "com.android.statementservice",
+        "com.android.carrierdefaultapp",
+        "com.android.ons",
+        "com.hiya.star",
+        "com.google.android.ext",
+        "com.google.android.overlay",
+        "com.google.android.packageinstaller",
+        "com.google.android.partnersetup",
+        "com.google.android.backuptransport",
+        "com.google.android.setupwizard",
+        "com.google.android.configupdater",
+        "com.google.android.onetimeinitializer",
+        "com.google.android.printservice",
+        "com.google.android.gms.policy",
+        "com.google.android.apps.restore",
+        "com.google.android.networkstack",
+        "com.google.android.permissioncontroller",
+        "com.google.android.captiveportallogin",
+        "com.google.android.syncadapters",
+        "com.google.android.webview",
+        "com.google.android.gsf.login",
+    )
+
+    private val proxyPrefixes = listOf(
+        "io.chainbox",
+        "io.nekohasekai",
+        "com.v2ray",
+        "com.github.metacubex",
+        "com.github.kr328",
+        "com.wireguard",
+        "com.tailscale",
+        "ch.protonvpn",
+        "org.outline",
+        "com.cloudflare.onedotonedotonedotone",
+        "com.cloudflare.cloudflareoneagent",
+        "eu.faircode.netguard",
+    )
+
     private val wellKnownForeignPackages = setOf(
         "ai.x.grok",
         "notion.id",
+        "app.revanced.android.gms",
         "com.zhiliaoapp.musically",
         "com.ss.android.ugc.trill",
         "com.ss.android.ugc.aweme.intl",
@@ -100,6 +215,7 @@ object PerAppProxyClassifier {
         "org.torproject.torbrowser",
         "com.android.chrome",
         "com.android.vending",
+        "com.android.youtube.premium",
         "com.google.android.gm",
         "com.google.android.youtube",
         "com.google.android.apps.maps",
@@ -136,12 +252,9 @@ object PerAppProxyClassifier {
         "com.plexapp.android",
         "com.duolingo",
         "com.brave.browser",
-        "com.cloudflare.onedotonedotonedotone",
         "com.github.android",
         "com.termux",
         "com.aurora.store",
-        "com.wireguard.android",
-        "com.tailscale.ipn",
         "tv.twitch.android.app",
         "com.valvesoftware.android.steam.community",
         "com.nintendo.znba",
@@ -153,25 +266,26 @@ object PerAppProxyClassifier {
         "com.opera.browser",
         "org.chromium.chrome",
         "com.x.android",
+        "com.openai.chatgpt",
+        "com.google.android.gms",
+        "com.google.android.gsf",
+        "com.google.android.googlequicksearchbox",
+        "com.google.android.apps.bard",
+        "com.google.android.apps.youtube.music",
+        "com.google.android.apps.googlevoice",
+        "com.google.android.apps.authenticator2",
+        "com.google.android.videos",
+        "app.revanced.android.youtube",
+        "com.vanced.android.youtube",
+        "flipboard.boxer.app",
     )
 
     private val foreignPrefixes = listOf(
         "com.google",
-        "com.google.android",
         "com.android.chrome",
         "com.android.vending",
-        "com.android.providers",
-        "com.android.systemui",
-        "com.android.settings",
-        "com.android.phone",
-        "com.android.documentsui",
-        "com.android.permissioncontroller",
-        "com.android.hotwordenrollment",
-        "com.android.webview",
         "com.microsoft",
         "com.apple",
-        "com.samsung",
-        "com.sec.android",
         "org.telegram",
         "org.mozilla",
         "org.wikipedia",
@@ -197,6 +311,8 @@ object PerAppProxyClassifier {
         "ai.x",
         "notion.id",
         "com.notion",
+        "app.revanced",
+        "updated.package.elgoog",
         "com.dropbox",
         "com.slack",
         "us.zoom",
@@ -213,16 +329,10 @@ object PerAppProxyClassifier {
         "com.plexapp",
         "com.duolingo",
         "com.brave",
-        "com.cloudflare",
-        "com.github",
+        "com.github.android",
         "com.termux",
         "com.aurora",
         "im.vector",
-        "com.wireguard",
-        "com.tailscale",
-        "io.nekohasekai",
-        "io.github.vvb2060",
-        "com.topjohnwu",
         "com.skype",
         "com.yahoo",
         "com.ebay",
@@ -248,9 +358,6 @@ object PerAppProxyClassifier {
         "ru.yandex",
         "com.zhiliaoapp.musically",
         "xyz.nekolab",
-        "eu.faircode",
-        "com.v2ray",
-        "com.github.kr328",
         "com.x.android",
     )
 
@@ -337,7 +444,6 @@ object PerAppProxyClassifier {
         "com.xiaomi.youpin",
         "com.huawei.health",
         "com.huawei.wallet",
-        "com.huawei.hwid",
         "com.huawei.appmarket",
         "com.unionpay.tsmservice",
         "com.chinatelecom.selfRegister",
@@ -371,8 +477,6 @@ object PerAppProxyClassifier {
         "com.chinamobile.mcloud",
         "com.huawei.hidisk",
         "com.mi.health",
-        "com.miui.securitycenter",
-        "com.miui.home",
         "com.bbk.appstore",
         "com.heytap.market",
         "com.oppo.market",

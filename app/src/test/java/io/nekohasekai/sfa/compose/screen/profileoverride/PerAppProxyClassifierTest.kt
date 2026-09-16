@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.compose.screen.profileoverride
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,11 +12,8 @@ class PerAppProxyClassifierTest {
         val overseas = listOf(
             "ai.x.grok",
             "notion.id",
-            "com.google.vr.vrcore",
-            "com.google.android.syncadapters.calendar",
             "com.google.android.gms",
             "com.google.android.gsf",
-            "com.google.android.tts",
             "com.microsoft.skydrive",
             "com.microsoft.office.outlook",
             "org.telegram.messenger",
@@ -24,6 +22,9 @@ class PerAppProxyClassifierTest {
             "com.zhiliaoapp.musically",
             "com.spotify.music",
             "com.discord",
+            "com.google.android.youtube",
+            "com.openai.chatgpt",
+            "app.revanced.android.gms",
         )
         for (pkg in overseas) {
             assertFalse(pkg, PerAppProxyClassifier.isChinaApp(pkg))
@@ -113,6 +114,101 @@ class PerAppProxyClassifierTest {
         // would have seen Tencent/Umeng classes.
         assertFalse(
             PerAppProxyClassifier.isChinaApp("com.google.android.youtube"),
+        )
+    }
+
+    @Test
+    fun systemPlumbingIsNeverAutoSelected() {
+        val plumbing = listOf(
+            "android",
+            "com.samsung.android.provider.filterprovider",
+            "com.sec.android.app.parser",
+            "com.qualcomm.location",
+            "com.android.systemui",
+            "com.android.providers.settings",
+            "com.android.phone",
+            "com.trustonic.teeservice",
+            "com.gd.mobicore.pa",
+        )
+        for (pkg in plumbing) {
+            assertEquals(pkg, PerAppProxyClassifier.NetworkUse.SKIP, PerAppProxyClassifier.networkUse(pkg, system = true))
+            assertFalse(pkg, PerAppProxyClassifier.isChinaApp(pkg, system = true))
+            assertFalse(pkg, PerAppProxyClassifier.isForeignPackage(pkg, system = true))
+        }
+    }
+
+    @Test
+    fun overseasScanIsNotEverythingExceptChina() {
+        assertTrue(PerAppProxyClassifier.isForeignPackage("org.telegram.messenger"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.google.android.youtube"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("app.revanced.android.gms"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.openai.chatgpt"))
+        assertFalse(PerAppProxyClassifier.isForeignPackage("com.samsung.android.incallui", system = true))
+        assertFalse(PerAppProxyClassifier.isForeignPackage("io.nekohasekai.sfa"))
+        assertFalse(PerAppProxyClassifier.isForeignPackage("com.v2ray.ang"))
+        assertFalse(PerAppProxyClassifier.isChinaApp("com.samsung.android.lool", label = "智能管理器", system = true))
+    }
+
+    @Test
+    fun preinstalledChinaConsumerAppStillCounts() {
+        assertTrue(PerAppProxyClassifier.isChinaApp("com.tencent.mm", system = true))
+        assertTrue(PerAppProxyClassifier.isChinaApp("com.android.bankabc", system = true))
+        assertFalse(PerAppProxyClassifier.isForeignPackage("com.tencent.mm", system = true))
+    }
+
+    @Test
+    fun unknownUserAppIsNotGuessedOverseas() {
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.SKIP,
+            PerAppProxyClassifier.networkUse(
+                "com.example.obscuretool",
+                installer = "com.android.vending",
+                label = "Random",
+            ),
+        )
+    }
+
+    @Test
+    fun systemFlagDoesNotGuessByPrefixOrLabel() {
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.SKIP,
+            PerAppProxyClassifier.networkUse(
+                "com.google.android.ext.services",
+                system = true,
+            ),
+        )
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.SKIP,
+            PerAppProxyClassifier.networkUse(
+                "com.google.android.setupwizard",
+                system = true,
+            ),
+        )
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.SKIP,
+            PerAppProxyClassifier.networkUse(
+                "com.samsung.android.lool",
+                label = "智能管理器",
+                system = true,
+            ),
+        )
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.FOREIGN,
+            PerAppProxyClassifier.networkUse("com.google.android.youtube", system = true),
+        )
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.FOREIGN,
+            PerAppProxyClassifier.networkUse("com.google.android.gms", system = true),
+        )
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.CHINA,
+            PerAppProxyClassifier.networkUse("com.tencent.mm", system = true),
+        )
+        assertFalse(
+            PerAppProxyClassifier.isChinaApp("app.revanced.android.gms", system = false),
+        )
+        assertTrue(
+            PerAppProxyClassifier.isForeignPackage("app.revanced.android.gms"),
         )
     }
 }

@@ -1,6 +1,10 @@
 name: Telegram Release
 run-name: Telegram ${{ inputs.tag || github.event.release.tag_name || 'latest' }}
 
+# GitHub does not fire `on: release` for releases created with GITHUB_TOKEN
+# (the Publish release step in release-chainbox.yml). Channel notify is
+# inlined in that workflow. Keep this file for manual workflow_dispatch.
+
 on:
   release:
     types: [published]

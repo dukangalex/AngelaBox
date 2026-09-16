@@ -231,9 +231,9 @@
     <string name="per_app_proxy">每個應用程式代理</string>
     <string name="per_app_proxy_mode">代理模式</string>
     <string name="per_app_proxy_mode_include">包含</string>
-    <string name="per_app_proxy_mode_include_description">白名單：只有勾選的應用走代理，其餘直連。掃描「非中國應用」後套用。</string>
+    <string name="per_app_proxy_mode_include_description">白名單：只有勾選的應用走代理，其餘直連。掃描「非中國應用」後套用。系統元件與廠商框架不會自動勾選。</string>
     <string name="per_app_proxy_mode_exclude">排除</string>
-    <string name="per_app_proxy_mode_exclude_description">黑名單：勾選的應用直連，其餘走代理。掃描「中國應用」後套用。</string>
+    <string name="per_app_proxy_mode_exclude_description">黑名單：勾選的應用直連，其餘走代理。掃描「中國應用」後套用。系統元件與廠商框架不會自動勾選。</string>
     <string name="per_app_proxy_action_copy">複製</string>
     <string name="per_app_proxy_action_copy_package_name">套件名稱</string>
     <string name="per_app_proxy_action_copy_uid">UID</string>

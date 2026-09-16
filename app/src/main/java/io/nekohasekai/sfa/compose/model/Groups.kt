@@ -23,7 +23,15 @@ data class Group(
         item.selectable,
         item.selected,
         item.isExpand,
-        item.items.toList().map { GroupItem(it) },
+        sortItemsByDelay(item.items.toList().map { GroupItem(it) }),
+    )
+}
+
+private fun sortItemsByDelay(items: List<GroupItem>): List<GroupItem> {
+    if (items.none { it.urlTestDelay > 0 }) return items
+    return items.sortedWith(
+        compareBy<GroupItem> { item -> if (item.urlTestDelay > 0) 0 else 1 }
+            .thenBy { item -> if (item.urlTestDelay > 0) item.urlTestDelay else Int.MAX_VALUE },
     )
 }
 

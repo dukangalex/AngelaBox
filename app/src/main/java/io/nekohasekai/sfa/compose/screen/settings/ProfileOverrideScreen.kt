@@ -151,7 +151,7 @@ fun ProfileOverrideScreen(
             ) {
                 OverrideSwitch(
                     title = "配置规范化",
-                    subtitle = "静默值守：出错才修正，无效规则集换成官方地址",
+                    subtitle = "没有错误不提示。真正改写时才显示已修正，无效规则集换成官方地址",
                     checked = configNormalize,
                     onHelp = {
                         help = SwitchHelp(

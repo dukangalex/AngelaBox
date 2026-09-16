@@ -152,7 +152,7 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.53" in props
+    assert "VERSION_NAME=1.0.54" in props
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust

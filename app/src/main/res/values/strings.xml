@@ -231,9 +231,9 @@
     <string name="per_app_proxy">Per-App Proxy</string>
     <string name="per_app_proxy_mode">Proxy Mode</string>
     <string name="per_app_proxy_mode_include">Include</string>
-    <string name="per_app_proxy_mode_include_description">Whitelist: only checked apps go through the VPN. Scan overseas apps, then apply.</string>
+    <string name="per_app_proxy_mode_include_description">Whitelist: only checked apps go through the VPN. Scan overseas apps, then apply. System and vendor framework packages are never auto-selected.</string>
     <string name="per_app_proxy_mode_exclude">Exclude</string>
-    <string name="per_app_proxy_mode_exclude_description">Blacklist: checked apps go direct. Scan China apps, then apply.</string>
+    <string name="per_app_proxy_mode_exclude_description">Blacklist: checked apps go direct. Scan China apps, then apply. System and vendor framework packages are never auto-selected.</string>
     <string name="per_app_proxy_action_copy">Copy</string>
     <string name="per_app_proxy_action_copy_package_name">Package Name</string>
     <string name="per_app_proxy_action_copy_uid">UID</string>

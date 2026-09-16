@@ -13,7 +13,7 @@
 | 注重隐私 | 不上传配置与日志，崩溃报告不含配置明文，日志不落盘 |
 | 安全防护 | 校验 APK、防篡改覆盖安装；启动失败明示并回滚，不静默直连 |
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑 |
-| 开箱即用 | 配置规范化静默值守（出错才修）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 严格路由 / 禁用 IPv6 / 禁用 QUIC（放行国内）默认开；节点能用就能代理 |
+| 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 严格路由 / 禁用 IPv6 / 禁用 QUIC（放行国内）默认开；节点能用就能代理 |
 
 AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 Android 代理客户端。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
 
@@ -23,6 +23,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 - 构建：[Actions](https://github.com/dukangalex/AngelaBox/actions)
 - 频道：[Telegram](https://t.me/AngelaBox)
 - 使用说明：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- 安全说明：[docs/SECURITY.md](docs/SECURITY.md)
 - 维护说明：[docs/MAINTENANCE.md](docs/MAINTENANCE.md)
 
 ## 项目标识

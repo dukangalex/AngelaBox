@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 8
+ * overlay-revision: 9
  * 对齐 airport_overwrite.js：国内 IP/域名先直连，国外走代理；
  * DNS 必须劫持；国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini）。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
@@ -587,7 +587,7 @@ function main(config) {
   addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
   addRule({
     network: ["udp", "tcp"],
-    port_range: "3478:3480",
+    port_range: "3478:3481",
     action: "reject",
     method: "drop"
   });
@@ -599,7 +599,7 @@ function main(config) {
   });
   addRule({
     network: ["udp", "tcp"],
-    port_range: "19302:19305",
+    port_range: "19302:19310",
     action: "reject",
     method: "drop"
   });

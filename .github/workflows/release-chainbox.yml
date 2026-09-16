@@ -215,10 +215,11 @@ jobs:
           name: AngelaBox ${{ inputs.version_tag }}
           body: |
             更新说明
-            • 仪表覆写提示缩短：脚本显示「xxx覆写 / 脚本启用中」，配置规范化显示「配置规范化 / 启用中」。
-            • 分应用代理：新增「非中国应用」扫描；中国/海外判定改为包名、安装来源和名称，不再扫 APK 内部 SDK（减少误判）。隐藏离线、隐藏已停用默认开启。
-            • 订阅、脚本、更新、WebDAV 仅允许公网 HTTPS。HTTP、局域网、回环一律拒绝。
-            • 远程下载钉住所解析 IP，避免 DNS 重绑定；备份不再带出远程控制 secret。
+            • 配置规范化只在真正改写配置时提示「已修正」，没有错误不显示横幅。
+            • 分应用扫描改为按网络用途判定：中国应用 / 需要代理的应用。系统组件、厂商框架、其他 VPN 客户端不再自动勾选，避免扫完无法联网。
+            • 测速完成后节点按延迟从低到高排列。
+            • 发布成功后自动同步 Telegram 频道。
+            • 密钥事件说明见仓库 docs/SECURITY.md。当前发行证书未轮换。
             • 官方 1.14.1 仅为修补且把 Go 升到 1.26.8，本版内核仍钉 1.14.0。
             • 注重隐私、安全防护、高能低耗、开箱即用。
 
@@ -245,3 +246,27 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Telegram
+        if: success()
+        working-directory: sing-box-for-android
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHANNEL_ID: ${{ secrets.TG_CHANNEL_ID }}
+          TAG: ${{ inputs.version_tag }}
+          RELEASE_URL: https://github.com/dukangalex/AngelaBox/releases/tag/${{ inputs.version_tag }}
+          APK_URL: https://github.com/dukangalex/AngelaBox/releases/download/${{ inputs.version_tag }}/AngelaBox-android.apk
+          APK_FILE: AngelaBox-android.apk
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          if [ -z "${TG_BOT_TOKEN:-}" ] || [ -z "${TG_CHANNEL_ID:-}" ]; then
+            echo "Telegram secrets not set; skip channel notify."
+            exit 0
+          fi
+          test -s AngelaBox-android.apk
+          test -s AngelaBox-android.apk.sha256
+          SHA256="$(awk '{print $1}' AngelaBox-android.apk.sha256)"
+          export SHA256
+          python3 scripts/telegram_announce.py
+          python3 scripts/telegram_send.py

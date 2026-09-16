@@ -208,8 +208,11 @@ fun PerAppProxyScreen(
                         val progressInt = AtomicInteger()
                         scanPackages.map { packageCache ->
                             async {
-                                val china = PerAppProxyScanner.scanChinaPackage(packageCache.info)
-                                val hit = if (kind == ScanKind.CHINA) china else !china
+                                val hit = if (kind == ScanKind.CHINA) {
+                                    PerAppProxyScanner.scanChinaPackage(packageCache.info)
+                                } else {
+                                    PerAppProxyScanner.scanForeignPackage(packageCache.info)
+                                }
                                 if (hit) {
                                     synchronized(found) {
                                         found[packageCache.packageName] = packageCache
@@ -1338,6 +1341,31 @@ object PerAppProxyScanner {
         } catch (_: Exception) {
             null
         }
-        return PerAppProxyClassifier.isChinaApp(packageName, installer, label)
+        val system = (packageInfo.applicationInfo?.flags ?: 0) and
+            android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+        return PerAppProxyClassifier.isChinaApp(packageName, installer, label, system)
+    }
+
+    fun scanForeignPackage(packageInfo: PackageInfo): Boolean {
+        val packageName = packageInfo.packageName
+        if (packageName == Application.application.packageName) return false
+        val installer = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Application.application.packageManager.getInstallSourceInfo(packageName).installingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                Application.application.packageManager.getInstallerPackageName(packageName)
+            }
+        } catch (_: Exception) {
+            null
+        }
+        val label = try {
+            packageInfo.applicationInfo?.loadLabel(Application.application.packageManager)?.toString()
+        } catch (_: Exception) {
+            null
+        }
+        val system = (packageInfo.applicationInfo?.flags ?: 0) and
+            android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+        return PerAppProxyClassifier.isForeignPackage(packageName, installer, label, system)
     }
 }

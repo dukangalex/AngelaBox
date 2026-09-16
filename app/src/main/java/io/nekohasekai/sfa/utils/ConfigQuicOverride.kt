@@ -18,17 +18,18 @@ object ConfigQuicOverride {
         val warnings = mutableListOf<OverrideNotice>()
         // Pipeline (one set of rules at a time, no overlapping routing):
         // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes.
-        //    Dashboard chip is short; BoxService only rewrites copy after a failed start.
+        //    Banner only if heal actually rewrote the config (已修正 + notes).
         // 2. overlay script — if bound, it owns routing (China/ads/QUIC skipped)
         // 3. chain — if bound, scripts were already turned off for this profile
         // 4. China Direct / ads / QUIC — skipped while a script is on
         // 5. DNS / IPv6 / strict route — leak shields, still apply with scripts
         // 6. WebRTC last so STUN reject sits in front of China Direct
-        var out = if (Settings.configNormalize) {
-            ConfigNormalize.heal(content).content
+        val healed = if (Settings.configNormalize) {
+            ConfigNormalize.heal(content)
         } else {
-            ConfigCompat.sanitize(content)
+            ConfigNormalize.HealResult(ConfigCompat.sanitize(content), emptyList())
         }
+        var out = healed.content
 
         val profileId = Settings.selectedProfile
         val binding = ChainBindings.get(profileId)
@@ -78,11 +79,11 @@ object ConfigQuicOverride {
                     hint = "",
                 )
             }
-            if (Settings.configNormalize) {
+            if (healed.changed) {
                 warnings += OverrideNotice(
                     title = "配置规范化",
-                    reason = "启用中",
-                    hint = "",
+                    reason = "已修正",
+                    hint = healed.notes.joinToString("；"),
                 )
             }
             applyOne(warnings, "中国直连") {

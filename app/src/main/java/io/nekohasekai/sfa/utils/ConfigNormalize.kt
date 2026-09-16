@@ -125,9 +125,12 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
         mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
-        mark(ConfigInboundCompat.healDownloadClients(root), "规则集下载方式已按当前内核修正")
+        // 1.14 download client + hijack-dns are always-safe plumbing. Do not
+        // emit notes: most valid subscriptions lack these fields, and a
+        // standing「已修正」banner would be a lie when nothing was wrong.
+        ConfigInboundCompat.healDownloadClients(root)
         mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
-        mark(ConfigInboundCompat.ensureHijackDns(root), "已补上 DNS 劫持，避免系统解析失败")
+        ConfigInboundCompat.ensureHijackDns(root)
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
         return notes
     }
