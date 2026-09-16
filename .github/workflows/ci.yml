@@ -223,4 +223,5 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
             --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
+            --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --no-daemon --stacktrace

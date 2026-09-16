@@ -254,6 +254,12 @@
     <string name="per_app_proxy_export">Экспорт в буфер обмена</string>
     <string name="per_app_proxy_scan">Сканирование</string>
     <string name="per_app_proxy_scan_china_apps">Китайские приложения</string>
+    <string name="per_app_proxy_scan_foreign_apps">Зарубежные приложения</string>
+    <string name="per_app_proxy_scan_apply_include_foreign">В белый список (через VPN)</string>
+    <string name="per_app_proxy_scan_apply_exclude_china">В чёрный список (напрямую)</string>
+    <string name="per_app_proxy_scan_apply_remove_include_china">Убрать из белого списка</string>
+    <string name="per_app_proxy_scan_apply_remove_exclude_foreign">Убрать из чёрного списка</string>
+    <string name="message_scan_foreign_app_found">Найдены зарубежные приложения. Примените к текущему списку.</string>
     <string name="per_app_proxy_manage">Управление</string>
     <string name="content_description_app_icon">Значок приложения</string>
     <string name="per_app_proxy_managed_mode">Управляемый режим</string>

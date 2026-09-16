@@ -74,7 +74,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.base.UiEvent
@@ -95,9 +94,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.zip.ZipFile
 
 private data class LoadResult(val proxyMode: Int, val packages: List<PackageCache>, val selectedUids: Set<Int>)
 
@@ -105,8 +102,10 @@ private data class ScanProgress(val current: Int, val max: Int)
 
 private sealed class ScanResult {
     data object Empty : ScanResult()
-    data class Found(val apps: Map<String, PackageCache>) : ScanResult()
+    data class Found(val kind: ScanKind, val apps: Map<String, PackageCache>) : ScanResult()
 }
+
+private enum class ScanKind { CHINA, FOREIGN }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,9 +121,9 @@ fun PerAppProxyScreen(
     var proxyMode by remember { mutableStateOf(Settings.perAppProxyMode) }
     var sortMode by remember { mutableStateOf(SortMode.NAME) }
     var sortReverse by remember { mutableStateOf(false) }
-    var hideSystemApps by remember { mutableStateOf(false) }
-    var hideOfflineApps by remember { mutableStateOf(true) }
-    var hideDisabledApps by remember { mutableStateOf(true) }
+    var hideSystemApps by remember { mutableStateOf(Settings.perAppProxyHideSystem) }
+    var hideOfflineApps by remember { mutableStateOf(Settings.perAppProxyHideOffline) }
+    var hideDisabledApps by remember { mutableStateOf(Settings.perAppProxyHideDisabled) }
 
     var packages by remember { mutableStateOf<List<PackageCache>>(emptyList()) }
     var displayPackages by remember { mutableStateOf<List<PackageCache>>(emptyList()) }
@@ -196,9 +195,9 @@ fun PerAppProxyScreen(
         saveSelectedApplications(newSelected)
     }
 
-    fun startScan() {
+    fun startScan(kind: ScanKind) {
         if (scanProgress != null) return
-        val scanPackages = currentPackages.toList()
+        val scanPackages = packages.filter { !it.isOffline && !it.isDisabled }
         if (scanPackages.isEmpty()) return
         scanProgress = ScanProgress(0, scanPackages.size)
         coroutineScope.launch {
@@ -209,8 +208,12 @@ fun PerAppProxyScreen(
                         val progressInt = AtomicInteger()
                         scanPackages.map { packageCache ->
                             async {
-                                if (PerAppProxyScanner.scanChinaPackage(packageCache.info)) {
-                                    found[packageCache.packageName] = packageCache
+                                val china = PerAppProxyScanner.scanChinaPackage(packageCache.info)
+                                val hit = if (kind == ScanKind.CHINA) china else !china
+                                if (hit) {
+                                    synchronized(found) {
+                                        found[packageCache.packageName] = packageCache
+                                    }
                                 }
                                 val nextValue = progressInt.incrementAndGet()
                                 withContext(Dispatchers.Main) {
@@ -222,11 +225,25 @@ fun PerAppProxyScreen(
                 }
             Log.d(
                 "PerAppProxyScanner",
-                "Scan China apps took ${(System.currentTimeMillis() - startTime).toDouble() / 1000}s",
+                "Scan ${kind.name} apps took ${(System.currentTimeMillis() - startTime).toDouble() / 1000}s",
             )
             scanProgress = null
-            scanResult = if (foundApps.isEmpty()) ScanResult.Empty else ScanResult.Found(foundApps)
+            scanResult =
+                if (foundApps.isEmpty()) {
+                    ScanResult.Empty
+                } else {
+                    ScanResult.Found(kind, foundApps)
+                }
         }
+    }
+
+    fun applyScanHits(apps: Collection<PackageCache>, select: Boolean) {
+        val newSelected = selectedUids.toMutableSet()
+        apps.forEach { cache ->
+            if (select) newSelected.add(cache.uid) else newSelected.remove(cache.uid)
+        }
+        postSaveSelectedApplications(newSelected)
+        scanResult = null
     }
 
     LaunchedEffect(Unit) {
@@ -350,14 +367,20 @@ fun PerAppProxyScreen(
                     },
                     onHideSystemAppsToggle = {
                         hideSystemApps = !hideSystemApps
+                        val value = hideSystemApps
+                        coroutineScope.launch(Dispatchers.IO) { Settings.perAppProxyHideSystem = value }
                         applyFilter()
                     },
                     onHideOfflineAppsToggle = {
                         hideOfflineApps = !hideOfflineApps
+                        val value = hideOfflineApps
+                        coroutineScope.launch(Dispatchers.IO) { Settings.perAppProxyHideOffline = value }
                         applyFilter()
                     },
                     onHideDisabledAppsToggle = {
                         hideDisabledApps = !hideDisabledApps
+                        val value = hideDisabledApps
+                        coroutineScope.launch(Dispatchers.IO) { Settings.perAppProxyHideDisabled = value }
                         applyFilter()
                     },
                     onSelectAll = {
@@ -410,7 +433,8 @@ fun PerAppProxyScreen(
                             Toast.LENGTH_SHORT,
                         ).show()
                     },
-                    onScanChinaApps = { startScan() },
+                    onScanChinaApps = { startScan(ScanKind.CHINA) },
+                    onScanForeignApps = { startScan(ScanKind.FOREIGN) },
                 )
             },
             colors =
@@ -596,8 +620,27 @@ fun PerAppProxyScreen(
         }
 
         is ScanResult.Found -> {
+            val includeMode = proxyMode == Settings.PER_APP_PROXY_INCLUDE
+            val recommendSelect =
+                if (result.kind == ScanKind.CHINA) !includeMode else includeMode
+            val applyLabel = when {
+                result.kind == ScanKind.FOREIGN && includeMode ->
+                    stringResource(R.string.per_app_proxy_scan_apply_include_foreign)
+                result.kind == ScanKind.CHINA && !includeMode ->
+                    stringResource(R.string.per_app_proxy_scan_apply_exclude_china)
+                result.kind == ScanKind.CHINA && includeMode ->
+                    stringResource(R.string.per_app_proxy_scan_apply_remove_include_china)
+                else ->
+                    stringResource(R.string.per_app_proxy_scan_apply_remove_exclude_foreign)
+            }
+            val foundMessage =
+                if (result.kind == ScanKind.CHINA) {
+                    stringResource(R.string.message_scan_app_found)
+                } else {
+                    stringResource(R.string.message_scan_foreign_app_found)
+                }
             val dialogContent =
-                stringResource(R.string.message_scan_app_found) + "\n\n" +
+                foundMessage + "\n\n" +
                     result.apps.entries.joinToString("\n") {
                         "${it.value.applicationLabel} (${it.key})"
                     }
@@ -610,8 +653,19 @@ fun PerAppProxyScreen(
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Text(
-                            text = stringResource(R.string.title_scan_result),
+                            text = stringResource(R.string.title_scan_result) + " · ${result.apps.size}",
                             style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text =
+                            if (includeMode) {
+                                stringResource(R.string.per_app_proxy_mode_include_description)
+                            } else {
+                                stringResource(R.string.per_app_proxy_mode_exclude_description)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Box(
@@ -637,28 +691,10 @@ fun PerAppProxyScreen(
                             Spacer(modifier = Modifier.size(8.dp))
                             TextButton(
                                 onClick = {
-                                    val newSelected = selectedUids.toMutableSet()
-                                    result.apps.values.forEach {
-                                        newSelected.remove(it.uid)
-                                    }
-                                    postSaveSelectedApplications(newSelected)
-                                    scanResult = null
+                                    applyScanHits(result.apps.values, select = recommendSelect)
                                 },
                             ) {
-                                Text(stringResource(R.string.action_deselect))
-                            }
-                            Spacer(modifier = Modifier.size(8.dp))
-                            TextButton(
-                                onClick = {
-                                    val newSelected = selectedUids.toMutableSet()
-                                    result.apps.values.forEach {
-                                        newSelected.add(it.uid)
-                                    }
-                                    postSaveSelectedApplications(newSelected)
-                                    scanResult = null
-                                },
-                            ) {
-                                Text(stringResource(R.string.per_app_proxy_select))
+                                Text(applyLabel)
                             }
                         }
                     }
@@ -690,6 +726,7 @@ private fun PerAppProxyMenus(
     onImport: () -> Unit,
     onExport: () -> Unit,
     onScanChinaApps: () -> Unit,
+    onScanForeignApps: () -> Unit,
 ) {
     var showMainMenu by remember { mutableStateOf(false) }
     var showModeMenu by remember { mutableStateOf(false) }
@@ -1230,224 +1267,28 @@ private fun PerAppProxyMenus(
                         )
                     },
                 )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.per_app_proxy_scan_foreign_apps)) },
+                    onClick = {
+                        onScanForeignApps()
+                        showMainMenu = false
+                        showScanMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ManageSearch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 24.dp),
+                        )
+                    },
+                )
             }
         }
     }
 }
 
 object PerAppProxyScanner {
-    private val skipPrefixList =
-        listOf(
-            "com.google",
-            "com.android.chrome",
-            "com.android.vending",
-            "com.microsoft",
-            "com.apple",
-            "com.zhiliaoapp.musically",
-            "com.android.providers.downloads",
-            "org.telegram",
-            "org.mozilla",
-            "com.spotify",
-            "com.discord",
-            "com.reddit",
-            "com.twitter",
-            "com.facebook",
-            "com.instagram",
-            "com.whatsapp",
-            "com.netflix",
-            "com.amazon.avod",
-            "com.openai",
-            "com.anthropic",
-        )
-
-    private val wellKnownChinaPackages =
-        setOf(
-            "com.tencent.mm",
-            "com.tencent.mobileqq",
-            "com.tencent.androidqqmail",
-            "com.tencent.qqmusic",
-            "com.tencent.tmgp.sgame",
-            "com.eg.android.AlipayGphone",
-            "com.unionpay",
-            "com.chinatelecom.bestpayclient",
-            "cmb.pb",
-            "com.icbc",
-            "com.chinamworld.main",
-            "com.chinamworld.bocmbci",
-            "com.android.bankabc",
-            "com.yitong.mbank.psbc",
-            "com.cgbchina.xpt",
-            "com.bankcomm.Bankcomm",
-            "cn.com.spdb.mobilebank.per",
-            "com.ecitic.bank.mobile",
-            "com.cmbchina.ccd.pluto.cmbActivity",
-            "com.pingan.paces.ccmsapp",
-            "com.cs_credit_bank",
-            "com.cebbank.mobile.cemb",
-            "com.cib.cibmb",
-            "com.cmbc.cc.mbank",
-            "com.MobileTicket",
-            "cn.gov.tax.its",
-            "com.service.android.gov.cn",
-            "cn.hsa.app",
-            "com.hicorenational.antifraud",
-            "com.sankuai.meituan",
-            "com.sankuai.meituan.takeoutnew",
-            "me.ele",
-            "com.xunmeng.pinduoduo",
-            "com.taobao.taobao",
-            "com.taobao.idlefish",
-            "com.jingdong.app.mall",
-            "com.smile.gifmaker",
-            "com.ss.android.ugc.aweme",
-            "com.ss.android.article.news",
-            "com.ss.android.lark",
-            "com.alibaba.android.rimet",
-            "com.sina.weibo",
-            "com.zhihu.android",
-            "tv.danmaku.bili",
-            "com.baidu.searchbox",
-            "com.baidu.BaiduMap",
-            "com.autonavi.minimap",
-            "com.greenpoint.android.mc10086",
-            "com.sinovatech.unicom.ui",
-            "com.ct.client",
-            "ctrip.android.view",
-            "com.Qunar",
-            "com.sdu.didi.psnger",
-            "com.sdu.didi.gsui",
-            "com.netease.cloudmusic",
-            "com.kugou.android",
-            "cn.kuwo.player",
-            "com.xingin.xhs",
-            "com.achievo.vipshop",
-            "com.tmall.wireless",
-            "com.alibaba.wireless",
-            "com.wudaokou.hippo",
-            "com.lianjia.beike",
-            "com.anjuke.android.app",
-            "com.lianjia.industry",
-            "com.duokan.phone.remotecontroller",
-            "com.miui.weather2",
-            "com.xiaomi.smarthome",
-            "com.huawei.health",
-            "com.huawei.wallet",
-            "com.unionpay.tsmservice",
-            "com.chinatelecom.selfRegister",
-        )
-
-    private val chinaAppPrefixList =
-        listOf(
-            "com.tencent",
-            "com.alibaba",
-            "com.alipay",
-            "com.taobao",
-            "com.tmall",
-            "com.umeng",
-            "com.qihoo",
-            "com.ali",
-            "com.amap",
-            "com.sina",
-            "com.weibo",
-            "com.vivo",
-            "com.xiaomi",
-            "com.huawei",
-            "com.hihonor",
-            "com.secneo",
-            "s.h.e.l.l",
-            "com.stub",
-            "com.kiwisec",
-            "com.secshell",
-            "com.wrapper",
-            "cn.securitystack",
-            "com.mogosec",
-            "com.secoen",
-            "com.netease",
-            "com.mx",
-            "com.qq.e",
-            "com.baidu",
-            "com.bytedance",
-            "com.ss.android",
-            "com.bugly",
-            "com.miui",
-            "com.oppo",
-            "com.coloros",
-            "com.heytap",
-            "com.realme",
-            "com.oneplus",
-            "com.iqoo",
-            "com.meizu",
-            "com.gionee",
-            "cn.nubia",
-            "com.oplus",
-            "andes.oplus",
-            "com.unionpay",
-            "cn.wps",
-            "com.jingdong",
-            "com.jd.",
-            "com.sankuai",
-            "com.xunmeng",
-            "com.eg.android",
-            "cmb.pb",
-            "com.chinamworld",
-            "com.icbc",
-            "com.ccb",
-            "com.bankcomm",
-            "com.cmbchina",
-            "com.pingan",
-            "com.citic",
-            "com.cmbc",
-            "com.cib.",
-            "com.cgb",
-            "com.cebbank",
-            "com.psbc",
-            "cn.gov",
-            "cn.gov.",
-            "gov.cn",
-            "com.gov",
-            "com.MobileTicket",
-            "ctrip.android",
-            "com.sdu.didi",
-            "com.didi.",
-            "com.kuaishou",
-            "com.smile.gifmaker",
-            "com.xingin",
-            "tv.danmaku",
-            "com.youku",
-            "com.qiyi",
-            "com.pplive",
-            "com.hunantv",
-            "com.duowan",
-            "com.meitu",
-            "com.meituan",
-            "me.ele",
-            "com.achievo.vipshop",
-            "com.suning",
-            "com.smzdm",
-            "com.coolapk",
-            "com.greenpoint",
-            "com.sinovatech",
-            "com.ct.client",
-            "com.chinamobile",
-            "cn.chinaunicom",
-            "com.chinatelecom",
-            "com.huawei.hwid",
-            "com.unionpay",
-            "cn.wps",
-            "com.intsig",
-            "com.tencent.android.qqdownloader",
-            "com.xiaomi.market",
-            "com.huawei.appmarket",
-            "com.oppo.market",
-            "com.heytap.market",
-            "com.bbk.appstore",
-            "com.sec.android.app.samsungapps",
-        )
-
-    private val chinaAppRegex by lazy {
-        ("(" + chinaAppPrefixList.joinToString("|").replace(".", "\\.") + ").*").toRegex()
-    }
-
     suspend fun scanAllChinaApps(): Set<String> = withContext(Dispatchers.Default) {
         val packageManagerFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             PackageManager.MATCH_UNINSTALLED_PACKAGES or
@@ -1482,81 +1323,21 @@ object PerAppProxyScanner {
     fun scanChinaPackage(packageInfo: PackageInfo): Boolean {
         val packageName = packageInfo.packageName
         if (packageName == Application.application.packageName) return false
-        skipPrefixList.forEach {
-            if (packageName == it || packageName.startsWith("$it.")) return false
-        }
-        if (packageName in wellKnownChinaPackages) return true
-        if (packageName.matches(chinaAppRegex)) return true
-        try {
-            val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val installer = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Application.application.packageManager.getInstallSourceInfo(packageName).installingPackageName
             } else {
                 @Suppress("DEPRECATION")
                 Application.application.packageManager.getInstallerPackageName(packageName)
             }
-            if (installer != null && (
-                    installer.startsWith("com.xiaomi.market") ||
-                        installer.startsWith("com.huawei.appmarket") ||
-                        installer.startsWith("com.oppo.market") ||
-                        installer.startsWith("com.heytap.market") ||
-                        installer.startsWith("com.bbk.appstore") ||
-                        installer == "com.tencent.android.qqdownloader" ||
-                        installer == "com.baidu.appsearch" ||
-                        installer == "com.qihoo.appstore" ||
-                        installer == "com.dragon.read" ||
-                        installer.contains("coolapk")
-                    )
-            ) {
-                return true
-            }
         } catch (_: Exception) {
+            null
         }
-        try {
-            val appInfo = packageInfo.applicationInfo ?: return false
-            packageInfo.services?.forEach {
-                if (it.name.matches(chinaAppRegex)) return true
-            }
-            packageInfo.activities?.forEach {
-                if (it.name.matches(chinaAppRegex)) return true
-            }
-            packageInfo.receivers?.forEach {
-                if (it.name.matches(chinaAppRegex)) return true
-            }
-            packageInfo.providers?.forEach {
-                if (it.name.matches(chinaAppRegex)) return true
-            }
-            ZipFile(File(appInfo.publicSourceDir)).use {
-                for (packageEntry in it.entries()) {
-                    if (packageEntry.name.startsWith("firebase-")) return false
-                }
-                for (packageEntry in it.entries()) {
-                    if (!(
-                            packageEntry.name.startsWith("classes") &&
-                                packageEntry.name.endsWith(".dex")
-                            )
-                    ) {
-                        continue
-                    }
-                    if (packageEntry.size > 15000000) {
-                        continue
-                    }
-                    val input = it.getInputStream(packageEntry).buffered()
-                    val dexFile =
-                        try {
-                            DexBackedDexFile.fromInputStream(null, input)
-                        } catch (_: Exception) {
-                            return false
-                        }
-                    for (clazz in dexFile.classes) {
-                        val clazzName =
-                            clazz.type.substring(1, clazz.type.length - 1).replace("/", ".")
-                                .replace("$", ".")
-                        if (clazzName.matches(chinaAppRegex)) return true
-                    }
-                }
-            }
+        val label = try {
+            packageInfo.applicationInfo?.loadLabel(Application.application.packageManager)?.toString()
         } catch (_: Exception) {
+            null
         }
-        return false
+        return PerAppProxyClassifier.isChinaApp(packageName, installer, label)
     }
 }

@@ -254,6 +254,12 @@
     <string name="per_app_proxy_export">خروجی به کلیپ‌بورد</string>
     <string name="per_app_proxy_scan">اسکن</string>
     <string name="per_app_proxy_scan_china_apps">برنامه‌های چینی</string>
+    <string name="per_app_proxy_scan_foreign_apps">برنامه‌های غیرایرانی/غیرچینی</string>
+    <string name="per_app_proxy_scan_apply_include_foreign">افزودن به فهرست سفید (VPN)</string>
+    <string name="per_app_proxy_scan_apply_exclude_china">افزودن به فهرست سیاه (مستقیم)</string>
+    <string name="per_app_proxy_scan_apply_remove_include_china">حذف از فهرست سفید</string>
+    <string name="per_app_proxy_scan_apply_remove_exclude_foreign">حذف از فهرست سیاه</string>
+    <string name="message_scan_foreign_app_found">این برنامه‌های خارجی پیدا شدند. به فهرست فعلی اعمال کنید.</string>
     <string name="per_app_proxy_manage">مدیریت</string>
     <string name="content_description_app_icon">آیکن برنامه</string>
     <string name="per_app_proxy_managed_mode">حالت مدیریت‌شده</string>

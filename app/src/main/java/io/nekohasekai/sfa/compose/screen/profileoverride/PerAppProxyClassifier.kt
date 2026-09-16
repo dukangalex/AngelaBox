@@ -1,0 +1,498 @@
+package io.nekohasekai.sfa.compose.screen.profileoverride
+
+/**
+ * China vs overseas app classification for per-app proxy.
+ *
+ * Official SagerNet scanning treated any Tencent/Umeng/Bugly *class* inside
+ * an APK as "China app", so overseas apps with a WeChat-share SDK were
+ * mis-tagged. AngelaBox classifies by package identity, installer and label
+ * only — no dex sniffing.
+ */
+object PerAppProxyClassifier {
+
+    fun isChinaApp(packageName: String, installer: String? = null, label: String? = null): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return false
+        if (isForeignPackage(pkg)) return false
+        if (isChinaPackage(pkg)) return true
+        if (isChinaInstaller(installer)) return true
+        if (hasChineseLabel(label)) return true
+        return false
+    }
+
+    fun isForeignPackage(packageName: String): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return false
+        if (pkg in wellKnownForeignPackages) return true
+        if (matchesPrefix(pkg, foreignPrefixes)) return true
+        if (isAospPackage(pkg) && pkg !in wellKnownChinaPackages && !matchesPrefix(pkg, chinaPrefixes)) {
+            return true
+        }
+        return false
+    }
+
+    fun isChinaPackage(packageName: String): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return false
+        if (isForeignPackage(pkg)) return false
+        if (pkg in wellKnownChinaPackages) return true
+        if (pkg.startsWith("cn.") || pkg.contains(".cn.")) return true
+        return matchesPrefix(pkg, chinaPrefixes)
+    }
+
+    internal fun isChinaInstaller(installer: String?): Boolean {
+        val id = installer?.trim().orEmpty()
+        if (id.isEmpty()) return false
+        if (id.contains("coolapk", ignoreCase = true)) return true
+        return chinaInstallers.any { id == it || id.startsWith("$it.") }
+    }
+
+    internal fun hasChineseLabel(label: String?): Boolean {
+        val text = label?.trim().orEmpty()
+        if (text.isEmpty()) return false
+        var han = 0
+        var kana = 0
+        var hangul = 0
+        for (ch in text) {
+            when (ch) {
+                in '\u4e00'..'\u9fff' -> han++
+                in '\u3040'..'\u30ff' -> kana++
+                in '\uac00'..'\ud7af' -> hangul++
+            }
+        }
+        return han >= 2 && han > kana && han > hangul
+    }
+
+    internal fun isAospPackage(packageName: String): Boolean {
+        if (packageName == "android") return true
+        if (packageName == "com.android.bankabc") return false
+        return packageName.startsWith("com.android.")
+    }
+
+    internal fun matchesPrefix(packageName: String, prefixes: Collection<String>): Boolean {
+        for (prefix in prefixes) {
+            if (packageName == prefix) return true
+            if (prefix.endsWith(".")) {
+                if (packageName.startsWith(prefix)) return true
+            } else if (packageName.startsWith("$prefix.")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private val wellKnownForeignPackages = setOf(
+        "ai.x.grok",
+        "notion.id",
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill",
+        "com.ss.android.ugc.aweme.intl",
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "org.thunderdog.challegram",
+        "org.thoughtcrime.securesms",
+        "org.mozilla.firefox",
+        "org.mozilla.fenix",
+        "org.mozilla.focus",
+        "org.videolan.vlc",
+        "org.fdroid.fdroid",
+        "org.wikipedia",
+        "org.torproject.torbrowser",
+        "com.android.chrome",
+        "com.android.vending",
+        "com.google.android.gm",
+        "com.google.android.youtube",
+        "com.google.android.apps.maps",
+        "com.google.android.apps.photos",
+        "com.google.android.calendar",
+        "com.google.android.gm.lite",
+        "com.microsoft.office.outlook",
+        "com.microsoft.skydrive",
+        "com.microsoft.office.word",
+        "com.microsoft.office.excel",
+        "com.microsoft.office.powerpoint",
+        "com.microsoft.teams",
+        "com.microsoft.copilot",
+        "com.spotify.music",
+        "com.discord",
+        "com.twitter.android",
+        "com.facebook.katana",
+        "com.facebook.orca",
+        "com.instagram.android",
+        "com.whatsapp",
+        "com.netflix.mediaclient",
+        "com.amazon.mShop.android.shopping",
+        "com.amazon.avod.thirdpartyclient",
+        "com.dropbox.android",
+        "com.slack",
+        "us.zoom.videomeetings",
+        "com.linkedin.android",
+        "com.ubercab",
+        "com.airbnb.android",
+        "com.paypal.android.p2pmobile",
+        "jp.naver.line.android",
+        "com.skype.raider",
+        "com.adobe.reader",
+        "com.plexapp.android",
+        "com.duolingo",
+        "com.brave.browser",
+        "com.cloudflare.onedotonedotonedotone",
+        "com.github.android",
+        "com.termux",
+        "com.aurora.store",
+        "com.wireguard.android",
+        "com.tailscale.ipn",
+        "tv.twitch.android.app",
+        "com.valvesoftware.android.steam.community",
+        "com.nintendo.znba",
+        "com.mojang.minecraftpe",
+        "com.roblox.client",
+        "com.supercell.clashofclans",
+        "com.nianticlabs.pokemongo",
+        "bbc.mobile.news.ww",
+        "com.opera.browser",
+        "org.chromium.chrome",
+        "com.x.android",
+    )
+
+    private val foreignPrefixes = listOf(
+        "com.google",
+        "com.google.android",
+        "com.android.chrome",
+        "com.android.vending",
+        "com.android.providers",
+        "com.android.systemui",
+        "com.android.settings",
+        "com.android.phone",
+        "com.android.documentsui",
+        "com.android.permissioncontroller",
+        "com.android.hotwordenrollment",
+        "com.android.webview",
+        "com.microsoft",
+        "com.apple",
+        "com.samsung",
+        "com.sec.android",
+        "org.telegram",
+        "org.mozilla",
+        "org.wikipedia",
+        "org.videolan",
+        "org.fdroid",
+        "org.thoughtcrime",
+        "org.torproject",
+        "org.thunderdog",
+        "org.chromium",
+        "org.kde",
+        "com.spotify",
+        "com.discord",
+        "com.reddit",
+        "com.twitter",
+        "com.facebook",
+        "com.instagram",
+        "com.whatsapp",
+        "com.meta",
+        "com.netflix",
+        "com.amazon",
+        "com.openai",
+        "com.anthropic",
+        "ai.x",
+        "notion.id",
+        "com.notion",
+        "com.dropbox",
+        "com.slack",
+        "us.zoom",
+        "com.linkedin",
+        "com.ubercab",
+        "com.airbnb",
+        "com.paypal",
+        "jp.naver",
+        "com.nintendo",
+        "com.sony",
+        "com.valvesoftware",
+        "tv.twitch",
+        "com.adobe",
+        "com.plexapp",
+        "com.duolingo",
+        "com.brave",
+        "com.cloudflare",
+        "com.github",
+        "com.termux",
+        "com.aurora",
+        "im.vector",
+        "com.wireguard",
+        "com.tailscale",
+        "io.nekohasekai",
+        "io.github.vvb2060",
+        "com.topjohnwu",
+        "com.skype",
+        "com.yahoo",
+        "com.ebay",
+        "com.pinterest",
+        "com.shazam",
+        "com.soundcloud",
+        "com.hbo",
+        "com.disney",
+        "com.hulu",
+        "com.booking",
+        "com.tripadvisor",
+        "com.ea.gp",
+        "com.activision",
+        "com.blizzard",
+        "com.nianticlabs",
+        "com.mojang",
+        "com.roblox",
+        "com.epicgames",
+        "com.supercell",
+        "com.opera",
+        "com.vivaldi",
+        "com.yandex",
+        "ru.yandex",
+        "com.zhiliaoapp.musically",
+        "xyz.nekolab",
+        "eu.faircode",
+        "com.v2ray",
+        "com.github.kr328",
+        "com.x.android",
+    )
+
+    internal val wellKnownChinaPackages = setOf(
+        "com.tencent.mm",
+        "com.tencent.mobileqq",
+        "com.tencent.tim",
+        "com.tencent.androidqqmail",
+        "com.tencent.qqmusic",
+        "com.tencent.qqlive",
+        "com.tencent.wework",
+        "com.tencent.tmgp.sgame",
+        "com.tencent.android.qqdownloader",
+        "com.eg.android.AlipayGphone",
+        "com.unionpay",
+        "com.chinatelecom.bestpayclient",
+        "cmb.pb",
+        "com.icbc",
+        "com.chinamworld.main",
+        "com.chinamworld.bocmbci",
+        "com.android.bankabc",
+        "com.yitong.mbank.psbc",
+        "com.cgbchina.xpt",
+        "com.bankcomm.Bankcomm",
+        "cn.com.spdb.mobilebank.per",
+        "com.ecitic.bank.mobile",
+        "com.cmbchina.ccd.pluto.cmbActivity",
+        "com.pingan.paces.ccmsapp",
+        "com.cs_credit_bank",
+        "com.cebbank.mobile.cemb",
+        "com.cib.cibmb",
+        "com.cmbc.cc.mbank",
+        "com.MobileTicket",
+        "cn.gov.tax.its",
+        "com.service.android.gov.cn",
+        "cn.hsa.app",
+        "com.hicorenational.antifraud",
+        "com.sankuai.meituan",
+        "com.sankuai.meituan.takeoutnew",
+        "com.dianping.v1",
+        "me.ele",
+        "com.xunmeng.pinduoduo",
+        "com.taobao.taobao",
+        "com.taobao.idlefish",
+        "com.taobao.live",
+        "com.jingdong.app.mall",
+        "com.smile.gifmaker",
+        "com.kuaishou.nebula",
+        "com.ss.android.ugc.aweme",
+        "com.ss.android.ugc.aweme.lite",
+        "com.ss.android.article.news",
+        "com.ss.android.article.video",
+        "com.ss.android.lark",
+        "com.alibaba.android.rimet",
+        "com.sina.weibo",
+        "com.zhihu.android",
+        "tv.danmaku.bili",
+        "tv.danmaku.bilibilihd",
+        "com.baidu.searchbox",
+        "com.baidu.BaiduMap",
+        "com.baidu.netdisk",
+        "com.autonavi.minimap",
+        "com.greenpoint.android.mc10086",
+        "com.sinovatech.unicom.ui",
+        "com.ct.client",
+        "ctrip.android.view",
+        "com.Qunar",
+        "com.sdu.didi.psnger",
+        "com.sdu.didi.gsui",
+        "com.netease.cloudmusic",
+        "com.kugou.android",
+        "cn.kuwo.player",
+        "com.xingin.xhs",
+        "com.achievo.vipshop",
+        "com.tmall.wireless",
+        "com.alibaba.wireless",
+        "com.wudaokou.hippo",
+        "com.lianjia.beike",
+        "com.anjuke.android.app",
+        "com.duokan.phone.remotecontroller",
+        "com.miui.weather2",
+        "com.xiaomi.smarthome",
+        "com.xiaomi.market",
+        "com.xiaomi.youpin",
+        "com.huawei.health",
+        "com.huawei.wallet",
+        "com.huawei.hwid",
+        "com.huawei.appmarket",
+        "com.unionpay.tsmservice",
+        "com.chinatelecom.selfRegister",
+        "com.dragon.read",
+        "com.hpbr.bosszhipin",
+        "com.tencent.portfolio",
+        "com.eastmoney.android.berlin",
+        "com.hexin.plat.android",
+        "air.tv.douyu.android",
+        "com.duowan.kiwi",
+        "com.huya.ninja",
+        "com.youku.phone",
+        "com.qiyi.video",
+        "cn.wps.moffice_eng",
+        "com.intsig.camscanner",
+        "com.coolapk.market",
+        "com.netease.newsreader.activity",
+        "com.alibaba.android.rimet.aliding",
+        "com.sankuai.meituan.dispatch.homebrew",
+        "com.taobao.litetao",
+        "com.suning.mobile.ebuy",
+        "com.smzdm.client.android",
+        "com.ximalaya.ting.android",
+        "com.tencent.wetype",
+        "com.tencent.qqpinyin",
+        "com.sohu.inputmethod.sogou",
+        "com.baidu.input",
+        "com.iflytek.inputmethod",
+        "com.tencent.qqmail",
+        "com.netease.mobimail",
+        "com.chinamobile.mcloud",
+        "com.huawei.hidisk",
+        "com.mi.health",
+        "com.miui.securitycenter",
+        "com.miui.home",
+        "com.bbk.appstore",
+        "com.heytap.market",
+        "com.oppo.market",
+        "com.meizu.mstore",
+        "com.lenovo.leos.appstore",
+    )
+
+    private val chinaPrefixes = listOf(
+        "com.tencent",
+        "com.alibaba",
+        "com.alipay",
+        "com.taobao",
+        "com.tmall",
+        "com.ali",
+        "com.amap",
+        "com.sina",
+        "com.weibo",
+        "com.vivo",
+        "com.xiaomi",
+        "com.miui",
+        "com.huawei",
+        "com.hihonor",
+        "com.netease",
+        "com.baidu",
+        "com.bytedance",
+        "com.ss.android",
+        "com.kuaishou",
+        "com.smile.gifmaker",
+        "com.oppo",
+        "com.coloros",
+        "com.heytap",
+        "com.realme",
+        "com.oneplus",
+        "com.iqoo",
+        "com.meizu",
+        "com.gionee",
+        "cn.nubia",
+        "com.oplus",
+        "andes.oplus",
+        "com.unionpay",
+        "cn.wps",
+        "com.jingdong",
+        "com.jd.",
+        "com.sankuai",
+        "com.meituan",
+        "com.xunmeng",
+        "com.eg.android",
+        "cmb.pb",
+        "com.chinamworld",
+        "com.icbc",
+        "com.ccb",
+        "com.bankcomm",
+        "com.cmbchina",
+        "com.pingan",
+        "com.citic",
+        "com.cmbc",
+        "com.cib.",
+        "com.cgb",
+        "com.cebbank",
+        "com.psbc",
+        "cn.gov",
+        "com.gov",
+        "com.MobileTicket",
+        "ctrip.android",
+        "com.sdu.didi",
+        "com.didi.",
+        "com.xingin",
+        "tv.danmaku",
+        "com.youku",
+        "com.qiyi",
+        "com.pplive",
+        "com.hunantv",
+        "com.duowan",
+        "com.meitu",
+        "me.ele",
+        "com.achievo.vipshop",
+        "com.suning",
+        "com.smzdm",
+        "com.coolapk",
+        "com.greenpoint",
+        "com.sinovatech",
+        "com.ct.client",
+        "com.chinamobile",
+        "cn.chinaunicom",
+        "com.chinatelecom",
+        "com.intsig",
+        "com.qihoo",
+        "com.mx",
+        "com.eastmoney",
+        "com.hexin",
+        "com.foundersc",
+        "com.ximalaya",
+        "com.duokan",
+        "com.lianjia",
+        "com.anjuke",
+        "com.hpbr",
+        "com.sohu",
+        "com.iflytek",
+        "com.bbk",
+        "com.lenovo.leos",
+        "cn.goapk",
+        "com.dragon.read",
+        "com.umeng",
+    )
+
+    private val chinaInstallers = listOf(
+        "com.xiaomi.market",
+        "com.huawei.appmarket",
+        "com.oppo.market",
+        "com.heytap.market",
+        "com.bbk.appstore",
+        "com.tencent.android.qqdownloader",
+        "com.baidu.appsearch",
+        "com.qihoo.appstore",
+        "com.dragon.read",
+        "com.coolapk.market",
+        "com.meizu.mstore",
+        "com.lenovo.leos.appstore",
+        "cn.goapk.market",
+        "com.huawei.appmarket.tv",
+        "com.xiaomi.mipicks",
+    )
+}

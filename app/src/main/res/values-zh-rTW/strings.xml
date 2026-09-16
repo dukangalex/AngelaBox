@@ -231,9 +231,9 @@
     <string name="per_app_proxy">每個應用程式代理</string>
     <string name="per_app_proxy_mode">代理模式</string>
     <string name="per_app_proxy_mode_include">包含</string>
-    <string name="per_app_proxy_mode_include_description">僅允許選定的應用程式透過 VPN</string>
+    <string name="per_app_proxy_mode_include_description">白名單：只有勾選的應用走代理，其餘直連。掃描「非中國應用」後套用。</string>
     <string name="per_app_proxy_mode_exclude">排除</string>
-    <string name="per_app_proxy_mode_exclude_description">選定的應用將從 VPN 中排除</string>
+    <string name="per_app_proxy_mode_exclude_description">黑名單：勾選的應用直連，其餘走代理。掃描「中國應用」後套用。</string>
     <string name="per_app_proxy_action_copy">複製</string>
     <string name="per_app_proxy_action_copy_package_name">套件名稱</string>
     <string name="per_app_proxy_action_copy_uid">UID</string>
@@ -256,6 +256,12 @@
     <string name="per_app_proxy_export">匯出到剪貼簿</string>
     <string name="per_app_proxy_scan">掃描</string>
     <string name="per_app_proxy_scan_china_apps">中國應用程式</string>
+    <string name="per_app_proxy_scan_foreign_apps">非中國應用程式</string>
+    <string name="per_app_proxy_scan_apply_include_foreign">加入白名單（走代理）</string>
+    <string name="per_app_proxy_scan_apply_exclude_china">加入黑名單（直連）</string>
+    <string name="per_app_proxy_scan_apply_remove_include_china">移出白名單</string>
+    <string name="per_app_proxy_scan_apply_remove_exclude_foreign">移出黑名單</string>
+    <string name="message_scan_foreign_app_found">找到以下非中國應用，將依目前名單模式處理。</string>
     <string name="per_app_proxy_manage">管理</string>
     <string name="content_description_app_icon">應用程式圖示</string>
     <string name="per_app_proxy_managed_mode">受管理模式</string>
