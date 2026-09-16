@@ -970,9 +970,17 @@ def main() -> int:
     ):
         errors.append("importing a profile must not steal the current selection")
     if "wellKnownChinaPackages" not in read(
-        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
     ):
         errors.append("China app scanner must include a well-known bank/payment package list")
+    if "com.eg.android.AlipayGphone" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
+    ):
+        errors.append("China classifier must keep Alipay in the well-known list")
+    if "per_app_proxy_scan_foreign_apps" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+    ):
+        errors.append("per-app proxy must offer an overseas-app scan")
     if 'CHINA_DIRECT) { false }' in settings or 'DNS_PROTECT) { false }' in settings:
         errors.append("China Direct and DNS protect must default on for Chinese users")
     if 'ADS_BLOCK) { false }' in settings:
