@@ -60,18 +60,22 @@ class ApkDownloader : Closeable {
 
     private fun verifyReleaseIdentity(file: File) {
         val pm = Application.application.packageManager
-        val info = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getPackageArchiveInfo(
-                file.absolutePath,
-                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
-            )
-        } else if (Build.VERSION.SDK_INT >= 28) {
-            @Suppress("DEPRECATION")
-            pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNATURES)
-        } ?: throw Exception("APK could not be parsed")
+        val info = requireNotNull(
+            when {
+                Build.VERSION.SDK_INT >= 33 -> pm.getPackageArchiveInfo(
+                    file.absolutePath,
+                    PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
+                )
+                Build.VERSION.SDK_INT >= 28 -> {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+                }
+                else -> {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNATURES)
+                }
+            },
+        ) { "APK could not be parsed" }
 
         if (info.packageName != ReleaseTrust.PACKAGE_NAME) {
             file.delete()
