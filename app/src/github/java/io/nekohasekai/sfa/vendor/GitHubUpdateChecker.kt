@@ -3,7 +3,6 @@ package io.nekohasekai.sfa.vendor
 import android.os.Build
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.BuildConfig
-import io.nekohasekai.sfa.ktx.unwrap
 import io.nekohasekai.sfa.update.UpdateInfo
 import io.nekohasekai.sfa.update.UpdateTrack
 import io.nekohasekai.sfa.utils.HTTPClient
@@ -24,10 +23,7 @@ class GitHubUpdateChecker : Closeable {
         private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
     }
 
-    private val client = Libbox.newHTTPClient().apply {
-        modernTLS()
-        keepAlive()
-    }
+    private val client = HTTPClient()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -87,26 +83,20 @@ class GitHubUpdateChecker : Closeable {
 
     private fun fetchReleaseList(url: String, githubToken: String): List<GitHubRelease> {
         RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.UPDATE)
-        val request = client.newRequest()
-        request.setURL(url)
-        request.setHeader("Accept", "application/vnd.github.v3+json")
+        val headers = linkedMapOf(
+            "Accept" to "application/vnd.github.v3+json",
+        )
         val token = githubToken.trim()
         if (token.isNotEmpty()) {
-            request.setHeader("Authorization", "Bearer $token")
+            headers["Authorization"] = "Bearer $token"
         }
-        request.setUserAgent(HTTPClient.userAgent)
-
         val content = try {
-            val response = request.execute()
-            response.content.unwrap
+            client.getString(url, RemoteUrlGuard.Kind.UPDATE, headers)
         } catch (e: Exception) {
             throw IllegalStateException(
                 "无法连接 GitHub Releases（${e.message ?: e.javaClass.simpleName}）。可在浏览器打开 $RELEASES_PAGE_URL",
                 e,
             )
-        }
-        if (content.length > HTTPClient.MAX_UPDATE_CHARS) {
-            throw IllegalStateException("GitHub Releases 响应过大")
         }
         val trimmed = content.trim()
         if (trimmed.isEmpty()) {
@@ -128,24 +118,22 @@ class GitHubUpdateChecker : Closeable {
             ?: return null
         RemoteUrlGuard.requireAllowed(shaAsset.browserDownloadUrl, RemoteUrlGuard.Kind.UPDATE)
         val body = getText(shaAsset.browserDownloadUrl, githubToken)
+        if (body.length > 4096) {
+            throw IllegalStateException("SHA-256 sidecar 过大")
+        }
         val hex = body.trim().substringBefore(' ').substringBefore('\t').lowercase()
         return hex.takeIf { it.matches(SHA256_HEX) }
     }
 
     private fun getText(url: String, githubToken: String): String {
-        val request = client.newRequest()
-        request.setURL(url)
-        request.setHeader("Accept", "application/octet-stream")
+        val headers = linkedMapOf(
+            "Accept" to "application/octet-stream",
+        )
         val token = githubToken.trim()
         if (token.isNotEmpty()) {
-            request.setHeader("Authorization", "Bearer $token")
+            headers["Authorization"] = "Bearer $token"
         }
-        request.setUserAgent(HTTPClient.userAgent)
-        val body = request.execute().content.unwrap
-        if (body.length > 4096) {
-            throw IllegalStateException("SHA-256 sidecar 过大")
-        }
-        return body
+        return client.getString(url, RemoteUrlGuard.Kind.UPDATE, headers)
     }
 
     private fun isReleaseInTrack(release: GitHubRelease, track: UpdateTrack): Boolean {

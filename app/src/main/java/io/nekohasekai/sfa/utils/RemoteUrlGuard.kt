@@ -70,10 +70,7 @@ object RemoteUrlGuard {
             emptyList()
         }
         if (resolved.isEmpty()) {
-            if (kind == Kind.SCRIPT) {
-                throw IllegalArgumentException("无法解析主机，已拒绝")
-            }
-            return
+            throw IllegalArgumentException("无法解析主机，已拒绝")
         }
         require(resolved.all { isAddressAllowed(it, kind) }) {
             "主机解析到禁止地址，已拒绝"

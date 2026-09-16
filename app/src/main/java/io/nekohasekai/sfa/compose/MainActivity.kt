@@ -296,7 +296,7 @@ class MainActivity :
         }
 
         if (intent.action == Intent.ACTION_VIEW &&
-            (uri.scheme == ContentResolver.SCHEME_CONTENT || uri.scheme == ContentResolver.SCHEME_FILE)
+            uri.scheme == ContentResolver.SCHEME_CONTENT
         ) {
             parseImportLocalProfileJob?.cancel()
             parseImportLocalProfileJob =

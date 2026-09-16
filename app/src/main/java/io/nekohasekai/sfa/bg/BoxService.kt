@@ -464,20 +464,23 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             builder.setContentInfo(notification.subtitle)
         }
         if (!notification.openURL.isNullOrBlank()) {
-            builder.setContentIntent(
-                PendingIntent.getActivity(
-                    service,
-                    0,
-                    Intent(
+            val parsed = Uri.parse(notification.openURL)
+            if (parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()) {
+                builder.setContentIntent(
+                    PendingIntent.getActivity(
                         service,
-                        MainActivity::class.java,
-                    ).apply {
-                        setAction(Action.OPEN_URL).setData(Uri.parse(notification.openURL))
-                        setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                    },
-                    ServiceNotification.flags,
-                ),
-            )
+                        0,
+                        Intent(
+                            service,
+                            MainActivity::class.java,
+                        ).apply {
+                            setAction(Action.OPEN_URL).setData(parsed)
+                            setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        },
+                        ServiceNotification.flags,
+                    ),
+                )
+            }
         }
         GlobalScope.launch(Dispatchers.Main) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

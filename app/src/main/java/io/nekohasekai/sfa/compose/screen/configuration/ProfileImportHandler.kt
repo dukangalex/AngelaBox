@@ -196,6 +196,14 @@ class ProfileImportHandler(private val context: Context) {
             Libbox.ProfileTypeLocal -> typedProfile.type = TypedProfile.Type.Local
             Libbox.ProfileTypeiCloud -> return ImportResult.Error(context.getString(R.string.icloud_profile_unsupported))
             Libbox.ProfileTypeRemote -> {
+                try {
+                    io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
+                        content.remotePath,
+                        io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
+                    )
+                } catch (e: Exception) {
+                    return ImportResult.Error(e.message ?: "订阅地址不安全")
+                }
                 typedProfile.type = TypedProfile.Type.Remote
                 typedProfile.remoteURL = content.remotePath
                 typedProfile.autoUpdate = content.autoUpdate

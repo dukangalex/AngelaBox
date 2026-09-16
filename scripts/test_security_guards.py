@@ -132,6 +132,8 @@ def test_source_guards() -> None:
     manifest = read("app/src/main/AndroidManifest.xml")
     assert 'android:allowBackup="false"' in manifest
     assert 'android:scheme="file"' not in manifest
+    assert 'android:usesCleartextTraffic="false"' in manifest
+    assert "network_security_config" in manifest
 
     checker = read("app/src/github/java/io/nekohasekai/sfa/vendor/GitHubUpdateChecker.kt")
     assert "LEGACY_RELEASES_URL" not in checker
@@ -168,19 +170,28 @@ def test_source_guards() -> None:
 
     http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
     assert "RemoteUrlGuard.Kind" in http
+    assert "Libbox.newHTTPClient" not in http
+    assert "instanceFollowRedirects = false" in http
+    assert "fun nextUrl" in http
 
     guard = read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt")
     assert 'require(scheme == "https")' in guard
     assert "订阅仅允许 HTTP" not in guard
     assert "scheme == \"http\"" not in guard
+    assert "无法解析主机，已拒绝" in guard
+    assert "if (resolved.isEmpty())" in guard
 
-    manifest = read("app/src/main/AndroidManifest.xml")
-    assert 'android:usesCleartextTraffic="false"' in manifest
-    assert "network_security_config" in manifest
+    fdroid = read("app/src/main/java/io/nekohasekai/sfa/update/FDroidUpdateChecker.kt")
+    assert "Libbox.checkFDroidUpdate" not in fdroid
+    assert "return null" in fdroid
+
+    browsers = read("app/src/main/java/io/nekohasekai/sfa/ktx/Browsers.kt")
+    assert 'uri.scheme.equals("https"' in browsers
 
     gradle = read("app/build.gradle.kts")
     assert "taskGraph.whenReady" in gradle
     assert "wantsReleaseApk" in gradle
+    assert "testOtherDebugUnitTest" in gradle
 
     gitignore = read(".gitignore")
     assert "*.jks" in gitignore

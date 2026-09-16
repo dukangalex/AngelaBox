@@ -227,7 +227,14 @@ object BackupManager {
                             continue
                         }
                         val url = typed.remoteURL.trim()
-                        if (url.isNotEmpty() && url in urls) continue
+                        if (url.isNotEmpty()) {
+                            try {
+                                RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                            } catch (_: Exception) {
+                                continue
+                            }
+                            if (url in urls) continue
+                        }
                         val srcName = File(typed.path).name
                         if (srcName.isBlank() || srcName.contains("..")) continue
                         val staged = File(backupConfigs, srcName)

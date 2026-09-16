@@ -129,6 +129,10 @@ android {
     lint {
         fatal += "NewApi"
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 gradle.taskGraph.whenReady {
@@ -264,4 +268,8 @@ tasks.register("assembleOtherDebug") {
 
 tasks.register("assembleOtherRelease") {
     dependsOn("assembleRelease")
+}
+
+tasks.register("testOtherDebugUnitTest") {
+    dependsOn("testDebugUnitTest")
 }

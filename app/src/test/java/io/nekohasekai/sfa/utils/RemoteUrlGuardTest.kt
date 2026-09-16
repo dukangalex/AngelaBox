@@ -8,9 +8,17 @@ import java.net.InetAddress
 class RemoteUrlGuardTest {
 
     private val noResolve: (String) -> List<InetAddress> = { emptyList() }
+    private val publicResolve: (String) -> List<InetAddress> = {
+        listOf(InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)))
+    }
 
     @Test
     fun subscriptionAllowsHttpsPublicHost() {
+        RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, publicResolve)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionRejectsUnresolvedHost() {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, noResolve)
     }
 
@@ -73,5 +81,23 @@ class RemoteUrlGuardTest {
         val addr = InetAddress.getByAddress(byteArrayOf(10, 0, 0, 1.toByte()))
         assertTrue(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
         assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
+    }
+
+    @Test
+    fun subscriptionAllowsHttpsLanLiteral() {
+        RemoteUrlGuard.requireAllowed(
+            "https://192.168.1.8/clash.yaml",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            noResolve,
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun scriptRejectsHttpsLanLiteral() {
+        RemoteUrlGuard.requireAllowed(
+            "https://192.168.1.8/script.js",
+            RemoteUrlGuard.Kind.SCRIPT,
+            noResolve,
+        )
     }
 }

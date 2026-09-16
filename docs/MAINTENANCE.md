@@ -47,7 +47,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
 - **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。
 - **Git 历史：** 当前 `dev` 可达历史（84 个提交）和 GitHub 代码搜索都没有 `.jks` / `.keystore`。原泄露提交 `7736e1e` 不在本仓库可达对象里。CI 会扫描工作树和 `git log --all` 防止再提交。GitHub 仍可能保留旧 fork/PR 的不可达 blob：用账号 Settings → GitHub Support 申请 purge（附仓库名、泄露路径、commit SHA `7736e1e`）。**不要 force-push 重写现有 1.0.x 历史**——没有可删对象，只会打断覆盖安装说明和 CI SHA。
-- 订阅、脚本、更新、WebDAV 全部 HTTPS。应用 `usesCleartextTraffic=false`，仅 loopback 允许明文。
+- 订阅、脚本、更新、WebDAV 全部 HTTPS。应用 `usesCleartextTraffic=false`，仅 loopback 允许明文。下载使用系统 HTTPS，每次 3xx 跳转都再走 `RemoteUrlGuard`，DNS 解析失败则拒绝。
 - 不走 F-Droid / 官方 SagerNet 更新源。
 - 不得用官方名称上架应用商店。
 
