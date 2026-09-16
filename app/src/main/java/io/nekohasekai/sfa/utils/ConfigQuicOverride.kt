@@ -18,7 +18,7 @@ object ConfigQuicOverride {
         val warnings = mutableListOf<OverrideNotice>()
         // Pipeline (one set of rules at a time, no overlapping routing):
         // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes.
-        //    Silent on first start; BoxService prompts only after a failed start.
+        //    Dashboard chip is short; BoxService only rewrites copy after a failed start.
         // 2. overlay script — if bound, it owns routing (China/ads/QUIC skipped)
         // 3. chain — if bound, scripts were already turned off for this profile
         // 4. China Direct / ads / QUIC — skipped while a script is on
@@ -38,7 +38,8 @@ object ConfigQuicOverride {
         try {
             var root = JSONObject(out)
             applyLogLevel(root)
-            val scriptOn = !skipScripts && OverlayScripts.enabledFor(profileId).isNotEmpty()
+            val scripts = if (skipScripts) emptyList() else OverlayScripts.enabledFor(profileId)
+            val scriptOn = scripts.isNotEmpty()
             if (!skipScripts) {
                 applyOne(warnings, "覆写脚本") {
                     ConfigScriptOverride.apply(root, profileId)
@@ -68,11 +69,20 @@ object ConfigQuicOverride {
             }
             root = JSONObject(out)
             applyLogLevel(root)
-            if (scriptOn && (Settings.chinaDirect || Settings.adsBlock || Settings.disableQuic)) {
+            if (scriptOn) {
+                val label = scripts.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+                    .joinToString("、").ifBlank { "脚本" }
                 warnings += OverrideNotice(
-                    title = "脚本分流中",
-                    reason = "当前配置只跑脚本这一套规则：国内直连、国外走代理。",
-                    hint = "关掉脚本后，中国直连 / 广告拦截 / 禁用 QUIC 会重新生效。DNS 防泄漏仍写入。",
+                    title = "${label}覆写",
+                    reason = "脚本启用中",
+                    hint = "",
+                )
+            }
+            if (Settings.configNormalize) {
+                warnings += OverrideNotice(
+                    title = "配置规范化",
+                    reason = "启用中",
+                    hint = "",
                 )
             }
             applyOne(warnings, "中国直连") {

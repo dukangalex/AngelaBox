@@ -280,17 +280,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             result = tryStart(recovered)
             if (result.isSuccess) {
-                val bits = mutableListOf<String>()
-                if (needles.isNotEmpty()) bits += "已将无效规则集替换为官方地址 " + needles.joinToString("、")
-                if (scriptBound) bits += "已关闭该配置上的脚本，避免两套规则打架"
-                if (bits.isEmpty()) bits += "已按当前内核修正无法识别的字段"
-                OverrideStatus.add(
-                    OverrideNotice(
-                        title = "配置已自动修正",
-                        reason = bits.joinToString("。"),
-                        hint = "节点、分组、分流规则保留。链式不受影响。可在「设置 → 配置覆盖」关闭规范化。",
-                    ),
-                )
+                val current = OverrideStatus.notices.value.toMutableList()
+                val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
+                val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
+                if (idx >= 0) current[idx] = fixed else current += fixed
+                OverrideStatus.set(current)
                 return true
             }
             stopAndAlert(

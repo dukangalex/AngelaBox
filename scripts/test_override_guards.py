@@ -32,7 +32,15 @@ def main() -> int:
     if "ConfigNormalize.heal" not in override:
         errors.append("runtime overlay must call ConfigNormalize.heal")
     if "配置已自动适配当前版本" in override:
-        errors.append("config normalize must stay silent on first start; prompt only after recovery")
+        errors.append("config normalize must not use the long first-start paragraph")
+    if 'title = "配置规范化"' not in override or 'reason = "启用中"' not in override:
+        errors.append("config normalize dashboard banner must be 配置规范化 / 启用中")
+    if "脚本启用中" not in override:
+        errors.append("script overlay dashboard banner must say 脚本启用中")
+    if "脚本分流中" in override:
+        errors.append("script overlay dashboard banner must stay short")
+    if '${label}覆写' not in override:
+        errors.append("script overlay dashboard banner must use {name}覆写")
     if "dropRuleSetNeedles" not in override and "replaceRuleSetNeedles" not in override:
         errors.append("runtime overlay must replace 404 rule-sets passed from a failed start")
     if "ChainBindings.get" not in override:
@@ -89,8 +97,10 @@ def main() -> int:
         errors.append("chain landing heal must stay silent unless start recovery prompts")
 
     box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
-    if "配置已自动修正" not in box:
+    if "已修正" not in box or 'title = "配置规范化"' not in box:
         errors.append("normalize recovery must prompt only after a failed start")
+    if "配置已自动修正" in box:
+        errors.append("normalize recovery banner must stay short")
     if "OverlayScripts.setBinding(profileId, emptyList())" not in box:
         errors.append("normalize recovery must turn off scripts on that profile")
     if "restartCommandServer" not in box:

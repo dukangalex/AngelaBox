@@ -167,8 +167,28 @@ jobs:
           tag_name: ${{ inputs.version_tag }}
           name: AngelaBox ${{ inputs.version_tag }}
           body: |
-            AngelaBox official signed Android client.
-            Kernel commit: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+            更新说明
+            • 仪表覆写提示缩短：脚本显示「xxx覆写 / 脚本启用中」，配置规范化显示「配置规范化 / 启用中」。
+            • 分应用代理：新增「非中国应用」扫描；中国/海外判定改为包名、安装来源和名称，不再扫 APK 内部 SDK（减少误判）。隐藏离线、隐藏已停用默认开启。
+            • 订阅、脚本、更新、WebDAV 仅允许 HTTPS。局域网 HTTP 订阅也会被拒绝。
+            • 官方 1.14.1 仅为修补且把 Go 升到 1.26.8，本版内核仍钉 1.14.0。
+            • 注重隐私、安全防护、高能低耗、开箱即用。
+
+            Install `AngelaBox-android.apk` (arm64). That is the only file you need.
+
+            Verify:
+
+            ```
+            sha256sum -c AngelaBox-android.apk.sha256
+            ```
+
+            - Product: AngelaBox
+            - Package: `io.chainbox.app`
+            - Kernel branch: `chain-dev`
+            - Kernel tag: `v1.12.0-chain.4`
+            - Kernel commit: `03ad0a1d7c659e863c7100d25fa74681b5465a34`
+            - Official baseline: SagerNet/sing-box `v1.14.0`
+            - Official type-constant check: `pass`
           files: |
             sing-box-for-android/AngelaBox-android.apk
             sing-box-for-android/AngelaBox-android.apk.sha256

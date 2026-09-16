@@ -40,8 +40,10 @@ fun OverrideBanner(modifier: Modifier = Modifier) {
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(notice.title, style = MaterialTheme.typography.titleSmall, color = on)
-                    Spacer(Modifier.height(4.dp))
-                    Text(notice.reason, style = MaterialTheme.typography.bodySmall, color = on)
+                    if (notice.reason.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(notice.reason, style = MaterialTheme.typography.bodySmall, color = on)
+                    }
                     if (notice.hint.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
