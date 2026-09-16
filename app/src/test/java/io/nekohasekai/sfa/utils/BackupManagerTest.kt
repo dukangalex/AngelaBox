@@ -66,5 +66,11 @@ class BackupManagerTest {
         val result = BackupManager.webdavProbe("https://127.0.0.1/dav/", "u", "p")
         assertTrue(result.isFailure)
     }
+
+    @Test
+    fun probeRejectsRfc1918Https() {
+        val result = BackupManager.webdavProbe("https://192.168.1.8/dav/", "u", "p")
+        assertTrue(result.isFailure)
+    }
 }
 

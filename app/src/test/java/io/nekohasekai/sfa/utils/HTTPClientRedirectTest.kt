@@ -62,6 +62,15 @@ class HTTPClientRedirectTest {
         )
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionRedirectToRfc1918Rejected() {
+        HTTPClient.nextUrl(
+            "https://example.com/sub.yaml",
+            "https://192.168.1.8/clash.yaml",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+        )
+    }
+
     @Test
     fun authorizationDroppedOnHostChange() {
         assertFalse(

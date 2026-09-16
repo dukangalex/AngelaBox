@@ -147,6 +147,8 @@ def test_source_guards() -> None:
     assert KERNEL_COMMIT in release
     assert "build_libbox -target android -platform android/arm64 -debug" not in release
     assert "env -u GITHUB_TOKEN" in release
+    assert "gomobile init" in release
+    assert 'version || "$(go env GOPATH)/bin/gomobile" init' not in release
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
@@ -159,6 +161,10 @@ def test_source_guards() -> None:
     xposed = read("app/src/main/java/io/github/libxposed/service/XposedProvider.java")
     assert "isTrustedCaller" in xposed
     assert "getCallingUid" in xposed
+    assert '"org.lsposed.manager"' in xposed
+    assert '"org.lsposed.daemon"' in xposed
+    assert 'startsWith("org.lsposed.")' not in xposed
+    assert "android debug" in xposed
 
     backup = read("app/src/main/res/xml/backup_rules.xml")
     assert "profiles.db" not in backup
@@ -174,6 +180,10 @@ def test_source_guards() -> None:
     assert "instanceFollowRedirects = false" in http
     assert "fun nextUrl" in http
     assert "require(conn is HttpsURLConnection)" in http
+    assert "fun openPinned" in http
+    assert "PinnedSniSslSocketFactory" in http
+    assert "SSLCertificateSocketFactory" in http
+    assert "createSocket(peer, port)" in http
 
     guard = read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt")
     assert 'require(scheme == "https")' in guard
@@ -183,6 +193,9 @@ def test_source_guards() -> None:
     assert "if (resolved.isEmpty())" in guard
     assert "fun requireHttpsPublic" in guard
     assert "fun embeddedIpv4" in guard
+    assert "data class ValidatedEndpoint" in guard
+    assert "resolved.all { isAddressAllowed(it, kind) }" in guard
+    assert "if (isRfc1918(embedded) || isCgnat(embedded)) return false" in guard
 
     inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
     assert "RemoteUrlGuard.isPublicHttpsUrl" in inbound
@@ -190,12 +203,26 @@ def test_source_guards() -> None:
 
     dav = read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt")
     assert "RemoteUrlGuard.requireAllowed" in dav
-    assert "require(conn is HttpsURLConnection)" in dav
+    assert "HTTPClient.openPinned" in dav
+    assert "UPDATE remote_servers SET secret" in dav
+    assert "url.openConnection()" not in dav
     assert "WebDAV 下载过大" in dav
 
     exporter = read("app/src/main/java/io/nekohasekai/sfa/bg/DebugInfoExporter.kt")
     assert "setReadable(true, true)" in exporter
     assert "setReadable(true, false)" not in exporter
+    assert "fun redactSecrets" in exporter
+    assert "MAX_LOG_BYTES" in exporter
+
+    openconnect = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/OpenConnectBrowserDialog.kt"
+    )
+    assert "fun matchesOpenConnectCallback" in openconnect
+    assert "url.startsWith(it)" not in openconnect
+
+    shares = read("app/src/main/java/io/nekohasekai/sfa/ktx/Shares.kt")
+    assert "fun shareBasename" in shares
+    assert "${profile.name}.bpf" not in shares
 
     ci = read(".github/workflows/ci.yml")
     assert "fetch-depth: 0" in ci

@@ -224,4 +224,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
             --no-daemon --stacktrace

@@ -5,11 +5,21 @@ import java.net.InetAddress
 import java.net.URI
 import java.util.Locale
 
+data class ValidatedEndpoint(
+    val url: String,
+    val host: String,
+    val port: Int,
+    val addresses: List<InetAddress>,
+)
+
 /**
  * SSRF / fetch policy for every URL the app downloads.
  *
- * All kinds require HTTPS. Loopback, link-local, CGNAT metadata, and cloud
- * metadata are blocked. [Kind.UPDATE] is additionally pinned to GitHub.
+ * All kinds require HTTPS. Loopback, RFC1918, ULA, CGNAT, link-local,
+ * multicast, and cloud metadata are blocked. [Kind.UPDATE] is additionally
+ * pinned to GitHub. DNS results must all be allowed (mixed public+private
+ * is rejected). Callers that open a socket must use [ValidatedEndpoint.addresses]
+ * so the checked IP is the dialed IP.
  */
 object RemoteUrlGuard {
     enum class Kind { SUBSCRIPTION, SCRIPT, UPDATE }
@@ -39,6 +49,15 @@ object RemoteUrlGuard {
     }
 
     fun requireAllowed(url: String, kind: Kind, resolve: (String) -> List<InetAddress> = ::systemResolve) {
+        validate(url, kind, resolve, requireResolved = kind != Kind.UPDATE)
+    }
+
+    fun validate(
+        url: String,
+        kind: Kind,
+        resolve: (String) -> List<InetAddress> = ::systemResolve,
+        requireResolved: Boolean = true,
+    ): ValidatedEndpoint {
         val raw = url.trim()
         require(raw.isNotEmpty()) { "URL 为空" }
         require(' ' !in raw && '\n' !in raw && '\r' !in raw && '\t' !in raw) { "URL 含非法空白" }
@@ -59,13 +78,14 @@ object RemoteUrlGuard {
 
         if (kind == Kind.UPDATE) {
             require(host in UPDATE_HOSTS) { "更新地址必须来自 GitHub" }
-            return
         }
+
+        val port = if (uri.port > 0) uri.port else 443
 
         if (isLiteralIp(host)) {
             val addr = parseLiteral(host) ?: throw IllegalArgumentException("非法 IP 地址")
             require(isAddressAllowed(addr, kind)) { "禁止访问本地、链路本地或云元数据地址" }
-            return
+            return ValidatedEndpoint(raw, host, port, listOf(addr))
         }
 
         val resolved = try {
@@ -74,11 +94,15 @@ object RemoteUrlGuard {
             emptyList()
         }
         if (resolved.isEmpty()) {
+            if (!requireResolved) {
+                return ValidatedEndpoint(raw, host, port, emptyList())
+            }
             throw IllegalArgumentException("无法解析主机，已拒绝")
         }
         require(resolved.all { isAddressAllowed(it, kind) }) {
             "主机解析到禁止地址，已拒绝"
         }
+        return ValidatedEndpoint(raw, host, port, resolved)
     }
 
     /**
@@ -97,6 +121,7 @@ object RemoteUrlGuard {
         false
     }
 
+    @Suppress("UNUSED_PARAMETER")
     internal fun isAddressAllowed(addr: InetAddress, kind: Kind): Boolean {
         val bytes = addr.address ?: return false
         if (addr.isAnyLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isMulticastAddress) {
@@ -106,13 +131,9 @@ object RemoteUrlGuard {
         val embedded = embeddedIpv4(bytes)
         if (embedded != null) {
             if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded)) return false
-            if (kind == Kind.SCRIPT && (isRfc1918(embedded) || isCgnat(embedded))) return false
-            if (kind == Kind.SUBSCRIPTION && isCgnat(embedded)) return false
+            if (isRfc1918(embedded) || isCgnat(embedded)) return false
         }
-        if (kind == Kind.SCRIPT) {
-            if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
-        }
-        if (kind == Kind.SUBSCRIPTION && isCgnat(bytes)) return false
+        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
         return true
     }
 

@@ -3,7 +3,6 @@ package io.nekohasekai.sfa.utils
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.net.SSLCertificateSocketFactory
 import android.util.Base64
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Path
@@ -19,15 +18,11 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.net.URL
-import java.security.KeyStore
-import java.security.SecureRandom
+import java.net.URI
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManagerFactory
 
 object BackupManager {
     private const val MANIFEST = "manifest.json"
@@ -35,18 +30,6 @@ object BackupManager {
     private const val MAX_ENTRIES = 512
     private const val MAX_ENTRY_SIZE = 32L * 1024 * 1024
     private const val MAX_TOTAL_SIZE = 128L * 1024 * 1024
-
-    private val systemSslSocketFactory by lazy {
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        try {
-            val store = KeyStore.getInstance("AndroidCAStore")
-            store.load(null)
-            tmf.init(store)
-        } catch (_: Exception) {
-            tmf.init(null as KeyStore?)
-        }
-        SSLContext.getInstance("TLS").also { it.init(null, tmf.trustManagers, SecureRandom()) }.socketFactory
-    }
 
     fun createBackupFile(context: Context, dest: File): Result<File> = runCatching {
         dest.parentFile?.mkdirs()
@@ -66,7 +49,7 @@ object BackupManager {
                     .put("secrets", "omitted")
                 putEntry(zos, MANIFEST, manifest.toString().toByteArray())
                 copyMainDbOnly(zos, context, Path.SETTINGS_DATABASE_PATH)
-                copyMainDbOnly(zos, context, Path.PROFILES_DATABASE_PATH)
+                copyProfilesDbRedacted(zos, context)
                 val configs = File(context.filesDir, "configs")
                 if (configs.isDirectory) {
                     configs.listFiles()?.forEach { f ->
@@ -361,12 +344,20 @@ object BackupManager {
                         }
                         ProbeClass.REDIRECT -> {
                             if (loc.isNotEmpty()) {
-                                val next = try { URL(target).let { URL(it, loc) } } catch (_: Exception) { null }
-                                val nextUrl = next?.toString().orEmpty()
+                                val nextUrl = try {
+                                    URI(target).resolve(loc.trim()).toASCIIString()
+                                } catch (_: Exception) {
+                                    ""
+                                }
+                                val next = try { URI(nextUrl) } catch (_: Exception) { null }
+                                val cur = try { URI(target) } catch (_: Exception) { null }
                                 if (
+                                    nextUrl.isEmpty() ||
                                     next == null ||
-                                    next.protocol != "https" ||
-                                    next.host != URL(target).host
+                                    cur == null ||
+                                    next.scheme != "https" ||
+                                    next.host.isNullOrEmpty() ||
+                                    !next.host.equals(cur.host, true)
                                 ) {
                                     error("连通性失败：重定向到不安全主机")
                                 }
@@ -421,7 +412,7 @@ object BackupManager {
     }
 
     internal fun authFailedMessage(baseUrl: String, code: Int, body: String?): String {
-        val host = try { URL(baseUrl).host } catch (_: Exception) { baseUrl }
+        val host = try { URI(baseUrl).host ?: baseUrl } catch (_: Exception) { baseUrl }
         val extra = if (host.contains("koofr", true)) {
             " Koofr 请使用账号邮箱 + 在 Koofr 设置里生成的应用密码，不是登录密码。"
         } else {
@@ -476,7 +467,7 @@ object BackupManager {
     }
 
     private fun openWebDav(url: String, username: String, password: String): HttpsURLConnection {
-        val conn = openConnection(URL(requireHttps(url)))
+        val conn = HTTPClient.openPinned(requireHttps(url), RemoteUrlGuard.Kind.SUBSCRIPTION)
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000
         conn.instanceFollowRedirects = false
@@ -489,25 +480,26 @@ object BackupManager {
         return conn
     }
 
-    private fun openConnection(url: URL): HttpsURLConnection {
-        require(url.protocol.equals("https", ignoreCase = true)) { "WebDAV 必须使用 HTTPS" }
-        val conn = url.openConnection()
-        require(conn is HttpsURLConnection) { "WebDAV 必须使用 HTTPS" }
-        conn.sslSocketFactory = platformSslSocketFactory()
-        conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
-        return conn
-    }
-
-    @Suppress("DEPRECATION")
-    private fun platformSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
-        return try {
-            SSLCertificateSocketFactory.getDefault(15_000, null)
-        } catch (_: Exception) {
-            try {
-                HttpsURLConnection.getDefaultSSLSocketFactory()
-            } catch (_: Exception) {
-                systemSslSocketFactory
+    private fun copyProfilesDbRedacted(zos: ZipOutputStream, context: Context) {
+        val main = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
+        if (!main.isFile) return
+        val tmp = File(context.cacheDir, "profiles-redacted.db")
+        try {
+            main.copyTo(tmp, overwrite = true)
+            SQLiteDatabase.openDatabase(tmp.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                val hasTable = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
+                    null,
+                ).use { it.moveToFirst() }
+                if (hasTable) {
+                    db.execSQL("UPDATE remote_servers SET secret = ''")
+                }
+                db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
             }
+            putFile(zos, Path.PROFILES_DATABASE_PATH, tmp)
+        } finally {
+            tmp.delete()
+            deleteSidecars(tmp)
         }
     }
 

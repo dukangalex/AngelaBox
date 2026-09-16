@@ -119,19 +119,37 @@ jobs:
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          "$(go env GOPATH)/bin/gomobile" version || "$(go env GOPATH)/bin/gomobile" init || true
+          "$(go env GOPATH)/bin/gomobile" version || true
+          "$(go env GOPATH)/bin/gomobile" init || true
 
       - name: Build libbox AAR
         working-directory: sing-box
         run: |
-          set -e
+          set -euo pipefail
           export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
-          export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+          export PATH="$(go env GOPATH)/bin:$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME
           java --version
+          command -v gomobile
+          gomobile init || true
           go run ./cmd/internal/build_libbox -target android -platform android/arm64
           mkdir -p ../sing-box-for-android/app/libs
-          cp -f libbox.aar ../sing-box-for-android/app/libs/libbox.aar
-          if [ -f libbox-legacy.aar ]; then cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/; else cp -f libbox.aar ../sing-box-for-android/app/libs/libbox-legacy.aar; fi
+          FOUND=$(find . .. -name 'libbox.aar' -type f 2>/dev/null | head -n1 || true)
+          if [ -z "$FOUND" ]; then
+            echo "libbox.aar not produced; falling back to gomobile bind"
+            TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0"
+            gomobile bind -v -o libbox.aar -target android/arm64 -androidapi 24 \
+              -javapkg=io.nekohasekai -libname=box -trimpath -tags "$TAGS" ./experimental/libbox
+            FOUND=libbox.aar
+          fi
+          cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox.aar
+          if [ -f libbox-legacy.aar ]; then
+            cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar
+          else
+            cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox-legacy.aar
+          fi
+          ls -lah ../sing-box-for-android/app/libs/
+          test -s ../sing-box-for-android/app/libs/libbox.aar
 
       - name: Configure release signing
         working-directory: sing-box-for-android
@@ -199,7 +217,8 @@ jobs:
             更新说明
             • 仪表覆写提示缩短：脚本显示「xxx覆写 / 脚本启用中」，配置规范化显示「配置规范化 / 启用中」。
             • 分应用代理：新增「非中国应用」扫描；中国/海外判定改为包名、安装来源和名称，不再扫 APK 内部 SDK（减少误判）。隐藏离线、隐藏已停用默认开启。
-            • 订阅、脚本、更新、WebDAV 仅允许 HTTPS。局域网 HTTP 订阅也会被拒绝。
+            • 订阅、脚本、更新、WebDAV 仅允许公网 HTTPS。HTTP、局域网、回环一律拒绝。
+            • 远程下载钉住所解析 IP，避免 DNS 重绑定；备份不再带出远程控制 secret。
             • 官方 1.14.1 仅为修补且把 Go 升到 1.26.8，本版内核仍钉 1.14.0。
             • 注重隐私、安全防护、高能低耗、开箱即用。
 

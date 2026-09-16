@@ -279,10 +279,10 @@ def main() -> int:
         errors.append("WebDAV must not force Proxy.NO_PROXY; traffic should follow TUN/split routing")
     if "绕过 VPN" in dav:
         errors.append("WebDAV error copy must not say traffic bypasses the VPN")
-    if "TrustManagerFactory" not in dav:
-        errors.append("WebDAV should use the system TrustManager explicitly")
-    if "AndroidCAStore" not in dav:
-        errors.append("WebDAV should load AndroidCAStore")
+    if "HTTPClient.openPinned" not in dav:
+        errors.append("WebDAV must use HTTPClient.openPinned so DNS and TLS stay pinned")
+    if "url.openConnection()" in dav:
+        errors.append("WebDAV must not re-open URL connections after DNS check")
     if "deleteSidecars" not in dav:
         errors.append("restore must delete sqlite WAL/SHM sidecars")
     if "isZipFile" not in dav:

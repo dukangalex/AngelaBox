@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,6 +16,19 @@ class RemoteUrlGuardTest {
     @Test
     fun subscriptionAllowsHttpsPublicHost() {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, publicResolve)
+    }
+
+    @Test
+    fun validateReturnsCheckedAddresses() {
+        val endpoint = RemoteUrlGuard.validate(
+            "https://example.com/sub.yaml",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            publicResolve,
+        )
+        assertEquals("example.com", endpoint.host)
+        assertEquals(443, endpoint.port)
+        assertEquals(1, endpoint.addresses.size)
+        assertTrue(endpoint.addresses[0].address.contentEquals(byteArrayOf(1, 1, 1, 1)))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -77,14 +91,15 @@ class RemoteUrlGuardTest {
     }
 
     @Test
-    fun rfc1918AllowedForSubscriptionNotScript() {
+    fun rfc1918RejectedForAllKinds() {
         val addr = InetAddress.getByAddress(byteArrayOf(10, 0, 0, 1.toByte()))
-        assertTrue(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
         assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.UPDATE))
     }
 
-    @Test
-    fun subscriptionAllowsHttpsLanLiteral() {
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionRejectsHttpsLanLiteral() {
         RemoteUrlGuard.requireAllowed(
             "https://192.168.1.8/clash.yaml",
             RemoteUrlGuard.Kind.SUBSCRIPTION,
@@ -99,6 +114,32 @@ class RemoteUrlGuardTest {
             RemoteUrlGuard.Kind.SCRIPT,
             noResolve,
         )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun mixedPublicPrivateDnsRejected() {
+        val mixed: (String) -> List<InetAddress> = {
+            listOf(
+                InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)),
+                InetAddress.getByAddress(byteArrayOf(10, 0, 0, 1)),
+            )
+        }
+        RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, mixed)
+    }
+
+    @Test
+    fun uniqueLocalIpv6Rejected() {
+        val bytes = ByteArray(16)
+        bytes[0] = 0xfd.toByte()
+        bytes[15] = 1
+        val addr = InetAddress.getByAddress(bytes)
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
+    }
+
+    @Test
+    fun cgnatRejected() {
+        val addr = InetAddress.getByAddress(byteArrayOf(100, 64, 0, 1))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -151,5 +192,6 @@ class RemoteUrlGuardTest {
         bytes[15] = 1
         val addr = InetAddress.getByAddress(bytes)
         assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
     }
 }

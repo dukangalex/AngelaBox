@@ -70,6 +70,7 @@ import io.nekohasekai.sfa.compose.util.QRCodeGenerator
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.ktx.shareBasename
 import io.nekohasekai.sfa.ktx.shareProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -456,7 +457,7 @@ private fun ProfilePickerRow(
                                 text = { Text(stringResource(R.string.save_as_file)) },
                                 onClick = {
                                     showMenu = false
-                                    saveFileLauncher.launch("${profile.name}.bpf")
+                                    saveFileLauncher.launch("${shareBasename(profile.name)}.bpf")
                                 },
                                 leadingIcon = {
                                     Icon(

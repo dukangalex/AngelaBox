@@ -30,7 +30,8 @@ suspend fun Context.shareProfile(profile: Profile) {
     content.lastUpdated = profile.typed.lastUpdated.time
 
     val configDirectory = File(cacheDir, "share").also { it.mkdirs() }
-    val profileFile = File(configDirectory, "${profile.name}.bpf")
+    val profileFile = File(configDirectory, "${shareBasename(profile.name)}.bpf")
+    require(profileFile.canonicalFile.parentFile == configDirectory.canonicalFile)
     profileFile.writeBytes(content.encode())
     val uri = FileProvider.getUriForFile(this, "$packageName.cache", profileFile)
     withContext(Dispatchers.Main) {
@@ -47,7 +48,8 @@ suspend fun Context.shareProfile(profile: Profile) {
 
 suspend fun Context.shareProfileAsJson(profile: Profile) {
     val configDirectory = File(cacheDir, "share").also { it.mkdirs() }
-    val jsonFile = File(configDirectory, "${profile.name}.json")
+    val jsonFile = File(configDirectory, "${shareBasename(profile.name)}.json")
+    require(jsonFile.canonicalFile.parentFile == configDirectory.canonicalFile)
     jsonFile.writeText(File(profile.typed.path).readText())
     val uri = FileProvider.getUriForFile(this, "$packageName.cache", jsonFile)
     withContext(Dispatchers.Main) {
@@ -60,4 +62,15 @@ suspend fun Context.shareProfileAsJson(profile: Profile) {
             ),
         )
     }
+}
+
+internal fun shareBasename(name: String): String {
+    val cleaned = name
+        .replace('\\', '_')
+        .replace('/', '_')
+        .replace("..", "_")
+        .replace(Regex("[^\\p{L}\\p{N}._-]+"), "_")
+        .trim('_', '.')
+        .take(64)
+    return cleaned.ifBlank { "profile" }
 }

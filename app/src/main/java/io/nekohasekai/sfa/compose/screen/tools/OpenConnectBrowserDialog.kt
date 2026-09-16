@@ -41,6 +41,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.nekohasekai.sfa.R
+import java.net.URI
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -403,7 +404,7 @@ private class OpenConnectWebViewBrowser(
             view.stopLoading()
             return true
         }
-        if (request.callbackURLPrefixes.any { it.isNotEmpty() && url.startsWith(it) }) {
+        if (request.callbackURLPrefixes.any { matchesOpenConnectCallback(url, it) }) {
             view.stopLoading()
             complete(OpenConnectBrowserResultData(url, emptyList()))
             return true
@@ -510,5 +511,29 @@ private class OpenConnectWebViewBrowser(
         if (state == State.COMPLETING || state == State.CLOSED) return
         state = State.CLOSED
         onError(message)
+    }
+}
+
+internal fun matchesOpenConnectCallback(url: String, prefix: String): Boolean {
+    if (prefix.isEmpty()) return false
+    return try {
+        val actual = URI(url)
+        val expected = URI(prefix)
+        val scheme = actual.scheme?.lowercase() ?: return false
+        val expectedScheme = expected.scheme?.lowercase() ?: return false
+        if (scheme != expectedScheme || scheme != "https") return false
+        val host = actual.host?.lowercase() ?: return false
+        val expectedHost = expected.host?.lowercase() ?: return false
+        if (host != expectedHost) return false
+        val actualPort = if (actual.port != -1) actual.port else 443
+        val expectedPort = if (expected.port != -1) expected.port else 443
+        if (actualPort != expectedPort) return false
+        val actualPath = actual.path.ifEmpty { "/" }
+        val expectedPath = expected.path.ifEmpty { "/" }
+        if (actualPath == expectedPath) return true
+        val expectedDir = if (expectedPath.endsWith("/")) expectedPath else "$expectedPath/"
+        actualPath.startsWith(expectedDir)
+    } catch (_: Exception) {
+        false
     }
 }

@@ -1,19 +1,25 @@
 package io.nekohasekai.sfa.utils
 
+import android.net.SSLCertificateSocketFactory
 import io.nekohasekai.libbox.Libbox
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
+import java.net.InetAddress
+import java.net.Socket
 import java.net.URI
 import java.net.URL
 import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLSocketFactory
 
 /**
  * App-layer HTTPS client. Does **not** use libbox's Go HTTP stack, which
  * follows redirects and ignores Android cleartext policy.
  *
- * Every hop is re-checked with [RemoteUrlGuard]. Authorization is dropped
+ * Every hop is re-checked with [RemoteUrlGuard]. The TCP peer is the
+ * already-validated IP ([ValidatedEndpoint]); TLS SNI / hostname
+ * verification still use the original hostname. Authorization is dropped
  * when the host changes. Size and redirect counts are capped.
  */
 class HTTPClient : Closeable {
@@ -59,6 +65,41 @@ class HTTPClient : Closeable {
             RemoteUrlGuard.Kind.SCRIPT -> OverlayScripts.MAX_CODE_CHARS
             RemoteUrlGuard.Kind.UPDATE -> MAX_UPDATE_CHARS
             RemoteUrlGuard.Kind.SUBSCRIPTION -> MAX_SUBSCRIPTION_CHARS
+        }
+
+        internal fun openPinned(
+            url: String,
+            kind: RemoteUrlGuard.Kind,
+            headers: Map<String, String> = emptyMap(),
+        ): HttpsURLConnection {
+            val endpoint = RemoteUrlGuard.validate(url, kind)
+            val addr = endpoint.addresses.firstOrNull()
+                ?: throw IllegalArgumentException("无法解析主机，已拒绝")
+            val ipHost = literalIp(addr)
+            val uri = URI(url)
+            val path = uri.rawPath?.ifEmpty { "/" } ?: "/"
+            val pinned = URI("https", null, ipHost, endpoint.port, path, uri.rawQuery, uri.rawFragment)
+            val conn = URL(pinned.toASCIIString()).openConnection()
+            require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
+            conn.instanceFollowRedirects = false
+            conn.connectTimeout = CONNECT_TIMEOUT_MS
+            conn.readTimeout = READ_TIMEOUT_MS
+            conn.setRequestProperty("Host", endpoint.host)
+            conn.setRequestProperty("User-Agent", userAgent)
+            conn.setRequestProperty("Connection", "close")
+            headers.forEach { (key, value) -> conn.setRequestProperty(key, value) }
+            conn.sslSocketFactory = PinnedSniSslSocketFactory(endpoint.host, addr)
+            conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, session ->
+                HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, session)
+            }
+            return conn
+        }
+
+        internal fun literalIp(addr: InetAddress): String {
+            var host = addr.hostAddress ?: throw IllegalArgumentException("无地址")
+            val zone = host.indexOf('%')
+            if (zone >= 0) host = host.substring(0, zone)
+            return host
         }
     }
 
@@ -121,7 +162,8 @@ class HTTPClient : Closeable {
         val seen = linkedSetOf<String>()
         repeat(MAX_REDIRECTS + 1) {
             require(seen.add(current)) { "重定向循环" }
-            val conn = open(current, hdrs)
+            val conn = openPinned(current, kind, hdrs)
+            conn.requestMethod = "GET"
             try {
                 val code = conn.responseCode
                 if (code in 300..399) {
@@ -148,20 +190,6 @@ class HTTPClient : Closeable {
         throw IllegalStateException("重定向次数过多")
     }
 
-    private fun open(url: String, headers: Map<String, String>): HttpsURLConnection {
-        val conn = URL(url).openConnection()
-        require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
-        conn.instanceFollowRedirects = false
-        conn.connectTimeout = CONNECT_TIMEOUT_MS
-        conn.readTimeout = READ_TIMEOUT_MS
-        conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", userAgent)
-        conn.setRequestProperty("Connection", "close")
-        headers.forEach { (key, value) -> conn.setRequestProperty(key, value) }
-        conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
-        return conn
-    }
-
     private fun readLimited(input: InputStream, maxBytes: Long): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
@@ -181,4 +209,36 @@ class HTTPClient : Closeable {
     override fun close() {
         // Per-request connections are disconnected in fetch().
     }
+}
+
+@Suppress("DEPRECATION")
+private class PinnedSniSslSocketFactory(
+    private val hostname: String,
+    private val peer: InetAddress,
+) : SSLSocketFactory() {
+    private val delegate =
+        SSLCertificateSocketFactory.getDefault(HTTPClient.CONNECT_TIMEOUT_MS, null)
+            as SSLCertificateSocketFactory
+
+    private fun pin(socket: Socket): Socket {
+        delegate.setHostname(socket, hostname)
+        return socket
+    }
+
+    override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
+    override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
+    override fun createSocket(s: Socket, host: String, port: Int, autoClose: Boolean): Socket =
+        pin(delegate.createSocket(s, hostname, port, autoClose))
+    override fun createSocket(host: String, port: Int): Socket =
+        pin(delegate.createSocket(peer, port))
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket =
+        pin(delegate.createSocket(peer, port, localHost, localPort))
+    override fun createSocket(address: InetAddress, port: Int): Socket =
+        pin(delegate.createSocket(peer, port))
+    override fun createSocket(
+        address: InetAddress,
+        port: Int,
+        localAddress: InetAddress,
+        localPort: Int,
+    ): Socket = pin(delegate.createSocket(peer, port, localAddress, localPort))
 }

@@ -20,6 +20,15 @@ import java.util.zip.ZipOutputStream
 object DebugInfoExporter {
     private const val TAG = "DebugInfoExporter"
     private const val BUFFER_SIZE = 128 * 1024
+    private const val MAX_LOG_BYTES = 2L * 1024 * 1024
+    private val PROXY_URI = Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|tuic|socks5?)://\\S+")
+    private val CREDENTIAL = Regex("(?i)(password|token|secret|authorization|cookie|uuid|api[-_]?key)\\s*[=:]\\s*\\S+")
+
+    internal fun redactSecrets(text: String): String {
+        var out = PROXY_URI.replace(text, "$1://[redacted]")
+        out = CREDENTIAL.replace(out, "$1=[redacted]")
+        return out
+    }
 
     fun export(context: Context, outputPath: String, packageName: String): String {
         Log.i(TAG, "export start: output=$outputPath, package=$packageName")
@@ -121,8 +130,8 @@ object DebugInfoExporter {
 
     private fun addLogEntries(zip: ZipOutputStream, warnings: MutableList<String>, context: Context): Int {
         var count = 0
-        if (streamCommandToZip(zip, "logs/logcat.txt", warnings, listOf("logcat", "-d", "-b", "all")) != null) count++
-        if (streamCommandToZip(zip, "logs/dmesg.txt", warnings, listOf("dmesg")) != null) count++
+        if (streamCommandToZip(zip, "logs/logcat.txt", warnings, listOf("logcat", "-d", "-b", "all"), redact = true) != null) count++
+        if (streamCommandToZip(zip, "logs/dmesg.txt", warnings, listOf("dmesg"), redact = true) != null) count++
         val serviceLogsResult = HookErrorClient.query(context)
         if (serviceLogsResult.logs.isNotEmpty()) {
             val formatted = formatLogEntries(serviceLogsResult.logs)
@@ -136,7 +145,7 @@ object DebugInfoExporter {
             val files = lspdDir.listFiles() ?: emptyArray()
             for (file in files) {
                 if (!file.isFile) continue
-                if (addFileEntry(zip, file, "logs/lspd/${file.name}", warnings)) count++
+                if (addTextFileRedacted(zip, file, "logs/lspd/${file.name}", warnings)) count++
             }
         } else {
             warnings.add("lspd logs not found: /data/adb/lspd/log")
@@ -158,9 +167,9 @@ object DebugInfoExporter {
             buildString {
                 append(levelName).append("[").append(timestamp).append("] ")
                 append("[").append(entry.source).append("]: ")
-                append(entry.message)
+                append(redactSecrets(entry.message))
                 if (!entry.stackTrace.isNullOrEmpty()) {
-                    append("\n").append(entry.stackTrace)
+                    append("\n").append(redactSecrets(entry.stackTrace!!))
                 }
             }
         }
@@ -243,9 +252,41 @@ object DebugInfoExporter {
     private fun addTextEntry(zip: ZipOutputStream, entryName: String, content: String) {
         val entry = ZipEntry(entryName)
         zip.putNextEntry(entry)
-        val bytes = content.toByteArray()
+        val bytes = redactSecrets(content).toByteArray()
         zip.write(bytes)
         zip.closeEntry()
+    }
+
+    private fun addTextFileRedacted(
+        zip: ZipOutputStream,
+        file: File,
+        entryName: String,
+        warnings: MutableList<String>,
+    ): Boolean {
+        if (!file.isFile) {
+            warnings.add("missing file: ${file.path}")
+            return false
+        }
+        return try {
+            val raw = file.inputStream().use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    if (total > MAX_LOG_BYTES) break
+                    out.write(buffer, 0, read)
+                }
+                out.toString(Charsets.UTF_8.name())
+            }
+            addTextEntry(zip, entryName, raw)
+            true
+        } catch (e: Throwable) {
+            warnings.add("zip failed ${file.path}: ${e.message}")
+            false
+        }
     }
 
     private data class CommandResult(val exitCode: Int, val bytes: Long)
@@ -255,25 +296,34 @@ object DebugInfoExporter {
         entryName: String,
         warnings: MutableList<String>,
         command: List<String>,
+        redact: Boolean = false,
     ): CommandResult? = try {
         val process = ProcessBuilder(command).redirectErrorStream(true).start()
-        zip.putNextEntry(ZipEntry(entryName))
+        val collected = java.io.ByteArrayOutputStream()
         var bytes = 0L
         process.inputStream.use { input ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
                 val read = input.read(buffer)
                 if (read <= 0) break
-                zip.write(buffer, 0, read)
                 bytes += read
+                if (bytes > MAX_LOG_BYTES) {
+                    process.destroy()
+                    break
+                }
+                collected.write(buffer, 0, read)
             }
         }
+        val raw = collected.toString(Charsets.UTF_8.name())
+        val text = if (redact) redactSecrets(raw) else raw
+        zip.putNextEntry(ZipEntry(entryName))
+        zip.write(text.toByteArray())
         zip.closeEntry()
         val code = process.waitFor()
         if (code != 0) {
             warnings.add("command failed (${command.joinToString(" ")}): exit=$code")
         }
-        CommandResult(code, bytes)
+        CommandResult(code, text.length.toLong())
     } catch (e: Throwable) {
         warnings.add("command failed (${command.joinToString(" ")}): ${e.message}")
         runCatching { zip.closeEntry() }
