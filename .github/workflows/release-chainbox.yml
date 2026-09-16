@@ -66,14 +66,43 @@ jobs:
         with:
           go-version: "1.25.5"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          for bin in \
+            "$SDK/cmdline-tools/latest/bin" \
+            "$SDK/cmdline-tools/current/bin" \
+            "$SDK/cmdline-tools/16.0/bin" \
+            "$SDK/cmdline-tools/11.0/bin" \
+            "$SDK/tools/bin" \
+            "$SDK/platform-tools"
+          do
+            if [ -d "$bin" ]; then
+              echo "$bin" >> "$GITHUB_PATH"
+              export PATH="$bin:$PATH"
+            fi
+          done
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not on PATH; listing $SDK"
+            find "$SDK" -maxdepth 4 -name sdkmanager -type f || true
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          echo "Using Android SDK at $SDK"
 
       - name: Install Android SDK components
         run: |
-          set -e
+          set -euo pipefail
           yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
           sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          test -d "${ANDROID_HOME}/ndk/28.0.13004108"
           echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
 
