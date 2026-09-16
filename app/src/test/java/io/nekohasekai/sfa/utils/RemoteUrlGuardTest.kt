@@ -100,4 +100,56 @@ class RemoteUrlGuardTest {
             noResolve,
         )
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionBlocksHttpsMetadata() {
+        RemoteUrlGuard.requireAllowed(
+            "https://169.254.169.254/latest/meta-data",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            noResolve,
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun publicHttpsRejectsHttp() {
+        RemoteUrlGuard.requireHttpsPublic("http://example.com/geoip-cn.srs")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun publicHttpsRejectsLan() {
+        RemoteUrlGuard.requireHttpsPublic("https://192.168.1.8/geoip-cn.srs")
+    }
+
+    @Test
+    fun publicHttpsAllowsGithubMirror() {
+        RemoteUrlGuard.requireHttpsPublic(
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        )
+    }
+
+    @Test
+    fun sixToFourMetadataRejected() {
+        val bytes = ByteArray(16)
+        bytes[0] = 0x20.toByte()
+        bytes[1] = 0x02.toByte()
+        bytes[2] = 0xa9.toByte()
+        bytes[3] = 0xfe.toByte()
+        bytes[4] = 0xa9.toByte()
+        bytes[5] = 0xfe.toByte()
+        val addr = InetAddress.getByAddress(bytes)
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
+    }
+
+    @Test
+    fun nat64Rfc1918RejectedForScripts() {
+        val bytes = ByteArray(16)
+        bytes[1] = 0x64
+        bytes[2] = 0xff.toByte()
+        bytes[3] = 0x9b.toByte()
+        bytes[12] = 10
+        bytes[15] = 1
+        val addr = InetAddress.getByAddress(bytes)
+        assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
+    }
 }

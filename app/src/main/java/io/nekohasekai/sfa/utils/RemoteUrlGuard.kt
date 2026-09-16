@@ -34,6 +34,10 @@ object RemoteUrlGuard {
         "instance-data",
     )
 
+    private val PUBLIC_PLACEHOLDER: (String) -> List<InetAddress> = {
+        listOf(InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)))
+    }
+
     fun requireAllowed(url: String, kind: Kind, resolve: (String) -> List<InetAddress> = ::systemResolve) {
         val raw = url.trim()
         require(raw.isNotEmpty()) { "URL 为空" }
@@ -77,12 +81,34 @@ object RemoteUrlGuard {
         }
     }
 
+    /**
+     * Syntactic HTTPS + public-host check for URLs the kernel fetches
+     * (remote rule-sets). Hostnames skip DNS so offline start still works;
+     * literal IPs still use the SCRIPT fail-closed policy.
+     */
+    fun requireHttpsPublic(url: String) {
+        requireAllowed(url, Kind.SCRIPT, PUBLIC_PLACEHOLDER)
+    }
+
+    fun isPublicHttpsUrl(url: String): Boolean = try {
+        requireHttpsPublic(url)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
     internal fun isAddressAllowed(addr: InetAddress, kind: Kind): Boolean {
         val bytes = addr.address ?: return false
         if (addr.isAnyLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isMulticastAddress) {
             return false
         }
         if (isMetadataAddress(bytes)) return false
+        val embedded = embeddedIpv4(bytes)
+        if (embedded != null) {
+            if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded)) return false
+            if (kind == Kind.SCRIPT && (isRfc1918(embedded) || isCgnat(embedded))) return false
+            if (kind == Kind.SUBSCRIPTION && isCgnat(embedded)) return false
+        }
         if (kind == Kind.SCRIPT) {
             if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
         }
@@ -177,12 +203,14 @@ object RemoteUrlGuard {
             }
             val mapped = isV4Mapped(bytes)
             if (mapped != null) return isMetadataAddress(mapped)
+            val embedded = embeddedIpv4(bytes)
+            if (embedded != null) return isMetadataAddress(embedded)
         }
         return false
     }
 
     internal fun isRfc1918(bytes: ByteArray): Boolean {
-        val v4 = if (bytes.size == 16) isV4Mapped(bytes) ?: return false else bytes
+        val v4 = if (bytes.size == 16) embeddedIpv4(bytes) ?: isV4Mapped(bytes) ?: return false else bytes
         if (v4.size != 4) return false
         val a = v4[0].toInt() and 0xff
         val b = v4[1].toInt() and 0xff
@@ -190,7 +218,7 @@ object RemoteUrlGuard {
     }
 
     internal fun isCgnat(bytes: ByteArray): Boolean {
-        val v4 = if (bytes.size == 16) isV4Mapped(bytes) ?: return false else bytes
+        val v4 = if (bytes.size == 16) embeddedIpv4(bytes) ?: isV4Mapped(bytes) ?: return false else bytes
         if (v4.size != 4) return false
         val a = v4[0].toInt() and 0xff
         val b = v4[1].toInt() and 0xff
@@ -200,6 +228,56 @@ object RemoteUrlGuard {
     internal fun isUniqueLocalIpv6(bytes: ByteArray): Boolean {
         if (bytes.size != 16) return false
         return (bytes[0].toInt() and 0xfe) == 0xfc
+    }
+
+    private fun isLinkLocalV4(bytes: ByteArray): Boolean {
+        if (bytes.size != 4) return false
+        return (bytes[0].toInt() and 0xff) == 169 && (bytes[1].toInt() and 0xff) == 254
+    }
+
+    private fun isLoopbackV4(bytes: ByteArray): Boolean {
+        if (bytes.size != 4) return false
+        return (bytes[0].toInt() and 0xff) == 127
+    }
+
+    /**
+     * IPv4 embedded in IPv6 via v4-mapped, 6to4 (2002::/16), NAT64 (64:ff9b::/96),
+     * or Teredo (2001:0000::/32). Used so metadata/RFC1918 cannot hide behind a
+     * "global" IPv6 literal.
+     */
+    internal fun embeddedIpv4(bytes: ByteArray): ByteArray? {
+        if (bytes.size != 16) return null
+        val mapped = isV4Mapped(bytes)
+        if (mapped != null) return mapped
+        // 6to4 2002:AABB:CCDD::/48
+        if (bytes[0] == 0x20.toByte() && bytes[1] == 0x02.toByte()) {
+            return byteArrayOf(bytes[2], bytes[3], bytes[4], bytes[5])
+        }
+        // NAT64 well-known prefix 64:ff9b::/96
+        if (
+            bytes[0] == 0x00.toByte() &&
+            bytes[1] == 0x64.toByte() &&
+            bytes[2] == 0xff.toByte() &&
+            bytes[3] == 0x9b.toByte()
+        ) {
+            for (i in 4..11) if (bytes[i] != 0.toByte()) return null
+            return bytes.copyOfRange(12, 16)
+        }
+        // Teredo 2001:0000::/32 — server IPv4 at bytes 4-7, client IPv4 at 12-15 XOR 0xff
+        if (
+            bytes[0] == 0x20.toByte() &&
+            bytes[1] == 0x01.toByte() &&
+            bytes[2] == 0x00.toByte() &&
+            bytes[3] == 0x00.toByte()
+        ) {
+            val server = bytes.copyOfRange(4, 8)
+            if (isMetadataAddress(server) || isLinkLocalV4(server) || isLoopbackV4(server) || isRfc1918(server) || isCgnat(server)) {
+                return server
+            }
+            val client = ByteArray(4) { i -> (bytes[12 + i].toInt() xor 0xff).toByte() }
+            return client
+        }
+        return null
     }
 
     private fun isV4Mapped(bytes: ByteArray): ByteArray? {

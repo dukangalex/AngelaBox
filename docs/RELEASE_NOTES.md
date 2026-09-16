@@ -1,6 +1,6 @@
 更新说明
 • 安全加固 1.0.53：链式国内直连不再把「中国 + Google」这类混合规则当成直连；境外流量异常时仍 fail-closed，不会掉到 DIRECT。
-• 远程订阅、脚本、更新、WebDAV 全部只允许 HTTPS。已保存的 HTTP 订阅请改成 HTTPS。
+• 远程订阅、脚本、更新、WebDAV、规则集地址全部只允许 HTTPS。已保存的 HTTP 订阅请改成 HTTPS；局域网也必须是 HTTPS。
 • 应用内下载走系统 HTTPS，每次跳转都会重新校验主机，禁止跳到内网或元数据地址。
 • 应用内更新只认 AngelaBox-android.apk，必须校验 SHA-256 和发行证书，不再回退到旧 ChainBox 仓库或 F-Droid。
 • Clash API 只绑 127.0.0.1；禁止系统云备份配置；Xposed 接口只接受系统 / LSPosed。

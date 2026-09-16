@@ -77,7 +77,7 @@ object DebugInfoExporter {
             outFile.delete()
             throw IllegalStateException(error)
         }
-        outFile.setReadable(true, false)
+        outFile.setReadable(true, true)
         if (warnings.isNotEmpty()) {
             Log.w(TAG, "export finished with ${warnings.size} warnings, output size: ${outFile.length()}")
         } else {

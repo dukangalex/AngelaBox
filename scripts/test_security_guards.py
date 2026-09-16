@@ -173,6 +173,7 @@ def test_source_guards() -> None:
     assert "Libbox.newHTTPClient" not in http
     assert "instanceFollowRedirects = false" in http
     assert "fun nextUrl" in http
+    assert "require(conn is HttpsURLConnection)" in http
 
     guard = read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt")
     assert 'require(scheme == "https")' in guard
@@ -180,6 +181,24 @@ def test_source_guards() -> None:
     assert "scheme == \"http\"" not in guard
     assert "无法解析主机，已拒绝" in guard
     assert "if (resolved.isEmpty())" in guard
+    assert "fun requireHttpsPublic" in guard
+    assert "fun embeddedIpv4" in guard
+
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    assert "RemoteUrlGuard.isPublicHttpsUrl" in inbound
+    assert 'rewritten = "https://" + rewritten.substring(7)' not in inbound
+
+    dav = read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt")
+    assert "RemoteUrlGuard.requireAllowed" in dav
+    assert "require(conn is HttpsURLConnection)" in dav
+    assert "WebDAV 下载过大" in dav
+
+    exporter = read("app/src/main/java/io/nekohasekai/sfa/bg/DebugInfoExporter.kt")
+    assert "setReadable(true, true)" in exporter
+    assert "setReadable(true, false)" not in exporter
+
+    ci = read(".github/workflows/ci.yml")
+    assert "fetch-depth: 0" in ci
 
     fdroid = read("app/src/main/java/io/nekohasekai/sfa/update/FDroidUpdateChecker.kt")
     assert "Libbox.checkFDroidUpdate" not in fdroid

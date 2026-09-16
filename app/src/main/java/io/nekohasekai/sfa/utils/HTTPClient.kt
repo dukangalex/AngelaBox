@@ -4,7 +4,6 @@ import io.nekohasekai.libbox.Libbox
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.util.Locale
@@ -114,7 +113,7 @@ class HTTPClient : Closeable {
         kind: RemoteUrlGuard.Kind,
         headers: Map<String, String>,
         maxBytes: Long,
-        reader: (InputStream, HttpURLConnection) -> T,
+        reader: (InputStream, HttpsURLConnection) -> T,
     ): T {
         var current = startUrl.trim()
         RemoteUrlGuard.requireAllowed(current, kind)
@@ -149,8 +148,9 @@ class HTTPClient : Closeable {
         throw IllegalStateException("重定向次数过多")
     }
 
-    private fun open(url: String, headers: Map<String, String>): HttpURLConnection {
-        val conn = URL(url).openConnection() as HttpURLConnection
+    private fun open(url: String, headers: Map<String, String>): HttpsURLConnection {
+        val conn = URL(url).openConnection()
+        require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
         conn.instanceFollowRedirects = false
         conn.connectTimeout = CONNECT_TIMEOUT_MS
         conn.readTimeout = READ_TIMEOUT_MS
@@ -158,9 +158,7 @@ class HTTPClient : Closeable {
         conn.setRequestProperty("User-Agent", userAgent)
         conn.setRequestProperty("Connection", "close")
         headers.forEach { (key, value) -> conn.setRequestProperty(key, value) }
-        if (conn is HttpsURLConnection) {
-            conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
-        }
+        conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
         return conn
     }
 

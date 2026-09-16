@@ -54,5 +54,17 @@ class BackupManagerTest {
         assertFalse(hidden.contains("PROPFIND"))
         assertTrue(hidden.contains("不受支持"))
     }
+
+    @Test
+    fun probeRejectsMetadataHost() {
+        val result = BackupManager.webdavProbe("https://169.254.169.254/latest/meta-data", "u", "p")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun probeRejectsLoopbackHttps() {
+        val result = BackupManager.webdavProbe("https://127.0.0.1/dav/", "u", "p")
+        assertTrue(result.isFailure)
+    }
 }
 

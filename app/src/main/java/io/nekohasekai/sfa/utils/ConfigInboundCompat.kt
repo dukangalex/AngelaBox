@@ -20,6 +20,7 @@ object ConfigInboundCompat {
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
         if (healRemoteRuleSets(root)) changed = true
+        if (sanitizeClashDownloadUrls(root)) changed = true
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
@@ -249,15 +250,36 @@ object ConfigInboundCompat {
             for (key in listOf("url", "download_url")) {
                 val current = item.optString(key).trim()
                 if (current.isEmpty()) continue
-                var rewritten = rewriteGithubRawUrl(current)
-                if (rewritten.startsWith("http://", ignoreCase = true)) {
-                    rewritten = "https://" + rewritten.substring(7)
+                val rewritten = rewriteGithubRawUrl(current)
+                if (!RemoteUrlGuard.isPublicHttpsUrl(rewritten)) {
+                    item.remove(key)
+                    changed = true
+                    continue
                 }
                 if (rewritten != current) {
                     item.put(key, rewritten)
                     changed = true
                 }
             }
+        }
+        return changed
+    }
+
+    internal fun sanitizeClashDownloadUrls(root: JSONObject): Boolean {
+        val clash = root.optJSONObject("experimental")?.optJSONObject("clash_api") ?: return false
+        var changed = false
+        for (key in listOf("external_ui_download_url")) {
+            val url = clash.optString(key).trim()
+            if (url.isEmpty()) continue
+            if (!RemoteUrlGuard.isPublicHttpsUrl(url)) {
+                clash.remove(key)
+                changed = true
+            }
+        }
+        val ui = clash.optString("external_ui").trim()
+        if (ui.contains("://") && !RemoteUrlGuard.isPublicHttpsUrl(ui)) {
+            clash.remove("external_ui")
+            changed = true
         }
         return changed
     }
@@ -313,6 +335,18 @@ object ConfigInboundCompat {
             val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
             if (!remote) {
                 keep.put(item)
+                continue
+            }
+            if (url.isEmpty()) {
+                val officialFromTag = officialRuleSetUrl(tag)
+                if (officialFromTag.isNotEmpty()) {
+                    item.put("url", officialFromTag)
+                    keep.put(item)
+                    changed = true
+                } else {
+                    if (tag.isNotEmpty()) dropTags.add(tag)
+                    changed = true
+                }
                 continue
             }
             val official = officialRuleSetUrl(file)

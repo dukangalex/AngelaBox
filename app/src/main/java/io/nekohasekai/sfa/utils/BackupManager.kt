@@ -19,7 +19,6 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -298,7 +297,22 @@ object BackupManager {
                     error("WebDAV 下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
                 }
                 localFile.parentFile?.mkdirs()
-                conn.inputStream.use { input -> FileOutputStream(localFile).use { output -> input.copyTo(output) } }
+                var written = 0L
+                conn.inputStream.use { input ->
+                    FileOutputStream(localFile).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            written += read
+                            if (written > MAX_TOTAL_SIZE) {
+                                localFile.delete()
+                                error("WebDAV 下载过大")
+                            }
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
                 require(isZipFile(localFile)) {
                     "下载内容不是 ZIP 备份（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
                 }
@@ -348,7 +362,17 @@ object BackupManager {
                         ProbeClass.REDIRECT -> {
                             if (loc.isNotEmpty()) {
                                 val next = try { URL(target).let { URL(it, loc) } } catch (_: Exception) { null }
-                                if (next == null || next.protocol != "https" || next.host != URL(target).host) {
+                                val nextUrl = next?.toString().orEmpty()
+                                if (
+                                    next == null ||
+                                    next.protocol != "https" ||
+                                    next.host != URL(target).host
+                                ) {
+                                    error("连通性失败：重定向到不安全主机")
+                                }
+                                try {
+                                    RemoteUrlGuard.requireAllowed(nextUrl, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                                } catch (_: Exception) {
                                     error("连通性失败：重定向到不安全主机")
                                 }
                             }
@@ -451,7 +475,7 @@ object BackupManager {
         return if (e is IllegalStateException) e else IllegalStateException(e.message ?: e.javaClass.simpleName, e)
     }
 
-    private fun openWebDav(url: String, username: String, password: String): HttpURLConnection {
+    private fun openWebDav(url: String, username: String, password: String): HttpsURLConnection {
         val conn = openConnection(URL(requireHttps(url)))
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000
@@ -465,12 +489,12 @@ object BackupManager {
         return conn
     }
 
-    private fun openConnection(url: URL): HttpURLConnection {
-        val conn = url.openConnection() as HttpURLConnection
-        if (conn is HttpsURLConnection) {
-            conn.sslSocketFactory = platformSslSocketFactory()
-            conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
-        }
+    private fun openConnection(url: URL): HttpsURLConnection {
+        require(url.protocol.equals("https", ignoreCase = true)) { "WebDAV 必须使用 HTTPS" }
+        val conn = url.openConnection()
+        require(conn is HttpsURLConnection) { "WebDAV 必须使用 HTTPS" }
+        conn.sslSocketFactory = platformSslSocketFactory()
+        conn.hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
         return conn
     }
 
@@ -490,6 +514,7 @@ object BackupManager {
     private fun requireHttps(url: String): String {
         val normalized = url.trim()
         require(normalized.startsWith("https://", ignoreCase = true)) { "WebDAV 必须使用 HTTPS" }
+        RemoteUrlGuard.requireAllowed(normalized, RemoteUrlGuard.Kind.SUBSCRIPTION)
         return normalized
     }
 
