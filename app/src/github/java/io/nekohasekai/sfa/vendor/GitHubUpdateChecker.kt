@@ -38,7 +38,7 @@ class GitHubUpdateChecker : Closeable {
             if (!isNewerThanCurrent(versionName)) continue
             val isLegacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
             val apkAsset = pickApkAsset(release.assets, isLegacy) ?: continue
-            val sha256 = pickSha256(release.assets, apkAsset, githubToken) ?: continue
+            val sha256 = pickSha256(release.assets, apkAsset) ?: continue
             val metadata = VersionMetadata(
                 versionCode = versionCodeFromName(versionName),
                 versionName = versionName,
@@ -113,11 +113,11 @@ class GitHubUpdateChecker : Closeable {
         return json.decodeFromString(trimmed)
     }
 
-    private fun pickSha256(assets: List<GitHubAsset>, apk: GitHubAsset, githubToken: String): String? {
+    private fun pickSha256(assets: List<GitHubAsset>, apk: GitHubAsset): String? {
         val shaAsset = assets.find { it.name.equals("${apk.name}.sha256", ignoreCase = true) }
             ?: return null
         RemoteUrlGuard.requireAllowed(shaAsset.browserDownloadUrl, RemoteUrlGuard.Kind.UPDATE)
-        val body = getText(shaAsset.browserDownloadUrl, githubToken)
+        val body = getText(shaAsset.browserDownloadUrl)
         if (body.length > 4096) {
             throw IllegalStateException("SHA-256 sidecar 过大")
         }
@@ -125,15 +125,14 @@ class GitHubUpdateChecker : Closeable {
         return hex.takeIf { it.matches(SHA256_HEX) }
     }
 
-    private fun getText(url: String, githubToken: String): String {
-        val headers = linkedMapOf(
-            "Accept" to "application/octet-stream",
+    private fun getText(url: String): String {
+        // Asset downloads (github.com/releases/download → Azure SAS) reject
+        // a GitHub Bearer token. Token is only used for api.github.com.
+        return client.getString(
+            url,
+            RemoteUrlGuard.Kind.UPDATE,
+            mapOf("Accept" to "application/octet-stream"),
         )
-        val token = githubToken.trim()
-        if (token.isNotEmpty()) {
-            headers["Authorization"] = "Bearer $token"
-        }
-        return client.getString(url, RemoteUrlGuard.Kind.UPDATE, headers)
     }
 
     private fun isReleaseInTrack(release: GitHubRelease, track: UpdateTrack): Boolean {

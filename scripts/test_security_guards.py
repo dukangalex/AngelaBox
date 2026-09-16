@@ -139,6 +139,8 @@ def test_source_guards() -> None:
     assert "LEGACY_RELEASES_URL" not in checker
     assert "dukangalex/ChainBox" not in checker
     assert "AngelaBox-android.apk" in checker
+    get_text = checker.split("private fun getText", 1)[-1].split("private fun ", 1)[0]
+    assert "Authorization" not in get_text
 
     release = read(".github/workflows/release-chainbox.yml")
     assert "AngelaBox-android.apk" in release
@@ -152,7 +154,7 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.54" in props
+    assert "VERSION_NAME=1.0.55" in props
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust
@@ -181,6 +183,10 @@ def test_source_guards() -> None:
     assert "fun nextUrl" in http
     assert "require(conn is HttpsURLConnection)" in http
     assert "fun openPinned" in http
+    assert "fun requestUrlOnIp" in http
+    assert "fun headersForHop" in http
+    assert "fun httpFailureMessage" in http
+    assert 'URI("https", null, ipHost' not in http
     assert "PinnedSniSslSocketFactory" in http
     assert "SSLCertificateSocketFactory" in http
     assert "createSocket(peer, port)" in http

@@ -75,11 +75,8 @@ class HTTPClient : Closeable {
             val endpoint = RemoteUrlGuard.validate(url, kind)
             val addr = endpoint.addresses.firstOrNull()
                 ?: throw IllegalArgumentException("无法解析主机，已拒绝")
-            val ipHost = literalIp(addr)
-            val uri = URI(url)
-            val path = uri.rawPath?.ifEmpty { "/" } ?: "/"
-            val pinned = URI("https", null, ipHost, endpoint.port, path, uri.rawQuery, uri.rawFragment)
-            val conn = URL(pinned.toASCIIString()).openConnection()
+            val pinned = requestUrlOnIp(url, addr, endpoint.port)
+            val conn = URL(pinned).openConnection()
             require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
             conn.instanceFollowRedirects = false
             conn.connectTimeout = CONNECT_TIMEOUT_MS
@@ -93,6 +90,52 @@ class HTTPClient : Closeable {
                 HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, session)
             }
             return conn
+        }
+
+        /**
+         * Dial the already-checked IP but keep the original percent-encoding.
+         * GitHub release assets redirect to Azure SAS URLs; the 7-arg [URI]
+         * constructor would re-encode `%3A` as `%253A` and Azure returns
+         * HTTP 403 AuthenticationFailed.
+         */
+        internal fun requestUrlOnIp(url: String, addr: InetAddress, port: Int): String {
+            val uri = URI(url)
+            val path = uri.rawPath.orEmpty().ifEmpty { "/" }
+            val ip = literalIp(addr)
+            val hostLiteral = if (':' in ip) "[$ip]" else ip
+            val portPart = if (port != 443) ":$port" else ""
+            val query = uri.rawQuery?.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()
+            return "https://$hostLiteral$portPart$path$query"
+        }
+
+        internal fun headersForHop(
+            url: String,
+            kind: RemoteUrlGuard.Kind,
+            headers: Map<String, String>,
+        ): Map<String, String> {
+            val host = try {
+                URI(url).host?.lowercase(Locale.US).orEmpty()
+            } catch (_: Exception) {
+                return headers.filterKeys { !it.equals("Authorization", ignoreCase = true) }
+            }
+            // GitHub Bearer is only valid on api.github.com. Azure SAS
+            // URLs treat it as a malformed Authorization header.
+            if (kind == RemoteUrlGuard.Kind.UPDATE && host != "api.github.com") {
+                return headers.filterKeys { !it.equals("Authorization", ignoreCase = true) }
+            }
+            return headers
+        }
+
+        internal fun httpFailureMessage(kind: RemoteUrlGuard.Kind, code: Int): String {
+            return when {
+                kind == RemoteUrlGuard.Kind.UPDATE && code == 403 ->
+                    "GitHub 发行包暂时无法下载。请点「查看发布」用浏览器安装，或稍后重试。"
+                kind == RemoteUrlGuard.Kind.UPDATE && code == 404 ->
+                    "未找到发行包。请点「查看发布」确认。"
+                kind == RemoteUrlGuard.Kind.UPDATE ->
+                    "GitHub 下载失败 HTTP $code。请点「查看发布」用浏览器安装。"
+                else -> "下载失败 HTTP $code"
+            }
         }
 
         internal fun literalIp(addr: InetAddress): String {
@@ -162,6 +205,7 @@ class HTTPClient : Closeable {
         val seen = linkedSetOf<String>()
         repeat(MAX_REDIRECTS + 1) {
             require(seen.add(current)) { "重定向循环" }
+            hdrs = headersForHop(current, kind, hdrs)
             val conn = openPinned(current, kind, hdrs)
             conn.requestMethod = "GET"
             try {
@@ -175,8 +219,7 @@ class HTTPClient : Closeable {
                     return@repeat
                 }
                 if (code !in 200..299) {
-                    val err = conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200)
-                    throw IllegalStateException("下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
+                    throw IllegalStateException(httpFailureMessage(kind, code))
                 }
                 val declared = conn.contentLengthLong
                 if (declared > maxBytes) {
