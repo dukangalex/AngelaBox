@@ -21,7 +21,7 @@ class ChainRuntimeCompilerNestedGroupTest {
                 .put(node("proxy-2"))
                 .put(JSONObject().put("type", "selector").put("tag", "nested").put("outbounds", JSONArray().put("proxy-2").put("direct")))
                 .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("nested")))
-                .put(JSONObject().put("type", "direct").put("tag", "direct"))
+                .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject().put("final", "entry"))
 
         val compiled = ChainRuntimeCompiler.apply(
@@ -52,7 +52,7 @@ class ChainRuntimeCompilerNestedGroupTest {
                 .put(JSONObject().put("type", "selector").put("tag", "a").put("outbounds", JSONArray().put("b")))
                 .put(JSONObject().put("type", "selector").put("tag", "b").put("outbounds", JSONArray().put("a")))
                 .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("a")))
-                .put(JSONObject().put("type", "direct").put("tag", "direct"))
+                .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject().put("final", "entry"))
 
         ChainRuntimeCompiler.apply(
