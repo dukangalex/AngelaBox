@@ -99,13 +99,16 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
-            if (data.startsWith("http://") || data.startsWith("https://")) {
+            if (data.startsWith("https://", ignoreCase = true)) {
                 val profileName = extractProfileNameFromUrl(data)
                 return@withContext QRCodeParseResult.RemoteProfile(
                     name = profileName,
                     host = extractHostFromUrl(data),
                     url = data,
                 )
+            }
+            if (data.startsWith("http://", ignoreCase = true)) {
+                return@withContext QRCodeParseResult.Error("订阅仅允许 HTTPS")
             }
 
             val content = try {
@@ -134,9 +137,11 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
-            if (data.startsWith("http://") || data.startsWith("https://")) {
+            if (data.startsWith("https://", ignoreCase = true)) {
                 val profileName = extractProfileNameFromUrl(data)
                 importRemoteProfile(profileName, data)
+            } else if (data.startsWith("http://", ignoreCase = true)) {
+                ImportResult.Error("订阅仅允许 HTTPS")
             } else {
                 val content = try {
                     Libbox.decodeProfileContent(data.toByteArray())

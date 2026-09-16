@@ -15,6 +15,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -202,6 +203,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update { it.copy(isSaving = true) }
 
             try {
+                if (profile.typed.type == TypedProfile.Type.Remote) {
+                    RemoteUrlGuard.requireAllowed(state.remoteUrl, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                }
                 // Update profile object
                 profile.name = state.name
                 profile.icon = state.icon

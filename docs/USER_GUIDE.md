@@ -24,7 +24,7 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 2. 导入订阅或本地 JSON，设为当前配置。
 3. 如需跨配置串联，再导入另一份落地配置。落地不必设为当前配置。
 
-远程订阅可用 HTTPS 或你明确信任的 HTTP 地址。HTTP 会拦截回环、链路本地和云元数据，但仍可能被局域网中间人改写，能上 HTTPS 请尽量用 HTTPS。脚本导入只允许 HTTPS。
+远程订阅只允许 HTTPS。已保存的 HTTP 订阅更新时会被拒绝，请改成 HTTPS 后再更新。脚本导入同样只允许 HTTPS。
 
 远程订阅若含 Clash 风格 `plugin_opts` 对象，或仍使用 sing-box 1.11 的 `dns.fakeip` / `servers[].address` / `rcode://` / `type: rcode`，或入站仍写 `sniff` / `domain_strategy`、出站仍用 `type: dns` / `type: block`，导入和启动时会自动转成 1.12+ 的 typed DNS 与路由动作，避免内核拒绝。GitHub `raw.githubusercontent.com` 规则集地址会改写到 jsDelivr testingcf 镜像，避免 raw/LFS 404 导致无法启动。
 

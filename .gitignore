@@ -10,7 +10,10 @@ build/
 .cxx
 local.properties
 /app/libs/
+*.jks
+*.keystore
 /app/release.keystore
 /service-account-credentials.json
 /CLAUDE.md
 /.claude/
+scripts/__pycache__/

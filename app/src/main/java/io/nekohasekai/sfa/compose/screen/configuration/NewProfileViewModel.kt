@@ -172,7 +172,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             }
             ProfileType.Remote -> {
                 if (!state.remoteUrl.trim().startsWith("https://", ignoreCase = true)) {
-                    _uiState.update { it.copy(remoteUrlError = "HTTPS is required for remote profile subscriptions") }
+                    _uiState.update { it.copy(remoteUrlError = "订阅仅允许 HTTPS") }
                     hasError = true
                 }
             }

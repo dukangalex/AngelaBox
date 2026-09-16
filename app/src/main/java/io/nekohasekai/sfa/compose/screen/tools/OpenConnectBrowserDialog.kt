@@ -384,15 +384,11 @@ private class OpenConnectWebViewBrowser(
         view.loadUrl(request.url)
     }
 
-    private fun isSupportedBrowserURL(url: String): Boolean {
-        val parsedURL = Uri.parse(url)
-        return parsedURL.scheme.equals("data", ignoreCase = true) || isHTTPURL(url)
-    }
+    private fun isSupportedBrowserURL(url: String): Boolean = isHTTPURL(url)
 
     private fun isHTTPURL(url: String): Boolean {
         val parsedURL = Uri.parse(url)
-        return (parsedURL.scheme.equals("http", ignoreCase = true) || parsedURL.scheme.equals("https", ignoreCase = true)) &&
-            parsedURL.host != null
+        return parsedURL.scheme.equals("https", ignoreCase = true) && parsedURL.host != null
     }
 
     private fun handleNavigation(view: WebView, url: String, isForMainFrame: Boolean): Boolean {
@@ -504,7 +500,7 @@ private class OpenConnectWebViewBrowser(
     private fun isAllowedNavigationURL(url: String): Boolean {
         val parsedURL = Uri.parse(url)
         return when (parsedURL.scheme?.lowercase()) {
-            "http", "https" -> parsedURL.host != null
+            "https" -> parsedURL.host != null
             "about", "blob" -> true
             else -> false
         }

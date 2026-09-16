@@ -14,8 +14,13 @@ class RemoteUrlGuardTest {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, noResolve)
     }
 
-    @Test
-    fun subscriptionAllowsLanHttp() {
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionRejectsHttp() {
+        RemoteUrlGuard.requireAllowed("http://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, noResolve)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun subscriptionRejectsLanHttp() {
         RemoteUrlGuard.requireAllowed("http://192.168.1.8:8080/clash.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, noResolve)
     }
 

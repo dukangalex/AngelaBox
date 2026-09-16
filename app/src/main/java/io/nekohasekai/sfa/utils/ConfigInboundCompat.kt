@@ -249,7 +249,10 @@ object ConfigInboundCompat {
             for (key in listOf("url", "download_url")) {
                 val current = item.optString(key).trim()
                 if (current.isEmpty()) continue
-                val rewritten = rewriteGithubRawUrl(current)
+                var rewritten = rewriteGithubRawUrl(current)
+                if (rewritten.startsWith("http://", ignoreCase = true)) {
+                    rewritten = "https://" + rewritten.substring(7)
+                }
                 if (rewritten != current) {
                     item.put(key, rewritten)
                     changed = true

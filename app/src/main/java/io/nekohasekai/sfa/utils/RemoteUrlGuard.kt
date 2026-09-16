@@ -8,10 +8,8 @@ import java.util.Locale
 /**
  * SSRF / fetch policy for every URL the app downloads.
  *
- * - [Kind.SUBSCRIPTION]: http+https. RFC1918 allowed (LAN airport panels).
- *   Loopback, link-local, CGNAT metadata, and cloud metadata are blocked.
- * - [Kind.SCRIPT]: https only, public unicast only.
- * - [Kind.UPDATE]: https only, GitHub release hosts only.
+ * All kinds require HTTPS. Loopback, link-local, CGNAT metadata, and cloud
+ * metadata are blocked. [Kind.UPDATE] is additionally pinned to GitHub.
  */
 object RemoteUrlGuard {
     enum class Kind { SUBSCRIPTION, SCRIPT, UPDATE }
@@ -49,10 +47,7 @@ object RemoteUrlGuard {
         require(uri.userInfo.isNullOrEmpty()) { "URL 不能包含用户名密码" }
 
         val scheme = uri.scheme?.lowercase(Locale.US) ?: throw IllegalArgumentException("URL 缺少协议")
-        when (kind) {
-            Kind.UPDATE, Kind.SCRIPT -> require(scheme == "https") { "仅允许 HTTPS" }
-            Kind.SUBSCRIPTION -> require(scheme == "https" || scheme == "http") { "订阅仅允许 HTTP 或 HTTPS" }
-        }
+        require(scheme == "https") { "仅允许 HTTPS" }
 
         val host = normalizeHost(uri.host ?: throw IllegalArgumentException("URL 缺少主机"))
         require(host.isNotEmpty()) { "URL 缺少主机" }
@@ -75,7 +70,7 @@ object RemoteUrlGuard {
             emptyList()
         }
         if (resolved.isEmpty()) {
-            if (kind == Kind.SCRIPT || scheme == "http") {
+            if (kind == Kind.SCRIPT) {
                 throw IllegalArgumentException("无法解析主机，已拒绝")
             }
             return

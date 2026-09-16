@@ -28,10 +28,10 @@ class RemoteServer(
         private val schemePrefix = Regex("^https?://", RegexOption.IGNORE_CASE)
         private val httpPrefix = Regex("^http://", RegexOption.IGNORE_CASE)
 
-        // The stored form: scheme-less for http (default), keeping an explicit https.
+        // The stored form: scheme-less for https default; keep explicit https.
         fun normalizeURL(urlString: String): String = urlString.trim().trimEnd('/').replaceFirst(httpPrefix, "")
 
-        // The form passed to libbox: a scheme is required, defaulting to http.
+        // The form passed to libbox: a scheme is required. Default HTTPS.
         fun connectURL(urlString: String): String {
             val value = urlString.trim().trimEnd('/')
             if (value.isEmpty()) {
@@ -40,7 +40,7 @@ class RemoteServer(
             if (value.contains(schemePrefix)) {
                 return value
             }
-            return "http://$value"
+            return "https://$value"
         }
 
         fun validateURL(urlString: String): String? {
@@ -55,10 +55,14 @@ class RemoteServer(
                     return null
                 }
             val scheme = uri.scheme?.lowercase()
-            if (scheme != "http" && scheme != "https") {
+            val host = uri.host?.lowercase().orEmpty()
+            val loopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
+            if (scheme == "http") {
+                if (!loopback) return null
+            } else if (scheme != "https") {
                 return null
             }
-            if (uri.host.isNullOrEmpty()) {
+            if (host.isEmpty()) {
                 return null
             }
             return normalizeURL(urlString)

@@ -81,10 +81,9 @@ android {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             val releaseSigning = signingConfigs.findByName("releaseConfig")
-                ?: throw GradleException(
-                    "Release signing is unavailable. Configure release.keystore and signing properties; refusing debug-signed release builds.",
-                )
-            signingConfig = releaseSigning
+            if (releaseSigning != null) {
+                signingConfig = releaseSigning
+            }
             vcsInfo.include = false
         }
     }
@@ -129,6 +128,25 @@ android {
 
     lint {
         fatal += "NewApi"
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val wantsReleaseApk = gradle.taskGraph.allTasks.any { task ->
+        val n = task.name
+        n.contains("Release") &&
+            !n.contains("Debug") &&
+            (
+                n.startsWith("assemble") ||
+                    n.startsWith("bundle") ||
+                    n.startsWith("package") ||
+                    n.contains("publish", ignoreCase = true)
+                )
+    }
+    if (wantsReleaseApk && android.signingConfigs.findByName("releaseConfig") == null) {
+        throw GradleException(
+            "Release signing is unavailable. Configure release.keystore and signing properties; refusing debug-signed release builds.",
+        )
     }
 }
 

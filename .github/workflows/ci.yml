@@ -205,5 +205,11 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          fi
           chmod +x gradlew
-          ./gradlew :app:compileOtherDebugKotlin --no-daemon --stacktrace
+          ./gradlew :app:compileOtherDebugKotlin :app:testOtherDebugUnitTest --no-daemon --stacktrace

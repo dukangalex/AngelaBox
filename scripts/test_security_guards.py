@@ -169,6 +169,23 @@ def test_source_guards() -> None:
     http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
     assert "RemoteUrlGuard.Kind" in http
 
+    guard = read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt")
+    assert 'require(scheme == "https")' in guard
+    assert "订阅仅允许 HTTP" not in guard
+    assert "scheme == \"http\"" not in guard
+
+    manifest = read("app/src/main/AndroidManifest.xml")
+    assert 'android:usesCleartextTraffic="false"' in manifest
+    assert "network_security_config" in manifest
+
+    gradle = read("app/build.gradle.kts")
+    assert "taskGraph.whenReady" in gradle
+    assert "wantsReleaseApk" in gradle
+
+    gitignore = read(".gitignore")
+    assert "*.jks" in gitignore
+    assert "*.keystore" in gitignore
+
 
 def test_bypass_mixed_or() -> None:
     assert is_bypass_direct_rule({"rule_set": ["geoip-cn"], "outbound": "direct"})
@@ -242,6 +259,40 @@ def test_no_second_publisher() -> None:
     assert not (workflows / "build-chainbox.yml").exists()
 
 
+def test_no_secret_files() -> None:
+    forbidden_suffixes = {".jks", ".keystore", ".p12", ".pfx"}
+    found = []
+    skip_parts = {".git", "node_modules", ".gradle", "build", "__pycache__"}
+    for path in ROOT.rglob("*"):
+        if any(part in skip_parts for part in path.parts):
+            continue
+        if path.suffix.lower() in forbidden_suffixes:
+            found.append(str(path.relative_to(ROOT)))
+    assert found == [], found
+    import subprocess
+
+    listed = subprocess.check_output(
+        ["git", "log", "--all", "--full-history", "--pretty=format:", "--", "*.jks", "*.keystore", "*.p12", "*.pfx"],
+        cwd=ROOT,
+        text=True,
+    ).strip()
+    assert listed == "", listed
+
+
+def test_subscription_https_only() -> None:
+    for bad in (
+        "http://example.com/sub.yaml",
+        "http://192.168.1.8:8080/clash.yaml",
+        "http://127.0.0.1/secret",
+    ):
+        parsed = urlparse(bad)
+        assert parsed.scheme == "http"
+    src = read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt")
+    assert 'Kind.SUBSCRIPTION -> require(scheme == "https"' not in src
+    assert "http+https" not in src
+    assert 'require(scheme == "https") { "仅允许 HTTPS" }' in src
+
+
 def main() -> int:
     tests = [
         test_source_guards,
@@ -250,6 +301,8 @@ def main() -> int:
         test_clash_api_loopback,
         test_china_direct_exact_tags,
         test_no_second_publisher,
+        test_no_secret_files,
+        test_subscription_https_only,
     ]
     failed = 0
     for test in tests:
