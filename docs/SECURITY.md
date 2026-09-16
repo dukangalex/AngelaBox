@@ -25,6 +25,19 @@
 
 请只从本仓库 Releases 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。
 
+## 上游 Firebase 客户端钥匙（非发行证书）
+
+GitHub Secret scanning 于 2026-09-16 报出历史提交 `446ffa4` 中的 `app/google-services.json`（Google API Key，标签 Public leak）。
+
+已核实：
+
+- 作者是 SagerNet/nekohasekai（2023-10-31），一周后提交 `56a2772` 已删除该文件。
+- 绑定包名是官方 `io.nekohasekai.sfa`，Firebase 项目 `sing-b0x`。**不是** AngelaBox 的 `io.chainbox.app`。
+- 这是打进 APK 的 Firebase 客户端标识，不是签名私钥，也不是本项目发行证书。
+- 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 该提交为祖先；工作区无此文件。
+- 同一文件仍出现在多个 SagerNet 客户端的公开 fork 中（扫描页已列出）。本项目无法轮换不属于自己的 Google Cloud 钥匙。
+- GitHub 仍能打开该历史对象，是缓存未回收，与 Ticket 4763595 同类，**不要改写当前 `dev` 历史**。
+
 ## 远程地址
 
 订阅、脚本、更新、WebDAV 只允许公网 HTTPS。HTTP、回环、RFC1918、ULA、CGNAT、链路本地与云元数据一律拒绝。下载连接钉住所校验的 IP，TLS SNI 与证书校验仍用原主机名。
