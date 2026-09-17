@@ -21,9 +21,11 @@
 - 该钥匙 **不是** 当前 AngelaBox 发行证书。
 - 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 含该钥匙的提交为祖先。
 - 仍带该文件的旧 tag（v0.1.x、v1.0.2–v1.0.9）已删除。分支 `chainbox-audit-fix` 在 GitHub 上已不存在（`git ls-remote --heads` 仅剩 `dev`）。
-- GitHub Support Ticket 4763595：PR #1 与缓存视图已清，但对象回收仍受 fork `goodmen001/AngelaBox` 拖住。当前 `dev` / v1.0.13+ **不会** 改写历史，也不会轮换 CN=ChainBox。需 fork 所有者删除该 fork 或自行改写其历史后，GitHub 才能 GC。
+- 2026-09-17：本仓库曾短暂改为私有再恢复公开。按 GitHub 文档，原先的公开 fork 会脱离 fork 网络、成为独立仓库。现已核实：`goodmen001/AngelaBox` 的 API 为 `fork: false`、`parent: null`；本仓库 `forks_count` 为 0。
+- 脱离 fork 网络 **不会** 删除对象。直链 `https://github.com/dukangalex/AngelaBox/commit/7736e1e` 目前仍能打开；同一提交在独立仓库 `goodmen001/AngelaBox` 也能打开。GitHub Support Ticket 4763595 仍需官方执行 GC。当前 `dev` / v1.0.13+ **不会** 改写历史，也不会轮换 CN=ChainBox。
+- 将仓库改私有会清掉 star / watcher。不要为同一目的反复改可见性。
 
-请只从本仓库 Releases 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。
+请只从本仓库 Releases 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。不要从 `goodmen001/AngelaBox` 安装。
 
 ## 上游 Firebase 客户端钥匙（非发行证书）
 
@@ -35,7 +37,7 @@ GitHub Secret scanning 于 2026-09-16 报出历史提交 `446ffa4` 中的 `app/g
 - 绑定包名是官方 `io.nekohasekai.sfa`，Firebase 项目 `sing-b0x`。**不是** AngelaBox 的 `io.chainbox.app`。
 - 这是打进 APK 的 Firebase 客户端标识，不是签名私钥，也不是本项目发行证书。
 - 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 该提交为祖先；工作区无此文件。
-- 同一文件仍出现在多个 SagerNet 客户端的公开 fork 中（扫描页已列出）。本项目无法轮换不属于自己的 Google Cloud 钥匙。
+- 同一文件仍出现在多个 SagerNet 客户端的公开仓库中（扫描页已列出）。本项目无法轮换不属于自己的 Google Cloud 钥匙。
 - GitHub 仍能打开该历史对象，是缓存未回收，与 Ticket 4763595 同类，**不要改写当前 `dev` 历史**。
 
 ## 远程地址
