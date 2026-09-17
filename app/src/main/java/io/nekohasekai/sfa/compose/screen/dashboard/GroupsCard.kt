@@ -280,6 +280,7 @@ private fun GroupsCardContent(
                             isExpanded = isExpanded,
                             isTesting = isTesting,
                             testedCount = testedCount,
+                            palette = palette,
                             onToggleExpanded = { onToggleExpanded(group.tag) },
                             onUrlTest = { onUrlTest(group.tag) },
                             modifier = headerModifier,
@@ -393,10 +394,15 @@ private fun GroupHeader(
     isExpanded: Boolean,
     isTesting: Boolean,
     testedCount: Int,
+    palette: UrlTestPalette,
     onToggleExpanded: () -> Unit,
     onUrlTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val selectedTag = group.selected.trim()
+    val selectedItem = remember(selectedTag, group.items) {
+        if (selectedTag.isEmpty()) null else group.items.find { it.tag == selectedTag }
+    }
     Surface(
         onClick = onToggleExpanded,
         modifier =
@@ -406,29 +412,57 @@ private fun GroupHeader(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(
-                    text = group.tag,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Text(
-                    text = group.displayType,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = group.tag,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text(
+                        text = group.displayType,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (selectedTag.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = selectedTag,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        val delay = selectedItem?.urlTestDelay ?: 0
+                        if (delay > 0) {
+                            Text(
+                                text = "${delay}ms",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.forDelay(delay),
+                            )
+                        }
+                    }
+                }
             }
             Surface(
                 shape = RoundedCornerShape(999.dp),

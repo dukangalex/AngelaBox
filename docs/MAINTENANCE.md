@@ -91,7 +91,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.5**（2026-09-16）：新 TUN TCP/IP 栈（去掉 `stack` 使用 sing-tun 自有栈，该字段 1.17 删除）、Tailcat、Android auto_redirect、on_demand、cache 写缓冲。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已快进到 `5e1593f0`，并已打 annotated tag `v1.15.0-chain.1`。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）；1.0.58-beta 已编进本 commit，但发版浅克隆未打 tag，设置 → 核心显示 unknown。1.0.59-beta 在 gomobile 前打上同一 tag，并用 `BuildConfig.KERNEL_TAG` 兜底。已发布的 1.0.57 / 1.0.58-beta 安装包无法改写，显示修复只在 1.0.59-beta。App 侧静默去掉 TUN `stack`，不刷「已修正」横幅。1.15 刚需开关：自动重定向（已有，文案补热点/中继）、按需连接（新增，默认开）。不做成开关：Tailcat、`multi_queue`、cache `buffer_size`。
+当前测试内核为官方 **1.15.0-alpha.5**（2026-09-16）：新 TUN TCP/IP 栈（去掉 `stack` 使用 sing-tun 自有栈，该字段 1.17 删除）、Tailcat、Android auto_redirect、on_demand、cache 写缓冲。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已快进到 `5e1593f0`，并已打 annotated tag `v1.15.0-chain.1`。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）；1.0.58-beta 已编进本 commit，但发版浅克隆未打 tag，设置 → 核心显示 unknown。1.0.59-beta 在 gomobile 前打上同一 tag，并用 `BuildConfig.KERNEL_TAG` 兜底。已发布的 1.0.57 / 1.0.58-beta 安装包无法改写，显示修复从 1.0.59-beta 起。1.0.60-beta 起「组」页每个策略组标题下显示当前选中节点。App 侧静默去掉 TUN `stack`，不刷「已修正」横幅。1.15 刚需开关：自动重定向（已有，文案补热点/中继）、按需连接（新增，默认开）。不做成开关：Tailcat、`multi_queue`、cache `buffer_size`。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

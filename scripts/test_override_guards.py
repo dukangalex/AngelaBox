@@ -62,6 +62,13 @@ def main() -> int:
     if "!scriptOn) applyOnDemand" in override or "scriptOn) ConfigQuicOverride.applyOnDemand" in override:
         errors.append("on_demand must not be gated by overlay scripts")
 
+    groups_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/GroupsCard.kt")
+    header = groups_card.split("private fun GroupHeader", 1)[-1]
+    if "selectedTag" not in header or "group.selected" not in header:
+        errors.append("GroupHeader must show the currently selected node for each strategy group")
+    if "text = selectedTag" not in header:
+        errors.append("GroupHeader must render the selected node name")
+
     ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
     if "配置规范化" not in ui_override:
         errors.append("Profile override UI must expose 配置规范化")
