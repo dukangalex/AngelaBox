@@ -184,6 +184,8 @@ object PerAppProxyClassifier {
         "com.android.vpndialogs",
         "com.android.internal",
         "com.google.android.as",
+        "com.google.android.gsf.login",
+    )
 
     private val proxyPrefixes = listOf(
         "io.chainbox",
