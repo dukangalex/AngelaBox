@@ -731,10 +731,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 9" not in sample:
-        errors.append("default script must stamp overlay-revision: 9 so stale copies refresh")
+    if "overlay-revision: 10" not in sample:
+        errors.append("default script must stamp overlay-revision: 10 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 9"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 10"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
@@ -884,6 +884,10 @@ def main() -> int:
         errors.append("zh-TW empty-state must say 預設腳本, not 示例")
     if "Clash 字段" in zh_cn or "Clash 欄位" in zh_tw:
         errors.append("script catalog hint must not mention Clash keys")
+    if "个人资料" in zh_cn:
+        errors.append("zh-rCN must not machine-translate profile as 个人资料")
+    if "应用程序" in zh_cn:
+        errors.append("zh-rCN should say 应用, not 应用程序")
     builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if "所有非中国流量不可直连" not in builder:
         errors.append("chain builder info must say non-China traffic cannot DIRECT")
@@ -1026,6 +1030,26 @@ def main() -> int:
         errors.append("default script STUN range must cover 19302-19310")
     if "3478:3481" not in sample:
         errors.append("default script STUN range must cover 3478-3481")
+    if 'on("chinaDirect")' not in sample or 'on("adsBlock")' not in sample:
+        errors.append("default script must honor overlay.chinaDirect / adsBlock switches")
+    if 'on("webrtcProtect")' not in sample or 'on("disableQuic")' not in sample:
+        errors.append("default script must honor overlay WebRTC / QUIC switches")
+    if 'on("disableIpv6")' not in sample or 'on("dnsProtect")' not in sample or 'on("strictRoute")' not in sample:
+        errors.append("default script must honor overlay IPv6 / DNS / strict switches")
+    if "2400:3200::1" not in sample or "2001:4860:4860::8888" not in sample:
+        errors.append("default script must include dual-stack IPv6 DNS hosts")
+    if "ipv4_only" not in sample or "prefer_ipv4" not in sample:
+        errors.append("default script must switch DNS strategy by overlay.disableIpv6")
+    if "fdfe:dcba:9876::1/126" not in sample:
+        errors.append("default script must assign TUN inet6_address when IPv6 is enabled")
+    if "var overlay =" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("script engine must inject overlay switches as a JS global")
+    if "GET_ACTIVITIES" in perapp or "GET_SERVICES" in perapp:
+        errors.append("per-app scan must not load activities/services; that spikes memory")
+    if "MATCH_UNINSTALLED_PACKAGES" in perapp:
+        errors.append("per-app scan must not enumerate uninstalled packages")
+    if "forEachIndexed" not in perapp:
+        errors.append("per-app scan should walk packages sequentially instead of one coroutine each")
     release_wf = read(".github/workflows/release-chainbox.yml")
     if "telegram_send.py" not in release_wf:
         errors.append("release workflow must notify Telegram itself; GITHUB_TOKEN cannot trigger on:release")
@@ -1077,6 +1101,14 @@ def main() -> int:
     quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
     if "scriptOn" not in quic or "&& !scriptOn" not in quic:
         errors.append("China Direct and ad block must not write when a script is already running")
+    if "Settings.webrtcProtect && !scriptOn" not in quic:
+        errors.append("WebRTC must not double-write when a script is already running")
+    if "Settings.dnsProtect && !scriptOn" not in quic:
+        errors.append("DNS protect must not double-write when a script is already running")
+    if "Settings.disableIpv6 && !scriptOn" not in quic:
+        errors.append("IPv6 overlay must not double-write when a script is already running")
+    if "Settings.strictRoute && !scriptOn" not in quic:
+        errors.append("strict route must not double-write when a script is already running")
     if "prefer_ipv4" not in quic:
         errors.append("DNS protect must set dual-stack prefer_ipv4")
     if "2400:3200::1/128" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChinaDirect.kt"):

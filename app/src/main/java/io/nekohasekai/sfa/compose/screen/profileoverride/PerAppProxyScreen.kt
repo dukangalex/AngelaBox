@@ -90,11 +90,8 @@ import io.nekohasekai.sfa.ktx.clipboardText
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import io.nekohasekai.sfa.vendor.PrivilegedAccessRequiredException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicInteger
 
 private data class LoadResult(val proxyMode: Int, val packages: List<PackageCache>, val selectedUids: Set<Int>)
 
@@ -205,25 +202,21 @@ fun PerAppProxyScreen(
             val foundApps =
                 withContext(Dispatchers.Default) {
                     mutableMapOf<String, PackageCache>().also { found ->
-                        val progressInt = AtomicInteger()
-                        scanPackages.map { packageCache ->
-                            async {
-                                val hit = if (kind == ScanKind.CHINA) {
-                                    PerAppProxyScanner.scanChinaPackage(packageCache.info)
-                                } else {
-                                    PerAppProxyScanner.scanForeignPackage(packageCache.info)
-                                }
-                                if (hit) {
-                                    synchronized(found) {
-                                        found[packageCache.packageName] = packageCache
-                                    }
-                                }
-                                val nextValue = progressInt.incrementAndGet()
+                        val total = scanPackages.size
+                        scanPackages.forEachIndexed { index, packageCache ->
+                            val hit = if (kind == ScanKind.CHINA) {
+                                PerAppProxyScanner.scanChinaPackage(packageCache.info)
+                            } else {
+                                PerAppProxyScanner.scanForeignPackage(packageCache.info)
+                            }
+                            if (hit) found[packageCache.packageName] = packageCache
+                            if (index == total - 1 || index % 16 == 0) {
+                                val nextValue = index + 1
                                 withContext(Dispatchers.Main) {
-                                    scanProgress = ScanProgress(nextValue, scanPackages.size)
+                                    scanProgress = ScanProgress(nextValue, total)
                                 }
                             }
-                        }.awaitAll()
+                        }
                     }
                 }
             Log.d(
@@ -251,24 +244,8 @@ fun PerAppProxyScreen(
 
     LaunchedEffect(Unit) {
         isLoading = true
-        val packageManagerFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                PackageManager.GET_PERMISSIONS or PackageManager.MATCH_UNINSTALLED_PACKAGES or
-                    PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
-                    PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS
-            } else {
-                @Suppress("DEPRECATION")
-                PackageManager.GET_PERMISSIONS or PackageManager.GET_UNINSTALLED_PACKAGES or
-                    PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
-                    PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS
-            }
-        val retryFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.GET_PERMISSIONS
-            } else {
-                @Suppress("DEPRECATION")
-                PackageManager.GET_UNINSTALLED_PACKAGES or PackageManager.GET_PERMISSIONS
-            }
+        val packageManagerFlags = PackageManager.GET_PERMISSIONS
+        val retryFlags = PackageManager.GET_PERMISSIONS
         val loadResult =
             withContext(Dispatchers.IO) {
                 try {
@@ -1293,33 +1270,15 @@ private fun PerAppProxyMenus(
 
 object PerAppProxyScanner {
     suspend fun scanAllChinaApps(): Set<String> = withContext(Dispatchers.Default) {
-        val packageManagerFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            PackageManager.MATCH_UNINSTALLED_PACKAGES or
-                PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
-                PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS
-        } else {
-            @Suppress("DEPRECATION")
-            PackageManager.GET_UNINSTALLED_PACKAGES or
-                PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
-                PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS
-        }
-        val retryFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.GET_PERMISSIONS
-        } else {
-            @Suppress("DEPRECATION")
-            PackageManager.GET_UNINSTALLED_PACKAGES or PackageManager.GET_PERMISSIONS
-        }
+        val packageManagerFlags = PackageManager.GET_PERMISSIONS
+        val retryFlags = PackageManager.GET_PERMISSIONS
         val installedPackages = PackageQueryManager.getInstalledPackages(packageManagerFlags, retryFlags)
         val chinaApps = mutableSetOf<String>()
-        installedPackages.map { packageInfo ->
-            async {
-                if (scanChinaPackage(packageInfo)) {
-                    synchronized(chinaApps) {
-                        chinaApps.add(packageInfo.packageName)
-                    }
-                }
+        installedPackages.forEach { packageInfo ->
+            if (scanChinaPackage(packageInfo)) {
+                chinaApps.add(packageInfo.packageName)
             }
-        }.awaitAll()
+        }
         chinaApps.toSet()
     }
 

@@ -1,12 +1,28 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 9
- * 对齐 airport_overwrite.js：国内 IP/域名先直连，国外走代理；
- * DNS 必须劫持；国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini）。
+ * overlay-revision: 10
+ * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
+ * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
+ * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
+ * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini）。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
  */
 function main(config) {
   if (!config || typeof config !== "object") return config;
+  var ov = (typeof overlay === "object" && overlay) ? overlay : {};
+  function on(key) {
+    if (!Object.prototype.hasOwnProperty.call(ov, key)) return true;
+    var v = ov[key];
+    return v !== false && v !== 0 && v !== "false";
+  }
+  var chinaDirect = on("chinaDirect");
+  var adsBlock = on("adsBlock");
+  var webrtcProtect = on("webrtcProtect");
+  var disableQuic = on("disableQuic");
+  var excludeCnQuic = on("excludeCnQuic");
+  var disableIpv6 = on("disableIpv6");
+  var dnsProtect = on("dnsProtect");
+  var strictRoute = on("strictRoute");
 
   function hasOwn(obj, key) {
     return obj && Object.prototype.hasOwnProperty.call(obj, key);
@@ -552,129 +568,149 @@ function main(config) {
   var prepend = [];
   function addRule(item) { if (item) prepend.push(item); }
 
-  addRule({ ip_is_private: true, outbound: directTag });
-  addRule(rule("geoip-cn", directTag));
-  addRule({
-    ip_cidr: [
-      "fe80::/10", "fc00::/7", "::1/128",
-      "101.226.0.0/16", "140.207.0.0/16",
-      "52.80.0.0/16", "54.223.0.0/16",
-      "223.5.5.5/32", "223.6.6.6/32", "1.12.12.12/32", "120.53.53.53/32"
-    ],
-    outbound: directTag
-  });
-  addRule({ ip_cidr: ["ff00::/8"], action: "reject", method: "drop" });
-  addRule({ domain_suffix: CN_DOMAINS, outbound: directTag });
-  addRule({ domain: ["connectivitycheck.gstatic.com"], outbound: directTag });
-  addRule(rule("geosite-microsoft@cn", directTag));
-  addRule(rule("geosite-steam@cn", directTag));
-  addRule(rule("geosite-category-games@cn", directTag));
-  addRule(rule("geosite-bilibili", directTag));
-  addRule(rule("geosite-geolocation-cn", directTag));
-  addRule(rule("geosite-cn", directTag));
-  addRule({
-    package_name: [
-      "com.tencent.mm", "com.eg.android.AlipayGphone", "com.unionpay",
-      "com.chinatelecom.bestpayclient", "com.MobileTicket", "cn.gov.tax.its",
-      "com.icbc.androidclient", "com.chinamworld.main", "com.chinamworld.bocmbci",
-      "com.android.bankabc", "cmb.pb", "com.yitong.mbank.psbc",
-      "com.cgb.mobilebank", "com.czbank.mbank", "com.pingan.paces.ccmsapp",
-      "com.greenpoint.android.mc10086", "com.sinovatech.unicom.ui", "com.ct.client",
-      "cn.hsa.app", "com.service.android.gov.cn", "com.hicorenational.antifraud"
-    ],
-    outbound: directTag
-  });
-  addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
-  addRule({
-    network: ["udp", "tcp"],
-    port_range: "3478:3481",
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    network: ["udp", "tcp"],
-    port_range: "5349:5355",
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    network: ["udp", "tcp"],
-    port_range: "19302:19310",
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    domain_regex: [
-      "^(stun|turn|stuns|turns)\\.",
-      ".*[-.]stun[-.].*",
-      ".*[-.]turn[-.].*",
-      ".*[-.]stuns[-.].*",
-      ".*[-.]turns[-.].*"
-    ],
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    type: "logical",
-    mode: "and",
-    rules: [
-      { port: 53, network: ["udp", "tcp"] },
-      { rule_set: "geoip-cn", invert: true }
-    ],
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    type: "logical",
-    mode: "and",
-    rules: [
-      { port: 853, network: ["udp", "tcp"] },
-      { rule_set: "geoip-cn", invert: true }
-    ],
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    type: "logical",
-    mode: "and",
-    rules: [
-      { port: [21, 23, 25, 110, 143], network: "tcp" },
-      { rule_set: "geoip-cn", invert: true }
-    ],
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    type: "logical",
-    mode: "and",
-    rules: [
-      { port: [1900, 5353], network: "udp" },
-      { rule_set: "geoip-cn", invert: true }
-    ],
-    action: "reject",
-    method: "drop"
-  });
-  addRule({
-    type: "logical",
-    mode: "and",
-    rules: [
-      { network: "udp", port: 443 },
-      { rule_set: "geoip-cn" }
-    ],
-    outbound: directTag
-  });
-  addRule({
-    network: "udp",
-    port: 443,
-    domain_suffix: CN_DOMAINS,
-    outbound: directTag
-  });
-  addRule({
-    network: "udp",
-    port: 443,
-    action: "reject",
-    method: "drop"
-  });
+  if (disableIpv6) {
+    addRule({ ip_version: 6, action: "reject" });
+  }
+  if (webrtcProtect) {
+    addRule({
+      network: ["udp", "tcp"],
+      port_range: "3478:3481",
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      network: ["udp", "tcp"],
+      port_range: "5349:5355",
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      network: ["udp", "tcp"],
+      port_range: "19302:19310",
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      domain_regex: [
+        "^(stun|turn|stuns|turns)\\.",
+        ".*[-.]stun[-.].*",
+        ".*[-.]turn[-.].*",
+        ".*[-.]stuns[-.].*",
+        ".*[-.]turns[-.].*"
+      ],
+      action: "reject",
+      method: "drop"
+    });
+  }
+  if (chinaDirect) {
+    addRule({ ip_is_private: true, outbound: directTag });
+    addRule(rule("geoip-cn", directTag));
+    addRule({
+      ip_cidr: [
+        "fe80::/10", "fc00::/7", "::1/128",
+        "101.226.0.0/16", "140.207.0.0/16",
+        "52.80.0.0/16", "54.223.0.0/16",
+        "223.5.5.5/32", "223.6.6.6/32", "1.12.12.12/32", "120.53.53.53/32",
+        "114.114.114.114/32", "114.114.115.115/32",
+        "180.76.76.76/32", "119.29.29.29/32",
+        "2400:3200::1/128", "2400:3200:baba::1/128",
+        "2402:4e00::/128", "2400:da00::6666/128",
+        "240c::6666/128", "240c::6644/128"
+      ],
+      outbound: directTag
+    });
+    addRule({ ip_cidr: ["ff00::/8"], action: "reject", method: "drop" });
+    addRule({ domain_suffix: CN_DOMAINS, outbound: directTag });
+    addRule({ domain: ["connectivitycheck.gstatic.com"], outbound: directTag });
+    addRule(rule("geosite-microsoft@cn", directTag));
+    addRule(rule("geosite-steam@cn", directTag));
+    addRule(rule("geosite-category-games@cn", directTag));
+    addRule(rule("geosite-bilibili", directTag));
+    addRule(rule("geosite-geolocation-cn", directTag));
+    addRule(rule("geosite-cn", directTag));
+    addRule({
+      package_name: [
+        "com.tencent.mm", "com.eg.android.AlipayGphone", "com.unionpay",
+        "com.chinatelecom.bestpayclient", "com.MobileTicket", "cn.gov.tax.its",
+        "com.icbc.androidclient", "com.chinamworld.main", "com.chinamworld.bocmbci",
+        "com.android.bankabc", "cmb.pb", "com.yitong.mbank.psbc",
+        "com.cgb.mobilebank", "com.czbank.mbank", "com.pingan.paces.ccmsapp",
+        "com.greenpoint.android.mc10086", "com.sinovatech.unicom.ui", "com.ct.client",
+        "cn.hsa.app", "com.service.android.gov.cn", "com.hicorenational.antifraud"
+      ],
+      outbound: directTag
+    });
+  }
+  if (adsBlock) {
+    addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
+  }
+  if (dnsProtect) {
+    addRule({
+      type: "logical",
+      mode: "and",
+      rules: [
+        { port: 53, network: ["udp", "tcp"] },
+        { rule_set: "geoip-cn", invert: true }
+      ],
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      type: "logical",
+      mode: "and",
+      rules: [
+        { port: 853, network: ["udp", "tcp"] },
+        { rule_set: "geoip-cn", invert: true }
+      ],
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      type: "logical",
+      mode: "and",
+      rules: [
+        { port: [21, 23, 25, 110, 143], network: "tcp" },
+        { rule_set: "geoip-cn", invert: true }
+      ],
+      action: "reject",
+      method: "drop"
+    });
+    addRule({
+      type: "logical",
+      mode: "and",
+      rules: [
+        { port: [1900, 5353], network: "udp" },
+        { rule_set: "geoip-cn", invert: true }
+      ],
+      action: "reject",
+      method: "drop"
+    });
+  }
+  if (disableQuic && excludeCnQuic && chinaDirect) {
+    addRule({
+      type: "logical",
+      mode: "and",
+      rules: [
+        { network: "udp", port: 443 },
+        { rule_set: "geoip-cn" }
+      ],
+      outbound: directTag
+    });
+    addRule({
+      network: "udp",
+      port: 443,
+      domain_suffix: CN_DOMAINS,
+      outbound: directTag
+    });
+  }
+  if (disableQuic) {
+    addRule({
+      network: "udp",
+      port: 443,
+      action: "reject",
+      method: "drop"
+    });
+  }
   addRule({
     package_name: [
       "com.anydesk.anydeskandroid", "com.oray.todesk",
@@ -820,6 +856,14 @@ function main(config) {
     if (ity === "tun" || ity === "mixed" || ity === "socks" || ity === "http" || ity === "redirect" || ity === "tproxy") {
       inbound.sniff = true;
     }
+    if (ity === "tun") {
+      if (strictRoute) inbound.strict_route = true;
+      if (disableIpv6) {
+        if (inbound.inet6_address) delete inbound.inet6_address;
+      } else if (!inbound.inet6_address) {
+        inbound.inet6_address = "fdfe:dcba:9876::1/126";
+      }
+    }
     if (ity === "mixed") hasMixed = true;
   }
   if (!hasMixed) {
@@ -856,11 +900,16 @@ function main(config) {
     {
       type: "hosts",
       tag: "dns-hosts",
-      predefined: {
+      predefined: disableIpv6 ? {
         "dns.alidns.com": ["223.5.5.5", "223.6.6.6"],
         "doh.pub": ["1.12.12.12", "120.53.53.53"],
         "dns.google": ["8.8.8.8", "8.8.4.4"],
         "cloudflare-dns.com": ["1.1.1.1", "1.0.0.1"]
+      } : {
+        "dns.alidns.com": ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"],
+        "doh.pub": ["1.12.12.12", "120.53.53.53", "2402:4e00::"],
+        "dns.google": ["8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+        "cloudflare-dns.com": ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"]
       }
     },
     { type: "local", tag: "dns-local" },
@@ -871,15 +920,18 @@ function main(config) {
   extraDns.push({ query_type: [64, 65], action: "reject" });
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
-  extraDns.push({ domain_suffix: CN_DOMAINS, server: "dns-cn" });
-  if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
-  if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
-  extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
+  if (chinaDirect) {
+    extraDns.push({ domain_suffix: CN_DOMAINS, server: "dns-cn" });
+    if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
+    if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
+    extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
+  }
   dns.rules = extraDns;
   dns.final = "dns-remote";
-  if (typeof dns.independent_cache === "undefined") dns.independent_cache = true;
-  dns.strategy = "prefer_ipv4";
+  if (dnsProtect) dns.independent_cache = true;
+  dns.strategy = disableIpv6 ? "ipv4_only" : "prefer_ipv4";
   route.default_domain_resolver = "dns-local";
+  if (dnsProtect) route.auto_detect_interface = true;
 
   if (!config.log || typeof config.log !== "object") config.log = {};
   if (!config.log.level) config.log.level = "info";

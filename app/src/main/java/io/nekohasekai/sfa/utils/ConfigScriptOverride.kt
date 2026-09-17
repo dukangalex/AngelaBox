@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
@@ -10,6 +11,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Runs user `function main(config)` scripts against the live sing-box JSON.
  * Clash-only keys are not translated here; scripts must emit official types.
+ *
+ * Overlay switches are injected as a JS global `overlay` so the script can
+ * emit one gated rule set. The App does not write a second copy of those
+ * rules while a script is bound.
  */
 object ConfigScriptOverride {
     private const val TIMEOUT_MS = 5_000L
@@ -22,9 +27,10 @@ object ConfigScriptOverride {
         if (scripts.isEmpty()) return
         var current = root.toString()
         val failures = mutableListOf<String>()
+        val overlayJson = overlayFlags().toString()
         scripts.forEach { script ->
             try {
-                val next = ScriptEngine.run(script.code, current, script.name)
+                val next = ScriptEngine.run(script.code, current, script.name, overlayJson)
                 JSONObject(next)
                 current = next
             } catch (e: Exception) {
@@ -47,11 +53,37 @@ object ConfigScriptOverride {
         }
     }
 
+    /** Live 配置覆盖 flags. Missing keys default ON so a script can stay switch-driven. */
+    internal fun overlayFlags(): JSONObject = JSONObject()
+        .put("chinaDirect", Settings.chinaDirect)
+        .put("adsBlock", Settings.adsBlock)
+        .put("webrtcProtect", Settings.webrtcProtect)
+        .put("disableQuic", Settings.disableQuic)
+        .put("excludeCnQuic", Settings.excludeCnQuic)
+        .put("disableIpv6", Settings.disableIpv6)
+        .put("dnsProtect", Settings.dnsProtect)
+        .put("strictRoute", Settings.strictRoute)
+
+    internal fun defaultOverlayFlags(): JSONObject = JSONObject()
+        .put("chinaDirect", true)
+        .put("adsBlock", true)
+        .put("webrtcProtect", true)
+        .put("disableQuic", true)
+        .put("excludeCnQuic", true)
+        .put("disableIpv6", true)
+        .put("dnsProtect", true)
+        .put("strictRoute", true)
+
     internal object ScriptEngine {
         private val factoryReady = AtomicBoolean(false)
         private val deadline = ThreadLocal<Long>()
 
-        fun run(code: String, configJson: String, name: String): String {
+        fun run(
+            code: String,
+            configJson: String,
+            name: String,
+            overlayJson: String? = null,
+        ): String {
             if (code.length > OverlayScripts.MAX_CODE_CHARS) {
                 throw IllegalStateException("脚本过长")
             }
@@ -91,7 +123,10 @@ object ConfigScriptOverride {
                         n == "java.lang.Object"
                 }
                 val quoted = JSONObject.quote(configJson)
+                val overlayLiteral = overlayJson?.takeIf { it.isNotBlank() }
+                    ?: defaultOverlayFlags().toString()
                 val wrapped = """
+                    var overlay = $overlayLiteral;
                     $code
                     (function () {
                       if (typeof main !== "function") {
@@ -99,6 +134,9 @@ object ConfigScriptOverride {
                       }
                       if (typeof Packages !== "undefined" || typeof Java !== "undefined") {
                         throw new Error("java bridge is disabled");
+                      }
+                      if (typeof overlay !== "object" || overlay == null) {
+                        overlay = {};
                       }
                       var cfg = JSON.parse($quoted);
                       var out = main(cfg);

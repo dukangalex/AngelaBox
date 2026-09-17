@@ -150,4 +150,62 @@ class ConfigScriptOverrideTest {
         }
         assertTrue(System.currentTimeMillis() - started < 20_000)
     }
+
+    @Test
+    fun overlaySwitchTurnsOffAdsAndChina() {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return
+        val code = file.readText()
+        val input = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "vless").put("tag", "香港 01"))
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .toString()
+        val off = JSONObject()
+            .put("chinaDirect", false)
+            .put("adsBlock", false)
+            .put("webrtcProtect", false)
+            .put("disableQuic", false)
+            .put("excludeCnQuic", false)
+            .put("disableIpv6", false)
+            .put("dnsProtect", false)
+            .put("strictRoute", false)
+            .toString()
+        val out = JSONObject(ConfigScriptOverride.ScriptEngine.run(code, input, "sample-off", off))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        val ruleText = (0 until rules.length()).joinToString("\n") { rules.getJSONObject(it).toString() }
+        assertTrue("hijack-dns stays", ruleText.contains("hijack-dns"))
+        assertTrue("ads off", !ruleText.contains("geosite-category-ads-all"))
+        assertTrue("stun off", !ruleText.contains("3478:3481"))
+        assertTrue("quic off", !ruleText.contains("\"port\":443") && !ruleText.contains("\"port\": 443"))
+        assertEquals("prefer_ipv4", out.getJSONObject("dns").optString("strategy"))
+        assertTrue(out.getJSONObject("dns").toString().contains("2400:3200::1"))
+        assertTrue(out.getJSONObject("dns").toString().contains("2001:4860:4860::8888"))
+    }
+
+    @Test
+    fun overlayDefaultKeepsProtectiveRules() {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return
+        val code = file.readText()
+        val input = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "vless").put("tag", "日本 Tokyo"))
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .toString()
+        val out = JSONObject(ConfigScriptOverride.ScriptEngine.run(code, input, "sample-on"))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        val ruleText = (0 until rules.length()).joinToString("\n") { rules.getJSONObject(it).toString() }
+        assertTrue(ruleText.contains("geoip-cn"))
+        assertTrue(ruleText.contains("geosite-category-ads-all"))
+        assertTrue(ruleText.contains("3478:3481"))
+        assertTrue(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
+    }
 }

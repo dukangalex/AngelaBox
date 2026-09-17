@@ -143,6 +143,18 @@ class PerAppProxyClassifierTest {
         assertTrue(PerAppProxyClassifier.isForeignPackage("com.google.android.youtube"))
         assertTrue(PerAppProxyClassifier.isForeignPackage("app.revanced.android.gms"))
         assertTrue(PerAppProxyClassifier.isForeignPackage("com.openai.chatgpt"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.snapchat.android"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.anthropic.claude"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.miHoYo.GenshinImpact"))
+        assertTrue(PerAppProxyClassifier.isChinaApp("cn.xuexi.android"))
+        assertTrue(PerAppProxyClassifier.isChinaApp("com.lemon.lv"))
+        assertTrue(PerAppProxyClassifier.isForeignPackage("com.lemon.lvoverseas"))
+        assertEquals(
+            PerAppProxyClassifier.NetworkUse.SKIP,
+            PerAppProxyClassifier.networkUse("com.vendor.app.overlay.navbar", system = false),
+        )
+        assertFalse(PerAppProxyClassifier.isChinaApp("de.blinkt.openvpn"))
+        assertFalse(PerAppProxyClassifier.isForeignPackage("de.blinkt.openvpn"))
         assertFalse(PerAppProxyClassifier.isForeignPackage("com.samsung.android.incallui", system = true))
         assertFalse(PerAppProxyClassifier.isForeignPackage("io.nekohasekai.sfa"))
         assertFalse(PerAppProxyClassifier.isForeignPackage("com.v2ray.ang"))

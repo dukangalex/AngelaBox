@@ -19,11 +19,13 @@ object ConfigQuicOverride {
         // Pipeline (one set of rules at a time, no overlapping routing):
         // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes.
         //    Banner only if heal actually rewrote the config (已修正 + notes).
-        // 2. overlay script — if bound, it owns routing (China/ads/QUIC skipped)
+        // 2. overlay script — if bound, it owns routing AND overlay-gated
+        //    features (China/ads/QUIC/WebRTC/DNS/IPv6/strict). Switches are
+        //    passed into the script as `overlay`; the App does not write a
+        //    second copy.
         // 3. chain — if bound, scripts were already turned off for this profile
-        // 4. China Direct / ads / QUIC — skipped while a script is on
-        // 5. DNS / IPv6 / strict route — leak shields, still apply with scripts
-        // 6. WebRTC last so STUN reject sits in front of China Direct
+        // 4. China Direct / ads / QUIC / WebRTC / DNS / IPv6 / strict —
+        //    App writes these only when no script is bound
         val healed = if (Settings.configNormalize) {
             ConfigNormalize.heal(content)
         } else {
@@ -86,6 +88,8 @@ object ConfigQuicOverride {
                     hint = healed.notes.joinToString("；"),
                 )
             }
+            // Script already honored overlay.* . Writing the same blocks
+            // here would be a second rule set and can break routing.
             applyOne(warnings, "中国直连") {
                 if (Settings.chinaDirect && !scriptOn) ConfigChinaDirect.apply(root)
             }
@@ -93,17 +97,17 @@ object ConfigQuicOverride {
                 if (Settings.disableQuic && !scriptOn) applyQuic(root)
             }
             applyOne(warnings, "严格路由") {
-                if (Settings.strictRoute) applyStrictRoute(root)
+                if (Settings.strictRoute && !scriptOn) applyStrictRoute(root)
             }
             applyOne(warnings, "DNS 防泄漏") {
-                if (Settings.dnsProtect) applyDnsProtect(root)
+                if (Settings.dnsProtect && !scriptOn) applyDnsProtect(root)
             }
             applyOne(warnings, "禁用 IPv6") {
-                if (Settings.disableIpv6) applyDisableIpv6(root)
+                if (Settings.disableIpv6 && !scriptOn) applyDisableIpv6(root)
             }
             // WebRTC last so reject rules prepend in front of China Direct.
             applyOne(warnings, "防 WebRTC 泄露") {
-                if (Settings.webrtcProtect) applyWebrtc(root)
+                if (Settings.webrtcProtect && !scriptOn) applyWebrtc(root)
             }
             applyOne(warnings, "广告拦截") {
                 if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
