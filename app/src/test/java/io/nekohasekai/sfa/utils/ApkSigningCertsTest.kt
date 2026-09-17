@@ -16,7 +16,7 @@ class ApkSigningCertsTest {
         val v3 = "v3-cert".toByteArray()
         val pairs = concat(
             pair(0x7109871A, signerValue(v2)),
-            pair(0xF05368C0, signerValue(v3)),
+            pair(0xF05368C0.toInt(), signerValue(v3)),
         )
         val found = ApkSigningCerts.certsFromPairs(pairs)
         assertEquals(1, found.size)
@@ -26,7 +26,7 @@ class ApkSigningCertsTest {
     @Test
     fun certsFromPairsFallsBackToV3() {
         val v3 = "only-v3".toByteArray()
-        val pairs = pair(0xF05368C0, signerValue(v3))
+        val pairs = pair(0xF05368C0.toInt(), signerValue(v3))
         val found = ApkSigningCerts.certsFromPairs(pairs)
         assertEquals(1, found.size)
         assertArrayEquals(v3, found[0])
