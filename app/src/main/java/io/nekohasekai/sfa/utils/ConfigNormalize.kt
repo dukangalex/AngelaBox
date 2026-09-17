@@ -120,6 +120,9 @@ object ConfigNormalize {
         }
         mark(ConfigCompat.migrateLegacyDns(root), "旧版 DNS / fakeip 已转为当前内核格式")
         mark(ConfigInboundCompat.migrateLegacyInbounds(root), "入站 sniff 已转为路由动作")
+        // tun.stack strip is forward-compat for 1.15. Silent: default
+        // subscriptions still emit the field, and removing it is not a defect.
+        ConfigInboundCompat.stripDeprecatedTunStack(root)
         mark(ConfigInboundCompat.stripSniffOverrideDestination(root), "已去掉内核不再支持的 sniff 覆盖字段")
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")

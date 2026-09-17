@@ -15,6 +15,7 @@ object ConfigInboundCompat {
     fun apply(root: JSONObject): Boolean {
         var changed = false
         if (migrateLegacyInbounds(root)) changed = true
+        if (stripDeprecatedTunStack(root)) changed = true
         if (stripSniffOverrideDestination(root)) changed = true
         if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
@@ -96,6 +97,27 @@ object ConfigInboundCompat {
         if (!changed) return false
         prependRouteRules(root, extra)
         return true
+    }
+
+    /**
+     * sing-box 1.15 uses sing-tun's own TCP/IP stack. The inbound `stack`
+     * field is deprecated and will be removed in 1.17. Strip it silently:
+     * 1.14 then uses the default mixed stack; 1.15 uses the new stack.
+     * Do not surface this as a dashboard 「已修正」 — almost every TUN
+     * profile still has the field.
+     */
+    internal fun stripDeprecatedTunStack(root: JSONObject): Boolean {
+        val inbounds = root.optJSONArray("inbounds") ?: return false
+        var changed = false
+        for (i in 0 until inbounds.length()) {
+            val ib = inbounds.optJSONObject(i) ?: continue
+            if (!ib.optString("type").equals("tun", ignoreCase = true)) continue
+            if (ib.has("stack")) {
+                ib.remove("stack")
+                changed = true
+            }
+        }
+        return changed
     }
 
     /**

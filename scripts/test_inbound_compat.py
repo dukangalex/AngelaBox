@@ -266,8 +266,15 @@ def heal_direct_override(root: dict) -> None:
             o["server_port"] = 9
 
 
+def strip_tun_stack(root: dict) -> None:
+    for ib in root.get("inbounds") or []:
+        if str(ib.get("type") or "").lower() == "tun":
+            ib.pop("stack", None)
+
+
 def sanitize(root: dict) -> dict:
     migrate_inbounds(root)
+    strip_tun_stack(root)
     strip_sniff_override(root)
     heal_direct_override(root)
     migrate_special(root)
@@ -356,7 +363,7 @@ def main() -> int:
     inbound_src = (ROOT / "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt").read_text()
     if "ConfigInboundCompat.apply" not in src:
         errors.append("ConfigCompat.sanitize must call ConfigInboundCompat.apply")
-    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "healDirectDestinationOverride", "ensureHijackDns", "legacy inbound fields"):
+    for needle in ("migrateLegacyInbounds", "migrateSpecialOutbounds", "rewriteRuleSetUrls", "dropMissingRemoteRuleSets", "healDirectDestinationOverride", "ensureHijackDns", "legacy inbound fields", "stripDeprecatedTunStack"):
         if needle not in inbound_src:
             errors.append(f"missing {needle}")
     if JSDELIVR_HOST not in inbound_src:
@@ -371,6 +378,7 @@ def main() -> int:
                     "sniff_timeout": "1s",
                     "sniff_override_destination": True,
                     "domain_strategy": "prefer_ipv4",
+                    "stack": "mixed",
                 }
             ],
             "route": {"rules": [{"protocol": "dns", "action": "hijack-dns"}]},
@@ -379,7 +387,7 @@ def main() -> int:
     ib = inbound["inbounds"][0]
     if ib.get("tag") != "tun-in":
         errors.append(f"missing inbound tag: {ib}")
-    if any(k in ib for k in ("sniff", "sniff_timeout", "domain_strategy")):
+    if any(k in ib for k in ("sniff", "sniff_timeout", "domain_strategy", "stack")):
         errors.append(f"legacy inbound fields survived: {ib}")
     rules = inbound["route"]["rules"]
     if rules[0].get("action") != "resolve" or rules[1].get("action") != "sniff":
@@ -555,6 +563,20 @@ def main() -> int:
         errors.append("ConfigInboundCompat must heal 1.14 http_clients and leftover outbound refs")
     if "angela-http-direct" not in inbound_src:
         errors.append("heal must inject a no-detour HTTP client for rule-set downloads")
+
+    stack_only = sanitize(
+        {
+            "inbounds": [
+                {"type": "tun", "tag": "tun-in", "stack": "gvisor", "address": "172.19.0.1/30"},
+                {"type": "mixed", "tag": "mixed-in", "stack": "system"},
+            ]
+        }
+    )
+    if "stack" in stack_only["inbounds"][0]:
+        errors.append("tun.stack must be stripped for sing-box 1.15")
+    if stack_only["inbounds"][1].get("stack") != "system":
+        errors.append("non-tun stack must be left alone")
+
 
     if inbound_src.find("fun healRemoteRuleSets") < 0:
         errors.append("ConfigInboundCompat must heal 404 rule-sets by replacing URLs")

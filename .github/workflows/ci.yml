@@ -33,6 +33,7 @@ jobs:
           python3 scripts/test_inbound_compat.py
           python3 scripts/test_adblock_overlay.py
           python3 scripts/test_security_guards.py
+          python3 scripts/test_apk_signing.py
 
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

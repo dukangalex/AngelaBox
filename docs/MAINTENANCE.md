@@ -81,6 +81,8 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。相关提交多为 Apple / Windows / Tailscale / netlink，以及 **Go 1.26.8**。chain-dev 的 `oomprofile` 用 go:linkname 钉在 Go 1.25.5 的 `runtime/pprof` 内部符号上，跟进 1.14.1 需先在 `chain-dev` 验证该符号与 Android 编译。按「不为跟版而跟版」，本版继续钉 **v1.14.0**。
 
+官方 **1.15.0-alpha.5**（2026-09-16）仍为预发布：新 TUN TCP/IP 栈（`stack` 弃用至 1.17）、Tailcat、Android auto_redirect、on_demand、cache 写缓冲。Go 仍为 1.25.5。测试内核在 `dukangalex/sing-box` 分支 `chain-1.15`（当前 `5e1593f0f5bf1110a94aab71e55244ceb4ccceba`）合并，**不得把该 alpha 内核写进稳定版 `KERNEL_COMMIT`**。App 侧已在 1.0.57 静默去掉 TUN `stack`，以便后续测试版接入。尚未打 `v1.15.0-chain.1` tag（需 CI 编译通过后再打）。
+
 官方上游：`https://github.com/SagerNet/sing-box`
 
 ```bash

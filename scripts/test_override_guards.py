@@ -553,6 +553,18 @@ def main() -> int:
     downloader = read("app/src/github/java/io/nekohasekai/sfa/vendor/ApkDownloader.kt")
     if "expectedSha256" not in downloader or "SHA-256" not in downloader:
         errors.append("in-app update must verify APK SHA-256 when the release sidecar exists")
+    if "ApkSigningCerts.firstCertDer" not in downloader:
+        errors.append("in-app update must parse the APK Signing Block, not only PackageManager")
+    if "APK has no signing certificate" in downloader:
+        errors.append("in-app update must not show the English APK has no signing certificate error")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if "fun stripDeprecatedTunStack" not in inbound:
+        errors.append("ConfigInboundCompat must strip deprecated tun.stack for 1.15")
+    normalize = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt")
+    if "stripDeprecatedTunStack" not in normalize:
+        errors.append("config normalize must strip tun.stack")
+    if 'mark(ConfigInboundCompat.stripDeprecatedTunStack' in normalize:
+        errors.append("tun.stack strip must stay silent; do not show 已修正")
     checker = read("app/src/github/java/io/nekohasekai/sfa/vendor/GitHubUpdateChecker.kt")
     if "pickSha256" not in checker:
         errors.append("GitHub update checker must fetch the APK SHA-256 asset")

@@ -154,7 +154,7 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.56" in props
+    assert "VERSION_NAME=1.0.57" in props
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust
@@ -231,7 +231,8 @@ def test_source_guards() -> None:
     assert "${profile.name}.bpf" not in shares
 
     ci = read(".github/workflows/ci.yml")
-    assert "fetch-depth: 0" in ci
+    assert "python3 scripts/test_security_guards.py" in ci
+    assert "python3 scripts/test_apk_signing.py" in ci
 
     fdroid = read("app/src/main/java/io/nekohasekai/sfa/update/FDroidUpdateChecker.kt")
     assert "Libbox.checkFDroidUpdate" not in fdroid

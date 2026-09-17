@@ -8,6 +8,32 @@ import org.junit.Test
 
 class ConfigInboundCompatLoopbackTest {
     @Test
+    fun tunStackStrippedSilently() {
+        val root = JSONObject().put(
+            "inbounds",
+            org.json.JSONArray().put(
+                JSONObject()
+                    .put("type", "tun")
+                    .put("tag", "tun-in")
+                    .put("stack", "mixed")
+                    .put("address", "172.19.0.1/30"),
+            ).put(
+                JSONObject()
+                    .put("type", "mixed")
+                    .put("tag", "mixed-in")
+                    .put("stack", "system"),
+            ),
+        )
+        assertTrue(ConfigInboundCompat.stripDeprecatedTunStack(root))
+        val tun = root.getJSONArray("inbounds").getJSONObject(0)
+        assertFalse(tun.has("stack"))
+        assertEquals("172.19.0.1/30", tun.getString("address"))
+        val mixed = root.getJSONArray("inbounds").getJSONObject(1)
+        assertEquals("system", mixed.getString("stack"))
+        assertFalse(ConfigInboundCompat.stripDeprecatedTunStack(root))
+    }
+
+    @Test
     fun clashApiWildcardReboundToLoopback() {
         val root = JSONObject().put(
             "experimental",
