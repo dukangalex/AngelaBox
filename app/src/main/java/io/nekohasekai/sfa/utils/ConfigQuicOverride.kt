@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -116,6 +117,9 @@ object ConfigQuicOverride {
             // official testingcf geosite/geoip URLs so APP routing still
             // matches the original tags. Chain landing is untouched.
             ConfigInboundCompat.apply(root)
+            if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
+                applyOnDemand(root, Settings.onDemand)
+            }
             ConfigCompat.stripBrokenDnsDetours(root)
             if (replaceRuleSetNeedles.isNotEmpty()) {
                 ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
@@ -198,6 +202,23 @@ object ConfigQuicOverride {
         if (!touched) {
             throw IllegalStateException("当前配置没有 TUN 入站，严格路由无法写入")
         }
+    }
+
+    private val onDemandTypes = setOf("wireguard", "tailscale", "openvpn", "openconnect")
+
+    /** 1.15 endpoint/outbound field. Not routing; not gated by overlay scripts. */
+    internal fun applyOnDemand(root: JSONObject, enabled: Boolean) {
+        fun walk(key: String) {
+            val arr = root.optJSONArray(key) ?: return
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                if (obj.optString("type") in onDemandTypes) {
+                    obj.put("on_demand", enabled)
+                }
+            }
+        }
+        walk("endpoints")
+        walk("outbounds")
     }
 
     internal fun applyDnsProtect(root: JSONObject) {

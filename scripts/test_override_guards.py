@@ -53,6 +53,14 @@ def main() -> int:
         errors.append("runtime overlay must replace 404 rule-sets passed from a failed start")
     if "ChainBindings.get" not in override:
         errors.append("runtime chain must look up the current profile binding")
+    if "applyOnDemand" not in override:
+        errors.append("runtime overlay must write 1.15 on_demand")
+    if 'KERNEL_UPSTREAM.startsWith("1.15")' not in override:
+        errors.append("on_demand must be gated to 1.15 kernels")
+    if "Settings.onDemand" not in override:
+        errors.append("on_demand overlay must follow Settings.onDemand")
+    if "!scriptOn) applyOnDemand" in override or "scriptOn) ConfigQuicOverride.applyOnDemand" in override:
+        errors.append("on_demand must not be gated by overlay scripts")
 
     ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
     if "配置规范化" not in ui_override:
@@ -61,6 +69,12 @@ def main() -> int:
         errors.append("Profile override UI must bind Settings.configNormalize")
     if "没有错误不提示" not in ui_override:
         errors.append("config normalize UI must say it stays silent until a config error")
+    if "按需连接" not in ui_override:
+        errors.append("Profile override UI must expose 按需连接")
+    if "onDemand" not in ui_override:
+        errors.append("Profile override UI must bind Settings.onDemand")
+    if "热点" not in ui_override:
+        errors.append("auto_redirect copy must mention 1.15 hotspot forwarding")
 
     compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
     if "plugin_opts" not in compat or "objectToPluginOpts" not in compat:

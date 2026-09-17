@@ -48,9 +48,9 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 |------|-----|
 | 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.5** |
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
-| 已同步基线 | 官方 **sing-box 1.15.0-alpha.5**（Go 1.25.5；Tailcat、新 TUN 栈、Android auto_redirect） |
-| 内核型号 / tag | `v1.15.0-chain.1`（`chain-dev` 当前 git tag；App 内 `Libbox.version()` 为官方 `1.15.0-alpha.5`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.58-beta** 测试版） |
+| 已同步基线 | 官方 **sing-box 1.15.0-alpha.5**（Go 1.25.5；Tailcat、新 TUN 栈、Android auto_redirect、on_demand） |
+| 内核型号 / tag | `v1.15.0-chain.1`（已打在 `chain-dev` 的 `5e1593f0`；设置 → 核心显示 `1.15.0-chain.1（官方 1.15.0-alpha.5）`） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.59-beta** 测试版） |
 
 ### 同步更新策略
 
@@ -58,7 +58,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 2. **内核：** `git fetch` 官方 `SagerNet/sing-box`，merge 进 `chain-dev`，只解决与 Chain outbound 相关的冲突。
 3. **App：** `git fetch` 官方 `SagerNet/sing-box-for-android`，merge 进本仓库 `dev`。冲突以 AngelaBox 为准（包名、组链、覆盖层、备份、更新检查、发版工作流）。
 4. **Fail Closed：** 链路失败必须报错并停止启动，不得静默落到 DIRECT。
-5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型，且把 Go 升到 1.26.8；`chain-dev` 的 oomprofile 依赖 Go 1.25.5 内部符号，**不跟进 v1.14.1**。当前测试内核对齐官方 **v1.15.0-alpha.5**（Go 仍 1.25.5）。稳定安装包仍是 1.0.57（1.14.0）；1.0.58-beta 才使用 1.15 测试内核。
+5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型，且把 Go 升到 1.26.8；`chain-dev` 的 oomprofile 依赖 Go 1.25.5 内部符号，**不跟进 v1.14.1**。当前测试内核对齐官方 **v1.15.0-alpha.5**（Go 仍 1.25.5）。稳定安装包仍是 1.0.57（1.14.0）；1.0.59-beta 使用 1.15 测试内核（1.0.58-beta 已编进同一内核，但核心版本显示 unknown）。
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 
@@ -73,7 +73,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 - 多级出站：在当前配置中选择入口分组/节点，再选择落地（可来自当前或其他配置）；外部访问的源地址应为落地节点地址。**每份配置独立保存链路**。入口只作为链式第一跳，不会成为出口。
 - 实时拓扑：仪表首页以下行速率、当前节点/延迟和最多四列的放射状路径为主（来源 → 规则 → 入口/落地）。首页图标为启动/停止开关。链式时中国直连是底层路由，不作为中间跳或当前节点显示。未链式时直连流量为灰色线束。
 - 链路保持：出口选择保存于本地；远程订阅更新后仍按已保存的出口复用，不必重配。
-- 运行时覆盖：中国直连、广告拦截、严格路由、DNS、IPv6、QUIC、WebRTC 防护。开启后**强制覆盖**对应字段，不修改订阅原文。脚本开着时由脚本按这些开关写出一套规则，应用不再重复写入。
+- 运行时覆盖：中国直连、广告拦截、严格路由、DNS、IPv6、QUIC、WebRTC 防护、1.15 按需连接。开启后**强制覆盖**对应字段，不修改订阅原文。脚本开着时由脚本按这些开关写出一套规则，应用不再重复写入分流类开关；按需连接不是分流，脚本开着时应用仍写入。
 - 备份与恢复：本地文件及 WebDAV（覆盖=完全替换，兼容=与现有共存）。备份不含账号密码。
 - 更新校验：Releases 附带 APK SHA-256；应用内下载在存在校验和时会验证。
 - 日志：内核日志等级默认 info。

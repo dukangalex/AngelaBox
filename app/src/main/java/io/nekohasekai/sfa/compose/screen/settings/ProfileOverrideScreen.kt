@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.bg.RootClient
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.compose.navigation.popToDashboard
@@ -72,6 +73,7 @@ fun ProfileOverrideScreen(
     val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
 
     var autoRedirect by remember { mutableStateOf(Settings.autoRedirect) }
+    var onDemand by remember { mutableStateOf(Settings.onDemand) }
     var perAppProxyEnabled by remember { mutableStateOf(Settings.perAppProxyEnabled) }
     var managedModeEnabled by remember { mutableStateOf(Settings.perAppProxyManagedMode) }
     var isScanning by remember { mutableStateOf(false) }
@@ -178,7 +180,7 @@ fun ProfileOverrideScreen(
             ) {
                 ListItem(
                     headlineContent = { Text("自动重定向") },
-                    supportingContent = { Text("需要 ROOT 权限") },
+                    supportingContent = { Text("需要 ROOT；1.15 起支持热点/中继转发") },
                     leadingContent = { Icon(Icons.Outlined.Route, contentDescription = null) },
                     trailingContent = {
                         Switch(
@@ -394,6 +396,26 @@ fun ProfileOverrideScreen(
                     scope.launch(Dispatchers.IO) {
                         Settings.strictRoute = it
                         withContext(Dispatchers.Main) { reload() }
+                    }
+                }
+                if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
+                    OverrideSwitch(
+                        title = "按需连接",
+                        subtitle = "空闲时断开 WireGuard / Tailscale / OpenVPN / OpenConnect 端点",
+                        checked = onDemand,
+                        onHelp = {
+                            help = SwitchHelp(
+                                "按需连接",
+                                "对应官方 sing-box 1.15 的 on_demand。开启后，上述端点在空闲时断开，有流量时再连上，有利于省电。\n\n" +
+                                    "默认开启。只改运行时配置，不改订阅文件。不是分流规则，脚本开着时应用仍会写入。没有这类端点时开关不生效，其它功能不受影响。",
+                            )
+                        },
+                    ) {
+                        onDemand = it
+                        scope.launch(Dispatchers.IO) {
+                            Settings.onDemand = it
+                            withContext(Dispatchers.Main) { reload() }
+                        }
                     }
                 }
                 OverrideSwitch(

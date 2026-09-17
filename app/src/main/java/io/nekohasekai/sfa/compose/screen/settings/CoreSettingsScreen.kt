@@ -55,12 +55,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.R
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.clipboardText
+import io.nekohasekai.sfa.utils.CoreIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,7 +86,7 @@ fun CoreSettingsScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dataSize by remember { mutableStateOf("") }
-    val version = remember { Libbox.version() }
+    val version = remember { CoreIdentity.display() }
     var showVersionMenu by remember { mutableStateOf(false) }
     var disableDeprecatedWarnings by remember { mutableStateOf(Settings.disableDeprecatedWarnings) }
 

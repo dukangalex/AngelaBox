@@ -45,6 +45,16 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
           echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
+      - name: Stamp kernel version tag
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$KTAG" | grep -Eq '^v[0-9]'
+          git tag -f "$KTAG" HEAD
+          git describe --tags --abbrev=0
+          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+
       - name: Verify official types in audited kernel
         run: |
           set -euo pipefail

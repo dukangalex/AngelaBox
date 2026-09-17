@@ -17,6 +17,7 @@ object SettingsKey {
     const val DISABLE_DEPRECATED_WARNINGS = "disable_deprecated_warnings"
 
     const val AUTO_REDIRECT = "auto_redirect"
+    const val ON_DEMAND = "on_demand"
     const val DISABLE_QUIC = "disable_quic"
     const val EXCLUDE_CN_QUIC = "exclude_cn_quic"
     const val STRICT_ROUTE = "strict_route"

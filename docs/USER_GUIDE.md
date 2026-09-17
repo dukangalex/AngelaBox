@@ -62,6 +62,8 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 广告拦截 | 注入官方 geosite-category-ads-all 规则集并拒绝匹配流量。不改订阅文件，国内广告同样拦截 |
 | 中国直连 | 打包绕过：中国 IP/域名（含 IPv6）、中国公共 DNS IP/域名、局域网 IP/域名。只改路由，不注入 DNS 服务器（避免内核因空 direct detour 无法启动） |
 | 严格路由 | 强制 TUN `strict_route` |
+| 按需连接 | 1.15：空闲时断开 WireGuard / Tailscale / OpenVPN / OpenConnect。默认开。不是分流，脚本开着时应用仍写入 |
+| 自动重定向 | 需要 ROOT；1.15 起支持热点/中继转发。默认关 |
 | DNS 防泄漏倾向 | 强制 DNS 独立缓存、自动探测网卡 |
 | 禁用 IPv6 | 强制 DNS `ipv4_only`，拦截 IPv6。关闭后走 IPv4/IPv6 双栈 |
 | 禁用 QUIC | 拦截 UDP 443 |
@@ -190,3 +192,6 @@ debug 与正式签名混过。卸载后装正式 `AngelaBox-android.apk`，以�
 
 **启动后内核报 TUN stack deprecated / unknown field stack**  
 1.15 起请去掉 TUN 的 `stack`。当前版本会在导入/启动时静默删除该字段，不必改订阅原文。
+
+**设置 → 核心 显示 unknown**  
+1.0.57 与 1.0.58-beta 发版时浅克隆没有 git tag，内核 `Libbox.version()` 会变成 unknown。请安装 1.0.59-beta：该版本会在编译前打上 `v1.15.0-chain.1`，界面用发版钉死的 tag 兜底，显示 `1.15.0-chain.1（官方 1.15.0-alpha.5）`。点「销毁」清空工作目录后，「数据大小」为 0 kB 是正常的。

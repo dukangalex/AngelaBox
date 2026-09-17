@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.bg
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
+import io.nekohasekai.sfa.utils.CoreIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -84,7 +85,7 @@ object CrashReportManager {
                 put("appVersion", BuildConfig.VERSION_CODE.toString())
                 put("appMarketingVersion", BuildConfig.VERSION_NAME)
                 runCatching {
-                    put("coreVersion", Libbox.version())
+                    put("coreVersion", CoreIdentity.libboxOrPin())
                     put("goVersion", Libbox.goVersion())
                 }
             }

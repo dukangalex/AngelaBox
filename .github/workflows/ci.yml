@@ -116,6 +116,16 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
 
+      - name: Stamp kernel version tag
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$KTAG" | grep -Eq '^v[0-9]'
+          git tag -f "$KTAG" HEAD
+          git describe --tags --abbrev=0
+          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:

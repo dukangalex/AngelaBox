@@ -45,6 +45,9 @@ android {
         versionCode = getVersionProps("VERSION_CODE").toInt()
         versionName = getVersionProps("VERSION_NAME")
         buildConfigField("String", "FLAVOR", "\"other\"")
+        buildConfigField("String", "KERNEL_TAG", "\"${getVersionProps("KERNEL_TAG")}\"")
+        buildConfigField("String", "KERNEL_UPSTREAM", "\"${getVersionProps("KERNEL_UPSTREAM")}\"")
+        buildConfigField("String", "KERNEL_COMMIT", "\"${getVersionProps("KERNEL_COMMIT")}\"")
     }
 
     signingConfigs {

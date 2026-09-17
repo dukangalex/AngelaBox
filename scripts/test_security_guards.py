@@ -154,9 +154,27 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.58-beta" in props
+    assert "VERSION_NAME=1.0.59-beta" in props
+    assert "VERSION_CODE=10059" in props
     assert "KERNEL_UPSTREAM=1.15.0-alpha.5" in props
     assert "KERNEL_TAG=v1.15.0-chain.1" in props
+
+    gradle = read("app/build.gradle.kts")
+    assert 'buildConfigField("String", "KERNEL_TAG"' in gradle
+    assert 'buildConfigField("String", "KERNEL_UPSTREAM"' in gradle
+    assert 'buildConfigField("String", "KERNEL_COMMIT"' in gradle
+
+    core_id = read("app/src/main/java/io/nekohasekai/sfa/utils/CoreIdentity.kt")
+    assert "fun libboxOrPin" in core_id
+    assert "BuildConfig.KERNEL_TAG" in core_id
+    assert "fun display" in core_id
+    assert "Libbox.version()" in core_id
+
+    assert "Stamp kernel version tag" in release
+    assert 'git tag -f "$KTAG" HEAD' in release
+    ci = read(".github/workflows/ci.yml")
+    assert "Stamp kernel version tag" in ci
+    assert 'git tag -f "$KTAG" HEAD' in ci
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust

@@ -51,4 +51,53 @@ class ConfigQuicOverrideTest {
         assertEquals(6, rule.getInt("ip_version"))
         assertEquals("reject", rule.getString("action"))
     }
+
+    @Test
+    fun onDemandWritesMatchingEndpointsAndOutbounds() {
+        val root = JSONObject()
+            .put(
+                "endpoints",
+                JSONArray()
+                    .put(JSONObject().put("type", "wireguard").put("tag", "wg"))
+                    .put(JSONObject().put("type", "tailscale").put("tag", "ts"))
+                    .put(JSONObject().put("type", "http").put("tag", "skip-ep")),
+            )
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "openvpn").put("tag", "ov"))
+                    .put(JSONObject().put("type", "openconnect").put("tag", "oc"))
+                    .put(JSONObject().put("type", "shadowsocks").put("tag", "ss")),
+            )
+        ConfigQuicOverride.applyOnDemand(root, true)
+        val endpoints = root.getJSONArray("endpoints")
+        assertTrue(endpoints.getJSONObject(0).getBoolean("on_demand"))
+        assertTrue(endpoints.getJSONObject(1).getBoolean("on_demand"))
+        assertTrue(!endpoints.getJSONObject(2).has("on_demand"))
+        val outbounds = root.getJSONArray("outbounds")
+        assertTrue(outbounds.getJSONObject(0).getBoolean("on_demand"))
+        assertTrue(outbounds.getJSONObject(1).getBoolean("on_demand"))
+        assertTrue(!outbounds.getJSONObject(2).has("on_demand"))
+    }
+
+    @Test
+    fun onDemandFalseOverwritesExistingTrue() {
+        val root = JSONObject().put(
+            "endpoints",
+            JSONArray().put(JSONObject().put("type", "wireguard").put("on_demand", true)),
+        )
+        ConfigQuicOverride.applyOnDemand(root, false)
+        assertTrue(!root.getJSONArray("endpoints").getJSONObject(0).getBoolean("on_demand"))
+    }
+
+    @Test
+    fun onDemandNoMatchingTypesIsNoOp() {
+        val root = JSONObject().put(
+            "outbounds",
+            JSONArray().put(JSONObject().put("type", "direct").put("tag", "direct")),
+        )
+        ConfigQuicOverride.applyOnDemand(root, true)
+        assertTrue(!root.getJSONArray("outbounds").getJSONObject(0).has("on_demand"))
+    }
 }
+

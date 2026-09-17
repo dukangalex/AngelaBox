@@ -81,7 +81,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型，且把 **Go 升到 1.26.8**。chain-dev 的 `oomprofile` 用 go:linkname 钉在 Go 1.25.5 的 `runtime/pprof` 内部符号上，**不跟进 v1.14.1**。
 
-当前测试内核为官方 **1.15.0-alpha.5**（2026-09-16）：新 TUN TCP/IP 栈（去掉 `stack` 使用 sing-tun 自有栈，该字段 1.17 删除）、Tailcat、Android auto_redirect、on_demand、cache 写缓冲。Go 仍为 1.25.5。已快进合并进 `chain-dev` 并打 tag `v1.15.0-chain.1`。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）；1.0.58-beta 才使用本 commit。App 侧静默去掉 TUN `stack`，不刷「已修正」横幅。
+当前测试内核为官方 **1.15.0-alpha.5**（2026-09-16）：新 TUN TCP/IP 栈（去掉 `stack` 使用 sing-tun 自有栈，该字段 1.17 删除）、Tailcat、Android auto_redirect、on_demand、cache 写缓冲。Go 仍为 1.25.5。`chain-dev` 已快进到 `5e1593f0`，并已打 annotated tag `v1.15.0-chain.1`。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）；1.0.58-beta 已编进本 commit，但发版浅克隆未打 tag，设置 → 核心显示 unknown。1.0.59-beta 在 gomobile 前打上同一 tag，并用 `BuildConfig.KERNEL_TAG` 兜底。App 侧静默去掉 TUN `stack`，不刷「已修正」横幅。1.15 刚需开关：自动重定向（已有，文案补热点/中继）、按需连接（新增，默认开）。不做成开关：Tailcat、`multi_queue`、cache `buffer_size`。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

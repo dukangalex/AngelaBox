@@ -20,8 +20,8 @@
 
 - 该钥匙 **不是** 当前 AngelaBox 发行证书。
 - 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 含该钥匙的提交为祖先。
-- 仍带该文件的旧 tag（v0.1.x、v1.0.2–v1.0.9）及分支 `chainbox-audit-fix` 已删除。
-- GitHub 对象回收需官方 Support 清缓存；fork `goodmen001/AngelaBox` 若仍引用旧对象，需由 fork 所有者删除或重新 fork。
+- 仍带该文件的旧 tag（v0.1.x、v1.0.2–v1.0.9）已删除。分支 `chainbox-audit-fix` 在 GitHub 上已不存在（`git ls-remote --heads` 仅剩 `dev`）。
+- GitHub Support Ticket 4763595：PR #1 与缓存视图已清，但对象回收仍受 fork `goodmen001/AngelaBox` 拖住。当前 `dev` / v1.0.13+ **不会** 改写历史，也不会轮换 CN=ChainBox。需 fork 所有者删除该 fork 或自行改写其历史后，GitHub 才能 GC。
 
 请只从本仓库 Releases 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。
 

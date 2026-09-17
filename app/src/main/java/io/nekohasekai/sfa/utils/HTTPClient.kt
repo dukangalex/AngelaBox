@@ -1,7 +1,6 @@
 package io.nekohasekai.sfa.utils
 
 import android.net.SSLCertificateSocketFactory
-import io.nekohasekai.libbox.Libbox
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
@@ -33,7 +32,7 @@ class HTTPClient : Closeable {
 
         val userAgent by lazy {
             var userAgent = "SFA (sing-box "
-            userAgent += Libbox.version()
+            userAgent += CoreIdentity.libboxOrPin()
             userAgent += "; language "
             userAgent += Locale.getDefault().toLanguageTag().replace("-", "_")
             userAgent += ")"
