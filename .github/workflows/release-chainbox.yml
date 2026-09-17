@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+          ref: ${{ steps.pin.outputs.commit }}
           path: sing-box
           fetch-depth: 1
 
@@ -42,7 +42,6 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
           echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
@@ -208,42 +207,47 @@ jobs:
           sha256sum -c AngelaBox-android.apk.sha256
           grep -q 'AngelaBox-android.apk' AngelaBox-android.apk.sha256
 
+      - name: Build GitHub release notes
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' version.properties | cut -d= -f2 | tr -d '\r')
+          KTAG=$(grep '^KERNEL_TAG=' version.properties | cut -d= -f2 | tr -d '\r')
+          KBRANCH=$(grep '^KERNEL_BRANCH=' version.properties | cut -d= -f2 | tr -d '\r')
+          GOV=$(grep '^GO_VERSION=' version.properties | cut -d= -f2 | tr -d '\r')
+          {
+            cat docs/RELEASE_NOTES.md
+            echo
+            echo "Install \`AngelaBox-android.apk\` (arm64). That is the only file you need."
+            echo
+            echo "Verify:"
+            echo
+            echo '```'
+            echo "sha256sum -c AngelaBox-android.apk.sha256"
+            echo '```'
+            echo
+            echo "- Product: AngelaBox"
+            echo "- Package: \`io.chainbox.app\`"
+            echo "- Kernel branch: \`$KBRANCH\`"
+            echo "- Kernel tag: \`$KTAG\`"
+            echo "- Kernel commit: \`$KERNEL_COMMIT\`"
+            echo "- Official baseline: SagerNet/sing-box \`v${UPSTREAM}\`"
+            echo "- Official type-constant check: \`pass\`"
+            echo "- Go: $GOV"
+          } > github-release-body.md
+
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.version_tag }}
           name: AngelaBox ${{ inputs.version_tag }}
-          body: |
-            更新说明
-            • 修复检查更新 HTTP 403：GitHub 发行包转到 Azure 后，查询签名不再被二次编码。失败时不再弹出 XML。
-            • 配置规范化只在真正改写配置时提示「已修正」，没有错误不显示横幅。
-            • 分应用扫描改为按网络用途判定：中国应用 / 需要代理的应用。系统组件、厂商框架、其他 VPN 客户端不再自动勾选。
-            • 测速完成后节点按延迟从低到高排列。
-            • 密钥事件说明见仓库 docs/SECURITY.md。当前发行证书未轮换。
-            • 官方 1.14.1 仅为修补且把 Go 升到 1.26.8，本版内核仍钉 1.14.0。
-            • 注重隐私、安全防护、高能低耗、开箱即用。
-
-            Install `AngelaBox-android.apk` (arm64). That is the only file you need.
-
-            Verify:
-
-            ```
-            sha256sum -c AngelaBox-android.apk.sha256
-            ```
-
-            - Product: AngelaBox
-            - Package: `io.chainbox.app`
-            - Kernel branch: `chain-dev`
-            - Kernel tag: `v1.12.0-chain.4`
-            - Kernel commit: `03ad0a1d7c659e863c7100d25fa74681b5465a34`
-            - Official baseline: SagerNet/sing-box `v1.14.0`
-            - Official type-constant check: `pass`
+          body_path: sing-box-for-android/github-release-body.md
           files: |
             sing-box-for-android/AngelaBox-android.apk
             sing-box-for-android/AngelaBox-android.apk.sha256
           draft: false
-          prerelease: false
-          make_latest: true
+          prerelease: ${{ contains(inputs.version_tag, 'beta') || contains(inputs.version_tag, 'alpha') }}
+          make_latest: ${{ !contains(inputs.version_tag, 'beta') && !contains(inputs.version_tag, 'alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

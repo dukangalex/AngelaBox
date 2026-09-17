@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+          ref: 5e1593f0f5bf1110a94aab71e55244ceb4ccceba
           path: sing-box
           fetch-depth: 1
 
@@ -47,7 +47,7 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+          test "$(git rev-parse HEAD)" = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
 
       - name: Verify official types present in audited kernel
         run: |
@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+          ref: 5e1593f0f5bf1110a94aab71e55244ceb4ccceba
           path: sing-box
           fetch-depth: 1
 
@@ -78,7 +78,7 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+          test "$(git rev-parse HEAD)" = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -106,7 +106,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 03ad0a1d7c659e863c7100d25fa74681b5465a34
+          ref: 5e1593f0f5bf1110a94aab71e55244ceb4ccceba
           path: sing-box
           fetch-depth: 1
 
@@ -114,7 +114,7 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+          test "$(git rev-parse HEAD)" = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
 
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9

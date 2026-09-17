@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_CERT = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
 LEAKED_CERT = "32250a4b5f3a6733df57a3b9ec16c38d2c7fc5f2f693a9636f8f7b3be3549641"
-KERNEL_COMMIT = "03ad0a1d7c659e863c7100d25fa74681b5465a34"
+KERNEL_COMMIT = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
 CN_RULE_SET_TOKENS = {
     "geoip-cn",
     "geosite-cn",
@@ -146,7 +146,7 @@ def test_source_guards() -> None:
     assert "AngelaBox-android.apk" in release
     assert "ChainBox-android.apk" not in release
     assert RELEASE_CERT in release
-    assert KERNEL_COMMIT in release
+    assert "steps.pin.outputs.commit" in release
     assert "build_libbox -target android -platform android/arm64 -debug" not in release
     assert "env -u GITHUB_TOKEN" in release
     assert "gomobile init" in release
@@ -154,7 +154,9 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.57" in props
+    assert "VERSION_NAME=1.0.58-beta" in props
+    assert "KERNEL_UPSTREAM=1.15.0-alpha.5" in props
+    assert "KERNEL_TAG=v1.15.0-chain.1" in props
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust
