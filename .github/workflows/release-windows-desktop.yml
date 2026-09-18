@@ -1,0 +1,188 @@
+name: AngelaBox Windows Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "GitHub Release tag to attach (e.g. v1.0.62-beta)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Build Windows desktop (${{ matrix.desktop_arch }})
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { desktop_arch: x64, rust_target: x86_64-pc-windows-msvc }
+    steps:
+      - name: Checkout AngelaBox app
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "ktag=$(grep '^KERNEL_TAG=' version.properties | cut -d= -f2 | tr -d '\r')" >> "$GITHUB_OUTPUT"
+          echo "appver=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2 | tr -d '\r')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+          submodules: false
+
+      - name: Stamp kernel tag and fetch desktop client
+        working-directory: sing-box
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          git tag -f "${{ steps.pin.outputs.ktag }}" HEAD
+          git submodule update --init clients/desktop
+          git -C clients/desktop submodule update --init --recursive
+          test -f clients/desktop/package.json
+          test -f clients/desktop/electron-builder.yml
+
+      - name: Rebrand desktop client as AngelaBox
+        working-directory: sing-box/clients/desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $yml = Get-Content -Raw electron-builder.yml
+          if ($yml -notmatch 'artifactName: SFW-') { throw 'expected official SFW artifactName to rewrite' }
+          $yml = $yml.Replace('productName: sing-box', 'productName: AngelaBox')
+          $yml = $yml.Replace('appId: io.nekohasekai.sfw', 'appId: io.chainbox.desktop')
+          $yml = $yml.Replace('forceCodeSigning: true', 'forceCodeSigning: false')
+          $yml = $yml.Replace('artifactName: SFW-${version}-${env.SFW_ARCHITECTURE}.${ext}', 'artifactName: AngelaBox-windows-${env.SFW_ARCHITECTURE}.${ext}')
+          if ($yml -match 'io.nekohasekai.sfw') { throw 'appId rewrite failed' }
+          if ($yml -match 'SFW-') { throw 'SFW artifact prefix still present' }
+          if ($yml -notmatch 'forceCodeSigning: false') { throw 'unsigned mode not applied' }
+          Set-Content -Path electron-builder.yml -Value $yml -NoNewline
+          $pkg = Get-Content -Raw package.json
+          $pkg = $pkg.Replace('"name": "sing-box"', '"name": "angelabox"')
+          $pkg = $pkg.Replace('"desktopName": "sing-box.desktop"', '"desktopName": "AngelaBox.desktop"')
+          $pkg = $pkg.Replace('"name": "SagerNet"', '"name": "AngelaBox"')
+          Set-Content -Path package.json -Value $pkg -NoNewline
+          $pkgTs = Get-Content -Raw scripts/package.ts
+          if ($pkgTs -notmatch 'SFW-') { throw 'package.ts missing SFW artifact prefix' }
+          $pkgTs = $pkgTs.Replace('SFW-', 'AngelaBox-windows-')
+          Set-Content -Path scripts/package.ts -Value $pkgTs -NoNewline
+          [IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'version.json'),
+            '{"version":"${{ steps.pin.outputs.appver }}","go_version":"go1.25.5"}' + "`n"
+          )
+          New-Item -ItemType Directory -Force resources | Out-Null
+          Copy-Item ../../../sing-box-for-android/docs/brand/AngelaBox-icon-512.png resources/icon.png -Force
+          if (Test-Path resources/icon.ico) {
+            # Prefer AngelaBox PNG; electron-builder accepts png for win.icon.
+          }
+          (Get-Content -Raw electron-builder.yml).Replace('icon: resources/icon.ico', 'icon: resources/icon.png') | Set-Content electron-builder.yml -NoNewline
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.25.5"
+          cache: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: sing-box/clients/desktop/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: sing-box/clients/desktop/package.json
+          cache: pnpm
+          cache-dependency-path: |
+            sing-box/clients/desktop/pnpm-lock.yaml
+            sing-box/clients/desktop/dashboard/pnpm-lock.yaml
+
+      - name: Optional Authenticode signing
+        working-directory: sing-box/clients/desktop
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATES_P12: ${{ secrets.WINDOWS_CERTIFICATES_P12 }}
+          WINDOWS_P12_PASSWORD: ${{ secrets.WINDOWS_P12_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATES_P12)) {
+            Write-Host 'No WINDOWS_CERTIFICATES_P12; building unsigned AngelaBox installer (SmartScreen expected).'
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'windows-signing.p12'
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATES_P12))
+          $yml = (Get-Content -Raw electron-builder.yml).Replace('forceCodeSigning: false', 'forceCodeSigning: true')
+          Set-Content -Path electron-builder.yml -Value $yml -NoNewline
+          @{
+            windows = @{
+              certificateFile = $certificatePath
+              certificatePassword = $env:WINDOWS_P12_PASSWORD
+            }
+          } | ConvertTo-Json -Depth 3 | Set-Content -Encoding utf8NoBOM signing.local.json
+
+      - name: Install dependencies
+        working-directory: sing-box/clients/desktop
+        run: pnpm install
+
+      - name: Build installer
+        working-directory: sing-box/clients/desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm package:win -- ${{ matrix.desktop_arch }}
+
+      - name: Prepare upload
+        working-directory: sing-box/clients/desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sfw = @(Get-ChildItem release/SFW-*.exe -File -ErrorAction SilentlyContinue)
+          if ($sfw.Count -ne 0) { throw 'refusing to publish official SFW-*.exe artifacts' }
+          $artifacts = @(Get-ChildItem release/AngelaBox-windows-*.exe -File)
+          if ($artifacts.Count -ne 1) {
+            throw "expected 1 AngelaBox-windows installer, found $($artifacts.Count)"
+          }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $artifacts.FullName dist
+          Get-FileHash -Algorithm SHA256 $artifacts.FullName |
+            ForEach-Object { "$($_.Hash.ToLower())  $($artifacts.Name)" } |
+            Set-Content "dist/$($artifacts.Name).sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-desktop-${{ matrix.desktop_arch }}
+          path: sing-box/clients/desktop/dist/*
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          ls -lah sing-box/clients/desktop/dist
+          gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          gh release upload "$TAG" sing-box/clients/desktop/dist/AngelaBox-windows-*.exe sing-box/clients/desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber

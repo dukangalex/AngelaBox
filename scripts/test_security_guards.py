@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_CERT = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
 LEAKED_CERT = "32250a4b5f3a6733df57a3b9ec16c38d2c7fc5f2f693a9636f8f7b3be3549641"
-KERNEL_COMMIT = "5e1593f0f5bf1110a94aab71e55244ceb4ccceba"
+KERNEL_COMMIT = "dbea8d3ae919844bc5114ca418c4a3e1deb67e24"
 CN_RULE_SET_TOKENS = {
     "geoip-cn",
     "geosite-cn",
@@ -145,6 +145,9 @@ def test_source_guards() -> None:
     release = read(".github/workflows/release-chainbox.yml")
     assert "AngelaBox-android.apk" in release
     assert "ChainBox-android.apk" not in release
+    assert "windows-cli" in release
+    assert "AngelaBox-windows-amd64.zip" in release
+    assert "build_windows_cli.sh" in release
     assert RELEASE_CERT in release
     assert "steps.pin.outputs.commit" in release
     assert "build_libbox -target android -platform android/arm64 -debug" not in release
@@ -154,10 +157,10 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.61-beta" in props
-    assert "VERSION_CODE=10061" in props
-    assert "KERNEL_UPSTREAM=1.15.0-alpha.5" in props
-    assert "KERNEL_TAG=v1.15.0-chain.1" in props
+    assert "VERSION_NAME=1.0.62-beta" in props
+    assert "VERSION_CODE=10062" in props
+    assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
+    assert "KERNEL_TAG=v1.15.0-chain.2" in props
 
     gradle = read("app/build.gradle.kts")
     assert 'buildConfigField("String", "KERNEL_TAG"' in gradle
@@ -175,6 +178,21 @@ def test_source_guards() -> None:
     ci = read(".github/workflows/ci.yml")
     assert "Stamp kernel version tag" in ci
     assert 'git tag -f "$KTAG" HEAD' in ci
+    assert "steps.pin.outputs.commit" in ci
+    assert "5e1593f0f5bf1110a94aab71e55244ceb4ccceba" not in ci
+
+    assert "公开说明" in read("README.md")
+    assert "公开说明" in read("docs/SECURITY.md")
+    assert "7736e1e" in read("docs/SECURITY.md")
+    assert "不改写" in read("docs/SECURITY.md")
+    assert "goodmen001" in read("docs/SECURITY.md")
+    assert (ROOT / "docs/WINDOWS.md").is_file()
+    assert (ROOT / "scripts/build_windows_cli.sh").is_file()
+    desktop = read(".github/workflows/release-windows-desktop.yml")
+    assert "io.chainbox.desktop" in desktop
+    assert "AngelaBox-windows-" in desktop
+    assert "refusing to publish official SFW" in desktop
+    assert "WINDOWS_CERTIFICATES_P12" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust

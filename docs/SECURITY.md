@@ -2,6 +2,16 @@
 
 本文只陈述已核实的事实。没有公开数据支撑的指纹、密钥或结论，不会写进产品。
 
+## 公开说明（2026-09-18）
+
+本项目 **不改写** 当前 `dev` 与全部 1.0.x 发行历史。下面三条同时成立：
+
+1. **当前发行证书从未进过 git。** 1.0.x 安装包由 CN=ChainBox 签署，SHA-256 `e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151`，只存在于 GitHub Actions secrets。覆盖安装依赖这把钥匙，因此 **不会轮换**。
+2. **历史里能打开的两份文件不是这把发行证书。** 提交 `7736e1e` 含 2020 年 SagerNet/nekohasekai 调试钥匙（CN 猫羽 世界，SHA-256 `32250a4b…`），已从当前树删除。提交 `446ffa4` 含上游 `app/google-services.json`（Firebase 项目 `sing-b0x`，包名 `io.nekohasekai.sfa`），不是 `io.chainbox.app`。GitHub Support Ticket 4763595 指出这两条提交仍是 `dev` 与全部现存 tag 的祖先，直链会保持 200。Support 是对的。先前一次「已经不可达」的判断来自浅克隆，已更正。
+3. **要让直链 404 必须改写全部现存 tag 再请 GitHub GC。** 改写不能清掉 `goodmen001/AngelaBox` 或上游 SagerNet 上的副本，并且会打断已安装用户的覆盖更新与应用内更新。因此选择保持历史，并把事实公开。
+
+请只从 [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox/releases) 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。不要从 `goodmen001/AngelaBox` 安装。
+
 ## 发行签名
 
 | 项目 | 值 |
@@ -20,7 +30,7 @@
 
 - 该钥匙 **不是** 当前 AngelaBox 发行证书（CN=ChainBox，`e7041217…`）。1.0.x 安装包不是这把钥匙签的。
 - 工作区与当前树没有 `.jks` / `.keystore`。`app/release.keystore` 在 `7736e1e` 加入，在 `3b020925` 从树中删除。
-- **全量历史（非浅克隆）** 中，`7736e1e` **是** `dev` 与全部现存 tag（`v1.0.13`–`v1.0.61-beta`）的祖先。此前「不是祖先」的判断来自浅克隆把 `e7019d4` 误当成根，**已更正**。GitHub Support Ticket 4763595 用服务端工具得到同一结论，是对的。
+- **全量历史（非浅克隆）** 中，`7736e1e` **是** `dev` 与全部现存 tag（`v1.0.13` 起）的祖先。此前「不是祖先」的判断来自浅克隆把 `e7019d4` 误当成根，**已更正**。GitHub Support Ticket 4763595 用服务端工具得到同一结论，是对的。
 - 仍带该文件的旧 tag（v0.1.x、v1.0.2–v1.0.9）已删除。分支 `chainbox-audit-fix` 在 GitHub 上已不存在（`git ls-remote --heads` 仅剩 `dev`）。
 - 2026-09-17：本仓库曾短暂改为私有再恢复公开。`goodmen001/AngelaBox` API 为 `fork: false`；本仓库 `forks_count` 为 0。脱离 fork **不会** 删除对象。
 - 直链 `https://github.com/dukangalex/AngelaBox/commit/7736e1e` 与独立仓库 `goodmen001/AngelaBox` 上同一 SHA 目前仍能打开。GitHub 规则：只要提交还被任何分支/tag 引用，就不能 GC。要让本仓库这两条 URL 变 404，必须改写全部现存历史并重建全部 tag，然后再请 Support GC。改写 **不能** 清掉 `goodmen001` 或上游 SagerNet 上的副本。

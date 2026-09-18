@@ -6,9 +6,11 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 
 ## 安装
 
-1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新必须校验 SHA-256 和发行证书。
+1. 从项目 Releases 下载 **AngelaBox-android.apk**。同目录的 `AngelaBox-android.apk.sha256` 可用于校验；应用内更新必须校验 SHA-256 和发行证书。不要从 `goodmen001/AngelaBox` 或其他来路安装。
 2. 允许安装未知来源应用后安装。
 3. 同一签名且 versionCode 更大的新版可直接覆盖。**v0.1.x 是调试签名，不能覆盖安装 1.0.x，必须先卸载。**
+
+Windows 命令行内核见同一次 Release 的 `AngelaBox-windows-amd64.zip`，用法见 [WINDOWS.md](WINDOWS.md)。Android 与 Windows 不要混用安装包。
 
 设置 → 应用版本 应与 Release tag 一致。快捷设置磁贴名称与图标为 AngelaBox 立方体；覆盖安装后若仍显示旧名或旧图标，长按磁贴移除后再添加一次。
 
@@ -197,4 +199,4 @@ debug 与正式签名混过。卸载后装正式 `AngelaBox-android.apk`，以�
 打开「组」：每个策略组标题下会写当前选中的节点，已测速的带延迟。灰色圆点是还没测速，不是掉线；点测速图标即可。
 
 **设置 → 核心 显示 unknown**  
-1.0.57 与 1.0.58-beta 发版时浅克隆没有 git tag，内核 `Libbox.version()` 会变成 unknown。请安装 1.0.59-beta 或更新：该版本会在编译前打上 `v1.15.0-chain.1`，界面用发版钉死的 tag 兜底，显示 `1.15.0-chain.1（官方 1.15.0-alpha.5）`。点「销毁」清空工作目录后，「数据大小」为 0 kB 是正常的。
+1.0.57 与 1.0.58-beta 发版时浅克隆没有 git tag，内核 `Libbox.version()` 会变成 unknown。请安装 1.0.59-beta 或更新：编译前会打上发版钉死的内核 tag，界面用该 tag 兜底。1.0.62-beta 显示 `1.15.0-chain.2（官方 1.15.0-alpha.6）`。点「销毁」清空工作目录后，「数据大小」为 0 kB 是正常的。

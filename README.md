@@ -15,7 +15,11 @@
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑、分应用扫描不解析应用组件 |
 | 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 严格路由 / 禁用 IPv6 / 禁用 QUIC（放行国内）默认开；脚本开着时由同一套开关控制，不叠两套规则；节点能用就能代理 |
 
-AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 Android 代理客户端。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
+AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。Android 是当前主力；Windows 提供与 Android 同一内核的命令行包。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
+
+## 公开说明（2026-09-18）
+
+不改写 git 历史。仓库早期提交里能打开的调试钥匙（CN 猫羽 世界）和上游 Firebase 配置 **不是** 当前发行证书。1.0.x 由 CN=ChainBox（SHA-256 `e7041217…`）签署，这把钥匙从未进过 git，也不会轮换。GitHub Support 指出那两条历史提交仍是现存 tag 的祖先，直链保持 200 是接受的残留。请只从本仓库 Releases 安装 `AngelaBox-android.apk`，不要从 `goodmen001/AngelaBox` 安装。全文见 [docs/SECURITY.md](docs/SECURITY.md)。
 
 本项目与 SagerNet 及官方 sing-box 无从属或授权关系，不得使用官方名称及标志进行商业发布或应用商店上架。
 
@@ -23,6 +27,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 - 构建：[Actions](https://github.com/dukangalex/AngelaBox/actions)
 - 频道：[Telegram](https://t.me/AngelaBox)
 - 使用说明：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- Windows：[docs/WINDOWS.md](docs/WINDOWS.md)
 - 安全说明：[docs/SECURITY.md](docs/SECURITY.md)
 - 维护说明：[docs/MAINTENANCE.md](docs/MAINTENANCE.md)
 
@@ -36,7 +41,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 | 内核仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box)（分支 `chain-dev`） |
 | 更新检查 | 仅本仓库 GitHub Releases |
 | 应用图标 | 白色底、居中立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
-| 安装包 | `AngelaBox-android.apk` |
+| 安装包 | Android：`AngelaBox-android.apk`；Windows：`AngelaBox-windows-amd64.zip` |
 
 曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。
 
@@ -46,11 +51,11 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 
 | 项目 | 值 |
 |------|-----|
-| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.5** |
+| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.6** |
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
-| 已同步基线 | 官方 **sing-box 1.15.0-alpha.5**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。Tailcat、新 TUN 栈、Android auto_redirect、on_demand） |
-| 内核型号 / tag | `v1.15.0-chain.1`（已打在 `chain-dev` 的 `5e1593f0`；设置 → 核心显示 `1.15.0-chain.1（官方 1.15.0-alpha.5）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.61-beta** 测试版） |
+| 已同步基线 | 官方 **sing-box 1.15.0-alpha.6**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。修补：Windows 进程归属、自动重定向 DNS、WireGuard 域名握手、libbox 命令客户端取消） |
+| 内核型号 / tag | `v1.15.0-chain.2`（已打在 `chain-dev` 的 `dbea8d3a`；设置 → 核心显示 `1.15.0-chain.2（官方 1.15.0-alpha.6）`） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.62-beta** 测试版） |
 
 ### 同步更新策略
 
@@ -58,7 +63,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 2. **内核：** `git fetch` 官方 `SagerNet/sing-box`，merge 进 `chain-dev`，只解决与 Chain outbound 相关的冲突。
 3. **App：** `git fetch` 官方 `SagerNet/sing-box-for-android`，merge 进本仓库 `dev`。冲突以 AngelaBox 为准（包名、组链、覆盖层、备份、更新检查、发版工作流）。
 4. **Fail Closed：** 链路失败必须报错并停止启动，不得静默落到 DIRECT。
-5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；稳定安装包钉 1.14.0，测试线已在 1.15.0-alpha.5，**不跟进 v1.14.1**。官方 v1.14.1 与 v1.15.0-alpha.5 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器都是 Go 1.26.8；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26.8 gomobile 上验证）。当前测试内核对齐官方 **v1.15.0-alpha.5**。稳定安装包仍是 1.0.57（1.14.0）；1.0.61-beta 使用 1.15 测试内核（1.0.58-beta 已编进同一内核，但核心版本显示 unknown，安装包无法事后改写）。
+5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；稳定安装包钉 1.14.0，测试线已在 1.15，**不跟进 v1.14.1**。官方 v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器都是 Go 1.26.8；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26.8 gomobile 上验证）。当前测试内核对齐官方 **v1.15.0-alpha.6**。稳定安装包仍是 1.0.57（1.14.0）；1.0.62-beta 使用 1.15.0-alpha.6 测试内核。
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 
@@ -100,7 +105,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的 A
 
 ## 下载
 
-请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。
+请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。Windows 请下载 `AngelaBox-windows-amd64.zip`，用法见 [docs/WINDOWS.md](docs/WINDOWS.md)。
 
 ```
 sha256sum -c AngelaBox-android.apk.sha256
@@ -120,7 +125,8 @@ sha256sum -c AngelaBox-android.apk.sha256
 1. 从钉死的 `KERNEL_COMMIT` 编译 `libbox.aar`
 2. 与官方 sing-box 核对 inbound/outbound 类型常量
 3. 校验发行证书 SHA-256 后组装 Android APK，生成 `AngelaBox-android.apk.sha256`
-4. 指定 `version_tag` 后发布至 GitHub Releases（只出 `AngelaBox-android.apk`）
+4. 指定 `version_tag` 后发布至 GitHub Releases（Android：`AngelaBox-android.apk`；Windows：`AngelaBox-windows-*.zip`）
+5. 图形 Windows 安装包由 `.github/workflows/release-windows-desktop.yml`（**AngelaBox Windows Desktop**）单独构建，不冒用官方 SFW 文件名
 
 客户端版本号以 `version.properties` 为准。
 
@@ -130,6 +136,7 @@ AngelaBox 建立在上游开源工作之上，谢谢：
 
 - [sing-box](https://github.com/SagerNet/sing-box)，由 [nekohasekai](https://github.com/nekohasekai) 与 [SagerNet](https://github.com/SagerNet) 维护的通用代理平台
 - [sing-box for Android](https://github.com/SagerNet/sing-box-for-android)，本客户端的上游界面与服务框架
+- [sing-box for Desktop](https://github.com/SagerNet/sing-box-for-desktop)，官方 Windows/Linux 图形客户端；本仓库的图形端工作流以其为源并改名，不发布 `SFW-*.exe`
 
 上述致谢不构成从属、授权或官方认可。
 

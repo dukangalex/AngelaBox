@@ -441,8 +441,12 @@ def main() -> int:
         errors.append("JSON import must sanitize (legacy fakeip) before checkConfig")
 
     readme = read("README.md")
-    if "1.15.0-alpha.5" not in readme:
-        errors.append("README must state the synced upstream kernel version (1.15.0-alpha.5)")
+    if "1.15.0-alpha.6" not in readme:
+        errors.append("README must state the synced upstream kernel version (1.15.0-alpha.6)")
+    if "公开说明" not in readme:
+        errors.append("README must include the 2026-09-18 public security notice")
+    if "docs/WINDOWS.md" not in readme:
+        errors.append("README must link docs/WINDOWS.md")
     if "同步更新策略" not in readme:
         errors.append("README must include the kernel/app sync strategy section")
     if "chain-dev" not in readme:
@@ -460,7 +464,7 @@ def main() -> int:
     if "DNS" not in read("docs/USER_GUIDE.md") or "一跳" not in read("docs/USER_GUIDE.md"):
         errors.append("USER_GUIDE must say DNS stays one hop")
     props = read("version.properties")
-    if "KERNEL_UPSTREAM=1.15.0-alpha.5" not in props:
+    if "KERNEL_UPSTREAM=1.15.0-alpha.6" not in props:
         errors.append("version.properties must record KERNEL_UPSTREAM")
     if "KERNEL_BRANCH=chain-dev" not in props:
         errors.append("version.properties must record KERNEL_BRANCH")
@@ -598,6 +602,12 @@ def main() -> int:
         errors.append("release must publish AngelaBox-android.apk")
     if "ChainBox-android.apk" in workflow:
         errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
+    if "windows-cli" not in workflow:
+        errors.append("release must build Windows CLI from the same KERNEL_COMMIT")
+    if "AngelaBox-windows-amd64.zip" not in workflow:
+        errors.append("release must attach AngelaBox-windows-amd64.zip")
+    if "io.nekohasekai.sfw" in workflow:
+        errors.append("release must not use official SFW appId")
     if "KERNEL_COMMIT" not in workflow:
         errors.append("release workflow must record the kernel commit SHA")
     if "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151" not in workflow:
