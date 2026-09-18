@@ -18,11 +18,13 @@
 
 已核实：
 
-- 该钥匙 **不是** 当前 AngelaBox 发行证书。
-- 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 含该钥匙的提交为祖先。
+- 该钥匙 **不是** 当前 AngelaBox 发行证书（CN=ChainBox，`e7041217…`）。1.0.x 安装包不是这把钥匙签的。
+- 工作区与当前树没有 `.jks` / `.keystore`。`app/release.keystore` 在 `7736e1e` 加入，在 `3b020925` 从树中删除。
+- **全量历史（非浅克隆）** 中，`7736e1e` **是** `dev` 与全部现存 tag（`v1.0.13`–`v1.0.61-beta`）的祖先。此前「不是祖先」的判断来自浅克隆把 `e7019d4` 误当成根，**已更正**。GitHub Support Ticket 4763595 用服务端工具得到同一结论，是对的。
 - 仍带该文件的旧 tag（v0.1.x、v1.0.2–v1.0.9）已删除。分支 `chainbox-audit-fix` 在 GitHub 上已不存在（`git ls-remote --heads` 仅剩 `dev`）。
-- 2026-09-17：本仓库曾短暂改为私有再恢复公开。按 GitHub 文档，原先的公开 fork 会脱离 fork 网络、成为独立仓库。现已核实：`goodmen001/AngelaBox` 的 API 为 `fork: false`、`parent: null`；本仓库 `forks_count` 为 0。
-- 脱离 fork 网络 **不会** 删除对象。直链 `https://github.com/dukangalex/AngelaBox/commit/7736e1e` 目前仍能打开（含 `release.keystore`）；同一提交在独立仓库 `goodmen001/AngelaBox` 也能打开。`446ffa4`（`google-services.json`）同样仍能打开。GitHub Support Ticket 4763595 于 2026-09-17 回复已删除 PR #1、清理缓存视图并标为 solved。2026-09-18 再回复称：须先改写历史去掉引用，然后才能 GC；若仍有引用则提交 URL 会保持 200。已核实：本仓库 `git ls-remote` 仅 `dev` 与 tag `v1.0.13` 及之后；当前历史根为 `e7019d4`，`7736e1e` / `446ffa4` **不是** 任何现存分支或 tag 的祖先；PR 引用已空。`goodmen001/AngelaBox` API 为 `fork: false`，本仓库 `forks_count` 为 0。改写当前 `dev` / v1.0.13+ 不会让这两条提交变成「更不可达」，只会使已发布安装包对应的历史失效。需要官方对 **不可达对象** 执行 GC，并知悉原 fork 已独立、我们无法改写对方仓库。当前 `dev` / v1.0.13+ **不会** 改写历史，也不会轮换 CN=ChainBox。
+- 2026-09-17：本仓库曾短暂改为私有再恢复公开。`goodmen001/AngelaBox` API 为 `fork: false`；本仓库 `forks_count` 为 0。脱离 fork **不会** 删除对象。
+- 直链 `https://github.com/dukangalex/AngelaBox/commit/7736e1e` 与独立仓库 `goodmen001/AngelaBox` 上同一 SHA 目前仍能打开。GitHub 规则：只要提交还被任何分支/tag 引用，就不能 GC。要让本仓库这两条 URL 变 404，必须改写全部现存历史并重建全部 tag，然后再请 Support GC。改写 **不能** 清掉 `goodmen001` 或上游 SagerNet 上的副本。
+- 因此默认 **不** 改写当前 `dev` / v1.0.13+，**不** 轮换 CN=ChainBox。直链保持 200 是接受的残留：泄露物不是发行证书。
 - 将仓库改私有会清掉 star / watcher。不要为同一目的反复改可见性。
 
 请只从本仓库 Releases 安装 `AngelaBox-android.apk`，并用同目录 `.sha256` 以及应用内更新的证书校验。不要安装来路不明的包装包。不要从 `goodmen001/AngelaBox` 安装。
@@ -33,12 +35,11 @@ GitHub Secret scanning 于 2026-09-16 报出历史提交 `446ffa4` 中的 `app/g
 
 已核实：
 
-- 作者是 SagerNet/nekohasekai（2023-10-31），一周后提交 `56a2772` 已删除该文件。
+- 作者是 SagerNet/nekohasekai（2023-10-31），一周后提交 `56a27728` 已从树中删除该文件。全量历史里该提交仍是 `dev` 的祖先。
 - 绑定包名是官方 `io.nekohasekai.sfa`，Firebase 项目 `sing-b0x`。**不是** AngelaBox 的 `io.chainbox.app`。
 - 这是打进 APK 的 Firebase 客户端标识，不是签名私钥，也不是本项目发行证书。
-- 当前 `dev` 与 tag `v1.0.13` 及之后 **不以** 该提交为祖先；工作区无此文件。
-- 同一文件仍出现在多个 SagerNet 客户端的公开仓库中（扫描页已列出）。本项目无法轮换不属于自己的 Google Cloud 钥匙。
-- GitHub 仍能打开该历史对象，是缓存未回收，与 Ticket 4763595 同类，**不要改写当前 `dev` 历史**。
+- 工作区当前树无此文件。同一文件仍出现在多个 SagerNet 客户端的公开仓库中。本项目无法轮换不属于自己的 Google Cloud 钥匙。
+- 与 `7736e1e` 相同：不改写当前 `dev` / v1.0.13+ 则本仓库直链会保持 200。改写也无法收回上游与独立仓库里的副本。
 
 ## 远程地址
 

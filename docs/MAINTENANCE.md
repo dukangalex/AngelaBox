@@ -46,7 +46,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 - 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secrets：`TG_BOT_TOKEN`、`TG_CHANNEL_ID`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
 - **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。
-- **Git 历史：** 当前 `dev` 可达历史和 GitHub 代码搜索都没有 `.jks` / `.keystore`。原泄露提交 `7736e1e` 不是当前 `HEAD` 的祖先。CI overlay-guards 用 `fetch-depth: 0` 扫工作树和 `git log --all`，防止再提交。2026-09-17 本仓库短暂改私有再公开后，`goodmen001/AngelaBox` 已脱离 fork 网络（API `fork: false`）。直链 `7736e1e` 在本仓库仍能打开，需 GitHub Support Ticket 4763595 执行 GC。**不要 force-push 重写现有 1.0.x 历史。**
+- **Git 历史：** 当前树没有 `.jks` / `.keystore`。全量历史上 `7736e1e` **是** `dev` 与现存 tag 的祖先（浅克隆会误判）。CI overlay-guards 用 `fetch-depth: 0` 扫工作树，防止再提交。`goodmen001/AngelaBox` 已独立（`fork: false`）。要让提交直链 404 必须改写全部历史并重建 tag，再请 Support GC；默认不改写、不轮换 CN=ChainBox。**不要为清历史反复改仓库可见性。**
 - 订阅、脚本、更新、WebDAV、规则集下载地址全部 HTTPS。应用 `usesCleartextTraffic=false`，仅 loopback 允许明文。下载使用系统 `HttpsURLConnection`，每次 3xx 跳转都再走 `RemoteUrlGuard`，DNS 解析失败则拒绝。HTTP 订阅（含局域网明文）一律拒绝。
 - 不走 F-Droid / 官方 SagerNet 更新源。
 - 不得用官方名称上架应用商店。
