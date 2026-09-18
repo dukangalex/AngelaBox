@@ -54,6 +54,8 @@ class ConfigScriptOverrideTest {
         assertTrue(tags.any { it.contains("香港") })
         assertTrue(tags.any { it.contains("日本") })
         assertTrue(tags.any { it.contains("自动选择") || it.contains("节点选择") })
+        assertTrue(tags.any { it.contains("🐟 漏网之鱼") })
+        assertTrue(tags.any { it.contains("🔰 节点选择") || it.contains("♻️ 自动选择") })
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
         assertEquals("https", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
@@ -207,5 +209,49 @@ class ConfigScriptOverrideTest {
         assertTrue(ruleText.contains("3478:3481"))
         assertTrue(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
+    }
+
+    @Test
+    fun sampleStripsLeafChainAndKeepsDirectException() {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return
+        val code = file.readText()
+        val input = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(
+                        JSONObject()
+                            .put("type", "vless")
+                            .put("tag", "香港 01")
+                            .put("detour", "proxy-select")
+                            .put("dialer-proxy", "chain-in"),
+                    )
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .toString()
+        val out = JSONObject(ConfigScriptOverride.ScriptEngine.run(code, input, "sample-sanitizer"))
+        val outs = out.getJSONArray("outbounds")
+        val byTag = (0 until outs.length()).associate {
+            val item = outs.getJSONObject(it)
+            item.optString("tag") to item
+        }
+        val leaf = byTag.getValue("香港 01")
+        assertTrue(leaf.optString("detour").isEmpty())
+        assertTrue(!leaf.has("dialer-proxy"))
+        val ads = byTag.getValue("🛑 广告拦截")
+        val adsMembers = (0 until ads.getJSONArray("outbounds").length()).map {
+            ads.getJSONArray("outbounds").getString(it)
+        }
+        assertTrue(adsMembers.contains("direct"))
+        val select = byTag.entries.first { it.key.contains("节点选择") }.value
+        val selectMembers = (0 until select.getJSONArray("outbounds").length()).map {
+            select.getJSONArray("outbounds").getString(it)
+        }
+        assertTrue(selectMembers.none { it.equals("direct", ignoreCase = true) })
+        val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
+        val dnsText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
+        assertTrue(dnsText.contains("aistudio.google.com"))
+        assertTrue(dnsText.contains("dns-remote"))
     }
 }

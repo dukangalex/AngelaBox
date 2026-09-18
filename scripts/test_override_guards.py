@@ -764,10 +764,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 10" not in sample:
-        errors.append("default script must stamp overlay-revision: 10 so stale copies refresh")
+    if "overlay-revision: 11" not in sample:
+        errors.append("default script must stamp overlay-revision: 11 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 10"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 11"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
@@ -789,6 +789,24 @@ def main() -> int:
         errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
     if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:
         errors.append("default script must keep Gemini domains on the AI group")
+    if "aistudio.google.com" not in sample or "claude.ai" not in sample:
+        errors.append("default script must keep AI Studio / Claude on the AI group and remote DNS")
+    if "🐟 漏网之鱼" not in sample:
+        errors.append("default script final group must be 🐟 漏网之鱼")
+    if "🔰 节点选择" not in sample or "♻️ 自动选择" not in sample:
+        errors.append("default script must use 🔰 节点选择 / ♻️ 自动选择 group names")
+    if "selectMembers.push(directTag)" in sample:
+        errors.append("节点选择 must not expose DIRECT as a general member")
+    if "makeSelector(adsTag, [dropTag, rejectTag, directTag]" not in sample:
+        errors.append("广告拦截 must keep DIRECT as an exception")
+    if "makeSelector(remoteTag, [dropTag, globalTag, directTag]" not in sample:
+        errors.append("远控工具 must keep DIRECT as an exception")
+    if 'delete sob.detour' not in sample or 'dialer-proxy' not in sample:
+        errors.append("default script must strip leaf detour / dialer-proxy so airport overlay is not chained")
+    if "relay: 1, chain: 1" not in sample:
+        errors.append("default script must replace chain outbounds, not keep subscription chains")
+    if "mixed-port" in sample or "geox-url" in sample or "nameserver-policy" in sample:
+        errors.append("default script must not copy Clash mixed-port / geox-url / nameserver-policy keys")
     if "com.google.android.apps.bard" not in sample:
         errors.append("default script must route the Gemini Android package")
     if "ensureHijackDns" not in inbound:

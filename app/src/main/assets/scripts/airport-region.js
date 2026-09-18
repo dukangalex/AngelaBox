@@ -1,10 +1,12 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 10
+ * overlay-revision: 11
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
- * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini）。
+ * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini/AI Studio）。
+ * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
+ * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
  */
 function main(config) {
@@ -213,7 +215,22 @@ function main(config) {
     "samsunghealth.com", "samsungosp.com", "mi.com", "xiaomi.com", "miui.com", "micloud.com",
     "huawei.com", "hicloud.com", "vivo.com", "oppo.com", "meizu.com",
     "iqiyi.com", "youku.com", "douyin.com", "toutiao.com", "bytedance.com",
-    "deepseek.com", "moonshot.cn", "zhipuai.cn", "iflytek.com"
+    "deepseek.com", "deepseek.ai", "moonshot.cn", "zhipuai.cn", "iflytek.com",
+    "kimichat.com", "chatglm.cn", "baichuan-ai.com", "sensetime.com", "minimax.chat", "stepfun.com",
+    "1688.com", "tencent-cloud.com", "byteimg.com", "tosv.com", "iesdouyin.com",
+    "pstatp.com", "snssdk.com", "volccdn.com", "ixigua.com", "feishu.net", "volces.com",
+    "bdstatic.com", "bdimg.com", "bcebos.com", "iqiyipic.com", "baidubce.com",
+    "mi-img.com", "miwifi.com", "xiaomiev.com", "huaweicloud.com", "vmall.com", "honor.com",
+    "vivoglobal.com", "oppomobile.com", "samsung.com.cn", "samsungapps.com",
+    "samsungcloud.com", "samsungknox.com", "samsungdm.com",
+    "aegis.qq.com", "ishumei.com", "riskradar.net", "trustdevice.net",
+    "dingxiangyun.com", "dingxiangyun.cn", "rong360.com", "gfbazc.com", "fzuol.com",
+    "yzf.com.cn", "cpic.com.cn", "zhongan.com", "fuwu.nhsa.gov.cn",
+    "midea.com", "smartmidea.net", "haier.net", "haier.com", "hisense.com",
+    "yeelight.com", "aqara.com", "tuya.com", "tuyaus.com", "tcl.com",
+    "msftconnecttest.com", "msftncsi.com", "captive.apple.com",
+    "router.asus.com", "tplogin.cn", "hiwifi.com", "phicomm.me",
+    "local", "lan", "home.arpa"
   ];
 
   var outbounds = ensureArray(config, "outbounds");
@@ -231,9 +248,19 @@ function main(config) {
     }
   }
 
+  for (var si = 0; si < outbounds.length; si++) {
+    var sob = outbounds[si];
+    if (!sob || typeof sob !== "object") continue;
+    var sty = typeOf(sob);
+    if (hasOwn(GROUP_TYPES, sty)) continue;
+    if (sob.detour) delete sob.detour;
+    if (sob["dialer-proxy"] != null) delete sob["dialer-proxy"];
+    if (sob["proxy-dialer"] != null) delete sob["proxy-dialer"];
+  }
+
   var REPLACE_GROUP_TYPES = {
     selector: 1, urltest: 1, "url-test": 1,
-    "load-balance": 1, fallback: 1, relay: 1
+    "load-balance": 1, fallback: 1, relay: 1, chain: 1
   };
   var rebuilt = [];
   for (var rj0 = 0; rj0 < outbounds.length; rj0++) {
@@ -289,8 +316,8 @@ function main(config) {
   }
 
   var OTHER_NAME = "其他地区";
-  var AUTO_NAME = "自动选择";
-  var SELECT_NAME = "节点选择";
+  var AUTO_NAME = "♻️ 自动选择";
+  var SELECT_NAME = "🔰 节点选择";
   var regionNames = [];
   var activeRegions = [];
   for (var rj = 0; rj < REGIONS.length; rj++) {
@@ -430,7 +457,7 @@ function main(config) {
   addService("🐦 Twitter", serviceMembers([pickSelect, AUTO_NAME], false));
   addService("🎵 Spotify", serviceMembers([pickSelect, AUTO_NAME], false));
   var globalTag = addService("🌍 国外服务", serviceMembers([pickSelect, AUTO_NAME], false));
-  var finalTag = addService("漏网之鱼", serviceMembers([pickSelect, AUTO_NAME], false));
+  var finalTag = addService("🐟 漏网之鱼", serviceMembers([pickSelect, AUTO_NAME], false));
   var remoteTag = "🔧 远控工具";
   var remoteGroup = makeSelector(remoteTag, [dropTag, globalTag, directTag], dropTag);
   groupTags[remoteTag] = "selector";
@@ -535,8 +562,12 @@ function main(config) {
       "📺 Media": mediaTag,
       "漏网之鱼": finalTag,
       "🐟 漏网之鱼": finalTag,
-      "远控工具": "🔧 远控工具",
-      "🔧 远控工具": "🔧 远控工具"
+      "远控工具": remoteTag,
+      "🔧 远控工具": remoteTag,
+      "自动选择": AUTO_NAME,
+      "♻️ 自动选择": AUTO_NAME,
+      "节点选择": SELECT_NAME,
+      "🔰 节点选择": SELECT_NAME
     };
     if (TARGET_MAP[name]) {
       var mapped = TARGET_MAP[name];
@@ -642,6 +673,7 @@ function main(config) {
     });
   }
   if (adsBlock) {
+    addRule({ domain_suffix: ["teg.tencent-cloud.net"], outbound: dropTag });
     addRule({ rule_set: "geosite-category-ads-all", outbound: adsTag });
   }
   if (dnsProtect) {
@@ -750,9 +782,11 @@ function main(config) {
   addRule(rule("geosite-openai", aiOut));
   addRule({
     domain_suffix: [
-      "gemini.google.com", "deepmind.com", "deepmind.google",
+      "gemini.google.com", "aistudio.google.com", "deepmind.com", "deepmind.google",
       "generativelanguage.googleapis.com", "ai.google.dev",
-      "makersuite.google.com", "alkalimakersuite-pa.clients6.google.com"
+      "makersuite.google.com", "alkalimakersuite-pa.clients6.google.com",
+      "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
+      "claude.ai", "anthropic.com"
     ],
     outbound: aiOut
   });
@@ -842,7 +876,7 @@ function main(config) {
   }
   for (var p = 0; p < prepend.length; p++) merged.push(prepend[p]);
   route.rules = merged;
-  route.final = mapTarget("漏网之鱼");
+  route.final = mapTarget("🐟 漏网之鱼");
   route.find_process = false;
   if (typeof route.auto_detect_interface === "undefined") {
     route.auto_detect_interface = true;
@@ -920,6 +954,20 @@ function main(config) {
   extraDns.push({ query_type: [64, 65], action: "reject" });
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
+  extraDns.push({
+    domain_suffix: [
+      "gemini.google.com", "aistudio.google.com",
+      "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
+      "anthropic.com", "claude.ai"
+    ],
+    server: "dns-remote"
+  });
+  if (hasRuleSet("geosite-google")) extraDns.push({ rule_set: "geosite-google", server: "dns-remote" });
+  if (hasRuleSet("geosite-youtube")) extraDns.push({ rule_set: "geosite-youtube", server: "dns-remote" });
+  if (hasRuleSet("geosite-telegram")) extraDns.push({ rule_set: "geosite-telegram", server: "dns-remote" });
+  if (hasRuleSet("geosite-openai")) extraDns.push({ rule_set: "geosite-openai", server: "dns-remote" });
+  if (hasRuleSet("geosite-category-ai-!cn")) extraDns.push({ rule_set: "geosite-category-ai-!cn", server: "dns-remote" });
+  if (hasRuleSet("geosite-geolocation-!cn")) extraDns.push({ rule_set: "geosite-geolocation-!cn", server: "dns-remote" });
   if (chinaDirect) {
     extraDns.push({ domain_suffix: CN_DOMAINS, server: "dns-cn" });
     if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
