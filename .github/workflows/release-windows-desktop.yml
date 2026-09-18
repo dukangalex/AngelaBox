@@ -120,27 +120,33 @@ jobs:
             sing-box/clients/desktop/pnpm-lock.yaml
             sing-box/clients/desktop/dashboard/pnpm-lock.yaml
 
-      - name: Optional Authenticode signing
+      - name: Windows signing material
         working-directory: sing-box/clients/desktop
         shell: pwsh
         env:
           WINDOWS_CERTIFICATES_P12: ${{ secrets.WINDOWS_CERTIFICATES_P12 }}
           WINDOWS_P12_PASSWORD: ${{ secrets.WINDOWS_P12_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATES_P12)) {
-            Write-Host 'No WINDOWS_CERTIFICATES_P12; building unsigned AngelaBox installer (SmartScreen expected).'
-            exit 0
-          }
+          $ErrorActionPreference = 'Stop'
           $certificatePath = Join-Path $env:RUNNER_TEMP 'windows-signing.p12'
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATES_P12))
+          $password = $env:WINDOWS_P12_PASSWORD
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATES_P12)) {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATES_P12))
+            if ([string]::IsNullOrWhiteSpace($password)) { throw 'WINDOWS_P12_PASSWORD is required with WINDOWS_CERTIFICATES_P12' }
+            Write-Host 'Using repository Authenticode certificate.'
+          } else {
+            Write-Host 'No WINDOWS_CERTIFICATES_P12; issuing a CI self-signed code-signing certificate (SmartScreen expected).'
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AngelaBox Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(1)
+            $password = [guid]::NewGuid().ToString('N')
+            $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
+            Export-PfxCertificate -Cert $cert -FilePath $certificatePath -Password $secure | Out-Null
+          }
+          if (-not (Test-Path $certificatePath)) { throw "missing $certificatePath" }
           $yml = (Get-Content -Raw electron-builder.yml).Replace('forceCodeSigning: false', 'forceCodeSigning: true')
-          Set-Content -Path electron-builder.yml -Value $yml -NoNewline
-          @{
-            windows = @{
-              certificateFile = $certificatePath
-              certificatePassword = $env:WINDOWS_P12_PASSWORD
-            }
-          } | ConvertTo-Json -Depth 3 | Set-Content -Encoding utf8NoBOM signing.local.json
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'electron-builder.yml'), $yml)
+          $signing = '{"windows":{"certificateFile":"' + ($certificatePath.Replace('\','\\')) + '","certificatePassword":"' + $password + '"}}'
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'signing.local.json'), $signing)
+          Write-Host 'Wrote signing.local.json'
 
       - name: Install dependencies
         working-directory: sing-box/clients/desktop

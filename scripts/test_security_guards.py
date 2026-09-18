@@ -193,6 +193,8 @@ def test_source_guards() -> None:
     assert "AngelaBox-windows-" in desktop
     assert "refusing to publish official SFW" in desktop
     assert "WINDOWS_CERTIFICATES_P12" in desktop
+    assert "signing.local.json" in desktop
+    assert "New-SelfSignedCertificate" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust
