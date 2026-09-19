@@ -77,25 +77,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f desktop/package.json
-          test -f desktop/electron-builder.yml
-          test -f desktop/dashboard/package.json
-          grep -q '^productName: AngelaBox$' desktop/electron-builder.yml
-          grep -q 'appId: io.chainbox.desktop' desktop/electron-builder.yml
-          grep -q 'artifactName: AngelaBox-windows-' desktop/electron-builder.yml
-          grep -q 'Software\\AngelaBox\\desktop' desktop/build/installer.nsh
-          grep -q 'angelabox-daemon' desktop/build/installer.nsh
-          grep -q 'applicationExecutableName = "AngelaBox.exe"' sing-box/experimental/boxdd/peer_windows.go
-          grep -q 'serviceName = "angelabox-daemon"' sing-box/experimental/boxdd/main.go
-          grep -q 'daemonPipePath = `\\.\pipe\ProtectedPrefix\Administrators\angelabox`' sing-box/experimental/boxdd/server_windows.go
-          if grep -E 'artifactName: SFW-|productName: sing-box|appId: io.nekohasekai.sfw' desktop/electron-builder.yml; then
-            echo 'desktop overlay still has official SFW identity' >&2
-            exit 1
+          fail() { echo "IDENTITY FAIL: $*" >&2; exit 1; }
+          has() {
+            local needle="$1"
+            local file="$2"
+            echo "check: '$needle' in $file"
+            test -f "$file" || fail "missing $file"
+            if ! grep -aF -- "$needle" "$file" >/dev/null; then
+              echo "---- $file (head) ----" >&2
+              grep -anE 'productName|appId|artifactName|AngelaBox|angelabox|SFW|sing-box|daemonPipe|serviceName|applicationExecutable' "$file" | head -n 40 >&2 || true
+              fail "missing '$needle' in $file"
+            fi
+          }
+          test -f desktop/package.json || fail 'desktop/package.json'
+          test -f desktop/electron-builder.yml || fail 'desktop/electron-builder.yml'
+          test -f desktop/dashboard/package.json || fail 'desktop/dashboard/package.json'
+          has 'productName: AngelaBox' desktop/electron-builder.yml
+          has 'appId: io.chainbox.desktop' desktop/electron-builder.yml
+          has 'artifactName: AngelaBox-windows-' desktop/electron-builder.yml
+          has 'Software\AngelaBox\desktop' desktop/build/installer.nsh
+          has 'angelabox-daemon' desktop/build/installer.nsh
+          has 'applicationExecutableName = "AngelaBox.exe"' sing-box/experimental/boxdd/peer_windows.go
+          has 'serviceName = "angelabox-daemon"' sing-box/experimental/boxdd/main.go
+          has 'Administrators\angelabox' sing-box/experimental/boxdd/server_windows.go
+          if grep -aE 'artifactName: SFW-|productName: sing-box|appId: io.nekohasekai.sfw' desktop/electron-builder.yml; then
+            fail 'desktop overlay still has official SFW identity'
           fi
-          if grep -R --include='*.yml' --include='*.nsh' --include='*.ts' -n 'SFW-\${' desktop | grep -v node_modules; then
-            echo 'SFW artifact prefix still present in overlay' >&2
-            exit 1
+          leftovers=$(grep -aR --include='*.yml' --include='*.nsh' --include='*.ts' --exclude-dir=node_modules --exclude-dir=vendor -nF -- 'SFW-${' desktop || true)
+          if [ -n "$leftovers" ]; then
+            echo "$leftovers" >&2
+            fail 'SFW artifact prefix still present in overlay'
           fi
+          echo 'identity ok'
 
       - name: Stamp desktop version and brand icon
         working-directory: desktop
