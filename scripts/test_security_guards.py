@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_CERT = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
 LEAKED_CERT = "32250a4b5f3a6733df57a3b9ec16c38d2c7fc5f2f693a9636f8f7b3be3549641"
-KERNEL_COMMIT = "dbea8d3ae919844bc5114ca418c4a3e1deb67e24"
+KERNEL_COMMIT = "d7639f61339bd87f737aff937f7010010bb1e443"
 CN_RULE_SET_TOKENS = {
     "geoip-cn",
     "geosite-cn",
@@ -160,7 +160,7 @@ def test_source_guards() -> None:
     assert "VERSION_NAME=1.0.62-beta" in props
     assert "VERSION_CODE=10062" in props
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
-    assert "KERNEL_TAG=v1.15.0-chain.2" in props
+    assert "KERNEL_TAG=v1.15.0-chain.3" in props
 
     gradle = read("app/build.gradle.kts")
     assert 'buildConfigField("String", "KERNEL_TAG"' in gradle

@@ -26,13 +26,12 @@ jobs:
         shell: bash
         run: |
           cat <<'EOF'
-          Windows graphical installer is blocked until the identity overlay is complete:
-            1. dukangalex/sing-box branch angelabox-identity is merged into chain-dev
-            2. version.properties KERNEL_COMMIT points at that kernel
-            3. dukangalex/sing-box-for-desktop branch angelabox ships AngelaBox.exe
-               with matching installer registry, service name, and dashboard submodule
-          Official SFW must not be renamed at CI time. That produced the 1.0.62-beta
-          rollback (daemon looked for sing-box.exe). See docs/IDENTITY.md.
+          Windows graphical installer is blocked until a clean VM install succeeds:
+            Identity is on chain-dev (v1.15.0-chain.3 / d7639f61).
+            Desktop overlay is dukangalex/sing-box-for-desktop branch angelabox.
+            Remaining: long-lived Authenticode in secrets, and a clean-machine
+            install that registers angelabox-daemon without rollback.
+          Official SFW must not be renamed at CI time. See docs/IDENTITY.md.
           EOF
           exit 1
 

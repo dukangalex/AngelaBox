@@ -37,13 +37,13 @@ sing-box.exe run -c config.json
 
 1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能安装**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。不要重试那一版。命令行 zip 仍可用。
 
-在 `KERNEL_COMMIT` 含身份补丁、桌面源码在 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支、并且安装在干净机器上走通之前，**不会再往 Release 挂图形安装包**。
+在干净机器上把 `AngelaBox.exe` 图形安装包走通之前，**不会再往 Release 挂图形安装包**。身份内核已在 `chain-dev`（`v1.15.0-chain.3` / `d7639f61`），桌面源码在 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支。
 
 源码：
 
 - 桌面：[dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox`
 - 仪表：[dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox`
-- 内核身份：[dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 `angelabox-identity`（合入 `chain-dev` 前不发安装包）
+- 内核：[dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 `chain-dev`（身份常量已合入，tag `v1.15.0-chain.3`）
 
 未配置 `WINDOWS_CERTIFICATES_P12` 时，测试包会有 SmartScreen「未知发布者」提示，这是预期。正式包必须用仓库里那把长期证书。
 

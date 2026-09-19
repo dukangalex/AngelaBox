@@ -27,7 +27,7 @@ git merge upstream/dev
 
 | 仓库 | 分支 | 职责 |
 |------|------|------|
-| [dukangalex/sing-box](https://github.com/dukangalex/sing-box) | `chain-dev` | Chain 内核（低耦合 outbound）；Windows 身份常量在合入前走 `angelabox-identity` |
+| [dukangalex/sing-box](https://github.com/dukangalex/sing-box) | `chain-dev` | Chain 内核 + Windows 身份常量 |
 | [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox) | `dev` | AngelaBox Android 客户端 + 发版规格 |
 | [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) | `angelabox` | Windows 图形端（`main` 保持官方镜像） |
 | [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) | `angelabox` | 仪表盘（`main` 保持官方镜像） |
@@ -80,8 +80,8 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 | 官方上游 | SagerNet/sing-box **v1.15.0-alpha.6** |
 | 本仓库 | dukangalex/sing-box 分支 `chain-dev` |
 | 已对齐基线 | 官方 1.15.0-alpha.6（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5） |
-| 内核 tag | v1.15.0-chain.2 |
-| 发版钉死的 commit | `dbea8d3ae919844bc5114ca418c4a3e1deb67e24`（`version.properties` 的 `KERNEL_COMMIT`） |
+| 内核 tag | v1.15.0-chain.3 |
+| 发版钉死的 commit | `d7639f61339bd87f737aff937f7010010bb1e443`（`version.properties` 的 `KERNEL_COMMIT`） |
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。**不跟进 v1.14.1**：稳定安装包钉的是 1.14.0；测试线已在 1.15，没有产品理由再回头吃一版修补。官方 1.15.0-alpha.6（2026-09-17）同样是修补、无新类型，测试线跟进。
 
@@ -95,7 +95,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `dbea8d3a`，并已打 annotated tag `v1.15.0-chain.2`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。1.0.62-beta 起设置 → 核心显示 `1.15.0-chain.2（官方 1.15.0-alpha.6）`。默认脚本仍为 `overlay-revision: 11`。Windows 命令行内核与 Android 同一 `KERNEL_COMMIT`，由 `release-chainbox.yml` 的 `windows-cli` 作业交叉编译；图形端见 `release-windows-desktop.yml`，不发布官方 `SFW-*.exe`。
+当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `d7639f61`（含 Windows 身份常量），并已打 annotated tag `v1.15.0-chain.3`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。1.0.62-beta 设置 → 核心显示当时的 `1.15.0-chain.2（官方 1.15.0-alpha.6）`；下一版显示 `1.15.0-chain.3`。默认脚本仍为 `overlay-revision: 11`。Windows 命令行内核与 Android 同一 `KERNEL_COMMIT`，由 `release-chainbox.yml` 的 `windows-cli` 作业交叉编译；图形端见 `release-windows-desktop.yml`，不发布官方 `SFW-*.exe`。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

@@ -53,7 +53,7 @@ CLI 压缩包仍是 `AngelaBox-windows-amd64.zip`，内含内核 `sing-box.exe`�
 | 项 | 值 |
 |---|---|
 | 仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 `chain-dev` |
-| 身份补丁分支 | `angelabox-identity`（合入 `chain-dev` 并更新 `KERNEL_COMMIT` 之前，不得发 Windows 图形安装包） |
+| 身份补丁 | 已合入 `chain-dev`（`d7639f61` / `v1.15.0-chain.3`）。`angelabox-identity` 与 `chain-dev` 同提交。图形安装包仍须干净机器装通后再发 |
 | 上游 | `SagerNet/sing-box`，只解决 Chain 与身份常量冲突 |
 | `applicationExecutableName` | `AngelaBox.exe` |
 | `daemonExecutableName` | `sing-box-daemon.exe` |
