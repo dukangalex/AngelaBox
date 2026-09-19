@@ -12,6 +12,11 @@ local.properties
 /app/libs/
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.pem
+signing.local.json
+key.properties
 /app/release.keystore
 /service-account-credentials.json
 /CLAUDE.md

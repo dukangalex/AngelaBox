@@ -289,6 +289,9 @@ def test_source_guards() -> None:
     gitignore = read(".gitignore")
     assert "*.jks" in gitignore
     assert "*.keystore" in gitignore
+    assert "*.p12" in gitignore
+    assert "*.pfx" in gitignore
+    assert "signing.local.json" in gitignore
 
 
 def test_bypass_mixed_or() -> None:

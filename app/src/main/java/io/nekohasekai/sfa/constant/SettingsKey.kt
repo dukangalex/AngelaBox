@@ -34,6 +34,7 @@ object SettingsKey {
     const val CHAIN_LANDING_TAG = "chain_landing_tag"
     const val CHAIN_BOUND_PROFILE_ID = "chain_bound_profile_id"
     const val CHAIN_BINDINGS = "chain_bindings"
+    const val PROFILE_STABLE_IDS = "profile_stable_ids"
     const val WEBDAV_URL = "webdav_url"
     const val WEBDAV_USER = "webdav_user"
     const val WEBDAV_PASSWORD = "webdav_password"

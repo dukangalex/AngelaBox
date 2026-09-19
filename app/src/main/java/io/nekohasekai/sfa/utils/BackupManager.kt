@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Base64
+import io.nekohasekai.sfa.backup.PortableCloudBackup
+import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
@@ -12,21 +14,20 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.URI
+import java.util.Date
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import javax.net.ssl.HttpsURLConnection
 
 object BackupManager {
-    private const val MANIFEST = "manifest.json"
-    private const val VERSION = 2
+    private const val MANIFEST = PortableCloudBackup.MANIFEST
     private const val MAX_ENTRIES = 512
     private const val MAX_ENTRY_SIZE = 32L * 1024 * 1024
     private const val MAX_TOTAL_SIZE = 128L * 1024 * 1024
@@ -42,12 +43,16 @@ object BackupManager {
             checkpoint(context, Path.SETTINGS_DATABASE_PATH)
             checkpoint(context, Path.PROFILES_DATABASE_PATH)
             ZipOutputStream(BufferedOutputStream(FileOutputStream(dest))).use { zos ->
-                val manifest = JSONObject()
-                    .put("version", VERSION)
-                    .put("app", "chainbox")
-                    .put("time", System.currentTimeMillis())
-                    .put("secrets", "omitted")
-                putEntry(zos, MANIFEST, manifest.toString().toByteArray())
+                val profiles = runBlocking { ProfileManager.list() }
+                val archive = PortableCloudBackup.buildFromAndroid(
+                    profiles = profiles,
+                    selectedProfileId = Settings.selectedProfile,
+                )
+                putEntry(
+                    zos,
+                    MANIFEST,
+                    PortableCloudBackup.manifest(archive.writtenBy, archive.time).toString().toByteArray(),
+                )
                 copyMainDbOnly(zos, context, Path.SETTINGS_DATABASE_PATH)
                 copyProfilesDbRedacted(zos, context)
                 val configs = File(context.filesDir, "configs")
@@ -55,6 +60,15 @@ object BackupManager {
                     configs.listFiles()?.forEach { f ->
                         if (f.isFile) putFile(zos, "configs/${f.name}", f)
                     }
+                }
+                putEntry(
+                    zos,
+                    PortableCloudBackup.PROFILES,
+                    PortableCloudBackup.encodeProfiles(archive.selected, archive.profiles).toByteArray(),
+                )
+                putEntry(zos, PortableCloudBackup.SETTINGS, archive.settings.toString().toByteArray())
+                archive.configs.forEach { (name, bytes) ->
+                    putEntry(zos, name, bytes)
                 }
             }
         } finally {
@@ -87,7 +101,9 @@ object BackupManager {
                     val name = entry.name.trimStart('/')
                     if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
                         val outFile = when {
-                            name == MANIFEST -> File(staging, MANIFEST)
+                            name == MANIFEST ||
+                                name == PortableCloudBackup.PROFILES ||
+                                name == PortableCloudBackup.SETTINGS -> File(staging, name)
                             name.startsWith("configs/") -> {
                                 val relative = name.removePrefix("configs/")
                                 if (relative.isBlank() || relative.contains('/')) {
@@ -100,7 +116,11 @@ object BackupManager {
                             else -> null
                         }
                         if (outFile != null) {
-                            if (name.endsWith(".db") || name.startsWith("configs/")) hasData = true
+                            if (name.endsWith(".db") || name.startsWith("configs/") ||
+                                name == PortableCloudBackup.PROFILES
+                            ) {
+                                hasData = true
+                            }
                             outFile.parentFile?.mkdirs()
                             var entryBytes = 0L
                             FileOutputStream(outFile).use { fos ->
@@ -127,12 +147,24 @@ object BackupManager {
         }
         if (!hasData) error("备份里没有配置或数据库，无法恢复")
 
+        val portableProfiles = File(staging, PortableCloudBackup.PROFILES)
+        val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
+        val hasPortable = portableProfiles.isFile
+
         if (compat) {
-            mergeProfilesFromBackup(
-                context,
-                File(staging, Path.PROFILES_DATABASE_PATH),
-                File(staging, "configs"),
-            )
+            if (hasPortable) {
+                mergePortableProfiles(
+                    context,
+                    portableProfiles.readText(),
+                    File(staging, "configs"),
+                )
+            } else {
+                mergeProfilesFromBackup(
+                    context,
+                    File(staging, Path.PROFILES_DATABASE_PATH),
+                    File(staging, "configs"),
+                )
+            }
             staging.deleteRecursively()
             return@runCatching
         }
@@ -173,7 +205,121 @@ object BackupManager {
         val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
         if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
         if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
+
+        if (hasPortable) {
+            if (!File(staging, Path.PROFILES_DATABASE_PATH).isFile) {
+                restorePortableOverwrite(
+                    context,
+                    portableProfiles.readText(),
+                    if (portableSettings.isFile) portableSettings.readText() else "{}",
+                    File(staging, "configs"),
+                )
+            } else {
+                runCatching {
+                    val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
+                    val existing = runBlocking { ProfileManager.list() }
+                    val uuidToLocal = linkedMapOf<String, Long>()
+                    profiles.forEach { portable ->
+                        val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
+                            ?: existing.firstOrNull {
+                                portable.remoteUrl.isNotEmpty() &&
+                                    it.typed.remoteURL.trim() == portable.remoteUrl
+                            }
+                        if (local != null) uuidToLocal[portable.id] = local.id
+                    }
+                    PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+                    if (!selected.isNullOrBlank()) {
+                        ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
+                    }
+                }
+            }
+        }
+        if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
+        if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
         staging.deleteRecursively()
+    }
+
+    private fun restorePortableOverwrite(
+        context: Context,
+        profilesJson: String,
+        settingsJson: String,
+        backupConfigs: File,
+    ) {
+        val (selected, profiles) = PortableCloudBackup.parseProfiles(profilesJson)
+        val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
+        runBlocking {
+            ProfileManager.list().toList().forEach { existing ->
+                runCatching { ProfileManager.delete(existing) }
+            }
+            val uuidToLocal = linkedMapOf<String, Long>()
+            profiles.forEach { portable ->
+                val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
+                uuidToLocal[portable.id] = created.id
+            }
+            PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+            PortableCloudBackup.applyPortableSettings(settingsJson, uuidToLocal)
+            val selectedLocal = selected?.let { ProfileStableIds.localId(it) }
+            if (selectedLocal != null) {
+                Settings.selectedProfile = selectedLocal
+            } else if (uuidToLocal.isNotEmpty()) {
+                Settings.selectedProfile = uuidToLocal.values.first()
+            }
+        }
+    }
+
+    private fun mergePortableProfiles(context: Context, profilesJson: String, backupConfigs: File) {
+        val (_, profiles) = PortableCloudBackup.parseProfiles(profilesJson)
+        val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
+        runBlocking {
+            val existing = ProfileManager.list()
+            val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+            val urls = existing.map { it.typed.remoteURL.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+            profiles.forEach { portable ->
+                val name = portable.name.trim()
+                if (name.isEmpty() || name in names) return@forEach
+                val url = portable.remoteUrl.trim()
+                if (url.isNotEmpty() && url in urls) return@forEach
+                val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
+                ProfileStableIds.put(created.id, portable.id)
+                names.add(name)
+                if (url.isNotEmpty()) urls.add(url)
+            }
+        }
+    }
+
+    private suspend fun importPortableProfile(
+        liveConfigs: File,
+        backupConfigs: File,
+        portable: PortableCloudBackup.PortableProfile,
+    ): Profile? {
+        val url = portable.remoteUrl.trim()
+        if (url.isNotEmpty()) {
+            try {
+                RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
+            } catch (_: Exception) {
+                return null
+            }
+        }
+        val srcName = File(portable.config).name
+        if (srcName.isBlank() || srcName.contains("..")) return null
+        val staged = File(backupConfigs, srcName)
+        if (!staged.isFile) return null
+        val fileId = ProfileManager.nextFileID()
+        val dest = File(liveConfigs, "$fileId.json")
+        val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
+        if (!copied || !dest.isFile) return null
+        val typed = TypedProfile().apply {
+            path = dest.path
+            type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
+            remoteURL = url
+            lastUpdated = Date(portable.lastUpdated)
+            autoUpdate = portable.autoUpdate
+            autoUpdateInterval = portable.autoUpdateIntervalMinutes.coerceAtLeast(15)
+        }
+        return ProfileManager.create(
+            Profile(name = portable.name.trim(), icon = portable.icon, typed = typed),
+            andSelect = false,
+        )
     }
 
     /**

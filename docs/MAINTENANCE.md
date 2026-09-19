@@ -27,8 +27,12 @@ git merge upstream/dev
 
 | 仓库 | 分支 | 职责 |
 |------|------|------|
-| [dukangalex/sing-box](https://github.com/dukangalex/sing-box) | `chain-dev` | Chain 内核（低耦合 outbound） |
-| [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox) | `dev` | AngelaBox Android 客户端 |
+| [dukangalex/sing-box](https://github.com/dukangalex/sing-box) | `chain-dev` | Chain 内核（低耦合 outbound）；Windows 身份常量在合入前走 `angelabox-identity` |
+| [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox) | `dev` | AngelaBox Android 客户端 + 发版规格 |
+| [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) | `angelabox` | Windows 图形端（`main` 保持官方镜像） |
+| [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) | `angelabox` | 仪表盘（`main` 保持官方镜像） |
+
+Windows 身份与云备份格式见 [IDENTITY.md](IDENTITY.md)、[BACKUP.md](BACKUP.md)。不要再对官方 SFW 做构建时改名。
 
 Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 

@@ -22,6 +22,20 @@ jobs:
         include:
           - { desktop_arch: x64, rust_target: x86_64-pc-windows-msvc }
     steps:
+      - name: Identity overlay gate
+        shell: bash
+        run: |
+          cat <<'EOF'
+          Windows graphical installer is blocked until the identity overlay is complete:
+            1. dukangalex/sing-box branch angelabox-identity is merged into chain-dev
+            2. version.properties KERNEL_COMMIT points at that kernel
+            3. dukangalex/sing-box-for-desktop branch angelabox ships AngelaBox.exe
+               with matching installer registry, service name, and dashboard submodule
+          Official SFW must not be renamed at CI time. That produced the 1.0.62-beta
+          rollback (daemon looked for sing-box.exe). See docs/IDENTITY.md.
+          EOF
+          exit 1
+
       - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:

@@ -220,7 +220,7 @@ object OverlayScripts {
         }
     }
 
-    internal fun encodeBindings(map: Map<Long, List<String>>): String {
+    fun encodeBindings(map: Map<Long, List<String>>): String {
         val root = JSONObject()
         map.forEach { (id, ids) ->
             if (id < 0L) return@forEach
@@ -231,7 +231,7 @@ object OverlayScripts {
         return root.toString()
     }
 
-    internal fun decodeBindings(raw: String): Map<Long, List<String>> {
+    fun decodeBindings(raw: String): Map<Long, List<String>> {
         if (raw.isBlank()) return emptyMap()
         return try {
             val root = JSONObject(raw)
