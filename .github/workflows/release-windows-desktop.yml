@@ -210,7 +210,13 @@ jobs:
 
       - name: Typecheck Electron main
         working-directory: desktop
-        run: pnpm exec tsc -b tsconfig.node.json --pretty false
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -aF 'import { registerCore } from "./core"' src/main/index.ts
+          grep -aF 'registerCore();' src/main/index.ts
+          pnpm generate
+          pnpm exec tsc -b tsconfig.node.json --pretty false
 
       - name: Build installer
         working-directory: desktop
