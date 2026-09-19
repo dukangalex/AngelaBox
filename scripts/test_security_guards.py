@@ -157,8 +157,8 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.62-beta" in props
-    assert "VERSION_CODE=10062" in props
+    assert "VERSION_NAME=1.0.63-beta" in props
+    assert "VERSION_CODE=10063" in props
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
 

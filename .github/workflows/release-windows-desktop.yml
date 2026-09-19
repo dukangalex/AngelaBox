@@ -95,6 +95,7 @@ jobs:
           has 'productName: AngelaBox' desktop/electron-builder.yml
           has 'appId: io.chainbox.desktop' desktop/electron-builder.yml
           has 'artifactName: AngelaBox-windows-' desktop/electron-builder.yml
+          has 'icon: resources/icon.ico' desktop/electron-builder.yml
           has 'Software\AngelaBox\desktop' desktop/build/installer.nsh
           has 'angelabox-daemon' desktop/build/installer.nsh
           has 'applicationExecutableName = "AngelaBox.exe"' sing-box/experimental/boxdd/peer_windows.go
@@ -119,14 +120,26 @@ jobs:
           {"version":"${{ steps.pin.outputs.appver }}","go_version":"${{ steps.pin.outputs.gover }}"}
           '@
           [IO.File]::WriteAllText((Join-Path (Get-Location) 'version.json'), $version.Trim() + "`n")
-          $icon = Join-Path (Get-Location) '..\angelabox\docs\brand\AngelaBox-icon-512.png'
-          if (-not (Test-Path $icon)) { throw "missing AngelaBox brand icon: $icon" }
+          $brand = Join-Path (Get-Location) '..\angelabox\docs\brand'
+          $png = Join-Path $brand 'AngelaBox-icon-512.png'
+          $ico = Join-Path $brand 'AngelaBox-icon.ico'
+          $pngB64 = Join-Path $brand 'AngelaBox-icon-512.png.b64'
+          $icoB64 = Join-Path $brand 'AngelaBox-icon.ico.b64'
+          if (-not (Test-Path $png) -and (Test-Path $pngB64)) {
+            [IO.File]::WriteAllBytes($png, [Convert]::FromBase64String((Get-Content $pngB64 -Raw).Trim()))
+          }
+          if (-not (Test-Path $ico) -and (Test-Path $icoB64)) {
+            [IO.File]::WriteAllBytes($ico, [Convert]::FromBase64String((Get-Content $icoB64 -Raw).Trim()))
+          }
+          if (-not (Test-Path $png)) { throw "missing AngelaBox brand icon: $png" }
+          if (-not (Test-Path $ico)) { throw "missing AngelaBox brand ico: $ico" }
           New-Item -ItemType Directory -Force resources, resources\icons | Out-Null
-          Copy-Item $icon resources\icon.png -Force
-          Copy-Item $icon resources\icons\512x512.png -Force
+          Copy-Item $png resources\icon.png -Force
+          Copy-Item $png resources\icons\512x512.png -Force
+          Copy-Item $ico resources\icon.ico -Force
+          Copy-Item $ico resources\tray.ico -Force
           $yml = Get-Content -Raw electron-builder.yml
-          $yml = $yml.Replace('icon: resources/icon.ico', 'icon: resources/icon.png')
-          [IO.File]::WriteAllText((Join-Path (Get-Location) 'electron-builder.yml'), $yml)
+          if ($yml -notmatch 'icon: resources/icon\.ico') { throw 'electron-builder.yml must keep win.icon as resources/icon.ico' }
           $meta = Get-Content -Raw version.json
           if ($meta -notmatch '"version":"${{ steps.pin.outputs.appver }}"') { throw 'version.json stamp failed' }
           if ($meta -notmatch '"go_version":"${{ steps.pin.outputs.gover }}"') { throw 'go_version stamp failed' }
@@ -194,6 +207,10 @@ jobs:
       - name: Install dependencies
         working-directory: desktop
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck Electron main
+        working-directory: desktop
+        run: pnpm exec tsc -b tsconfig.node.json --pretty false
 
       - name: Build installer
         working-directory: desktop

@@ -35,11 +35,11 @@ sing-box.exe run -c config.json
 4. Windows 服务名是 `angelabox-daemon`（不得与官方 `sing-box-daemon` 冲突）
 5. 主程序和守护进程用**同一把** Authenticode 证书
 
-1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能安装**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。不要重试那一版。命令行 zip 仍可用。
+1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能用**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。Actions 上那一版图形包能装上，但会因 `registerCore is not defined` 立刻退出。不要再用这两包。命令行 zip 仍可用。
 
-在干净机器上把 `AngelaBox.exe` 图形安装包走通之前，**不会再往 Release 挂图形安装包**。身份内核已在 `chain-dev`（`v1.15.0-chain.3` / `d7639f61`），桌面源码在 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支。
+测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），安装器底部应是 **1.0.63-beta**。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，SmartScreen 会提示未知发布者，这是预期；这种包也**不会**被挂到公开 Release。安装时若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可，那是上一版残留目录清理失败，不挡安装。
 
-测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），不要用 1.0.62-beta Release 里那个会回滚的 `.exe`。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，SmartScreen 会提示未知发布者，这是预期；这种包也**不会**被挂到公开 Release。
+桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
 
 源码：
 
