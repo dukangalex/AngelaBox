@@ -195,6 +195,14 @@ def test_source_guards() -> None:
     assert "WINDOWS_CERTIFICATES_P12" in desktop
     assert "signing.local.json" in desktop
     assert "New-SelfSignedCertificate" in desktop
+    assert "dukangalex/sing-box-for-desktop" in desktop
+    assert "ref: angelabox" in desktop
+    assert "Rebrand desktop" not in desktop
+    assert "Replace('productName: sing-box'" not in desktop
+    assert "sing-box/clients/desktop" not in desktop
+    assert "path: desktop" in desktop
+    assert "refusing to attach a self-signed" in desktop
+    assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust

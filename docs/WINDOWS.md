@@ -39,6 +39,8 @@ sing-box.exe run -c config.json
 
 在干净机器上把 `AngelaBox.exe` 图形安装包走通之前，**不会再往 Release 挂图形安装包**。身份内核已在 `chain-dev`（`v1.15.0-chain.3` / `d7639f61`），桌面源码在 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支。
 
+测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），不要用 1.0.62-beta Release 里那个会回滚的 `.exe`。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，SmartScreen 会提示未知发布者，这是预期；这种包也**不会**被挂到公开 Release。
+
 源码：
 
 - 桌面：[dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox`

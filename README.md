@@ -128,7 +128,7 @@ sha256sum -c AngelaBox-android.apk.sha256
 2. 与官方 sing-box 核对 inbound/outbound 类型常量
 3. 校验发行证书 SHA-256 后组装 Android APK，生成 `AngelaBox-android.apk.sha256`
 4. 指定 `version_tag` 后发布至 GitHub Releases（Android：`AngelaBox-android.apk`；Windows：`AngelaBox-windows-*.zip`）
-5. 图形 Windows 安装包由 `.github/workflows/release-windows-desktop.yml`（**AngelaBox Windows Desktop**）单独构建，不冒用官方 SFW 文件名
+5. 图形 Windows 安装包由 `.github/workflows/release-windows-desktop.yml`（**AngelaBox Windows Desktop**）从 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支构建，不在 CI 里改名官方 SFW
 
 客户端版本号以 `version.properties` 为准。
 
@@ -138,7 +138,7 @@ AngelaBox 建立在上游开源工作之上，谢谢：
 
 - [sing-box](https://github.com/SagerNet/sing-box)，由 [nekohasekai](https://github.com/nekohasekai) 与 [SagerNet](https://github.com/SagerNet) 维护的通用代理平台
 - [sing-box for Android](https://github.com/SagerNet/sing-box-for-android)，本客户端的上游界面与服务框架
-- [sing-box for Desktop](https://github.com/SagerNet/sing-box-for-desktop)，官方 Windows/Linux 图形客户端；本仓库的图形端工作流以其为源并改名，不发布 `SFW-*.exe`
+- [sing-box for Desktop](https://github.com/SagerNet/sing-box-for-desktop)，官方 Windows/Linux 图形客户端；AngelaBox 图形端是独立 overlay 分支，不发布 `SFW-*.exe`
 
 上述致谢不构成从属、授权或官方认可。
 

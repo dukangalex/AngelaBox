@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: "GitHub Release tag to attach (e.g. v1.0.62-beta)"
-        required: true
+        description: "GitHub Release tag to attach (leave empty unless attach_to_release)"
+        required: false
         type: string
+      attach_to_release:
+        description: "Attach installer to a public GitHub Release (default no)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,35 +27,25 @@ jobs:
         include:
           - { desktop_arch: x64, rust_target: x86_64-pc-windows-msvc }
     steps:
-      - name: Identity overlay gate
-        shell: bash
-        run: |
-          cat <<'EOF'
-          Windows graphical installer is blocked until a clean VM install succeeds:
-            Identity is on chain-dev (v1.15.0-chain.3 / d7639f61).
-            Desktop overlay is dukangalex/sing-box-for-desktop branch angelabox.
-            Remaining: long-lived Authenticode in secrets, and a clean-machine
-            install that registers angelabox-daemon without rollback.
-          Official SFW must not be renamed at CI time. See docs/IDENTITY.md.
-          EOF
-          exit 1
-
       - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          path: sing-box-for-android
+          path: angelabox
 
       - name: Read kernel pin
         id: pin
-        working-directory: sing-box-for-android
+        working-directory: angelabox
         shell: bash
         run: |
           set -euo pipefail
           COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          GOVER=$(grep '^GO_VERSION=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$GOVER" | grep -Eq '^go[0-9]+\.[0-9]+'
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "ktag=$(grep '^KERNEL_TAG=' version.properties | cut -d= -f2 | tr -d '\r')" >> "$GITHUB_OUTPUT"
           echo "appver=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2 | tr -d '\r')" >> "$GITHUB_OUTPUT"
+          echo "gover=$GOVER" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -61,52 +56,67 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      - name: Stamp kernel tag and fetch desktop client
+      - name: Checkout AngelaBox desktop overlay
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box-for-desktop
+          ref: angelabox
+          path: desktop
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Stamp kernel tag
         working-directory: sing-box
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
           git tag -f "${{ steps.pin.outputs.ktag }}" HEAD
-          git submodule update --init clients/desktop
-          git -C clients/desktop submodule update --init --recursive
-          test -f clients/desktop/package.json
-          test -f clients/desktop/electron-builder.yml
 
-      - name: Rebrand desktop client as AngelaBox
-        working-directory: sing-box/clients/desktop
+      - name: Identity assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f desktop/package.json
+          test -f desktop/electron-builder.yml
+          test -f desktop/dashboard/package.json
+          grep -q '^productName: AngelaBox$' desktop/electron-builder.yml
+          grep -q 'appId: io.chainbox.desktop' desktop/electron-builder.yml
+          grep -q 'artifactName: AngelaBox-windows-' desktop/electron-builder.yml
+          grep -q 'Software\\AngelaBox\\desktop' desktop/build/installer.nsh
+          grep -q 'angelabox-daemon' desktop/build/installer.nsh
+          grep -q 'applicationExecutableName = "AngelaBox.exe"' sing-box/experimental/boxdd/peer_windows.go
+          grep -q 'serviceName = "angelabox-daemon"' sing-box/experimental/boxdd/main.go
+          grep -q 'daemonPipePath = `\\.\pipe\ProtectedPrefix\Administrators\angelabox`' sing-box/experimental/boxdd/server_windows.go
+          if grep -E 'artifactName: SFW-|productName: sing-box|appId: io.nekohasekai.sfw' desktop/electron-builder.yml; then
+            echo 'desktop overlay still has official SFW identity' >&2
+            exit 1
+          fi
+          if grep -R --include='*.yml' --include='*.nsh' --include='*.ts' -n 'SFW-\${' desktop | grep -v node_modules; then
+            echo 'SFW artifact prefix still present in overlay' >&2
+            exit 1
+          fi
+
+      - name: Stamp desktop version and brand icon
+        working-directory: desktop
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $version = @'
+          {"version":"${{ steps.pin.outputs.appver }}","go_version":"${{ steps.pin.outputs.gover }}"}
+          '@
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'version.json'), $version.Trim() + "`n")
+          $icon = Join-Path (Get-Location) '..\angelabox\docs\brand\AngelaBox-icon-512.png'
+          if (-not (Test-Path $icon)) { throw "missing AngelaBox brand icon: $icon" }
+          New-Item -ItemType Directory -Force resources, resources\icons | Out-Null
+          Copy-Item $icon resources\icon.png -Force
+          Copy-Item $icon resources\icons\512x512.png -Force
           $yml = Get-Content -Raw electron-builder.yml
-          if ($yml -notmatch 'artifactName: SFW-') { throw 'expected official SFW artifactName to rewrite' }
-          $yml = $yml.Replace('productName: sing-box', 'productName: AngelaBox')
-          $yml = $yml.Replace('appId: io.nekohasekai.sfw', 'appId: io.chainbox.desktop')
-          $yml = $yml.Replace('forceCodeSigning: true', 'forceCodeSigning: false')
-          $yml = $yml.Replace('artifactName: SFW-${version}-${env.SFW_ARCHITECTURE}.${ext}', 'artifactName: AngelaBox-windows-${env.SFW_ARCHITECTURE}.${ext}')
-          if ($yml -match 'io.nekohasekai.sfw') { throw 'appId rewrite failed' }
-          if ($yml -match 'SFW-') { throw 'SFW artifact prefix still present' }
-          if ($yml -notmatch 'forceCodeSigning: false') { throw 'unsigned mode not applied' }
-          Set-Content -Path electron-builder.yml -Value $yml -NoNewline
-          $pkg = Get-Content -Raw package.json
-          $pkg = $pkg.Replace('"name": "sing-box"', '"name": "angelabox"')
-          $pkg = $pkg.Replace('"desktopName": "sing-box.desktop"', '"desktopName": "AngelaBox.desktop"')
-          $pkg = $pkg.Replace('"name": "SagerNet"', '"name": "AngelaBox"')
-          Set-Content -Path package.json -Value $pkg -NoNewline
-          $pkgTs = Get-Content -Raw scripts/package.ts
-          if ($pkgTs -notmatch 'SFW-') { throw 'package.ts missing SFW artifact prefix' }
-          $pkgTs = $pkgTs.Replace('SFW-', 'AngelaBox-windows-')
-          Set-Content -Path scripts/package.ts -Value $pkgTs -NoNewline
-          [IO.File]::WriteAllText(
-            (Join-Path (Get-Location) 'version.json'),
-            '{"version":"${{ steps.pin.outputs.appver }}","go_version":"go1.25.5"}' + "`n"
-          )
-          New-Item -ItemType Directory -Force resources | Out-Null
-          Copy-Item ../../../sing-box-for-android/docs/brand/AngelaBox-icon-512.png resources/icon.png -Force
-          if (Test-Path resources/icon.ico) {
-            # Prefer AngelaBox PNG; electron-builder accepts png for win.icon.
-          }
-          (Get-Content -Raw electron-builder.yml).Replace('icon: resources/icon.ico', 'icon: resources/icon.png') | Set-Content electron-builder.yml -NoNewline
+          $yml = $yml.Replace('icon: resources/icon.ico', 'icon: resources/icon.png')
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'electron-builder.yml'), $yml)
+          $meta = Get-Content -Raw version.json
+          if ($meta -notmatch '"version":"${{ steps.pin.outputs.appver }}"') { throw 'version.json stamp failed' }
+          if ($meta -notmatch '"go_version":"${{ steps.pin.outputs.gover }}"') { throw 'go_version stamp failed' }
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -122,19 +132,20 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          package_json_file: sing-box/clients/desktop/package.json
+          package_json_file: desktop/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version-file: sing-box/clients/desktop/package.json
+          node-version-file: desktop/package.json
           cache: pnpm
           cache-dependency-path: |
-            sing-box/clients/desktop/pnpm-lock.yaml
-            sing-box/clients/desktop/dashboard/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+            desktop/dashboard/pnpm-lock.yaml
 
       - name: Windows signing material
-        working-directory: sing-box/clients/desktop
+        id: signing
+        working-directory: desktop
         shell: pwsh
         env:
           WINDOWS_CERTIFICATES_P12: ${{ secrets.WINDOWS_CERTIFICATES_P12 }}
@@ -143,36 +154,42 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $certificatePath = Join-Path $env:RUNNER_TEMP 'windows-signing.p12'
           $password = $env:WINDOWS_P12_PASSWORD
+          $repoCert = $false
           if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATES_P12)) {
             [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATES_P12))
             if ([string]::IsNullOrWhiteSpace($password)) { throw 'WINDOWS_P12_PASSWORD is required with WINDOWS_CERTIFICATES_P12' }
+            $repoCert = $true
             Write-Host 'Using repository Authenticode certificate.'
           } else {
-            Write-Host 'No WINDOWS_CERTIFICATES_P12; issuing a CI self-signed code-signing certificate (SmartScreen expected).'
+            Write-Host 'No WINDOWS_CERTIFICATES_P12; issuing a CI self-signed code-signing certificate (SmartScreen expected; not for public Release).'
             $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AngelaBox Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(1)
             $password = [guid]::NewGuid().ToString('N')
             $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
             Export-PfxCertificate -Cert $cert -FilePath $certificatePath -Password $secure | Out-Null
           }
           if (-not (Test-Path $certificatePath)) { throw "missing $certificatePath" }
-          $yml = (Get-Content -Raw electron-builder.yml).Replace('forceCodeSigning: false', 'forceCodeSigning: true')
-          [IO.File]::WriteAllText((Join-Path (Get-Location) 'electron-builder.yml'), $yml)
-          $signing = '{"windows":{"certificateFile":"' + ($certificatePath.Replace('\','\\')) + '","certificatePassword":"' + $password + '"}}'
-          [IO.File]::WriteAllText((Join-Path (Get-Location) 'signing.local.json'), $signing)
+          $payload = @{
+            windows = @{
+              certificateFile = $certificatePath
+              certificatePassword = $password
+            }
+          } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'signing.local.json'), $payload)
+          if ($repoCert) { 'repo_cert=true' >> $env:GITHUB_OUTPUT } else { 'repo_cert=false' >> $env:GITHUB_OUTPUT }
           Write-Host 'Wrote signing.local.json'
 
       - name: Install dependencies
-        working-directory: sing-box/clients/desktop
-        run: pnpm install
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
 
       - name: Build installer
-        working-directory: sing-box/clients/desktop
+        working-directory: desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm package:win -- ${{ matrix.desktop_arch }}
 
       - name: Prepare upload
-        working-directory: sing-box/clients/desktop
+        working-directory: desktop
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -180,28 +197,39 @@ jobs:
           if ($sfw.Count -ne 0) { throw 'refusing to publish official SFW-*.exe artifacts' }
           $artifacts = @(Get-ChildItem release/AngelaBox-windows-*.exe -File)
           if ($artifacts.Count -ne 1) {
-            throw "expected 1 AngelaBox-windows installer, found $($artifacts.Count)"
+            throw "expected 1 AngelaBox-windows installer, found $($artifacts.Count): $($artifacts.Name -join ', ')"
           }
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item $artifacts.FullName dist
           Get-FileHash -Algorithm SHA256 $artifacts.FullName |
             ForEach-Object { "$($_.Hash.ToLower())  $($artifacts.Name)" } |
             Set-Content "dist/$($artifacts.Name).sha256"
+          Get-ChildItem dist | Format-Table Name, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-desktop-${{ matrix.desktop_arch }}
-          path: sing-box/clients/desktop/dist/*
+          path: desktop/dist/*
           if-no-files-found: error
 
       - name: Attach to GitHub Release
+        if: ${{ inputs.attach_to_release }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.version_tag }}
+          REPO_CERT: ${{ steps.signing.outputs.repo_cert }}
         run: |
           set -euo pipefail
-          ls -lah sing-box/clients/desktop/dist
+          if [ -z "${TAG}" ]; then
+            echo 'attach_to_release requires version_tag' >&2
+            exit 1
+          fi
+          if [ "${REPO_CERT}" != "true" ]; then
+            echo 'refusing to attach a self-signed test installer to a public Release' >&2
+            exit 1
+          fi
+          ls -lah desktop/dist
           gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null
-          gh release upload "$TAG" sing-box/clients/desktop/dist/AngelaBox-windows-*.exe sing-box/clients/desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release upload "$TAG" desktop/dist/AngelaBox-windows-*.exe desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
