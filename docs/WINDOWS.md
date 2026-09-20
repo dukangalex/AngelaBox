@@ -4,9 +4,35 @@
 
 AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核（官方 sing-box 加上 Chain outbound）。**不是**官方 sing-box for Desktop（SFW），不得用官方名称、图标或 `io.nekohasekai.sfw` 冒充。
 
+## 图形客户端（要的是这个）
+
+从 GitHub Release 下载 **`AngelaBox-windows-*.exe`**，双击安装。这是带窗口的客户端，安装后开始菜单和桌面会有 AngelaBox。
+
+当前测试包：[`AngelaBox-windows-1.0.63-beta-x64.exe`](https://github.com/dukangalex/AngelaBox/releases/download/v1.0.64-beta/AngelaBox-windows-1.0.63-beta-x64.exe)（挂在 `v1.0.64-beta` 这一页；安装器底部应是 **1.0.63-beta**）。
+
+1. 先卸载 1.0.62-beta。
+2. Chrome 若提示「此文件包含危险内容」，换 **Microsoft Edge** 或 Firefox 打开同一链接。
+3. SmartScreen 未知发布者：更多信息 → 仍要运行。
+4. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
+5. 不要下任何 `.zip`。zip 里只有命令行 `sing-box.exe`，不是图形界面。
+
+图形安装包必须同时满足：
+
+1. 主程序文件名是 `AngelaBox.exe`（`C:\Program Files\AngelaBox\`）
+2. 守护进程按官方布局放在 `resources\daemon\sing-box-daemon.exe`
+3. 内核 `applicationExecutableName` 也是 `AngelaBox.exe`
+4. Windows 服务名是 `angelabox-daemon`（不得与官方 `sing-box-daemon` 冲突）
+5. 主程序和守护进程用**同一把** Authenticode 证书
+
+1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能用**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。那一版还会因 `registerCore is not defined` 立刻退出。不要再用。
+
+未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，Chrome 和 SmartScreen 都会拦截，这是预期。测试包已挂在预发布页，方便下载；正式对外发版仍须长期证书。
+
+桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
+
 ## 命令行客户端
 
-Release 中的压缩包：
+部分 Release 会附压缩包（本测试页已去掉，避免和下图形安装器搞混）：
 
 | 文件 | 架构 |
 |------|------|
@@ -24,24 +50,6 @@ sing-box.exe run -c config.json
 `config.json` 须为当前稳定官方语法。订阅、规则集、远程脚本只允许公网 HTTPS；不要写 HTTP 或 RFC1918 地址。启用 TUN 需要管理员权限。
 
 内核型号与 Android 测试版相同，见该次 Release 说明中的 `KERNEL_TAG` / `KERNEL_COMMIT`。用 `sing-box.exe version` 核对。
-
-## 图形客户端（方案 B）
-
-图形安装包必须同时满足：
-
-1. 主程序文件名是 `AngelaBox.exe`（`C:\Program Files\AngelaBox\`）
-2. 守护进程按官方布局放在 `resources\daemon\sing-box-daemon.exe`
-3. 内核 `applicationExecutableName` 也是 `AngelaBox.exe`
-4. Windows 服务名是 `angelabox-daemon`（不得与官方 `sing-box-daemon` 冲突）
-5. 主程序和守护进程用**同一把** Authenticode 证书
-
-1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能用**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。Actions 上那一版图形包能装上，但会因 `registerCore is not defined` 立刻退出。不要再用这两包。命令行 zip 仍可用。
-
-测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），安装器底部应是 **1.0.63-beta**。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，Chrome 和 SmartScreen 都会拦截，这是预期；这种包也**不会**被挂到公开 Release。安装时若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可，那是上一版残留目录清理失败，不挡安装。
-
-Chrome 若提示「此文件包含危险内容」且只有「从下载记录中删除」，是安全浏览把**未用长期证书签名的安装包**直接拦了，不是安装包坏了。请改用 **Microsoft Edge** 或 Firefox 打开同一个 Actions 页面下载；或在 Chrome 设置 → 隐私和安全 → 安全 → 安全浏览，暂时选「不提供保护」，下完立刻改回去。装的时候若仍提示未知发布者：更多信息 → 仍要运行。
-
-桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
 
 ## 怎样才不是未知发布者
 
