@@ -11,12 +11,16 @@ They meet at (3, 3, 3). The silhouette is a hexagon.
 Wrong pairs:
   x=0 + x=3  — two opposite faces of the same axis → arch / hole
   x=0 + z=0  — near corner sits at the top → chevron / roof with a V-notch
+
+Launcher / shortcut glyphs use a transparent canvas (no white plate).
+Play Store listing icons stay opaque white: Google forbids transparency there.
 """
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "app/src/main/res"
@@ -106,6 +110,13 @@ def write_vector() -> None:
     (RES / "drawable/ic_launcher_monochrome.xml").write_text("\n".join(mono) + "\n", encoding="utf-8")
     write_qs_tile()
     write_qs_brand()
+    (RES / "values/ic_launcher_background.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<resources>\n"
+        "    <color name=\"ic_launcher_background\">#00000000</color>\n"
+        "</resources>\n",
+        encoding="utf-8",
+    )
 
 
 def qs_iso(x: float, y: float, z: float) -> tuple[float, float]:
@@ -168,7 +179,7 @@ def project_px(x: float, y: float, z: float, cx: float, cy: float, s: float) -> 
 
 
 def draw_cube(size: int) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     s = size * 0.118
     cx = size * 0.50
@@ -216,18 +227,27 @@ def assert_solid_cube(img: Image.Image) -> None:
     ]
     for x, y in samples:
         px = img.getpixel((x, y))
+        if px[3] < 200:
+            raise SystemExit(f"cube not solid at {(x, y)}={px}; chevron hole still present")
         if px[0] > 240 and px[1] > 240 and px[2] > 240:
             raise SystemExit(f"cube not solid at {(x, y)}={px}; chevron hole still present")
 
 
+def assert_transparent_plate(img: Image.Image) -> None:
+    w, h = img.size
+    for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        px = img.getpixel((x, y))
+        if px[3] != 0:
+            raise SystemExit(f"launcher glyph must have a transparent plate; corner {(x, y)}={px}")
+
+
 def round_mask(img: Image.Image) -> Image.Image:
     size = img.size[0]
-    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
     mask = Image.new("L", img.size, 0)
     d = ImageDraw.Draw(mask)
     d.ellipse((0, 0, size - 1, size - 1), fill=255)
-    out.paste(img, (0, 0))
-    out.putalpha(mask)
+    out = img.copy()
+    out.putalpha(ImageChops.multiply(out.getchannel("A"), mask))
     return out
 
 
@@ -259,6 +279,15 @@ def write_og(master: Image.Image, path: Path) -> None:
     canvas.convert("RGB").save(path, "PNG")
 
 
+def write_playstore(master: Image.Image, path: Path) -> None:
+    """Play listing icon: 512 PNG, no transparency (Play Console requirement)."""
+    canvas = Image.new("RGB", (512, 512), (255, 255, 255))
+    cube = master.resize((512, 512), Image.Resampling.LANCZOS)
+    canvas.paste(cube, (0, 0), cube)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path, "PNG")
+
+
 def save_resized(master: Image.Image, path: Path, size: int, rounded: bool) -> None:
     im = master.resize((size, size), Image.Resampling.LANCZOS)
     if rounded:
@@ -267,10 +296,22 @@ def save_resized(master: Image.Image, path: Path, size: int, rounded: bool) -> N
     im.save(path, "PNG")
 
 
+def write_ico(src: Image.Image, path: Path) -> None:
+    sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    src.save(path, format="ICO", sizes=sizes)
+
+
+def write_b64(path: Path) -> None:
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    path.with_name(path.name + ".b64").write_text(encoded + "\n", encoding="ascii")
+
+
 def main() -> None:
     write_vector()
     master = draw_cube(1024)
     assert_solid_cube(master)
+    assert_transparent_plate(master)
     sizes = {
         "mipmap-mdpi": 48,
         "mipmap-hdpi": 72,
@@ -281,11 +322,9 @@ def main() -> None:
     for folder, px in sizes.items():
         save_resized(master, RES / folder / "ic_launcher.png", px, False)
         save_resized(master, RES / folder / "ic_launcher_round.png", px, True)
-    play = master.resize((512, 512), Image.Resampling.LANCZOS)
-    play.save(ROOT / "app/src/main/ic_launcher-playstore.png", "PNG")
+    write_playstore(master, ROOT / "app/src/main/ic_launcher-playstore.png")
     other = ROOT / "app/src/other/play/listings/en-US/graphics/icon/ic_launcher-playstore.png"
-    other.parent.mkdir(parents=True, exist_ok=True)
-    play.save(other, "PNG")
+    write_playstore(master, other)
     hd = Path("/workspace/artifacts")
     hd.mkdir(parents=True, exist_ok=True)
     master.save(hd / "AngelaBox-icon-1024.png", "PNG")
@@ -293,7 +332,11 @@ def main() -> None:
     brand = ROOT / "docs/brand"
     brand.mkdir(parents=True, exist_ok=True)
     master.save(brand / "AngelaBox-icon-1024.png", "PNG")
-    master.resize((512, 512), Image.Resampling.LANCZOS).save(brand / "AngelaBox-icon-512.png", "PNG")
+    src512 = master.resize((512, 512), Image.Resampling.LANCZOS)
+    src512.save(brand / "AngelaBox-icon-512.png", "PNG")
+    write_ico(src512, brand / "AngelaBox-icon.ico")
+    write_b64(brand / "AngelaBox-icon-512.png")
+    write_b64(brand / "AngelaBox-icon.ico")
     write_og(master, brand / "AngelaBox-og.png")
     write_og(master, hd / "AngelaBox-og.png")
     bbox_pts = [

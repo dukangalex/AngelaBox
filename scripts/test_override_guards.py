@@ -368,10 +368,10 @@ def main() -> int:
         errors.append("update install must relaunch the app")
 
     icon_bg = read("app/src/main/res/values/ic_launcher_background.xml")
-    if "#000000" in icon_bg or "#000" in icon_bg:
-        errors.append("launcher background must be white, not black")
-    if "#FFFFFF" not in icon_bg and "#ffffff" not in icon_bg:
-        errors.append("launcher background should be #FFFFFF")
+    if "#00000000" not in icon_bg:
+        errors.append("launcher background must be fully transparent #00000000")
+    if ">#FFFFFF<" in icon_bg or ">#ffffff<" in icon_bg:
+        errors.append("launcher background must not be an opaque white plate")
 
     icon_fg = read("app/src/main/res/drawable/ic_launcher_foreground.xml")
     gen = read("scripts/gen_cube_icon.py")

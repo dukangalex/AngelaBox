@@ -37,17 +37,32 @@ sing-box.exe run -c config.json
 
 1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能用**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。Actions 上那一版图形包能装上，但会因 `registerCore is not defined` 立刻退出。不要再用这两包。命令行 zip 仍可用。
 
-测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），安装器底部应是 **1.0.63-beta**。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，SmartScreen 会提示未知发布者，这是预期；这种包也**不会**被挂到公开 Release。安装时若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可，那是上一版残留目录清理失败，不挡安装。
+测试安装包从 Actions 工作流 **AngelaBox Windows Desktop** 下载（artifact `windows-desktop-x64`），安装器底部应是 **1.0.63-beta**。未配置 `WINDOWS_CERTIFICATES_P12` 时，CI 用一次性自签证书，Chrome 和 SmartScreen 都会拦截，这是预期；这种包也**不会**被挂到公开 Release。安装时若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可，那是上一版残留目录清理失败，不挡安装。
+
+Chrome 若提示「此文件包含危险内容」且只有「从下载记录中删除」，是安全浏览把**未用长期证书签名的安装包**直接拦了，不是安装包坏了。请改用 **Microsoft Edge** 或 Firefox 打开同一个 Actions 页面下载；或在 Chrome 设置 → 隐私和安全 → 安全 → 安全浏览，暂时选「不提供保护」，下完立刻改回去。装的时候若仍提示未知发布者：更多信息 → 仍要运行。
 
 桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
+
+## 怎样才不是未知发布者
+
+自签证书过不了 Chrome / SmartScreen。必须用**同一把长期 Authenticode 证书**签 `AngelaBox.exe` 和 `sing-box-daemon.exe`：
+
+1. 向 DigiCert、Sectigo 或 SSL.com 购买 **OV** 或 **EV** 代码签名证书（不要买「仅文档签名」）。
+   - **EV**：SmartScreen 通常立刻信任。需要注册公司，个人开发者一般买不到。
+   - **OV**：个人或公司都可以。初期仍可能提示未知发布者，要靠一段时间的下载量积累声誉。
+2. 在本机导出 PKCS#12（`.p12` / `.pfx`）。**不要提交到 git，不要贴到聊天或 Issue。**
+3. 仓库 Settings → Secrets and variables → Actions 添加：
+   - `WINDOWS_CERTIFICATES_P12`：p12 文件的 Base64
+   - `WINDOWS_P12_PASSWORD`：导出时的密码
+4. 再跑一次 **AngelaBox Windows Desktop**。日志应出现 `Using repository Authenticode certificate.`，而不是 `issuing a CI self-signed`。
+
+Android 发行证书（CN=ChainBox）和 Windows Authenticode **不是同一把**，也不会为了 Windows 去轮换 Android 证书。
 
 源码：
 
 - 桌面：[dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox`
 - 仪表：[dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox`
 - 内核：[dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 `chain-dev`（身份常量已合入，tag `v1.15.0-chain.3`）
-
-未配置 `WINDOWS_CERTIFICATES_P12` 时，测试包会有 SmartScreen「未知发布者」提示，这是预期。正式包必须用仓库里那把长期证书。
 
 不要从第三方站点下载名为 SFW 或 sing-box 的包装包。Android 用户仍只安装 `AngelaBox-android.apk`。
 
