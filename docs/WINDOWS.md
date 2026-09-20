@@ -34,9 +34,9 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 | 文件 | 架构 |
 |------|------|
-| `AngelaBox-vX.X.X-windows-amd64.zip` | 64 位 Intel/AMD（大多数电脑） |
-| `AngelaBox-vX.X.X-windows-arm64.zip` | Windows on ARM |
-| `AngelaBox-vX.X.X-windows-386.zip` | 32 位 |
+| `AngelaBox-windows-amd64.zip` | 64 位 Intel/AMD（大多数电脑） |
+| `AngelaBox-windows-arm64.zip` | Windows on ARM |
+| `AngelaBox-windows-386.zip` | 32 位 |
 
 解压后得到 `sing-box.exe`（命令行内核，不是图形主程序）。在管理员命令提示符中：
 

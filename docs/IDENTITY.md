@@ -46,7 +46,7 @@
 | 源码 | [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox` | 内核里的官方 `clients/desktop` 子模块现场改名 |
 | 仪表盘 | [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox` | 构建时仍指向 `SagerNet/sing-box-dashboard` |
 
-CLI 压缩包仍是 `AngelaBox-vX.X.X-windows-amd64.zip`，内含内核 `sing-box.exe`（命令行工具，不是图形主程序）。两者文件名不同，这是有意的。
+CLI 压缩包仍是 `AngelaBox-windows-amd64.zip`，内含内核 `sing-box.exe`（命令行工具，不是图形主程序）。两者文件名不同，这是有意的。
 
 ## 内核
 

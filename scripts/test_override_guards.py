@@ -604,8 +604,8 @@ def main() -> int:
         errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
     if "windows-cli" not in workflow:
         errors.append("release must build Windows CLI from the same KERNEL_COMMIT")
-    if "AngelaBox-v${APP_VERSION}-windows-amd64.zip" not in workflow:
-        errors.append("release must attach versioned Windows ZIP assets")
+    if "AngelaBox-windows-amd64.zip" not in workflow:
+        errors.append("release must attach Windows CLI ZIP assets")
     if "io.nekohasekai.sfw" in workflow:
         errors.append("release must not use official SFW appId")
     if "KERNEL_COMMIT" not in workflow:

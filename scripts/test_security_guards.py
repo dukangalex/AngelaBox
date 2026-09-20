@@ -146,7 +146,7 @@ def test_source_guards() -> None:
     assert "AngelaBox-android.apk" in release
     assert "ChainBox-android.apk" not in release
     assert "windows-cli" in release
-    assert "AngelaBox-v${APP_VERSION}-windows-amd64.zip" in release
+    assert "AngelaBox-windows-amd64.zip" in release
     assert "build_windows_cli.sh" in release
     assert RELEASE_CERT in release
     assert "steps.pin.outputs.commit" in release
