@@ -130,8 +130,8 @@ def main() -> int:
         errors.append("normalize recovery must prompt only after a failed start")
     if "配置已自动修正" in box:
         errors.append("normalize recovery banner must stay short")
-    if "OverlayScripts.setBinding(profileId, emptyList())" not in box:
-        errors.append("normalize recovery must turn off scripts on that profile")
+    if "OverlayScripts.setBinding(profileId, emptyList())" in box:
+        errors.append("normalize recovery must preserve scripts on that profile")
     if "restartCommandServer" not in box:
         errors.append("RPC EOF after a failed start must restart the command server")
     diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
@@ -605,7 +605,7 @@ def main() -> int:
     if "windows-cli" not in workflow:
         errors.append("release must build Windows CLI from the same KERNEL_COMMIT")
     if "AngelaBox-windows-amd64.zip" not in workflow:
-        errors.append("release must attach AngelaBox-windows-amd64.zip")
+        errors.append("release must attach Windows CLI ZIP assets")
     if "io.nekohasekai.sfw" in workflow:
         errors.append("release must not use official SFW appId")
     if "KERNEL_COMMIT" not in workflow:
@@ -956,10 +956,10 @@ def main() -> int:
     builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if "所有非中国流量不可直连" not in builder:
         errors.append("chain builder info must say non-China traffic cannot DIRECT")
-    if "链式开启后，当前配置的脚本会自动关闭" in builder:
-        errors.append("chain builder must no longer mute scripts")
-    if "前置订阅的脚本仍然生效" not in builder:
-        errors.append("chain builder info must say entry scripts still run")
+    if "链式与脚本可同时启用" not in builder:
+        errors.append("chain builder info must describe script and chain composition")
+    if "脚本生成的入口" not in builder:
+        errors.append("chain builder must state that scripts run on the entry profile")
     if "port: \"3478:3480\"" in sample or "port: \"3478:3481\"" in sample or "port: \"5349:5355\"" in sample:
         errors.append("STUN port ranges must use port_range, not port")
     if "port_range: \"3478:3481\"" not in sample:
@@ -994,14 +994,16 @@ def main() -> int:
         errors.append("远控工具 must default to REJECT-DROP with 国外服务 and DIRECT")
     if "ordered.push(remoteGroup)" not in sample:
         errors.append("region groups must be appended after 远控工具 so they sit last")
-    if "ChainBindings.get(profileId) != null" in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
-        errors.append("scripts must still apply on a chain-bound entry profile")
+    script_override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt")
+    if "ChainBindings.get(profileId) != null" in script_override:
+        errors.append("chain entry scripts must not be muted")
+    pipeline = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "script-produced entry graph" not in pipeline:
+        errors.append("script must run before chain compilation")
     if "OverlayScripts.setBinding(boundId, emptyList())" in builder:
-        errors.append("saving a chain must keep scripts on that profile")
+        errors.append("saving a chain must preserve scripts on that profile")
     if "ChainBindings.remove(profileId)" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
-        errors.append("enabling scripts must not clear the profile chain binding")
-    if "ChainBindings.remove(" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
-        errors.append("script list must not clear chain bindings when enabling a script")
+        errors.append("enabling scripts must preserve the profile chain binding")
     if "function main" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("script engine must require function main(config)")
     if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):

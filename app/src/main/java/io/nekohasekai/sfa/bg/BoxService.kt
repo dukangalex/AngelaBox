@@ -267,7 +267,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         if (Settings.configNormalize) {
             val needles = ConfigDiagnose.ruleSetNeedles(err)
-            if (scriptBound) OverlayScripts.setBinding(profileId, emptyList())
             if (ConfigDiagnose.looksLikeRpcDeath(err)) {
                 restartCommandServer()
             } else {

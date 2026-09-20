@@ -10,19 +10,13 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release **v1.0.65-beta** 下载：
+从 GitHub Release 下载 **`AngelaBox-vX.X.X-windows-amd64.zip`**，解压后运行其中的 `AngelaBox.exe`。这是带窗口的便携版客户端，压缩包包含运行所需的守护进程与资源。
 
-| 文件 | 是什么 |
-|------|--------|
-| **`AngelaBox-v1.0.65-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe` |
-| `AngelaBox-windows-1.0.65-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
-| `AngelaBox-windows-amd64.zip`（无版本号、无 `v`） | **命令行**，解压只有 `sing-box.exe`，不是图形界面 |
+1. 解压 `AngelaBox-v1.0.65-windows-amd64.zip`，运行其中的 `AngelaBox.exe`。如需安装版，可另行下载同页的 `AngelaBox-windows-*.exe`。
+2. SmartScreen 未知发布者：更多信息 → 仍要运行。
+3. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
 
-1. 先卸载 1.0.62-beta（会闪退，不要用）。
-2. **优先下带版本号的 zip。** 解压到任意目录，运行 `AngelaBox.exe`。
-3. Chrome 若仍拦 `.exe`：`Ctrl + J` 打开下载页 → **保留危险文件** → **仍然保留**。也可换 Edge。
-4. SmartScreen 未知发布者：更多信息 → 仍要运行。这是自签证书，不是病毒。
-5. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
+所有构建过程、打包脚本和源代码都在本项目公开。由于尚未购买商业 Authenticode 代码签名证书，当前 Windows 包使用 CI 自签证书；Chrome 可能将其中的 `.exe` 标记为「未经验证的文件」。如遇下载阻断，按 **Ctrl + J** 打开 Chrome 下载页，选择 **保留危险文件 → 仍然保留**。发布资产使用 GitHub 域名并以 `.zip` 分发，通常可避免浏览器在 HTTP 下载阶段显示「不安全下载」红字；这不改变 SmartScreen 对自签 `.exe` 的信誉判断。
 
 图形安装包 / 便携包必须同时满足：
 
@@ -34,7 +28,7 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
 
-## 为什么有的包 Chrome 拦、有的不拦
+未配置仓库证书时，CI 用一次性自签证书（`CN=AngelaBox Test`）。`.zip` 仅改善下载通道的兼容性，不能让自签 `.exe` 获得 SmartScreen 信誉；正式对外发版仍须长期证书。
 
 Chrome 安全浏览看的是**文件种类 + 签名 + 下载源**，不是「开源就不拦」。
 
@@ -58,7 +52,7 @@ TUN 若把本机连节点的流量再抓进隧道，会自连自、CPU 打满或
 
 ## 命令行客户端
 
-部分 Release 会附无版本号的压缩包（不要和图形 zip 搞混）：
+同次 Release 也会附命令行内核压缩包：
 
 | 文件 | 架构 |
 |------|------|
@@ -79,7 +73,18 @@ sing-box.exe run -c config.json
 
 ## 怎样才不是未知发布者
 
-自签证书过不了 Chrome / SmartScreen。必须用**同一把长期 Authenticode 证书**签 `AngelaBox.exe` 和 `sing-box-daemon.exe`：
+Windows 弹「未知发布者」、Chrome 拦下载，都是因为现在的安装器用的是 **CI 自签证书**（`CN=AngelaBox Test`）。Windows 不信任这把钥匙。改不了设置、改不了产品名，只能换一把**公开 CA 签发的 Authenticode 代码签名证书**。
+
+Windows 图形端使用 `angelabox-daemon` 服务、独立数据目录和受保护的 `angelabox` 命名管道。启动、重载和守护进程发现均只接受这一专有服务/管道前缀，避免与官方 SFW 或旧 `sing-box-daemon` 互相接管并形成代理回环。两层警告不是同一件事：
+
+| 你看到的 | 谁在拦 | 证书能做什么 |
+|----------|--------|----------------|
+| 未知发布者 / Windows 已保护你的电脑 | SmartScreen | OV/EV 签名后发布者变成你的公司名；声誉要靠下载量积累 |
+| Chrome「此文件包含危险内容」 | Google 安全浏览 | 签名后通常不再硬拦；仍建议用 Edge 下第一版 |
+
+**2024 年起 EV 不再保证立刻过 SmartScreen。** 买 OV 就够（更便宜、审核更快）。EV 只在做内核驱动或甲方采购强制时才需要。
+
+### 1. 买哪一种
 
 1. 向 DigiCert、Sectigo 或 SSL.com 购买 **OV** 代码签名（不要买 SSL，不要买「仅文档签名」）。2024 年起 EV 不再保证立刻过 SmartScreen，买 OV 即可。
 2. 新证私钥必须放 USB 令牌或云 HSM，不能导出 P12。GitHub 托管跑腿插不了 U 盘，推荐 SSL.com eSigner / DigiCert KeyLocker。

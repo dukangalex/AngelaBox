@@ -57,7 +57,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
 | 已同步基线 | 官方 **sing-box 1.15.0-alpha.6**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。修补：Windows 进程归属、自动重定向 DNS、WireGuard 域名握手、libbox 命令客户端取消） |
 | 内核型号 / tag | `v1.15.0-chain.3`（已打在 `chain-dev` 的 `d7639f61`；设置 → 核心显示 `1.15.0-chain.3（官方 1.15.0-alpha.6）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.65-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.65**） |
 
 ### 同步更新策略
 
@@ -127,10 +127,10 @@ sha256sum -c AngelaBox-android.apk.sha256
 1. 从钉死的 `KERNEL_COMMIT` 编译 `libbox.aar`
 2. 与官方 sing-box 核对 inbound/outbound 类型常量
 3. 校验发行证书 SHA-256 后组装 Android APK，生成 `AngelaBox-android.apk.sha256`
-4. 指定 `version_tag` 后发布至 GitHub Releases（Android：`AngelaBox-android.apk`；Windows 图形便携包：`AngelaBox-v*-windows-amd64.zip`；命令行内核仍是无版本号的 `AngelaBox-windows-*.zip`）
+4. 指定 `version_tag` 后发布至 GitHub Releases（Android：`AngelaBox-android.apk`；Windows：`AngelaBox-windows-amd64.zip`）。Windows CLI 的 `.exe`、`LICENSE` 和说明会先放进版本目录，再用 `zip` 打包；不要发布裸 `.exe`。
 5. 图形 Windows 安装包由 `.github/workflows/release-windows-desktop.yml`（**AngelaBox Windows Desktop**）从 `dukangalex/sing-box-for-desktop` 的 `angelabox` 分支构建，不在 CI 里改名官方 SFW
 
-客户端版本号以 `version.properties` 为准。
+客户端版本号以 `version.properties` 为准。构建与发布工作流、打包脚本和全部源代码均公开可审计。
 
 ## 致谢
 

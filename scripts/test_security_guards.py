@@ -157,7 +157,7 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.65-beta" in props
+    assert "VERSION_NAME=1.0.65" in props
     assert "VERSION_CODE=10065" in props
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
@@ -195,16 +195,19 @@ def test_source_guards() -> None:
     assert "WINDOWS_CERTIFICATES_P12" in desktop
     assert "signing.local.json" in desktop
     assert "New-SelfSignedCertificate" in desktop
+    assert "Compress-Archive" in desktop
+    assert "AngelaBox-v" in desktop
     assert "dukangalex/sing-box-for-desktop" in desktop
     assert "ref: angelabox" in desktop
     assert "Rebrand desktop" not in desktop
     assert "Replace('productName: sing-box'" not in desktop
     assert "sing-box/clients/desktop" not in desktop
     assert "path: desktop" in desktop
-    assert "Compress-Archive" in desktop
-    assert "win-unpacked" in desktop
+    assert "release\\win-unpacked" in desktop
     assert "AngelaBox-v$ver-windows-amd64.zip" in desktop
-    assert "refusing to attach a self-signed" not in desktop
+    assert "portable tree must contain exactly one AngelaBox.exe" in desktop
+    assert "portable tree must contain exactly one sing-box-daemon.exe" in desktop
+    assert "AngelaBox-windows-*.exe.sha256" in desktop
     assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
