@@ -10,13 +10,19 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release 下载 **`AngelaBox-vX.X.X-windows-amd64.zip`**，解压后运行其中的 `AngelaBox.exe`。这是带窗口的便携版客户端，压缩包包含运行所需的守护进程与资源。
+从 GitHub Release **v1.0.66-beta** 下载：
 
-1. 解压 `AngelaBox-v1.0.65-windows-amd64.zip`，运行其中的 `AngelaBox.exe`。如需安装版，可另行下载同页的 `AngelaBox-windows-*.exe`。
-2. SmartScreen 未知发布者：更多信息 → 仍要运行。
-3. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
+| 文件 | 是什么 |
+|------|--------|
+| **`AngelaBox-v1.0.66-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe`，第一次点「安装」注册服务 |
+| `AngelaBox-windows-1.0.66-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
+| `AngelaBox-windows-amd64.zip`（无版本号、无 `v`） | **命令行**，解压只有 `sing-box.exe`，不是图形界面 |
 
-所有构建过程、打包脚本和源代码都在本项目公开。由于尚未购买商业 Authenticode 代码签名证书，当前 Windows 包使用 CI 自签证书；Chrome 可能将其中的 `.exe` 标记为「未经验证的文件」。如遇下载阻断，按 **Ctrl + J** 打开 Chrome 下载页，选择 **保留危险文件 → 仍然保留**。发布资产使用 GitHub 域名并以 `.zip` 分发，通常可避免浏览器在 HTTP 下载阶段显示「不安全下载」红字；这不改变 SmartScreen 对自签 `.exe` 的信誉判断。
+1. 先卸载 1.0.62-beta（会闪退，不要用）。
+2. **优先下带版本号的 zip。** 解压到任意目录，运行 `AngelaBox.exe`。第一次会提示「AngelaBox 服务未安装」，点 **安装** 并允许管理员权限（便携包不会自己注册系统服务）。
+3. Chrome 若仍拦 `.exe`：`Ctrl + J` 打开下载页 → **保留危险文件** → **仍然保留**。也可换 Edge。
+4. SmartScreen 未知发布者：更多信息 → 仍要运行。这是自签证书，不是病毒。
+5. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
 
 图形安装包 / 便携包必须同时满足：
 
@@ -43,7 +49,7 @@ Chrome 安全浏览看的是**文件种类 + 签名 + 下载源**，不是「开
 
 TUN 若把本机连节点的流量再抓进隧道，会自连自、CPU 打满或完全断网。Windows 图形端启动时强制：
 
-1. `route.auto_detect_interface = true`：出站走真实网卡，不走 TUN。
+1. `route.auto_detect_interface = true`：连节点时走真实网卡，避免 TUN 把自己吞回去。被代理的流量仍然进隧道、从落地出去，不会因此直连泄密。
 2. TUN `auto_route` + `strict_route`（配置覆盖「严格路由」开着时）。
 3. 进程直连：`AngelaBox.exe`、`sing-box-daemon.exe` 不进隧道。
 4. 中国直连 / 局域网规则仍在隧道里走 DIRECT，不绕回代理。

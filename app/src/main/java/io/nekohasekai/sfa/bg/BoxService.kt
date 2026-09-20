@@ -272,6 +272,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             } else {
                 runCatching { commandServer.closeService() }
             }
+            if (scriptBound && needles.isNotEmpty()) {
+                result = tryStart(
+                    ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
+                )
+                if (result.isSuccess) {
+                    val current = OverrideStatus.notices.value.toMutableList()
+                    val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
+                    val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
+                    if (idx >= 0) current[idx] = fixed else current += fixed
+                    OverrideStatus.set(current)
+                    return true
+                }
+            }
             val recovered = ConfigQuicOverride.apply(
                 rawContent,
                 skipScripts = true,
@@ -279,18 +292,29 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             result = tryStart(recovered)
             if (result.isSuccess) {
-                val current = OverrideStatus.notices.value.toMutableList()
-                val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
-                val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
-                if (idx >= 0) current[idx] = fixed else current += fixed
-                OverrideStatus.set(current)
+                if (scriptBound) {
+                    OverrideStatus.add(
+                        OverrideNotice(
+                            title = "脚本启动失败，已回滚",
+                            reason = ConfigDiagnose.explain(err, scriptsBound = true),
+                            hint = ConfigDiagnose.rollbackHint(),
+                            error = true,
+                        ),
+                    )
+                } else {
+                    val current = OverrideStatus.notices.value.toMutableList()
+                    val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
+                    val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
+                    if (idx >= 0) current[idx] = fixed else current += fixed
+                    OverrideStatus.set(current)
+                }
                 return true
             }
             stopAndAlert(
                 Alert.CreateService,
                 ConfigDiagnose.explain(
                     result.exceptionOrNull()?.message ?: err,
-                    scriptsBound = false,
+                    scriptsBound = scriptBound,
                 ),
             )
             return false

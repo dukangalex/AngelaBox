@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 12
+ * overlay-revision: 13
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
@@ -257,7 +257,7 @@ function main(config) {
     if (sob["dialer-proxy"] != null) delete sob["dialer-proxy"];
     if (sob["proxy-dialer"] != null) delete sob["proxy-dialer"];
     if (sty && sty !== "direct" && sty !== "block" && sty !== "dns" && sty !== "tun") {
-      sob.tcp_keep_alive = true;
+      sob.tcp_keep_alive = "60s";
       if (!sob.tcp_keep_alive_interval) sob.tcp_keep_alive_interval = "60s";
     }
   }

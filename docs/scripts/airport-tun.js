@@ -1,6 +1,6 @@
 /**
  * 机场订阅覆写（TUN · 无链式）——独立脚本，不是应用内「默认脚本」。
- * airport-tun-revision: 2
+ * airport-tun-revision: 3
  * 从 Clash/Meta 机场脚本改写：地区分组、自动选择、负载均衡、故障转移、
  * 强制 TUN、本机 mixed、国内直连 / 广告 / DNS 劫持。没有链式。
  * Clash 的 proxies / proxy-groups / RULE-SET 不能在本引擎跑；本脚本读写
@@ -257,7 +257,7 @@ function main(config) {
     if (sob["dialer-proxy"] != null) delete sob["dialer-proxy"];
     if (sob["proxy-dialer"] != null) delete sob["proxy-dialer"];
     if (sty && sty !== "direct" && sty !== "block" && sty !== "dns" && sty !== "tun") {
-      sob.tcp_keep_alive = true;
+      sob.tcp_keep_alive = "60s";
       if (!sob.tcp_keep_alive_interval) sob.tcp_keep_alive_interval = "60s";
     }
   }

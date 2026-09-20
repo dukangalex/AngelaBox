@@ -260,7 +260,7 @@ class ConfigScriptOverrideTest {
         val file = File("../docs/scripts/airport-tun.js")
         if (!file.isFile) return
         val code = file.readText()
-        assertTrue(code.contains("airport-tun-revision: 2"))
+        assertTrue(code.contains("airport-tun-revision: 3"))
         assertTrue(!code.contains("function find(") && !code.contains(".find("))
         assertTrue(!code.contains("?.") && !code.contains("..."))
         val input = JSONObject()

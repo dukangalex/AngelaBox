@@ -1,6 +1,6 @@
 /**
  * 服务组覆写脚本（可选，不是应用内「默认脚本」）。
- * service-groups-revision: 1
+ * service-groups-revision: 2
  * 功能策略组：广告 / AI / Claude.ai / 油管 / 谷歌 / 私有网络 / 国内 /
  * Telegram / Github / 社交 / 流媒体 / 金融 / 云 / 非中国 / 漏网之鱼。
  * 配置覆盖开关通过全局 overlay 控制，默认全开。不要在脚本里改开关。
@@ -256,7 +256,7 @@ function main(config) {
     if (sob["dialer-proxy"] != null) delete sob["dialer-proxy"];
     if (sob["proxy-dialer"] != null) delete sob["proxy-dialer"];
     if (sty && sty !== "direct" && sty !== "block" && sty !== "dns" && sty !== "tun") {
-      sob.tcp_keep_alive = true;
+      sob.tcp_keep_alive = "60s";
       if (!sob.tcp_keep_alive_interval) sob.tcp_keep_alive_interval = "60s";
     }
   }

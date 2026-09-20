@@ -60,6 +60,17 @@ object ConfigCompat {
 
     fun sanitizeOutbound(o: JSONObject): Boolean {
         var changed = false
+        when (val keepAlive = o.opt("tcp_keep_alive")) {
+            is Boolean -> {
+                if (keepAlive) {
+                    o.put("tcp_keep_alive", "60s")
+                } else {
+                    o.remove("tcp_keep_alive")
+                    o.put("disable_tcp_keep_alive", true)
+                }
+                changed = true
+            }
+        }
         if (o.has("plugin-opts") && !o.has("plugin_opts")) {
             o.put("plugin_opts", o.get("plugin-opts"))
             o.remove("plugin-opts")

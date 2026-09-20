@@ -11,7 +11,7 @@ object ConfigDiagnose {
             return "启动失败，没有具体原因。请检查这份配置是否完整，或换一份再试。"
         }
         val scriptHint = if (scriptsBound) {
-            "该配置开了脚本，已在修正时关掉，避免两套规则打架。"
+            "该配置开了脚本，绑定还在；这次先按订阅原规则启动。"
         } else {
             "没有动你的节点、分组和分流。"
         }
@@ -22,12 +22,12 @@ object ConfigDiagnose {
             looksLike(text, "outbound detour not found") -> {
                 val tag = extractAfter(text, "outbound detour not found:")
                 "找不到出站「$tag」。规则集下载或 DNS 还指向旧名字。" +
-                    if (scriptsBound) "应用会改走直连下载；仍失败会关掉该配置上的脚本。"
+                    if (scriptsBound) "应用会改走直连下载后再试，脚本绑定仍保留。"
                     else "应用会改走直连下载后再试。"
             }
             looksLike(text, "download_detour") && looksLike(text, "not found") -> {
                 "规则集的下载出口已失效。官方 1.14 请用 http_clients。" +
-                    if (scriptsBound) "应用会改成直连下载；仍失败会关掉脚本。"
+                    if (scriptsBound) "应用会改成直连下载后再试，脚本绑定仍保留。"
                     else "应用会改成直连下载后再试。"
             }
             looksLike(text, "initialize rule-set") || looksLike(text, "initial rule-set") -> {
@@ -41,7 +41,7 @@ object ConfigDiagnose {
                     extractAfter(text, "unknown outbound:")
                 }
                 "路由指向了不存在的出站「$tag」。" +
-                    if (scriptsBound) "脚本覆盖分组后旧规则还在用原来的名字。已关掉该配置上的脚本。"
+                    if (scriptsBound) "脚本覆盖分组后旧规则还在用原来的名字。绑定还在，修好后再开。"
                     else "应用会清掉无效引用后再试。"
             }
             looksLike(text, "detour to an empty direct") -> {
@@ -54,7 +54,11 @@ object ConfigDiagnose {
                 "DNS 用了内核不再支持的类型。应用会改成官方 predefined 规则后再试。"
             }
             looksLike(text, "decode config") || looksLike(text, "unmarshal") -> {
-                "配置格式不符合当前官方 sing-box 语法。应用会修正除节点、分组、分流以外的字段后再试。"
+                if (scriptsBound) {
+                    "脚本写出了内核读不了的字段。tcp_keep_alive 必须是时长（例如 60s），不能写 true。绑定还在，修好后再开。"
+                } else {
+                    "配置格式不符合当前官方 sing-box 语法。应用会修正除节点、分组、分流以外的字段后再试。"
+                }
             }
             looksLike(text, "脚本执行超时") -> {
                 "覆写脚本运行超过 5 秒已被中止。请简化脚本，或关掉后再开。"
@@ -71,7 +75,7 @@ object ConfigDiagnose {
     }
 
     fun rollbackHint(): String =
-        "脚本导致启动失败，已回滚到订阅原规则，并保留中国直连、DNS 防泄漏等开关。修好或关掉脚本后再开。"
+        "脚本这次没套上，已按订阅原规则启动。绑定还在，修好后再开即可。"
 
     fun looksLikeRpcDeath(text: String?): Boolean {
         val t = text.orEmpty()

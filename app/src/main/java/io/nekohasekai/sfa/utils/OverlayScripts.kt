@@ -30,7 +30,7 @@ object OverlayScripts {
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
-    const val SAMPLE_REVISION = "overlay-revision: 12"
+    const val SAMPLE_REVISION = "overlay-revision: 13"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"
@@ -141,6 +141,7 @@ object OverlayScripts {
         "override_address",
         "机场地区分组",
         "机场订阅覆写",
+        "tcp_keep_alive = true",
     )
 
     fun upsert(script: OverlayScript) {
