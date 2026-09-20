@@ -333,6 +333,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @RequiresApi(Build.VERSION_CODES.M)
     private fun serviceUpdateIdleMode() {
         if (Application.powerManager.isDeviceIdleMode) {
+            val keepAlive = Application.powerManager.isIgnoringBatteryOptimizations(
+                Application.application.packageName,
+            )
+            if (keepAlive) {
+                // User allowed background: keep TUN and the selected node.
+                // Urltest is 10m; TCP keepalive holds NAT. Do not DevicePause.
+                return
+            }
             commandServer.pause()
         } else {
             commandServer.wake()
@@ -405,7 +413,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
-        if (status.value != Status.Stopped) return Service.START_NOT_STICKY
+        if (status.value != Status.Stopped) return Service.START_STICKY
         status.value = Status.Starting
 
         if (!receiverRegistered) {
@@ -433,7 +441,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             startService()
         }
-        return Service.START_NOT_STICKY
+        return Service.START_STICKY
     }
 
     internal fun onBind(): IBinder = binder

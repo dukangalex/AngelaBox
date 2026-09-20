@@ -255,6 +255,10 @@ function main(config) {
     if (sob.detour) delete sob.detour;
     if (sob["dialer-proxy"] != null) delete sob["dialer-proxy"];
     if (sob["proxy-dialer"] != null) delete sob["proxy-dialer"];
+    if (sty && sty !== "direct" && sty !== "block" && sty !== "dns" && sty !== "tun") {
+      sob.tcp_keep_alive = true;
+      if (!sob.tcp_keep_alive_interval) sob.tcp_keep_alive_interval = "60s";
+    }
   }
 
   var REPLACE_GROUP_TYPES = {
@@ -334,9 +338,9 @@ function main(config) {
       tag: tag,
       outbounds: members.slice(0),
       url: "https://www.gstatic.com/generate_204",
-      interval: interval || "1m",
+      interval: interval || "10m",
       tolerance: 50,
-      idle_timeout: "30m",
+      idle_timeout: "4h",
       interrupt_exist_connections: !!interrupt
     };
   }

@@ -774,11 +774,15 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 11" not in sample:
-        errors.append("default script must stamp overlay-revision: 11 so stale copies refresh")
+    if "overlay-revision: 12" not in sample:
+        errors.append("default script must stamp overlay-revision: 12 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 11"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 12"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    if 'interval: "10m"' not in sample or 'idle_timeout: "4h"' not in sample:
+        errors.append("default script must use 10m urltest / 4h idle to keep nodes warm without 1m radio wakeups")
+    if "tcp_keep_alive" not in sample or "tcp_keep_alive_interval" not in sample:
+        errors.append("default script must set TCP keepalive on leaf outbounds for background NAT")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
     if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
