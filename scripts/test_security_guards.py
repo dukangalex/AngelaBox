@@ -205,6 +205,8 @@ def test_source_guards() -> None:
     assert "path: desktop" in desktop
     assert "release\\win-unpacked" in desktop
     assert "AngelaBox-v$ver-windows-amd64.zip" in desktop
+    assert "portable tree must contain exactly one AngelaBox.exe" in desktop
+    assert "portable tree must contain exactly one sing-box-daemon.exe" in desktop
     assert "AngelaBox-windows-*.exe.sha256" in desktop
     assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
 

@@ -187,7 +187,7 @@ jobs:
             $repoCert = $true
             Write-Host 'Using repository Authenticode certificate.'
           } else {
-            Write-Host 'No WINDOWS_CERTIFICATES_P12; issuing a CI self-signed code-signing certificate (SmartScreen expected; not for public Release).'
+            Write-Host 'No WINDOWS_CERTIFICATES_P12; issuing a CI self-signed code-signing certificate (SmartScreen expected; Windows ZIP documentation explains the warning).'
             $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AngelaBox Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(1)
             $password = [guid]::NewGuid().ToString('N')
             $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
@@ -242,6 +242,10 @@ jobs:
             Set-Content "dist/$($artifacts.Name).sha256"
           $unpacked = Join-Path (Get-Location) 'release\win-unpacked'
           if (-not (Test-Path $unpacked)) { throw "missing portable tree $unpacked" }
+          $main = @(Get-ChildItem -Path $unpacked -Filter 'AngelaBox.exe' -File -Recurse)
+          if ($main.Count -ne 1) { throw "portable tree must contain exactly one AngelaBox.exe; found $($main.Count)" }
+          $daemon = @(Get-ChildItem -Path $unpacked -Filter 'sing-box-daemon.exe' -File -Recurse)
+          if ($daemon.Count -ne 1) { throw "portable tree must contain exactly one sing-box-daemon.exe; found $($daemon.Count)" }
           $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
           if ([string]::IsNullOrWhiteSpace($ver)) { throw 'version.json missing version' }
           $zipName = "AngelaBox-v$ver-windows-amd64.zip"
