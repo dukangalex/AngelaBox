@@ -6,9 +6,9 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release 下载 **`AngelaBox-vX.X.X-windows-amd64.zip`**，解压后双击其中的安装器。这是带窗口的客户端，安装后开始菜单和桌面会有 AngelaBox。
+从 GitHub Release 下载 **`AngelaBox-vX.X.X-windows-amd64.zip`**，解压后运行其中的 `AngelaBox.exe`。这是带窗口的便携版客户端，压缩包包含运行所需的守护进程与资源。
 
-1. 解压 `AngelaBox-v1.0.65-windows-amd64.zip`，再运行其中的 `AngelaBox-windows-*.exe`。
+1. 解压 `AngelaBox-v1.0.65-windows-amd64.zip`，运行其中的 `AngelaBox.exe`。如需安装版，可另行下载同页的 `AngelaBox-windows-*.exe`。
 2. SmartScreen 未知发布者：更多信息 → 仍要运行。
 3. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
 

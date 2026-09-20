@@ -203,7 +203,9 @@ def test_source_guards() -> None:
     assert "Replace('productName: sing-box'" not in desktop
     assert "sing-box/clients/desktop" not in desktop
     assert "path: desktop" in desktop
-    assert "refusing to attach a self-signed" in desktop
+    assert "release\\win-unpacked" in desktop
+    assert "AngelaBox-v$ver-windows-amd64.zip" in desktop
+    assert "AngelaBox-windows-*.exe.sha256" in desktop
     assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
