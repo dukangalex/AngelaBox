@@ -1000,6 +1000,8 @@ def main() -> int:
         errors.append("saving a chain must keep scripts on that profile")
     if "ChainBindings.remove(profileId)" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
         errors.append("enabling scripts must not clear the profile chain binding")
+    if "ChainBindings.remove(" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must not clear chain bindings when enabling a script")
     if "function main" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("script engine must require function main(config)")
     if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):

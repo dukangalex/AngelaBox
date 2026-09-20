@@ -694,7 +694,7 @@
     <string name="taildrop_notification_title">Отправка файлов</string>
     <string name="overlay_scripts">Скрипты</string>
     <string name="overlay_scripts_subtitle">Скрипты sing-box для каждого профиля</string>
-    <string name="overlay_scripts_hint">Это каталог скриптов. Импорт не включает их на всех профилях — включите нужный профиль на странице правки. Включённый скрипт заменяет группы и маршруты профиля, узлы сохраняются. Нужна function main(config). Цепочка и скрипты взаимно исключают друг друга: включение цепочки выключает скрипты этого профиля. Выключатель в списке — общий стоп для этого скрипта.</string>
+    <string name="overlay_scripts_hint">Это каталог скриптов. Выберите профиль и включите нужные. Включённый скрипт заменяет группы и маршруты профиля, узлы сохраняются. Нужна function main(config). В режиме цепочки скрипт входного профиля всё равно выполняется, затем строится цепочка.</string>
     <string name="overlay_scripts_empty">Скриптов нет. Нажмите +, чтобы импортировать код, URL, файл или скрипт по умолчанию.</string>
     <string name="overlay_scripts_import">Импорт</string>
     <string name="overlay_scripts_import_code">Импорт из кода</string>
@@ -715,6 +715,6 @@
     <string name="overlay_scripts_failed">Не удалось сохранить скрипт</string>
     <string name="overlay_scripts_empty_file">Файл пуст</string>
     <string name="overlay_scripts_profile_enable">Включить скрипты для этого профиля</string>
-    <string name="overlay_scripts_profile_hint">По умолчанию выключено. При включении скрипт заменяет группы и маршруты этого профиля, узлы сохраняются. Включение цепочки выключает скрипты этого профиля; включение скриптов снимает цепочку. Вместе не работают.</string>
+    <string name="overlay_scripts_profile_hint">По умолчанию выключено. При включении скрипт заменяет группы и маршруты этого профиля, узлы сохраняются. В режиме цепочки скрипт входа всё равно выполняется, затем строится цепочка; они не выключают друг друга.</string>
     <string name="overlay_scripts_profile_empty">Скриптов нет. Импортируйте их в «Инструменты → Скрипты».</string>
 </resources>

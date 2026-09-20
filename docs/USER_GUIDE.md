@@ -10,7 +10,7 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 2. 允许安装未知来源应用后安装。
 3. 同一签名且 versionCode 更大的新版可直接覆盖。**v0.1.x 是调试签名，不能覆盖安装 1.0.x，必须先卸载。**
 
-Windows 命令行内核见同一次 Release 的 `AngelaBox-windows-amd64.zip`，用法见 [WINDOWS.md](WINDOWS.md)。Android 与 Windows 不要混用安装包。
+Windows 图形客户端见同一次 Release 的 **`AngelaBox-v*-windows-amd64.zip`**（解压运行 `AngelaBox.exe`），用法见 [WINDOWS.md](WINDOWS.md)。无版本号的 `AngelaBox-windows-amd64.zip` 是命令行，不是图形界面。Android 与 Windows 不要混用安装包。
 
 设置 → 应用版本 应与 Release tag 一致。快捷设置磁贴名称与图标为 AngelaBox 立方体；覆盖安装后若仍显示旧名或旧图标，长按磁贴移除后再添加一次。
 

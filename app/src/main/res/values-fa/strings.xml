@@ -686,7 +686,7 @@
     <string name="taildrop_notification_title">در حال ارسال فایل‌ها</string>
     <string name="overlay_scripts">اسکریپت</string>
     <string name="overlay_scripts_subtitle">اسکریپت sing-box برای هر پیکربندی</string>
-    <string name="overlay_scripts_hint">این فهرست اسکریپت‌هاست. وارد کردن به‌معنای اجرا روی همه پیکربندی‌ها نیست؛ در صفحه ویرایش همان پیکربندی را روشن کنید. اسکریپت گروه‌ها و مسیرها را جایگزین می‌کند و گره‌ها را نگه می‌دارد. باید function main(config) داشته باشد. روشن کردن زنجیره اسکریپت همان پیکربندی را می‌بندد؛ با هم اجرا نمی‌شوند. کلید این فهرست قطع‌کننده کلی است.</string>
+    <string name="overlay_scripts_hint">این فهرست اسکریپت‌هاست. پیکربندی را انتخاب کنید و اسکریپت را روشن کنید. اسکریپت گروه‌ها و مسیرها را جایگزین می‌کند و گره‌ها را نگه می‌دارد. باید function main(config) داشته باشد. در حالت زنجیره اسکریپت پیکربندی ورودی همچنان اجرا می‌شود، سپس زنجیره ساخته می‌شود.</string>
     <string name="overlay_scripts_empty">هنوز اسکریپتی نیست. برای وارد کردن کد، URL، پرونده یا اسکریپت پیش‌فرض + را بزنید.</string>
     <string name="overlay_scripts_import">وارد کردن</string>
     <string name="overlay_scripts_import_code">از کد</string>
@@ -707,6 +707,6 @@
     <string name="overlay_scripts_failed">ذخیره اسکریپت ممکن نشد</string>
     <string name="overlay_scripts_empty_file">پرونده خالی است</string>
     <string name="overlay_scripts_profile_enable">فعال‌سازی اسکریپت برای این پیکربندی</string>
-    <string name="overlay_scripts_profile_hint">پیش‌فرض خاموش است. با روشن کردن، اسکریپت گروه‌ها و مسیرهای این پیکربندی را جایگزین می‌کند و گره‌ها را نگه می‌دارد. روشن کردن زنجیره اسکریپت را می‌بندد؛ روشن کردن اسکریپت زنجیره را برمی‌دارد. با هم کار نمی‌کنند.</string>
+    <string name="overlay_scripts_profile_hint">پیش‌فرض خاموش است. با روشن کردن، اسکریپت گروه‌ها و مسیرهای این پیکربندی را جایگزین می‌کند و گره‌ها را نگه می‌دارد. در حالت زنجیره اسکریپت ورودی همچنان اجرا می‌شود و سپس زنجیره ساخته می‌شود؛ یکدیگر را خاموش نمی‌کنند.</string>
     <string name="overlay_scripts_profile_empty">اسکریپتی نیست. از «ابزار → اسکریپت» وارد کنید.</string>
 </resources>

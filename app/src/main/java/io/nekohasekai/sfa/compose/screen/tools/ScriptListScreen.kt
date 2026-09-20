@@ -66,7 +66,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
-import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
@@ -297,7 +296,6 @@ fun ScriptListScreen(
                                                 if (on) {
                                                     if (script.id !in current) current += script.id
                                                     if (!script.enabled) OverlayScripts.toggle(script.id, true)
-                                                    ChainBindings.remove(bindProfile.id)
                                                 } else {
                                                     current.remove(script.id)
                                                 }

@@ -31,7 +31,7 @@
 | 显示名 / productName | AngelaBox | sing-box |
 | 主程序文件名 | `AngelaBox.exe` | `sing-box.exe` |
 | appId | `io.chainbox.desktop` | `io.nekohasekai.sfw` |
-| 安装包文件名 | `AngelaBox-windows-${arch}.exe` | `SFW-*.exe` |
+| 安装包文件名 | `AngelaBox-windows-${arch}.exe`（NSIS）+ `AngelaBox-v${version}-windows-amd64.zip`（便携） | `SFW-*.exe` |
 | 安装目录 | `C:\Program Files\AngelaBox\` | `C:\Program Files\sing-box\` |
 | 守护进程文件名 | `sing-box-daemon.exe`（布局保持官方：`resources\daemon\`） | 不要改路径层级 |
 | Windows 服务名 | `angelabox-daemon` | `sing-box-daemon` |
@@ -46,7 +46,7 @@
 | 源码 | [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox` | 内核里的官方 `clients/desktop` 子模块现场改名 |
 | 仪表盘 | [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox` | 构建时仍指向 `SagerNet/sing-box-dashboard` |
 
-CLI 压缩包仍是 `AngelaBox-windows-amd64.zip`，内含内核 `sing-box.exe`（命令行工具，不是图形主程序）。两者文件名不同，这是有意的。
+图形便携包是 `AngelaBox-v${version}-windows-amd64.zip`（解压运行 `AngelaBox.exe`）。CLI 压缩包仍是无版本号的 `AngelaBox-windows-amd64.zip`，内含内核 `sing-box.exe`（命令行工具，不是图形主程序）。两者文件名不同，这是有意的。
 
 ## 内核
 
