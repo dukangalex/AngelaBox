@@ -106,6 +106,8 @@ jobs:
           has 'AngelaBox-windows-' desktop/src/main/updates.ts
           has 'Get-ServiceSid "angelabox-daemon"' desktop/build/installer-preflight.ps1
           has 'AngelaBox-installer' desktop/build/installer-data.ps1
+          has '--allow-unsafe-installation-directory-permissions' desktop/src/main/repair.ts
+          has '-EncodedCommand' desktop/src/main/repair.ts
           if grep -aF 'SagerNet/sing-box/releases' desktop/src/main/updates.ts; then
             fail 'Windows updater must not query official SagerNet/sing-box releases'
           fi

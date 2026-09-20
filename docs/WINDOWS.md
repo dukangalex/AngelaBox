@@ -10,19 +10,31 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release **v1.0.66-beta** 下载：
+从 GitHub Release **v1.0.67-beta** 下载：
 
 | 文件 | 是什么 |
 |------|--------|
-| **`AngelaBox-v1.0.66-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe`，第一次点「安装」注册服务 |
-| `AngelaBox-windows-1.0.66-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
+| **`AngelaBox-v1.0.67-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe`，第一次点「安装」注册服务 |
+| `AngelaBox-windows-1.0.67-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
 | `AngelaBox-windows-amd64.zip`（无版本号、无 `v`） | **命令行**，解压只有 `sing-box.exe`，不是图形界面 |
 
-1. 先卸载 1.0.62-beta（会闪退，不要用）。
-2. **优先下带版本号的 zip。** 解压到任意目录，运行 `AngelaBox.exe`。第一次会提示「AngelaBox 服务未安装」，点 **安装** 并允许管理员权限（便携包不会自己注册系统服务）。
-3. Chrome 若仍拦 `.exe`：`Ctrl + J` 打开下载页 → **保留危险文件** → **仍然保留**。也可换 Edge。
-4. SmartScreen 未知发布者：更多信息 → 仍要运行。这是自签证书，不是病毒。
-5. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
+1. 先关掉并卸载 1.0.65 / 1.0.66。
+2. **优先下带版本号的 zip。** 解压到本地 NTFS 磁盘（例如 `D:\VPN`），不要放 U 盘。运行 `AngelaBox.exe`。第一次会立刻提示「AngelaBox 服务未安装」，点 **安装**，UAC 选「是」。
+3. 若仍提示权限不足：右键 `AngelaBox.exe` → 属性 → 勾选 **解除锁定** → 确定，再点安装。
+4. Chrome 若仍拦 `.exe`：`Ctrl + J` 打开下载页 → **保留危险文件** → **仍然保留**。也可换 Edge。
+5. SmartScreen 未知发布者：更多信息 → 仍要运行。这是自签证书，不是病毒。
+
+### 官方 Windows 客户端是怎么做的
+
+[官方 sing-box for Desktop](https://github.com/SagerNet/sing-box-for-desktop) **不把 zip 当正式安装方式**。它发的是 NSIS 安装器：
+
+1. 安装器一开始就以管理员运行（`perMachine`）。
+2. 文件装进 `C:\Program Files`（TrustedInstaller 保护目录）。
+3. 安装过程中直接执行 `sing-box-daemon.exe service install`，不再弹第二次 UAC。
+4. 用付费 Authenticode 签名，SmartScreen 不会拦。
+5. 装完图形界面只连接已经在跑的系统服务。
+
+AngelaBox 还没有买代码签名证书，所以继续用 CI 自签，并额外提供 zip。zip 点「安装」时会：解除下载标记、弹出 UAC、在便携目录上加 `--allow-unsafe-installation-directory-permissions`（官方装到 Program Files 才不需要这个开关）。NSIS 包走的是和官方同一条「安装器里提权装服务」的路径。
 
 图形安装包 / 便携包必须同时满足：
 

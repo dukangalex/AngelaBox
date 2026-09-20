@@ -1,4 +1,5 @@
-• **Windows 图形客户端：** 推荐 `AngelaBox-v1.0.66-beta-windows-amd64.zip`。解压后运行 `AngelaBox.exe`，第一次会提示安装 AngelaBox 服务，点「安装」并允许管理员权限。安装器 `AngelaBox-windows-*.exe` 仍是自签，若 Chrome 拦截请 Ctrl+J → 保留危险文件 → 仍然保留。不要把无版本号的 `AngelaBox-windows-amd64.zip` 当成图形界面，那个是命令行。
+• **Windows 图形客户端：** 推荐 `AngelaBox-v1.0.67-beta-windows-amd64.zip`。解压到本地 NTFS 磁盘后运行 `AngelaBox.exe`，第一次点「安装」并允许管理员权限。官方 SFW 是安装器提权后装到 Program Files；便携 zip 会在同一提权里给守护进程加 `--allow-unsafe-installation-directory-permissions`，并先解除下载标记。安装器 `AngelaBox-windows-*.exe` 仍是自签，若 Chrome 拦截请 Ctrl+J → 保留危险文件 → 仍然保留。不要把无版本号的 `AngelaBox-windows-amd64.zip` 当成图形界面，那个是命令行。
+• 服务未安装时不再空等连接；连接页显示 AngelaBox 与「连接中」。点安装失败会显示中文原因，不再弹出整段 PowerShell。
 • 检查更新只看本仓库 AngelaBox 发行，不再误报官方 sing-box 1.15。托盘、窗口、服务提示一律显示 AngelaBox。
 • 默认脚本 overlay-revision 13：叶节点 `tcp_keep_alive` 改为时长 `60s`（不能写 true，否则内核拒启）。脚本启动失败时绑定保留，不再被规范化强行关掉。
 • 链式与前置脚本不再互斥：先跑入口订阅脚本，再按入口→落地组链。落地配置上的脚本不会套到当前配置。
