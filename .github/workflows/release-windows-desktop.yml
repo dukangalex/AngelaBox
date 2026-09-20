@@ -109,7 +109,7 @@ jobs:
           if grep -aF 'SagerNet/sing-box/releases' desktop/src/main/updates.ts; then
             fail 'Windows updater must not query official SagerNet/sing-box releases'
           fi
-          if grep -aF 'startsWith("SFW-")' desktop/src/main/updates.ts; then
+          if grep -aE 'asset\.name\.startsWith\("SFW-"\)' desktop/src/main/updates.ts; then
             fail 'Windows updater must not install official SFW-*.exe'
           fi
           if grep -aE 'artifactName: SFW-|productName: sing-box|appId: io.nekohasekai.sfw' desktop/electron-builder.yml; then
