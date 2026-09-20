@@ -270,7 +270,6 @@ fun ChainBuilderScreen(
                             landingTag = landing.tag,
                         ),
                     )
-                    OverlayScripts.setBinding(boundId, emptyList())
                 }
             }
             busy = false
@@ -619,7 +618,7 @@ fun ChainBuilderScreen(
                         "5. 使用 sing-box 原生 Chain outbound，按你选的顺序串联现有 outbound：入口 → 落地 → 目标。不绑定机场或协议。\n" +
                         "6. Fail Closed：链路失败会明确报错并停止启动，不会偷偷改走 DIRECT。\n" +
                         "7. 链式代理模式下，所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国直连开关仍可让国内与局域网走 DIRECT。\n" +
-                        "8. 链式开启后，当前配置的脚本会自动关闭，两者不同时生效。取消链式后如需脚本，到编辑配置页再打开。\n" +
+                        "8. 链式与脚本可同时启用：先对当前（前置）订阅运行脚本，再把脚本生成的入口串到落地。脚本不能删除已选入口或把它改成 DIRECT，否则启动会明确报错。\n" +
                         "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。",
                 )
             },

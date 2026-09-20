@@ -6,15 +6,13 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release 下载 **`AngelaBox-windows-*.exe`**，双击安装。这是带窗口的客户端，安装后开始菜单和桌面会有 AngelaBox。
+从 GitHub Release 下载 **`AngelaBox-vX.X.X-windows-amd64.zip`**，解压后双击其中的安装器。这是带窗口的客户端，安装后开始菜单和桌面会有 AngelaBox。
 
-当前测试包：[`AngelaBox-windows-1.0.63-beta-x64.exe`](https://github.com/dukangalex/AngelaBox/releases/download/v1.0.64-beta/AngelaBox-windows-1.0.63-beta-x64.exe)（挂在 `v1.0.64-beta` 这一页；安装器底部应是 **1.0.63-beta**）。
+1. 解压 `AngelaBox-v1.0.65-windows-amd64.zip`，再运行其中的 `AngelaBox-windows-*.exe`。
+2. SmartScreen 未知发布者：更多信息 → 仍要运行。
+3. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
 
-1. 先卸载 1.0.62-beta。
-2. Chrome 若提示「此文件包含危险内容」，换 **Microsoft Edge** 或 Firefox 打开同一链接。
-3. SmartScreen 未知发布者：更多信息 → 仍要运行。
-4. 若弹出「数据迁移已完成，但无法删除旧数据（代码 40）」，点确定即可。
-5. 不要下任何 `.zip`。zip 里只有命令行 `sing-box.exe`，不是图形界面。
+所有构建过程、打包脚本和源代码都在本项目公开。由于尚未购买商业 Authenticode 代码签名证书，当前 Windows 包使用 CI 自签证书；Chrome 可能将其中的 `.exe` 标记为「未经验证的文件」。如遇下载阻断，按 **Ctrl + J** 打开 Chrome 下载页，选择 **保留危险文件 → 仍然保留**。发布资产使用 GitHub 域名并以 `.zip` 分发，通常可避免浏览器在 HTTP 下载阶段显示「不安全下载」红字；这不改变 SmartScreen 对自签 `.exe` 的信誉判断。
 
 图形安装包必须同时满足：
 
@@ -26,19 +24,19 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 1.0.62-beta 的 `AngelaBox-windows-*.exe` **不能用**：当时只改了外壳名字，守护进程仍去打开 `sing-box.exe`，安全安装失败后会回滚。那一版还会因 `registerCore is not defined` 立刻退出。不要再用。
 
-未配置仓库证书时，CI 用一次性自签证书（`CN=AngelaBox Test`），Chrome 和 SmartScreen 都会拦截，这是预期。测试包已挂在预发布页，方便下载；正式对外发版仍须长期证书。
+未配置仓库证书时，CI 用一次性自签证书（`CN=AngelaBox Test`）。`.zip` 仅改善下载通道的兼容性，不能让自签 `.exe` 获得 SmartScreen 信誉；正式对外发版仍须长期证书。
 
 桌面快捷方式图标是透明底的立方体（无白底方块）。若仍看到白底或官方立方体，删掉旧快捷方式后重新安装，或重启一次资源管理器刷新图标缓存。
 
 ## 命令行客户端
 
-部分 Release 会附压缩包（本测试页已去掉，避免和下图形安装器搞混）：
+同次 Release 也会附命令行内核压缩包：
 
 | 文件 | 架构 |
 |------|------|
-| `AngelaBox-windows-amd64.zip` | 64 位 Intel/AMD（大多数电脑） |
-| `AngelaBox-windows-arm64.zip` | Windows on ARM |
-| `AngelaBox-windows-386.zip` | 32 位 |
+| `AngelaBox-vX.X.X-windows-amd64.zip` | 64 位 Intel/AMD（大多数电脑） |
+| `AngelaBox-vX.X.X-windows-arm64.zip` | Windows on ARM |
+| `AngelaBox-vX.X.X-windows-386.zip` | 32 位 |
 
 解压后得到 `sing-box.exe`（命令行内核，不是图形主程序）。在管理员命令提示符中：
 
@@ -55,7 +53,7 @@ sing-box.exe run -c config.json
 
 Windows 弹「未知发布者」、Chrome 拦下载，都是因为现在的安装器用的是 **CI 自签证书**（`CN=AngelaBox Test`）。Windows 不信任这把钥匙。改不了设置、改不了产品名，只能换一把**公开 CA 签发的 Authenticode 代码签名证书**。
 
-两层警告不是同一件事：
+Windows 图形端使用 `angelabox-daemon` 服务、独立数据目录和受保护的 `angelabox` 命名管道。启动、重载和守护进程发现均只接受这一专有服务/管道前缀，避免与官方 SFW 或旧 `sing-box-daemon` 互相接管并形成代理回环。两层警告不是同一件事：
 
 | 你看到的 | 谁在拦 | 证书能做什么 |
 |----------|--------|----------------|

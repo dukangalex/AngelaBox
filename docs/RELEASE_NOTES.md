@@ -1,7 +1,7 @@
-更新说明（测试版）
-• **Windows 图形客户端：** 下载 `AngelaBox-windows-*.exe` 双击安装。不要下 zip（zip 是命令行 `sing-box.exe`）。1.0.62-beta 会闪退，不要用。
-• 内核跟进官方 sing-box **v1.15.0-alpha.6**（Fixes and improvements，无新协议类型）。本仓库发版 Go 1.25.5，fork tag `v1.15.0-chain.3`，commit `d7639f61`。设置 → 核心显示 `1.15.0-chain.3（官方 1.15.0-alpha.6）`。上游修补包括：Windows 进程归属不再扫描 TCP 表、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消。
-• Android 启动器图标改为透明底立方体，无白底方块。
-• **公开说明（不改写 git 历史）：** 仓库早期历史含 2020 年 SagerNet 调试钥匙（CN 猫羽 世界，SHA-256 `32250a4b…`）与上游 Firebase 客户端配置（包名 `io.nekohasekai.sfa`，项目 `sing-b0x`）。二者都不是当前发行证书 CN=ChainBox（SHA-256 `e7041217…`）。GitHub Support Ticket 4763595 指出这两条提交仍是现存 tag 的祖先，直链会保持 200。改写 1.0.x 会打断已安装用户的覆盖更新，因此保持历史、不轮换发行证书。请只从本仓库安装 `AngelaBox-android.apk`，不要从 `goodmen001/AngelaBox` 安装。详见 docs/SECURITY.md。
-• 默认覆写脚本为 overlay-revision 12：自动选择每 10 分钟测一次（不再每分钟），空闲 4 小时才停测，叶节点开 TCP keepalive。忽略电池优化后，息屏不再把整条隧道暂停。「组」页仍显示当前节点与延迟。
-• 本版是 **测试内核**，不是稳定版。日常使用请留在 1.0.57。要回稳定版请到 GitHub 下载 1.0.57 覆盖安装（签名相同）。订阅 / 脚本 / 更新 / WebDAV 仅允许公网 HTTPS。
+更新说明（1.0.65）
+
+• **链式代理与前置脚本可组合：** 当前（前置）订阅的覆写脚本先执行，随后由原生 Chain outbound 将脚本生成的入口接到落地节点。保存链式不再清除脚本，启用脚本也不再取消链式；脚本若删除已选入口或将其改成 DIRECT，启动会 Fail Closed 并提示错误，绝不静默直连。
+• **后台智能活跃：** 服务保持前台服务与 `START_STICKY`；用户明确允许忽略电池优化时，Doze 下保持隧道和当前节点。未授权时内核在 Doze 暂停、设备唤醒后恢复。自动选择约每 10 分钟探测，并以 TCP keepalive 维持会话，减少无线电唤醒、内存和电池消耗。
+• **Windows ZIP 发布：** 同次 Release 提供 `AngelaBox-v1.0.65-windows-amd64.zip`（另有 arm64 / 386）。压缩包内含编译的 `sing-box.exe`、许可证和使用说明，并生成 SHA-256 校验文件。图形端安装器也应随版本 ZIP 分发，避免以裸 `.exe` 触发浏览器的 HTTP 下载阻断。
+• **Windows 信任与防回环：** 当前未购买商业 Authenticode 证书，CI 使用 `CN=AngelaBox Test` 自签证书；Chrome 可能标记 `.exe` 为未经验证。按 Ctrl + J，在下载页选择「保留危险文件 → 仍然保留」。Windows 使用独立的 `angelabox-daemon` 服务、数据目录和受保护命名管道，避免与官方 SFW / 旧 sing-box 服务互相接管造成代理回环。
+• **完全开源构建：** 本项目的源码、GitHub Actions 构建流程、Windows 打包脚本和发布说明均公开可审计。

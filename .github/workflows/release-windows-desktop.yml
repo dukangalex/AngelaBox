@@ -237,9 +237,13 @@ jobs:
           }
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item $artifacts.FullName dist
-          Get-FileHash -Algorithm SHA256 $artifacts.FullName |
-            ForEach-Object { "$($_.Hash.ToLower())  $($artifacts.Name)" } |
-            Set-Content "dist/$($artifacts.Name).sha256"
+          $zipName = "AngelaBox-v${{ steps.pin.outputs.appver }}-windows-${{ matrix.desktop_arch }}.zip"
+          $zipPath = Join-Path dist $zipName
+          Compress-Archive -Path (Join-Path dist $artifacts.Name) -DestinationPath $zipPath -CompressionLevel Optimal
+          if (-not (Test-Path $zipPath)) { throw "missing Windows ZIP: $zipPath" }
+          Get-FileHash -Algorithm SHA256 $zipPath |
+            ForEach-Object { "$($_.Hash.ToLower())  $zipName" } |
+            Set-Content "dist/$zipName.sha256"
           Get-ChildItem dist | Format-Table Name, Length
 
       - name: Upload artifact
@@ -268,4 +272,4 @@ jobs:
           fi
           ls -lah desktop/dist
           gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null
-          gh release upload "$TAG" desktop/dist/AngelaBox-windows-*.exe desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release upload "$TAG" desktop/dist/AngelaBox-v*-windows-*.zip desktop/dist/AngelaBox-v*-windows-*.zip.sha256 --repo "${GITHUB_REPOSITORY}" --clobber

@@ -146,7 +146,7 @@ def test_source_guards() -> None:
     assert "AngelaBox-android.apk" in release
     assert "ChainBox-android.apk" not in release
     assert "windows-cli" in release
-    assert "AngelaBox-windows-amd64.zip" in release
+    assert "AngelaBox-v${APP_VERSION}-windows-amd64.zip" in release
     assert "build_windows_cli.sh" in release
     assert RELEASE_CERT in release
     assert "steps.pin.outputs.commit" in release
@@ -157,8 +157,8 @@ def test_source_guards() -> None:
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.64-beta" in props
-    assert "VERSION_CODE=10064" in props
+    assert "VERSION_NAME=1.0.65" in props
+    assert "VERSION_CODE=10065" in props
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
 
@@ -195,6 +195,8 @@ def test_source_guards() -> None:
     assert "WINDOWS_CERTIFICATES_P12" in desktop
     assert "signing.local.json" in desktop
     assert "New-SelfSignedCertificate" in desktop
+    assert "Compress-Archive" in desktop
+    assert "AngelaBox-v" in desktop
     assert "dukangalex/sing-box-for-desktop" in desktop
     assert "ref: angelabox" in desktop
     assert "Rebrand desktop" not in desktop

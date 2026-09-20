@@ -24,7 +24,9 @@ object ConfigQuicOverride {
         //    features (China/ads/QUIC/WebRTC/DNS/IPv6/strict). Switches are
         //    passed into the script as `overlay`; the App does not write a
         //    second copy.
-        // 3. chain — if bound, scripts were already turned off for this profile
+        // 3. chain — if bound, compile the script-produced entry graph into
+        //    the native entry → landing path. Scripts and chain are intentionally
+        //    composable; a script never mutates the saved subscription.
         // 4. China Direct / ads / QUIC / WebRTC / DNS / IPv6 / strict —
         //    App writes these only when no script is bound
         val healed = if (Settings.configNormalize) {
