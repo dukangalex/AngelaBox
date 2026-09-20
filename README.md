@@ -42,8 +42,8 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 客户端仓库 | [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox)（分支 `dev`） |
 | 内核仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box)（分支 `chain-dev`） |
 | 更新检查 | 仅本仓库 GitHub Releases |
-| 应用图标 | 白色底、居中立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
-| 安装包 | Android：`AngelaBox-android.apk`；Windows：`AngelaBox-windows-amd64.zip` |
+| 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
+| 安装包 | Android：`AngelaBox-android.apk`；Windows 图形：`AngelaBox-v*-windows-amd64.zip`（便携包，解压运行 `AngelaBox.exe`）。无版本号的 `AngelaBox-windows-amd64.zip` 是命令行内核，不是图形界面 |
 
 曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。
 
@@ -107,7 +107,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 
 ## 下载
 
-请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。Windows 请下载 `AngelaBox-windows-amd64.zip`，用法见 [docs/WINDOWS.md](docs/WINDOWS.md)。
+请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。Windows 图形客户端请下载 **`AngelaBox-v*-windows-amd64.zip`**（解压运行 `AngelaBox.exe`），用法见 [docs/WINDOWS.md](docs/WINDOWS.md)。不要下无版本号的 `AngelaBox-windows-amd64.zip`，那个是命令行。
 
 ```
 sha256sum -c AngelaBox-android.apk.sha256

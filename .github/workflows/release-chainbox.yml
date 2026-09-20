@@ -228,9 +228,11 @@ jobs:
           {
             cat docs/RELEASE_NOTES.md
             echo
-            echo "Install \`AngelaBox-android.apk\` (arm64). Android users only need that file."
+            echo "Android: \`AngelaBox-android.apk\` (arm64)."
             echo
-            echo "Windows CLI (same kernel): \`AngelaBox-windows-amd64.zip\` (also arm64 / 386). Not official SFW."
+            echo "Windows GUI (recommended): \`AngelaBox-${{ inputs.version_tag }}-windows-amd64.zip\` — unzip and run AngelaBox.exe. Self-signed; if Chrome blocks the .exe installer, Ctrl+J then keep the file."
+            echo
+            echo "Windows CLI (not the GUI): \`AngelaBox-windows-amd64.zip\` (also arm64 / 386)."
             echo
             echo "Verify:"
             echo
@@ -246,7 +248,8 @@ jobs:
             echo "- Official baseline: SagerNet/sing-box \`v${UPSTREAM}\`"
             echo "- Official type-constant check: \`pass\`"
             echo "- Go: $GOV"
-            echo "- Windows CLI: \`AngelaBox-windows-amd64.zip\` / \`arm64\` / \`386\` (attached after this job)"
+            echo "- Windows GUI zip: \`AngelaBox-${{ inputs.version_tag }}-windows-amd64.zip\`"
+            echo "- Windows CLI: \`AngelaBox-windows-amd64.zip\` / \`arm64\` / \`386\`"
           } > github-release-body.md
 
       - name: Publish release
