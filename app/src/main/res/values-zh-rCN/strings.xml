@@ -690,7 +690,7 @@
     <string name="ads_block_summary">拒绝广告规则集匹配的域名</string>
     <string name="overlay_scripts">脚本</string>
     <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
-    <string name="overlay_scripts_hint">脚本库。选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式与脚本不能同时开。</string>
+    <string name="overlay_scripts_hint">脚本库。选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式开启时前置订阅的脚本仍然会跑，先脚本后组链。</string>
     <string name="pull_drag_hint">下拉返回</string>
     <string name="pull_release_home">松开返回主页</string>
     <string name="pull_release_up">松开返回上级</string>
@@ -715,7 +715,7 @@
     <string name="overlay_scripts_failed">无法保存脚本</string>
     <string name="overlay_scripts_empty_file">文件是空的</string>
     <string name="overlay_scripts_profile_enable">为此配置启用脚本</string>
-    <string name="overlay_scripts_profile_hint">默认不套用。打开后脚本覆盖此配置的分组、分流和对应的应用开关（中国直连、广告拦截），只保留节点，同时只跑一套规则。开启链式会自动关掉该配置的脚本；开启脚本会取消该配置的链式。</string>
+    <string name="overlay_scripts_profile_hint">默认不套用。打开后脚本覆盖此配置的分组、分流和对应的应用开关（中国直连、广告拦截），只保留节点。链式开启时前置脚本仍然会跑（先脚本后组链），不会互相关掉。</string>
     <string name="overlay_scripts_profile_empty">还没有脚本。请到「工具 → 脚本」导入。</string>
     <string name="overlay_scripts_bound_on">已在此配置开启</string>
     <string name="overlay_scripts_bound_off">此配置未开启</string>

@@ -726,7 +726,7 @@
     <string name="ads_block_summary">拒絕廣告規則集匹配的網域</string>
     <string name="overlay_scripts">腳本</string>
     <string name="overlay_scripts_subtitle">依設定檔選擇覆寫腳本（sing-box）</string>
-    <string name="overlay_scripts_hint">腳本庫。選一份設定後開關；打開後只跑腳本這一套規則（國內直連、國外代理），不改訂閱。鏈式與腳本不能同時開。</string>
+    <string name="overlay_scripts_hint">腳本庫。選一份設定後開關；打開後只跑腳本這一套規則（國內直連、國外代理），不改訂閱。鏈式開啟時前置訂閱的腳本仍然會跑，先腳本後組鏈。</string>
     <string name="pull_drag_hint">下拉返回</string>
     <string name="pull_release_home">鬆開返回主頁</string>
     <string name="pull_release_up">鬆開返回上級</string>
@@ -751,7 +751,7 @@
     <string name="overlay_scripts_failed">無法儲存腳本</string>
     <string name="overlay_scripts_empty_file">檔案是空的</string>
     <string name="overlay_scripts_profile_enable">為此設定檔啟用腳本</string>
-    <string name="overlay_scripts_profile_hint">預設不套用。打開後腳本覆蓋此設定的分組與分流，只保留節點。開啟鏈式會自動關掉該設定的腳本；開啟腳本會取消該設定的鏈式。</string>
+    <string name="overlay_scripts_profile_hint">預設不套用。打開後腳本覆蓋此設定的分組與分流，只保留節點。鏈式開啟時前置腳本仍然會跑（先腳本後組鏈），不會互相關掉。</string>
     <string name="overlay_scripts_profile_empty">還沒有腳本。請到「工具 → 腳本」匯入。</string>
     <string name="overlay_scripts_bound_on">已在此設定開啟</string>
     <string name="overlay_scripts_bound_off">此設定未開啟</string>

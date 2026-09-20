@@ -797,7 +797,7 @@
     <string name="ads_block_summary">Reject domains in the ads rule-set</string>
     <string name="overlay_scripts">Scripts</string>
     <string name="overlay_scripts_subtitle">Per-profile sing-box overlay scripts</string>
-    <string name="overlay_scripts_hint">Script catalog. Pick a profile below, then toggle. When on, the script is the only rule set (China direct, foreign via proxy) and the subscription file is unchanged. Chain and scripts cannot run together.</string>
+    <string name="overlay_scripts_hint">Script catalog. Pick a profile below, then toggle. When on, the script is the only rule set (China direct, foreign via proxy) and the subscription file is unchanged. In chain mode the entry profile script still runs, then the chain is applied.</string>
     <string name="pull_drag_hint">Pull to go back</string>
     <string name="pull_release_home">Release to home</string>
     <string name="pull_release_up">Release to go back</string>
@@ -822,7 +822,7 @@
     <string name="overlay_scripts_failed">Could not save the script</string>
     <string name="overlay_scripts_empty_file">The file is empty</string>
     <string name="overlay_scripts_profile_enable">Enable scripts for this profile</string>
-    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups, routing, and matching app switches (China Direct, ad block) so only one ruleset runs. Nodes are kept. A chain mutes scripts; scripts clear the chain.</string>
+    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups, routing, and matching app switches (China Direct, ad block) so only one ruleset runs. Nodes are kept. In chain mode the entry script still runs, then the chain is applied.</string>
     <string name="overlay_scripts_profile_empty">No scripts yet. Import some from Tools → Scripts.</string>
     <string name="overlay_scripts_bound_on">On for this profile</string>
     <string name="overlay_scripts_bound_off">Off for this profile</string>

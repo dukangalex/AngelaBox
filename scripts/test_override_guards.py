@@ -956,10 +956,10 @@ def main() -> int:
     builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if "所有非中国流量不可直连" not in builder:
         errors.append("chain builder info must say non-China traffic cannot DIRECT")
-    if "链式开启后，当前配置的脚本会自动关闭" not in builder:
-        errors.append("chain builder info must say chain mutes scripts on the current profile")
-    if "落地配置上的脚本不会执行" in builder or "脚本只对前置生效" in builder or "落地配置开启了脚本" in builder:
-        errors.append("chain mode must no longer run scripts on the entry profile")
+    if "链式开启后，当前配置的脚本会自动关闭" in builder:
+        errors.append("chain builder must no longer mute scripts")
+    if "前置订阅的脚本仍然生效" not in builder:
+        errors.append("chain builder info must say entry scripts still run")
     if "port: \"3478:3480\"" in sample or "port: \"3478:3481\"" in sample or "port: \"5349:5355\"" in sample:
         errors.append("STUN port ranges must use port_range, not port")
     if "port_range: \"3478:3481\"" not in sample:
@@ -994,12 +994,12 @@ def main() -> int:
         errors.append("远控工具 must default to REJECT-DROP with 国外服务 and DIRECT")
     if "ordered.push(remoteGroup)" not in sample:
         errors.append("region groups must be appended after 远控工具 so they sit last")
-    if "ChainBindings.get(profileId) != null" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
-        errors.append("scripts must not apply when the profile has a chain binding")
-    if "OverlayScripts.setBinding(boundId, emptyList())" not in builder:
-        errors.append("saving a chain must clear scripts on that profile")
-    if "ChainBindings.remove(profileId)" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
-        errors.append("enabling scripts must clear the profile chain binding")
+    if "ChainBindings.get(profileId) != null" in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("scripts must still apply on a chain-bound entry profile")
+    if "OverlayScripts.setBinding(boundId, emptyList())" in builder:
+        errors.append("saving a chain must keep scripts on that profile")
+    if "ChainBindings.remove(profileId)" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
+        errors.append("enabling scripts must not clear the profile chain binding")
     if "function main" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("script engine must require function main(config)")
     if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):

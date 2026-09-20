@@ -240,6 +240,17 @@ jobs:
           Get-FileHash -Algorithm SHA256 $artifacts.FullName |
             ForEach-Object { "$($_.Hash.ToLower())  $($artifacts.Name)" } |
             Set-Content "dist/$($artifacts.Name).sha256"
+          $unpacked = Join-Path (Get-Location) 'release\win-unpacked'
+          if (-not (Test-Path $unpacked)) { throw "missing portable tree $unpacked" }
+          $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($ver)) { throw 'version.json missing version' }
+          $zipName = "AngelaBox-v$ver-windows-amd64.zip"
+          $zipPath = Join-Path (Join-Path (Get-Location) 'dist') $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $unpacked '*') -DestinationPath $zipPath -CompressionLevel Optimal
+          Get-FileHash -Algorithm SHA256 $zipPath |
+            ForEach-Object { "$($_.Hash.ToLower())  $zipName" } |
+            Set-Content "$zipPath.sha256"
           Get-ChildItem dist | Format-Table Name, Length
 
       - name: Upload artifact
@@ -262,10 +273,9 @@ jobs:
             echo 'attach_to_release requires version_tag' >&2
             exit 1
           fi
-          if [ "${REPO_CERT}" != "true" ]; then
-            echo 'refusing to attach a self-signed test installer to a public Release' >&2
-            exit 1
-          fi
           ls -lah desktop/dist
           gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          # Portable zip is the Chrome-safe download (GitHub-hosted zip of the unpacked app).
+          # Self-signed NSIS exe is also attached; document Ctrl+J keep-file.
+          gh release upload "$TAG" desktop/dist/AngelaBox-v*-windows-amd64.zip desktop/dist/AngelaBox-v*-windows-amd64.zip.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
           gh release upload "$TAG" desktop/dist/AngelaBox-windows-*.exe desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
