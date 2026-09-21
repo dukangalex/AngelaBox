@@ -98,6 +98,58 @@ class RuleSetProvidersTest {
     }
 
     @Test
+    fun listEntriesDecompilesSrsLikeClashVerge() {
+        val bytes = javaClass.classLoader!!.getResourceAsStream("geosite-abema.srs")!!.readBytes()
+        val file = File.createTempFile("geosite-abema", ".srs")
+        file.writeBytes(bytes)
+        val lines = RuleSetProviders.listEntries(file)
+        assertEquals(21, lines.size)
+        assertEquals("abematv.akamaized.net", lines.first())
+        assertEquals("+.abema-tv.com", lines[5])
+        assertEquals("+.winticket.jp", lines.last())
+        assertTrue(lines.none { it.matches(Regex("^\\d+\\s+.+")) })
+        assertEquals(21, RuleSetProviders.sourceRuleCount(file))
+    }
+
+    @Test
+    fun srsDecoderMatchesPythonOracle() {
+        val bytes = javaClass.classLoader!!.getResourceAsStream("geosite-abema.srs")!!.readBytes()
+        val lines = SrsDecoder.decode(bytes)
+        assertEquals(
+            listOf(
+                "abematv.akamaized.net",
+                "ds-linear-abematv.akamaized.net",
+                "ds-vod-abematv.akamaized.net",
+                "linear-abematv.akamaized.net",
+                "vod-abematv.akamaized.net",
+                "+.abema-tv.com",
+                "+.abema.io",
+                "+.abema.tv",
+                "+.abematv.co.jp",
+                "+.adx.promo",
+                "+.ameba.jp",
+                "+.amebame.com",
+                "+.amebaownd.com",
+                "+.amebaowndme.com",
+                "+.ameblo.jp",
+                "+.bucketeer.jp",
+                "+.dokusho-ojikan.jp",
+                "+.hayabusa.dev",
+                "+.hayabusa.io",
+                "+.hayabusa.media",
+                "+.winticket.jp",
+            ),
+            lines,
+        )
+    }
+
+    @Test
+    fun srsDecoderRejectsGarbage() {
+        assertTrue(SrsDecoder.decode(byteArrayOf(1, 2, 3, 4, 5)).isEmpty())
+        assertTrue(SrsDecoder.listEntries(File.createTempFile("empty", ".srs")).isEmpty())
+    }
+
+    @Test
     fun srsTopLevelCountReadsUvarint() {
         val payload = byteArrayOf(21)
         val deflater = Deflater()

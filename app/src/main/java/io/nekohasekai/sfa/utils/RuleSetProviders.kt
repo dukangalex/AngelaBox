@@ -98,7 +98,7 @@ object RuleSetProviders {
 
     fun sourceRuleCount(file: File): Int? {
         val n = listEntriesFromFile(file).size
-        return n.takeIf { it > 0 } ?: srsTopLevelCount(file)
+        return n.takeIf { it > 0 }
     }
 
     fun pretty(item: JSONObject): String = item.toString(2)
@@ -155,15 +155,16 @@ object RuleSetProviders {
 
     private fun listEntriesFromFile(file: File): List<String> {
         if (!file.isFile || file.length() == 0L) return emptyList()
-        if (!file.name.endsWith(".json", true)) return emptyList()
-        return try {
-            val text = file.readText()
-            val root = JSONObject(text)
-            val rules = root.optJSONArray("rules") ?: return emptyList()
-            flattenRules(rules)
-        } catch (_: Exception) {
-            emptyList()
+        if (file.name.endsWith(".json", true)) {
+            return try {
+                val root = JSONObject(file.readText())
+                val rules = root.optJSONArray("rules") ?: return emptyList()
+                flattenRules(rules)
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
+        return SrsDecoder.listEntries(file)
     }
 
     internal fun srsTopLevelCount(file: File): Int? {

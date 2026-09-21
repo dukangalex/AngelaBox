@@ -1,9 +1,11 @@
 package io.nekohasekai.sfa.compose.screen.profile
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,10 +25,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -37,6 +45,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,11 +55,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -59,6 +71,8 @@ import androidx.navigation.NavController
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.compat.ProfileCodeEditor
+import io.nekohasekai.sfa.compat.ProfileEditorColors
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.compose.component.PullToPopContainer
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
@@ -68,6 +82,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.ktx.clipboardText
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ProxyProviderItem
@@ -83,6 +98,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Date
@@ -101,9 +117,13 @@ data class ProxyProviderRow(
     val busy: Boolean = false,
 )
 
+enum class ProviderViewKind { Entries, Config }
+
 data class ViewPayload(
     val title: String,
     val lines: List<String>,
+    val kind: ProviderViewKind = ProviderViewKind.Entries,
+    val loading: Boolean = false,
 )
 
 data class RuleProvidersUiState(
@@ -125,7 +145,10 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     fun reload() {
         viewModelScope.launch(Dispatchers.IO) {
-            _ui.value = _ui.value.copy(loading = true, error = null)
+            val firstLoad = _ui.value.rows.isEmpty() && _ui.value.proxies.isEmpty()
+            if (firstLoad) {
+                _ui.value = _ui.value.copy(loading = true, error = null)
+            }
             val loaded = ProfileManager.get(profileId)
             if (loaded == null) {
                 _ui.value = RuleProvidersUiState(loading = false, error = "配置不存在")
@@ -143,15 +166,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             val working = workingDir()
             val info = SubscriptionInfoStore.get(Application.application, loaded.id)
             val rows = RuleSetProviders.parse(content).map { item ->
-                val cache = RuleSetProviders.cacheFile(working, item.tag, item.format, item.url)
-                val json = RuleSetProviders.sourceCacheFile(working, item.tag)
-                val local = item.path.takeIf { it.isNotBlank() }?.let { File(it) }
-                val file = when {
-                    json.isFile -> json
-                    local?.isFile == true -> local
-                    cache.isFile -> cache
-                    else -> null
-                }
+                val file = resolveRuleFile(working, item)
                 val entries = RuleSetProviders.listEntries(file, item.raw)
                 val count = entries.size.takeIf { it > 0 }
                     ?: file?.let { RuleSetProviders.sourceRuleCount(it) }
@@ -291,35 +306,65 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     fun viewRule(tag: String, onReady: (ViewPayload) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            var lines = loadRuleEntries(tag)
-            if (lines.isEmpty()) {
-                runCatching { fetchSourceJson(tag) }
-                lines = loadRuleEntries(tag)
-            }
+            val lines = loadRuleEntries(tag)
             withContext(Dispatchers.Main) {
-                onReady(ViewPayload(title = tag, lines = lines))
+                onReady(
+                    ViewPayload(
+                        title = tag,
+                        lines = lines,
+                        kind = ProviderViewKind.Entries,
+                    ),
+                )
             }
         }
     }
 
-    fun viewProxy(tag: String): ViewPayload {
-        val row = _ui.value.proxies.firstOrNull { it.item.tag == tag }
-        return ViewPayload(title = tag, lines = row?.item?.entries.orEmpty())
+    fun viewProxy(tag: String, onReady: (ViewPayload) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val lines = prettyProfileLines()
+            withContext(Dispatchers.Main) {
+                onReady(
+                    ViewPayload(
+                        title = tag,
+                        lines = lines,
+                        kind = ProviderViewKind.Config,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun prettyProfileLines(): List<String> {
+        val loaded = profile ?: return emptyList()
+        val text = runCatching { File(loaded.typed.path).readText() }.getOrDefault("")
+        val pretty = try {
+            val trimmed = text.trim()
+            when {
+                trimmed.startsWith("{") -> JSONObject(trimmed).toString(2)
+                trimmed.startsWith("[") -> JSONArray(trimmed).toString(2)
+                else -> text
+            }
+        } catch (_: Exception) {
+            text
+        }
+        return pretty.replace("\r\n", "\n").lines()
     }
 
     private fun loadRuleEntries(tag: String): List<String> {
         val row = _ui.value.rows.firstOrNull { it.item.tag == tag } ?: return emptyList()
-        val working = workingDir()
-        val json = RuleSetProviders.sourceCacheFile(working, tag)
-        val cache = RuleSetProviders.cacheFile(working, tag, row.item.format, row.item.url)
-        val local = row.item.path.takeIf { it.isNotBlank() }?.let { File(it) }
-        val file = when {
-            json.isFile -> json
-            local?.name?.endsWith(".json", true) == true && local.isFile -> local
-            cache.name.endsWith(".json", true) && cache.isFile -> cache
-            else -> json.takeIf { it.isFile }
-        }
+        val file = resolveRuleFile(workingDir(), row.item)
         return RuleSetProviders.listEntries(file, row.item.raw)
+    }
+
+    private fun resolveRuleFile(working: File, item: RuleSetProvider): File? {
+        val cache = RuleSetProviders.cacheFile(working, item.tag, item.format, item.url)
+        val json = RuleSetProviders.sourceCacheFile(working, item.tag)
+        val local = item.path.takeIf { it.isNotBlank() }?.let { File(it) }
+        return listOfNotNull(
+            cache.takeIf { it.isFile && it.length() > 0L },
+            local?.takeIf { it.isFile && it.length() > 0L },
+            json.takeIf { it.isFile && it.length() > 0L },
+        ).firstOrNull()
     }
 
     private suspend fun syncOne(tag: String) {
@@ -332,26 +377,11 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         val dest = RuleSetProviders.cacheFile(workingDir(), tag, item.format, item.url)
         HTTPClient().use { client ->
             client.downloadToFile(item.url, RemoteUrlGuard.Kind.SUBSCRIPTION, dest)
-            fetchSourceJson(tag, client)
         }
         RuleSetProviders.updateItem(root, tag) { current ->
             current.put("initial_path", dest.absolutePath)
         }
         File(loaded.typed.path).writeText(root.toString())
-    }
-
-    private fun fetchSourceJson(tag: String, client: HTTPClient? = null) {
-        val row = _ui.value.rows.firstOrNull { it.item.tag == tag } ?: return
-        val sibling = RuleSetProviders.sourceUrl(row.item.url) ?: return
-        val dest = RuleSetProviders.sourceCacheFile(workingDir(), tag)
-        val run = { http: HTTPClient ->
-            http.downloadToFile(sibling, RemoteUrlGuard.Kind.SUBSCRIPTION, dest)
-        }
-        if (client != null) {
-            runCatching { run(client) }
-        } else {
-            HTTPClient().use { http -> runCatching { run(http) } }
-        }
     }
 
     private suspend fun syncProxyOne() {
@@ -425,51 +455,10 @@ fun RuleProvidersScreen(
 
     val viewing = viewPayload
     if (viewing != null) {
-        BackHandler { viewPayload = null }
-        OverrideTopBar {
-            TopAppBar(
-                title = { Text(stringResource(R.string.rule_providers_view_title, viewing.title)) },
-                navigationIcon = {
-                    IconButton(onClick = { viewPayload = null }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    }
-                },
-            )
-        }
-        PullToPopContainer(
-            enabled = true,
-            releaseHint = stringResource(R.string.pull_release_up),
-            onPop = { viewPayload = null },
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(LocalScaffoldPadding.current),
-            ) {
-                if (viewing.lines.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.rule_providers_no_entries),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        items(viewing.lines.size) { index ->
-                            Text(
-                                text = "${index + 1}  ${viewing.lines[index]}",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(vertical = 3.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        ProviderViewScreen(
+            viewing = viewing,
+            onClose = { viewPayload = null },
+        )
         return
     }
 
@@ -524,7 +513,15 @@ fun RuleProvidersScreen(
                     items(ui.proxies, key = { "proxy-${it.item.tag}" }) { row ->
                         ProxyProviderCard(
                             row = row,
-                            onView = { viewPayload = viewModel.viewProxy(row.item.tag) },
+                            onView = {
+                                viewPayload = ViewPayload(
+                                    title = row.item.tag,
+                                    lines = emptyList(),
+                                    kind = ProviderViewKind.Config,
+                                    loading = true,
+                                )
+                                viewModel.viewProxy(row.item.tag) { viewPayload = it }
+                            },
                             onSync = {
                                 viewModel.syncProxy(row.item.tag) { message ->
                                     scope.launch { snackbar.showSnackbar(message) }
@@ -563,9 +560,13 @@ fun RuleProvidersScreen(
                             picker.launch("*/*")
                         },
                         onView = {
-                            viewModel.viewRule(row.item.tag) { payload ->
-                                viewPayload = payload
-                            }
+                            viewPayload = ViewPayload(
+                                title = row.item.tag,
+                                lines = emptyList(),
+                                kind = ProviderViewKind.Entries,
+                                loading = true,
+                            )
+                            viewModel.viewRule(row.item.tag) { viewPayload = it }
                         },
                         onSync = {
                             viewModel.sync(row.item.tag) { message ->
@@ -576,6 +577,9 @@ fun RuleProvidersScreen(
                     )
                 }
             }
+            if (ui.loading && ui.rows.isEmpty() && ui.proxies.isEmpty()) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
             SnackbarHost(
                 hostState = snackbar,
                 modifier = Modifier
@@ -584,6 +588,148 @@ fun RuleProvidersScreen(
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderViewScreen(
+    viewing: ViewPayload,
+    onClose: () -> Unit,
+) {
+    val context = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
+    BackHandler(onBack = onClose)
+    OverrideTopBar {
+        TopAppBar(
+            title = { Text(stringResource(R.string.rule_providers_view_title, viewing.title)) },
+            navigationIcon = {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                }
+            },
+            actions = {
+                if (!viewing.loading && viewing.lines.isNotEmpty()) {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.per_app_proxy_action_copy)) },
+                            leadingIcon = {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                            },
+                            onClick = {
+                                clipboardText = viewing.lines.joinToString("\n")
+                                Toast.makeText(
+                                    context,
+                                    R.string.copied_to_clipboard,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                menu = false
+                            },
+                        )
+                    }
+                }
+            },
+        )
+    }
+    PullToPopContainer(
+        enabled = true,
+        releaseHint = stringResource(R.string.pull_release_up),
+        onPop = onClose,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(LocalScaffoldPadding.current),
+        ) {
+            when {
+                viewing.loading -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+                viewing.lines.isEmpty() -> {
+                    Text(
+                        text = stringResource(R.string.rule_providers_no_entries),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(24.dp),
+                    )
+                }
+                viewing.kind == ProviderViewKind.Config -> {
+                    ConfigFileView(text = viewing.lines.joinToString("\n"))
+                }
+                else -> {
+                    val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        items(viewing.lines.size) { index ->
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                Text(
+                                    text = (index + 1).toString(),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = gutterColor,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(44.dp).padding(end = 10.dp),
+                                )
+                                Text(
+                                    text = viewing.lines[index],
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfigFileView(text: String) {
+    val colorScheme = MaterialTheme.colorScheme
+    val editorColors = remember(colorScheme) {
+        ProfileEditorColors(
+            background = colorScheme.background.toArgb(),
+            foreground = colorScheme.onSurface.toArgb(),
+            lineNumber = colorScheme.onSurfaceVariant.toArgb(),
+            lineNumberBackground = colorScheme.background.toArgb(),
+            selectionBackground = colorScheme.primary.copy(alpha = 0.35f).toArgb(),
+            currentLineBackground = colorScheme.surfaceContainer.toArgb(),
+            cursor = colorScheme.primary.toArgb(),
+            matchedTextBackground = colorScheme.tertiary.copy(alpha = 0.35f).toArgb(),
+            comment = colorScheme.onSurfaceVariant.toArgb(),
+            key = colorScheme.primary.toArgb(),
+            string = colorScheme.tertiary.toArgb(),
+            number = colorScheme.secondary.toArgb(),
+            literal = colorScheme.primary.toArgb(),
+        )
+    }
+    val holder = remember { arrayOfNulls<ProfileCodeEditor>(1) }
+    DisposableEffect(Unit) {
+        onDispose { holder[0]?.release() }
+    }
+    AndroidView(
+        factory = { context ->
+            ProfileCodeEditor(context).also { created ->
+                created.setReadOnly(true)
+                created.applyColors(editorColors)
+                created.setText(text)
+                holder[0] = created
+            }.view
+        },
+        update = {
+            val current = holder[0] ?: return@AndroidView
+            current.applyColors(editorColors)
+            if (current.getText() != text) current.setText(text)
+        },
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colorScheme.background),
+    )
 }
 
 @Composable
@@ -705,6 +851,13 @@ private fun ProviderCardFrame(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp),
+                )
+            }
+            if (busy) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
                 )
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -1,1 +1,1 @@
-Fixes and improvements
+Providers view decompiles .srs rule-sets and opens the profile JSON for proxy providers. Sync no longer flashes the list. Chinese relative time.

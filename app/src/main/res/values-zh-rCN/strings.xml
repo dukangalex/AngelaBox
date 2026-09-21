@@ -322,6 +322,15 @@
     <string name="time_minutes_short">%d分</string>
     <string name="time_hours_short">%d时</string>
     <string name="time_days_short">%d天</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="other">%d 分钟前</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="other">%d 小时前</item>
+    </plurals>
+    <plurals name="time_days_ago">
+        <item quantity="other">%d 天前</item>
+    </plurals>
     <string name="menu_undo">撤销</string>
     <string name="menu_redo">重做</string>
     <string name="menu_format">格式化</string>
@@ -705,9 +714,9 @@
     <string name="rule_providers_entries">%d个条目</string>
     <string name="rule_providers_binary">二进制规则集</string>
     <string name="rule_providers_never">尚未下载</string>
-    <string name="rule_providers_no_entries">暂无源条目。同步后会拉取 JSON 列表。</string>
+    <string name="rule_providers_no_entries">暂无条目。同步后会从规则集解码。</string>
     <string name="profile_traffic_none">无用量统计</string>
-    <string name="profile_traffic_unlimited">Unlimited</string>
+    <string name="profile_traffic_unlimited">不限流量</string>
     <string name="profile_traffic_used">%1$s / %2$s</string>
     <string name="profiles_add">添加配置</string>
     <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>

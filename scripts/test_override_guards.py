@@ -154,6 +154,28 @@ def main() -> int:
         errors.append("providers page must count flattened rule entries")
     if "ViewPayload" not in providers:
         errors.append("provider 查看 must open a numbered entry list")
+    if "ProviderViewKind.Config" not in providers:
+        errors.append("proxy 查看 must open the profile config file, not numbered leaf tags")
+    if '"${index + 1}  ${viewing.lines[index]}"' in providers:
+        errors.append("provider 查看 must keep gutter numbers out of the line text")
+    if "fun viewProxy(tag: String): ViewPayload" in providers:
+        errors.append("proxy 查看 must load pretty JSON asynchronously")
+    if "fetchSourceJson" in providers:
+        errors.append("rule 查看 must decompile .srs locally, not fetch 404 JSON siblings")
+    if "firstLoad" not in providers:
+        errors.append("providers reload must not blank the list on every refresh")
+    if "loading = true" in providers and "CircularProgressIndicator" not in providers:
+        errors.append("查看 must show a spinner while decoding")
+    ruleset = read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetProviders.kt")
+    if "SrsDecoder.listEntries" not in ruleset:
+        errors.append("listEntries must decompile .srs via SrsDecoder")
+    decoder = read("app/src/main/java/io/nekohasekai/sfa/utils/SrsDecoder.kt")
+    if "succinctKeys" not in decoder or "dumpMatcherKeys" not in decoder:
+        errors.append("SrsDecoder must dump domain / domain_suffix from the succinct matcher")
+    if "PREFIX" not in decoder or "countZeros" not in decoder:
+        errors.append("SrsDecoder must port the sing-box domain matcher walk")
+    if 'name="time_minutes_ago"' not in read("app/src/main/res/values-zh-rCN/strings.xml"):
+        errors.append("zh-rCN must translate relative minutes/hours/days")
     nav = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt")
     if "ProfilesScreen" not in nav or "ProfileRoutes.Profiles" not in nav:
         errors.append("配置 chip must navigate to the full profiles page")

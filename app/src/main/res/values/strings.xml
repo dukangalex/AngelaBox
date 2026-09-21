@@ -812,7 +812,7 @@
     <string name="rule_providers_entries">%d entries</string>
     <string name="rule_providers_binary">Binary rule-set</string>
     <string name="rule_providers_never">Not downloaded yet</string>
-    <string name="rule_providers_no_entries">No source entries. Sync to fetch the JSON list.</string>
+    <string name="rule_providers_no_entries">No entries yet. Sync to decode the rule-set.</string>
     <string name="profile_traffic_none">No traffic stats</string>
     <string name="profile_traffic_unlimited">Unlimited</string>
     <string name="profile_traffic_used">%1$s / %2$s</string>
