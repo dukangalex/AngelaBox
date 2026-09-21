@@ -10,12 +10,12 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 
 ## 图形客户端（要的是这个）
 
-从 GitHub Release **v1.0.67-beta** 下载：
+从 GitHub Release **v1.0.68-beta** 下载：
 
 | 文件 | 是什么 |
 |------|--------|
-| **`AngelaBox-v1.0.67-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe`，第一次点「安装」注册服务 |
-| `AngelaBox-windows-1.0.67-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
+| **`AngelaBox-v1.0.68-beta-windows-amd64.zip`** | 图形客户端便携包（推荐）。解压后运行 `AngelaBox.exe`，第一次点「安装」注册服务 |
+| `AngelaBox-windows-1.0.68-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
 | `AngelaBox-windows-amd64.zip`（无版本号、无 `v`） | **命令行**，解压只有 `sing-box.exe`，不是图形界面 |
 
 1. 先关掉并卸载 1.0.65 / 1.0.66。
@@ -120,4 +120,3 @@ Windows 图形端使用 `angelabox-daemon` 服务、独立数据目录和受保�
 ## 云备份
 
 Windows 与 Android 使用同一 WebDAV 地址、用户名、密码和远程文件名（默认 `backup.zip`）。备份格式是 `angelabox-cloud/1`，不是 Android 的 SQLite。请用当前 Android 重新备份一次，电脑端才能读。图形端路径：设置 → 云备份。
-

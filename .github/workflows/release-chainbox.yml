@@ -26,6 +26,11 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           set -euo pipefail
+          VERSION_NAME=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2- | tr -d '\r')
+          VERSION_CODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2- | tr -d '\r')
+          test -n "$VERSION_NAME"
+          echo "$VERSION_CODE" | grep -Eq '^[1-9][0-9]*$'
+          test "${{ inputs.version_tag }}" = "v$VERSION_NAME"
           COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"

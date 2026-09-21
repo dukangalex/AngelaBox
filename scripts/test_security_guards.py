@@ -154,11 +154,14 @@ def test_source_guards() -> None:
     assert "env -u GITHUB_TOKEN" in release
     assert "gomobile init" in release
     assert 'version || "$(go env GOPATH)/bin/gomobile" init' not in release
+    assert 'test "${{ inputs.version_tag }}" = "v$VERSION_NAME"' in release
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    assert "VERSION_NAME=1.0.67-beta" in props
-    assert "VERSION_CODE=10067" in props
+    version_name = next((line.removeprefix("VERSION_NAME=") for line in props.splitlines() if line.startswith("VERSION_NAME=")), "")
+    version_code = next((line.removeprefix("VERSION_CODE=") for line in props.splitlines() if line.startswith("VERSION_CODE=")), "")
+    assert version_name
+    assert version_code.isdecimal() and int(version_code) > 0
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
 
