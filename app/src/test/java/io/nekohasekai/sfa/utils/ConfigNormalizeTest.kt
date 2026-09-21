@@ -124,6 +124,29 @@ class ConfigNormalizeTest {
     }
 
     @Test
+    fun ensureClashModesPrefersSelectorOverCatchAllFinal() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443},
+                {"type": "urltest", "tag": "🛡️ 故障转移", "outbounds": ["n1"]},
+                {"type": "selector", "tag": "🔰 节点选择", "outbounds": ["n1"]},
+                {"type": "selector", "tag": "🐟 漏网之鱼", "outbounds": ["🔰 节点选择", "n1"]},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "🐟 漏网之鱼", "rules": []}
+            }
+            """.trimIndent(),
+        )
+        assertTrue(ConfigNormalize.ensureClashModes(root))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val global = (0 until rules.length()).map { rules.getJSONObject(it) }
+            .first { it.optString("clash_mode") == "Global" }
+        assertEquals("🔰 节点选择", global.getString("outbound"))
+    }
+
+    @Test
     fun applyDoesNotInjectClashModes() {
         val root = JSONObject(
             """

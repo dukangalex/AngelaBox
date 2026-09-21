@@ -199,20 +199,31 @@ object ConfigNormalize {
     }
 
     private fun findGlobalTag(root: JSONObject, outs: JSONArray, directTag: String): String {
+        fun firstOfType(types: List<String>, skip: (String) -> Boolean = { false }): String? {
+            for (wanted in types) {
+                for (i in 0 until outs.length()) {
+                    val item = outs.optJSONObject(i) ?: continue
+                    if (!item.optString("type").equals(wanted, true)) continue
+                    val tag = item.optString("tag").trim()
+                    if (tag.isNotEmpty() && !skip(tag)) return tag
+                }
+            }
+            return null
+        }
+        val catchAll: (String) -> Boolean = { tag ->
+            tag.contains("漏网") || tag.equals("final", true) || tag.equals("match", true)
+        }
+        firstOfType(listOf("selector"), catchAll)?.let { return it }
+        firstOfType(listOf("selector"))?.let { return it }
+        firstOfType(listOf("urltest", "url-test"), catchAll)?.let { return it }
         val finalTag = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
         if (finalTag.isNotEmpty() && !finalTag.equals(directTag, true) &&
-            !finalTag.equals("block", true) && !finalTag.equals("REJECT", true)
+            !finalTag.equals("block", true) && !finalTag.equals("REJECT", true) &&
+            !catchAll(finalTag)
         ) {
             return finalTag
         }
-        for (wanted in listOf("selector", "urltest", "url-test")) {
-            for (i in 0 until outs.length()) {
-                val item = outs.optJSONObject(i) ?: continue
-                if (!item.optString("type").equals(wanted, true)) continue
-                val tag = item.optString("tag").trim()
-                if (tag.isNotEmpty()) return tag
-            }
-        }
+        firstOfType(listOf("urltest", "url-test"))?.let { return it }
         for (i in 0 until outs.length()) {
             val item = outs.optJSONObject(i) ?: continue
             val tag = item.optString("tag").trim()

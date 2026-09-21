@@ -1,5 +1,5 @@
 • **发行完整性：** 发版工作流现在拒绝 `version_tag` 与 `version.properties` 的 `VERSION_NAME` 不一致的请求，防止 Release tag、安装包版本和更新提示脱节。本包版本为 **1.0.68-beta**。
-• **1.0.68：** 配置规范化在规则集 404 后会重启命令通道再试，不再弹出原始 EOF；失败时保留脚本绑定，只有脚本自己写出内核读不了的字段才回滚。仪表 Rule 芯片补上全局 / 直连。默认脚本 overlay-revision 14 增加 ⚖️ 负载均衡、🛡️ 故障转移（urltest 近似）。配置页三个点可打开「提供者」管理规则集（查看 / 同步 / 上传）。Windows 启动画面移出 React 根节点，空屏时仍能看到 AngelaBox。
+• **1.0.68：** 配置规范化在规则集 404 后会重启命令通道再试，不再弹出原始 EOF；失败时保留脚本绑定，只有脚本自己写出内核读不了的字段才回滚。仪表补上规则 / 全局 / 直连（自定义脚本如 MY脚本覆写也会注入）。默认脚本 overlay-revision 14 增加 ⚖️ 负载均衡、🛡️ 故障转移（urltest 近似）。配置页三个点可打开「提供者」管理规则集（查看 / 同步 / 上传）。Windows 启动画面在握手完成前一直留在窗口上，不再被 React 提前藏掉变成空屏。
 • **Windows 图形客户端：** 推荐 `AngelaBox-v1.0.68-beta-windows-amd64.zip`。先卸载 1.0.66 / 1.0.67，不要 zip 和 NSIS 混用。解压到本地 NTFS 磁盘后运行 `AngelaBox.exe`，第一次点「安装」并允许管理员权限。官方 SFW 是安装器提权后装到 Program Files；便携 zip 会在同一提权里给守护进程加 `--allow-unsafe-installation-directory-permissions`，并先解除下载标记。安装器 `AngelaBox-windows-*.exe` 仍是自签，若 Chrome 拦截请 Ctrl+J → 保留危险文件 → 仍然保留。不要把无版本号的 `AngelaBox-windows-amd64.zip` 当成图形界面，那个是命令行。
 • 服务未安装时不再空等连接；连接页显示 AngelaBox 与「连接中」。点安装失败会显示中文原因，不再弹出整段 PowerShell。
 • 检查更新只看本仓库 AngelaBox 发行，不再误报官方 sing-box 1.15。托盘、窗口、服务提示一律显示 AngelaBox。

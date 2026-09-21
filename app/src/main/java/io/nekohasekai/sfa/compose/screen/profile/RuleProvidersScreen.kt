@@ -235,7 +235,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         return RuleSetProviders.pretty(row.item.raw)
     }
 
-    private fun syncOne(tag: String) {
+    private suspend fun syncOne(tag: String) {
         val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
         val content = File(loaded.typed.path).readText()
         val root = JSONObject(content)

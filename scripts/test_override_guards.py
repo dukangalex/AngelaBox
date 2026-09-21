@@ -143,6 +143,9 @@ def main() -> int:
         errors.append("profile picker overflow must include 提供者")
     if "RuleProvidersScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):
         errors.append("providers screen must be on the navigation graph")
+    providers = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/RuleProvidersScreen.kt")
+    if "suspend fun syncOne" not in providers:
+        errors.append("rule provider sync must call ProfileManager.get from a coroutine")
     if "fun ensureClashModes" not in normalize:
         errors.append("ConfigNormalize.ensureClashModes must inject Global/Direct without rewriting user routing")
     if "ConfigNormalize.ensureClashModes" not in override:
