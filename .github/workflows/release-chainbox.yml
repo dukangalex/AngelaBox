@@ -233,11 +233,7 @@ jobs:
           {
             cat docs/RELEASE_NOTES.md
             echo
-            echo "Android: \`AngelaBox-android.apk\` (arm64)."
-            echo
-            echo "Windows GUI (recommended): \`AngelaBox-${{ inputs.version_tag }}-windows-amd64.zip\` — unzip and run AngelaBox.exe. Self-signed; if Chrome blocks the .exe installer, Ctrl+J then keep the file."
-            echo
-            echo "Windows CLI (not the GUI): \`AngelaBox-windows-amd64.zip\` (also arm64 / 386)."
+            echo "本版只发 Android：\`AngelaBox-android.apk\`（arm64）。Windows 图形端与命令行包均已暂停。"
             echo
             echo "Verify:"
             echo
@@ -253,8 +249,6 @@ jobs:
             echo "- Official baseline: SagerNet/sing-box \`v${UPSTREAM}\`"
             echo "- Official type-constant check: \`pass\`"
             echo "- Go: $GOV"
-            echo "- Windows GUI zip: \`AngelaBox-${{ inputs.version_tag }}-windows-amd64.zip\`"
-            echo "- Windows CLI: \`AngelaBox-windows-amd64.zip\` / \`arm64\` / \`386\`"
           } > github-release-body.md
 
       - name: Publish release
@@ -295,92 +289,3 @@ jobs:
           export SHA256
           python3 scripts/telegram_announce.py
           python3 scripts/telegram_send.py
-
-  windows-cli:
-    name: Build Windows CLI
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - name: Checkout AngelaBox app
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          path: sing-box-for-android
-
-      - name: Read kernel pin
-        id: pin
-        working-directory: sing-box-for-android
-        run: |
-          set -euo pipefail
-          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
-          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout Chain kernel at audited commit
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: dukangalex/sing-box
-          ref: ${{ steps.pin.outputs.commit }}
-          path: sing-box
-          fetch-depth: 1
-
-      - name: Stamp kernel version tag
-        working-directory: sing-box
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
-          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
-          echo "$KTAG" | grep -Eq '^v[0-9]'
-          git tag -f "$KTAG" HEAD
-          test "$(git describe --tags --abbrev=0)" = "$KTAG"
-
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version: "1.25.5"
-
-      - name: Cross-compile Windows CLI
-        working-directory: sing-box
-        run: |
-          set -euo pipefail
-          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
-          export KERNEL_TAG="$KTAG"
-          export README_WINDOWS="$PWD/../sing-box-for-android/docs/WINDOWS.md"
-          export DIST="$PWD/dist/windows"
-          bash ../sing-box-for-android/scripts/build_windows_cli.sh
-          test -s dist/windows/AngelaBox-windows-amd64.zip
-          test -s dist/windows/AngelaBox-windows-arm64.zip
-          test -s dist/windows/AngelaBox-windows-386.zip
-          grep -q 'AngelaBox-windows-amd64.zip' dist/windows/AngelaBox-windows-amd64.zip.sha256
-          test ! -e dist/windows/SFW-*.exe
-          test ! -e dist/windows/ChainBox-windows-amd64.zip
-
-      - name: Upload Windows CLI
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: windows-cli
-          path: sing-box/dist/windows/*
-          if-no-files-found: error
-
-  attach-windows:
-    name: Attach Windows CLI to Release
-    needs:
-      - release
-      - windows-cli
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Download Windows CLI
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: windows-cli
-          path: windows-cli
-
-      - name: Upload to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.version_tag }}
-        run: |
-          set -euo pipefail
-          ls -lah windows-cli
-          test -s windows-cli/AngelaBox-windows-amd64.zip
-          gh release upload "$TAG" windows-cli/AngelaBox-windows-*.zip windows-cli/AngelaBox-windows-*.zip.sha256 --repo "${GITHUB_REPOSITORY}" --clobber

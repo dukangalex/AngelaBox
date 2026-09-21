@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.utils
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import java.util.zip.Inflater
 
@@ -9,23 +10,26 @@ import java.util.zip.Inflater
  * Local decompiler for sing-box binary rule-sets (`.srs`).
  *
  * Kernel has no DecompileRuleSet JNI. SagerNet geosite JSON siblings 404, so the
- * provider viewer reads the same `rule-sets/$tag.srs` the kernel already downloaded
- * and dumps domain / domain_suffix the way Clash Verge lists them (`+.suffix`).
+ * provider viewer reads the same `rule-sets/$tag.srs` the kernel already downloaded.
+ * Domain matchers dump as Clash-style hosts / `+.suffix`; IP sets dump as CIDRs.
  */
 object SrsDecoder {
     private const val PREFIX = '\u000d'
     private const val ROOT = '\u000a'
-    private const val MAX_ENTRIES = 20_000
+    private const val MAX_ENTRIES = 50_000
     private const val MAX_INFLATED = 8_000_000
     private const val MAX_WALK = 5_000_000
 
     fun listEntries(file: File): List<String> {
         if (!file.isFile || file.length() < 5L) return emptyList()
-        return try {
+        RuleSetEntryCache.get(file)?.let { return it }
+        val lines = try {
             decode(file.readBytes())
         } catch (_: Exception) {
             emptyList()
         }
+        if (lines.isNotEmpty()) RuleSetEntryCache.put(file, lines)
+        return lines
     }
 
     internal fun decode(bytes: ByteArray): List<String> {
@@ -106,11 +110,11 @@ object SrsDecoder {
                         else -> ""
                     }
                     for (s in reader.strings()) {
-                        if (out.size >= MAX_ENTRIES) return
+                        if (out.size >= MAX_ENTRIES) continue
                         out += prefix + s
                     }
                 }
-                5, 6 -> skipIpSet(reader)
+                5, 6 -> dumpIpSet(reader, out)
                 0 -> {
                     val n = reader.uvarint()
                     reader.skip((n * 2L).toInt())
@@ -126,7 +130,6 @@ object SrsDecoder {
                 19, 20 -> Unit
                 else -> error("unhandled rule item $type")
             }
-            if (out.size >= MAX_ENTRIES) return
         }
     }
 
@@ -253,17 +256,110 @@ object SrsDecoder {
         return bm.size * 64
     }
 
-    private fun skipIpSet(reader: Cursor) {
+    private fun dumpIpSet(reader: Cursor, out: MutableList<String>) {
         reader.u8()
         val length = reader.u64()
         var i = 0L
         while (i < length) {
-            repeat(2) {
-                val addrLen = reader.uvarint()
-                reader.skip(addrLen.toInt())
+            val from = reader.ipAddr()
+            val to = reader.ipAddr()
+            if (out.size < MAX_ENTRIES && from.size == to.size) {
+                if (from.size == 4) {
+                    rangeToCidrs4(ipv4(from), ipv4(to), out)
+                } else if (from.size == 16) {
+                    rangeToCidrs6(from, to, out)
+                }
             }
             i++
         }
+    }
+
+    internal fun rangeToCidrs4(startIn: Long, endIn: Long, out: MutableList<String>) {
+        var start = startIn and 0xFFFFFFFFL
+        val end = endIn and 0xFFFFFFFFL
+        if (start > end) return
+        while (start <= end && out.size < MAX_ENTRIES) {
+            val tz = if (start == 0L) 32 else java.lang.Long.numberOfTrailingZeros(start).coerceAtMost(32)
+            val remaining = end - start + 1L
+            val maxBits = 63 - java.lang.Long.numberOfLeadingZeros(remaining)
+            val hostBits = minOf(tz, maxBits)
+            out += formatIpv4(start) + "/" + (32 - hostBits)
+            val size = 1L shl hostBits
+            val next = start + size
+            if (java.lang.Long.compareUnsigned(next, start) <= 0) break
+            start = next
+        }
+    }
+
+    internal fun rangeToCidrs6(from: ByteArray, to: ByteArray, out: MutableList<String>) {
+        var start = BigInteger(1, from)
+        val end = BigInteger(1, to)
+        if (start > end) return
+        val one = BigInteger.ONE
+        while (start <= end && out.size < MAX_ENTRIES) {
+            val tz = if (start.signum() == 0) 128 else start.lowestSetBit
+            val remaining = end.subtract(start).add(one)
+            val maxBits = remaining.bitLength() - 1
+            val hostBits = minOf(tz, maxBits).coerceAtLeast(0)
+            out += formatIpv6(toBytes16(start)) + "/" + (128 - hostBits)
+            start = start.add(one.shiftLeft(hostBits))
+        }
+    }
+
+    private fun ipv4(addr: ByteArray): Long {
+        return ((addr[0].toLong() and 0xFF) shl 24) or
+            ((addr[1].toLong() and 0xFF) shl 16) or
+            ((addr[2].toLong() and 0xFF) shl 8) or
+            (addr[3].toLong() and 0xFF)
+    }
+
+    private fun formatIpv4(value: Long): String {
+        val u = value and 0xFFFFFFFFL
+        return "${(u ushr 24).toInt()}.${((u ushr 16) and 0xFF).toInt()}.${((u ushr 8) and 0xFF).toInt()}.${(u and 0xFF).toInt()}"
+    }
+
+    private fun toBytes16(value: BigInteger): ByteArray {
+        val raw = value.toByteArray()
+        val out = ByteArray(16)
+        val srcPos = maxOf(0, raw.size - 16)
+        val destPos = 16 - (raw.size - srcPos)
+        System.arraycopy(raw, srcPos, out, destPos, raw.size - srcPos)
+        return out
+    }
+
+    internal fun formatIpv6(addr: ByteArray): String {
+        val words = IntArray(8) { i ->
+            ((addr[i * 2].toInt() and 0xFF) shl 8) or (addr[i * 2 + 1].toInt() and 0xFF)
+        }
+        var bestStart = -1
+        var bestLen = 0
+        var runStart = -1
+        for (i in 0..8) {
+            if (i < 8 && words[i] == 0) {
+                if (runStart < 0) runStart = i
+            } else {
+                val runLen = if (runStart >= 0) i - runStart else 0
+                if (runLen > bestLen) {
+                    bestStart = runStart
+                    bestLen = runLen
+                }
+                runStart = -1
+            }
+        }
+        if (bestLen < 2) bestStart = -1
+        val sb = StringBuilder()
+        var i = 0
+        while (i < 8) {
+            if (bestStart >= 0 && i == bestStart) {
+                sb.append("::")
+                i += bestLen
+                continue
+            }
+            if (sb.isNotEmpty() && sb.last() != ':') sb.append(':')
+            sb.append(Integer.toHexString(words[i]))
+            i++
+        }
+        return sb.toString().ifEmpty { "::" }
     }
 
     private class Cursor(private val buf: ByteArray) {
@@ -277,6 +373,19 @@ object SrsDecoder {
         fun skip(n: Int) {
             if (n < 0 || i + n > buf.size) error("srs eof")
             i += n
+        }
+
+        fun take(n: Int): ByteArray {
+            if (n < 0 || i + n > buf.size) error("srs eof")
+            val out = buf.copyOfRange(i, i + n)
+            i += n
+            return out
+        }
+
+        fun ipAddr(): ByteArray {
+            val n = uvarint().toInt()
+            if (n != 4 && n != 16) error("bad ip len")
+            return take(n)
         }
 
         fun uvarint(): Long {
@@ -325,5 +434,25 @@ object SrsDecoder {
             }
             return out
         }
+    }
+}
+
+internal object RuleSetEntryCache {
+    private data class Key(val path: String, val mtime: Long, val size: Long)
+
+    private val map = object : LinkedHashMap<Key, List<String>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, List<String>>?): Boolean = size > 24
+    }
+
+    @Synchronized
+    fun get(file: File): List<String>? {
+        if (!file.isFile) return null
+        return map[Key(file.absolutePath, file.lastModified(), file.length())]
+    }
+
+    @Synchronized
+    fun put(file: File, lines: List<String>) {
+        if (!file.isFile) return
+        map[Key(file.absolutePath, file.lastModified(), file.length())] = lines
     }
 }

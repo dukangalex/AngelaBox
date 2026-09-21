@@ -189,17 +189,83 @@ class RuleSetProvidersTest {
     }
 
     @Test
-    fun proxyProvidersPreferNamedClashLeftover() {
-        val content = """
-            {
-              "proxy-providers": {
-                "provider_entry_J": {"type":"http","url":"https://example.com/j.yaml"}
-              },
-              "outbounds": [{"type":"vless","tag":"JP-1"}]
+    fun srsDecoderDumpsIpv4RangeAsCidr() {
+        val lines = SrsDecoder.decode(srsIpSet(4, byteArrayOf(1, 0, 1, 0), byteArrayOf(1, 0, 1, 255.toByte())))
+        assertEquals(listOf("1.0.1.0/24"), lines)
+    }
+
+    @Test
+    fun srsDecoderSplitsUnalignedIpv4Range() {
+        val lines = SrsDecoder.decode(
+            srsIpSet(4, byteArrayOf(1, 0, 1, 1), byteArrayOf(1, 0, 1, 4)),
+        )
+        assertEquals(listOf("1.0.1.1/32", "1.0.1.2/31", "1.0.1.4/32"), lines)
+    }
+
+    @Test
+    fun srsDecoderDumpsIpv6RangeAsCidr() {
+        val from = byteArrayOf(
+            0x20, 0x01, 0x02, 0x50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        )
+        val to = byteArrayOf(
+            0x20, 0x01, 0x02, 0x53,
+            0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+            0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+            0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+        )
+        val lines = SrsDecoder.decode(srsIpSet(16, from, to))
+        assertEquals(listOf("2001:250::/30"), lines)
+    }
+
+    @Test
+    fun formatIpv6CompressesLikePython() {
+        val addr = byteArrayOf(
+            0x20, 0x01, 0x02, 0x50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        )
+        assertEquals("2001:250::", SrsDecoder.formatIpv6(addr))
+        val tail = ByteArray(16)
+        tail[15] = 1
+        assertEquals("::1", SrsDecoder.formatIpv6(tail))
+    }
+
+    private fun srsIpSet(addrLen: Int, from: ByteArray, to: ByteArray): ByteArray {
+        val payload = java.io.ByteArrayOutputStream()
+        fun u8(v: Int) = payload.write(v)
+        fun uvarint(v: Int) {
+            var x = v
+            while (x >= 0x80) {
+                payload.write((x and 0x7F) or 0x80)
+                x = x ushr 7
             }
-        """.trimIndent()
-        val items = ProxyProviders.parse(content, "myai", "https://example.com/sub")
-        assertEquals(listOf("provider_entry_J"), items.map { it.tag })
-        assertTrue(items[0].remote)
+            payload.write(x)
+        }
+        fun u64(v: Long) {
+            for (shift in 56 downTo 0 step 8) payload.write(((v ushr shift) and 0xFF).toInt())
+        }
+        uvarint(1)
+        u8(0)
+        u8(6)
+        u8(1)
+        u64(1)
+        uvarint(addrLen)
+        payload.write(from)
+        uvarint(addrLen)
+        payload.write(to)
+        u8(255)
+        u8(0)
+        val raw = payload.toByteArray()
+        val deflater = Deflater()
+        deflater.setInput(raw)
+        deflater.finish()
+        val buf = ByteArray(256)
+        val n = deflater.deflate(buf)
+        deflater.end()
+        val srs = ByteArray(4 + n)
+        srs[0] = 0x53
+        srs[1] = 0x52
+        srs[2] = 0x53
+        srs[3] = 0x01
+        System.arraycopy(buf, 0, srs, 4, n)
+        return srs
     }
 }

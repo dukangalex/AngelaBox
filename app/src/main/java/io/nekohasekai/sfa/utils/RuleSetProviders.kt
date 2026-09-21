@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.utils
 
+import android.content.Context
+import io.nekohasekai.sfa.Application
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -97,8 +99,21 @@ object RuleSetProviders {
     }
 
     fun sourceRuleCount(file: File): Int? {
+        RuleSetEntryCache.get(file)?.size?.takeIf { it > 0 }?.let { return it }
         val n = listEntriesFromFile(file).size
         return n.takeIf { it > 0 }
+    }
+
+    fun entryCount(file: File?, inline: JSONObject? = null): Int? {
+        if (file != null) {
+            RuleSetEntryCache.get(file)?.size?.takeIf { it > 0 }?.let { return it }
+            RuleSetMetaStore.get(file)?.let { return it }
+        }
+        val lines = listEntries(file, inline)
+        if (file != null && lines.isNotEmpty()) {
+            RuleSetMetaStore.put(file, lines.size)
+        }
+        return lines.size.takeIf { it > 0 }
     }
 
     fun pretty(item: JSONObject): String = item.toString(2)
@@ -271,4 +286,32 @@ object ProxyProviders {
             null
         }
     }
+}
+
+internal object RuleSetMetaStore {
+    private const val PREFS = "rule_set_counts"
+
+    fun get(file: File): Int? {
+        if (!file.isFile) return null
+        val prefs = prefs() ?: return null
+        val saved = prefs.getString(key(file), null) ?: return null
+        val sep = saved.indexOf('|')
+        if (sep <= 0) return null
+        if (saved.substring(0, sep) != stamp(file)) return null
+        return saved.substring(sep + 1).toIntOrNull()?.takeIf { it > 0 }
+    }
+
+    fun put(file: File, count: Int) {
+        if (!file.isFile || count <= 0) return
+        val prefs = prefs() ?: return
+        prefs.edit().putString(key(file), "${stamp(file)}|$count").apply()
+    }
+
+    private fun prefs() = runCatching {
+        Application.application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    }.getOrNull()
+
+    private fun key(file: File) = file.absolutePath
+
+    private fun stamp(file: File) = "${file.lastModified()}:${file.length()}"
 }

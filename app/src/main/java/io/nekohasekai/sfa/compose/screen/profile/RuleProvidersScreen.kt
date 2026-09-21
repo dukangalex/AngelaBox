@@ -46,7 +46,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -134,28 +133,65 @@ data class RuleProvidersUiState(
     val error: String? = null,
 )
 
+internal object RuleProviderPageCache {
+    data class Snap(val fingerprint: Long, val state: RuleProvidersUiState)
+
+    private val map = HashMap<Long, Snap>()
+
+    fun last(profileId: Long): RuleProvidersUiState? = map[profileId]?.state
+
+    fun get(profileId: Long, fingerprint: Long): RuleProvidersUiState? =
+        map[profileId]?.takeIf { it.fingerprint == fingerprint }?.state
+
+    fun put(profileId: Long, fingerprint: Long, state: RuleProvidersUiState) {
+        map[profileId] = Snap(fingerprint, state.copy(loading = false, error = null))
+    }
+
+    fun fingerprint(profileFile: File, working: File): Long {
+        var h = profileFile.lastModified() xor profileFile.length()
+        val dir = File(working, "rule-sets")
+        val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        for (file in files) {
+            h = h * 31 + file.lastModified() + file.length()
+        }
+        return h
+    }
+}
+
 class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
     private val _ui = MutableStateFlow(RuleProvidersUiState())
     val ui: StateFlow<RuleProvidersUiState> = _ui.asStateFlow()
     private var profile: Profile? = null
 
     init {
-        reload()
+        RuleProviderPageCache.last(profileId)?.let { _ui.value = it }
+        reload(preferCache = true)
     }
 
-    fun reload() {
+    fun reload() = reload(preferCache = false)
+
+    private fun reload(preferCache: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            val firstLoad = _ui.value.rows.isEmpty() && _ui.value.proxies.isEmpty()
-            if (firstLoad) {
-                _ui.value = _ui.value.copy(loading = true, error = null)
-            }
             val loaded = ProfileManager.get(profileId)
             if (loaded == null) {
                 _ui.value = RuleProvidersUiState(loading = false, error = "配置不存在")
                 return@launch
             }
             profile = loaded
-            val content = runCatching { File(loaded.typed.path).readText() }.getOrElse {
+            val profileFile = File(loaded.typed.path)
+            val working = workingDir()
+            val fingerprint = RuleProviderPageCache.fingerprint(profileFile, working)
+            if (preferCache) {
+                RuleProviderPageCache.get(profileId, fingerprint)?.let { cached ->
+                    _ui.value = cached
+                    return@launch
+                }
+            }
+            val firstLoad = _ui.value.rows.isEmpty() && _ui.value.proxies.isEmpty()
+            if (firstLoad) {
+                _ui.value = _ui.value.copy(loading = true, error = null)
+            }
+            val content = runCatching { profileFile.readText() }.getOrElse {
                 _ui.value = RuleProvidersUiState(
                     profileName = loaded.name,
                     loading = false,
@@ -163,17 +199,13 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                 )
                 return@launch
             }
-            val working = workingDir()
             val info = SubscriptionInfoStore.get(Application.application, loaded.id)
             val rows = RuleSetProviders.parse(content).map { item ->
                 val file = resolveRuleFile(working, item)
-                val entries = RuleSetProviders.listEntries(file, item.raw)
-                val count = entries.size.takeIf { it > 0 }
-                    ?: file?.let { RuleSetProviders.sourceRuleCount(it) }
                 RuleProviderRow(
                     item = item,
                     updatedAt = file?.lastModified()?.takeIf { it > 0L },
-                    entries = count,
+                    entries = RuleSetProviders.entryCount(file, item.raw),
                 )
             }
             val proxies = ProxyProviders.parse(
@@ -187,12 +219,14 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                     info = info,
                 )
             }
-            _ui.value = RuleProvidersUiState(
+            val state = RuleProvidersUiState(
                 profileName = loaded.name,
                 rows = rows,
                 proxies = proxies,
                 loading = false,
             )
+            RuleProviderPageCache.put(profileId, fingerprint, state)
+            _ui.value = state
         }
     }
 
@@ -450,8 +484,6 @@ fun RuleProvidersScreen(
             }
         }
     }
-
-    LaunchedEffect(profileId) { viewModel.reload() }
 
     val viewing = viewPayload
     if (viewing != null) {

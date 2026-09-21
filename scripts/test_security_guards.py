@@ -145,9 +145,9 @@ def test_source_guards() -> None:
     release = read(".github/workflows/release-chainbox.yml")
     assert "AngelaBox-android.apk" in release
     assert "ChainBox-android.apk" not in release
-    assert "windows-cli" in release
-    assert "AngelaBox-windows-amd64.zip" in release
-    assert "build_windows_cli.sh" in release
+    assert "windows-cli" not in release
+    assert "name: Build Windows CLI" not in release
+    assert "AngelaBox-windows-amd64.zip" not in release
     assert RELEASE_CERT in release
     assert "steps.pin.outputs.commit" in release
     assert "build_libbox -target android -platform android/arm64 -debug" not in release
@@ -162,8 +162,8 @@ def test_source_guards() -> None:
     version_code = next((line.removeprefix("VERSION_CODE=") for line in props.splitlines() if line.startswith("VERSION_CODE=")), "")
     assert version_name
     assert version_code.isdecimal() and int(version_code) > 0
-    assert version_name == "1.0.70-beta"
-    assert version_code == "10070"
+    assert version_name == "1.0.71-beta"
+    assert version_code == "10071"
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
 

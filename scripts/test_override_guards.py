@@ -174,6 +174,14 @@ def main() -> int:
         errors.append("SrsDecoder must dump domain / domain_suffix from the succinct matcher")
     if "PREFIX" not in decoder or "countZeros" not in decoder:
         errors.append("SrsDecoder must port the sing-box domain matcher walk")
+    if "dumpIpSet" not in decoder or "rangeToCidrs4" not in decoder:
+        errors.append("SrsDecoder must dump geoip CIDRs, not skip IP sets")
+    if "RuleProviderPageCache" not in providers:
+        errors.append("providers page must cache the first load so re-entry is instant")
+    if "LaunchedEffect(profileId) { viewModel.reload() }" in providers:
+        errors.append("providers page must not re-decode every time it is opened")
+    if "preferCache" not in providers:
+        errors.append("providers reload must reuse the cached snapshot")
     if 'name="time_minutes_ago"' not in read("app/src/main/res/values-zh-rCN/strings.xml"):
         errors.append("zh-rCN must translate relative minutes/hours/days")
     nav = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt")
@@ -667,10 +675,10 @@ def main() -> int:
         errors.append("release must publish AngelaBox-android.apk")
     if "ChainBox-android.apk" in workflow:
         errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
-    if "windows-cli" not in workflow:
-        errors.append("release must build Windows CLI from the same KERNEL_COMMIT")
-    if "AngelaBox-windows-amd64.zip" not in workflow:
-        errors.append("release must attach Windows CLI ZIP assets")
+    if "name: Build Windows CLI" in workflow or "Attach Windows CLI" in workflow:
+        errors.append("Android release must not build or attach Windows while Windows is paused")
+    if "windows-cli" in workflow:
+        errors.append("Android release must not include the windows-cli job")
     if "io.nekohasekai.sfw" in workflow:
         errors.append("release must not use official SFW appId")
     if "KERNEL_COMMIT" not in workflow:
