@@ -231,6 +231,18 @@ jobs:
           pnpm generate
           pnpm exec tsc -b tsconfig.node.json --pretty false
 
+      # A successful Electron-main typecheck does not prove that the renderer
+      # was built.  Packaging an absent/stale dashboard produces a perfectly
+      # installable application with an empty window, so compile the renderer
+      # explicitly and require its entry document before making the installer.
+      - name: Build and verify dashboard renderer
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir dashboard build
+          test -s dashboard/dist/index.html
+
       - name: Build installer
         working-directory: desktop
         env:
@@ -259,6 +271,10 @@ jobs:
           if ($main.Count -ne 1) { throw "portable tree must contain exactly one AngelaBox.exe; found $($main.Count)" }
           $daemon = @(Get-ChildItem -Path $unpacked -Filter 'sing-box-daemon.exe' -File -Recurse)
           if ($daemon.Count -ne 1) { throw "portable tree must contain exactly one sing-box-daemon.exe; found $($daemon.Count)" }
+          $dashboard = @(Get-ChildItem -Path $unpacked -Filter 'index.html' -File -Recurse | Where-Object {
+            $_.FullName -match '[\\/]dashboard[\\/]'
+          })
+          if ($dashboard.Count -lt 1) { throw 'portable tree is missing the dashboard renderer index.html (would open an empty window)' }
           $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
           if ([string]::IsNullOrWhiteSpace($ver)) { throw 'version.json missing version' }
           $zipName = "AngelaBox-v$ver-windows-amd64.zip"

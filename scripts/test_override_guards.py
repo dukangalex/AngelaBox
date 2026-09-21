@@ -29,6 +29,8 @@ def main() -> int:
         errors.append("healDownloadClients must not create a standing 已修正 banner on valid configs")
     if 'mark(ConfigInboundCompat.ensureHijackDns' in normalize:
         errors.append("ensureHijackDns must not create a standing 已修正 banner on valid configs")
+    if "sanitizeClashDownloadUrls" not in normalize or "bindLoopbackOnly" not in normalize:
+        errors.append("ConfigNormalize must include provider URL and management-listener compatibility fixes")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
     if "Settings.configNormalize" not in override:
@@ -1043,7 +1045,7 @@ def main() -> int:
         errors.append("default script must emit official http_clients for rule-set download")
     if "default_http_client" not in sample:
         errors.append("default script must set route.default_http_client")
-    if "interrupt_exist_connections: !!interrupt" not in sample and "interrupt_exist_connections: true" not in sample:
+    if "interrupt_exist_connections: true" not in sample:
         errors.append("自动选择 urltest must interrupt connections so unhealthy nodes actually switch")
     inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
     if "healDownloadClients" not in inbound or "healMissingOutboundRefs" not in inbound:

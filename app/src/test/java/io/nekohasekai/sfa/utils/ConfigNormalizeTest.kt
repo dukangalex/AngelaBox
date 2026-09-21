@@ -128,6 +128,30 @@ class ConfigNormalizeTest {
     }
 
     @Test
+    fun applyNormalizesProviderDownloadsAndBindsManagementToLoopback() {
+        val root = JSONObject(
+            """
+            {
+              "experimental": {
+                "clash_api": {
+                  "external_controller": "0.0.0.0:9090",
+                  "external_ui_download_url": "http://example.com/dashboard.zip"
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val notes = ConfigNormalize.apply(root)
+
+        assertTrue(notes.any { it.contains("规则提供者") })
+        assertTrue(notes.any { it.contains("本机访问") })
+        val clash = root.getJSONObject("experimental").getJSONObject("clash_api")
+        assertEquals("127.0.0.1:9090", clash.getString("external_controller"))
+        assertFalse(clash.has("external_ui_download_url"))
+    }
+
+    @Test
     fun healStringIsSafeOnGarbage() {
         assertEquals("not-json", ConfigNormalize.healString("not-json"))
         assertEquals("", ConfigNormalize.healString(""))

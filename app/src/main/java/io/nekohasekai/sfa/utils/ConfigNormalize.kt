@@ -128,12 +128,21 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
         mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
+        // Clash subscriptions can carry their rule providers in proxy-provider
+        // download fields.  Keep this in the normalizer as well as the runtime
+        // compatibility pass: a normalized config must be startable even when
+        // the later overlay is disabled or a startup retry skips scripts.
+        mark(ConfigInboundCompat.sanitizeClashDownloadUrls(root), "规则提供者地址已换成 HTTPS 镜像")
         // 1.14 download client + hijack-dns are always-safe plumbing. Do not
         // emit notes: most valid subscriptions lack these fields, and a
         // standing「已修正」banner would be a lie when nothing was wrong.
         ConfigInboundCompat.healDownloadClients(root)
         mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
         ConfigInboundCompat.ensureHijackDns(root)
+        // Never leave externally reachable management listeners behind after
+        // normalization.  This was previously only done by ConfigCompat's
+        // alternate path, making the switch behave differently when enabled.
+        mark(ConfigInboundCompat.bindLoopbackOnly(root), "管理入站已限制为本机访问")
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
         return notes
     }

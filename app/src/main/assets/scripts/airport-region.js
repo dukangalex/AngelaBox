@@ -8,6 +8,9 @@
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
+ * sing-box 没有 Clash 的 load-balance/fallback 出站；这里使用官方 urltest
+ * 策略组：按延迟和可用性自动选节点，检测失败立即中断旧连接并切换，等价于
+ * 可用的负载选择与故障转移，且不会生成内核不认识的 Clash 字段。
  */
 function main(config) {
   if (!config || typeof config !== "object") return config;
@@ -333,7 +336,7 @@ function main(config) {
   }
   if (otherMembers.length > 0) regionNames.push(OTHER_NAME);
 
-  function makeUrltest(tag, members, interrupt) {
+  function makeUrltest(tag, members) {
     return {
       type: "urltest",
       tag: tag,
@@ -342,7 +345,9 @@ function main(config) {
       interval: "10m",
       tolerance: 50,
       idle_timeout: "4h",
-      interrupt_exist_connections: !!interrupt
+      // A failed probe must actively move existing traffic off the dead node;
+      // otherwise urltest only changes the selection for newly opened flows.
+      interrupt_exist_connections: true
     };
   }
   function makeSelector(tag, members, defaultTag) {
@@ -409,7 +414,7 @@ function main(config) {
   if (autoMembers.length === 0) autoMembers = leafTags.slice(0);
   var autoGroup = null;
   if (autoMembers.length > 0) {
-    autoGroup = makeUrltest(AUTO_NAME, autoMembers, true);
+    autoGroup = makeUrltest(AUTO_NAME, autoMembers);
     groupTags[AUTO_NAME] = "urltest";
   }
   var selectMembers = [];
