@@ -18,8 +18,8 @@ AngelaBox 的 Windows 包与 Android 安装包使用同一份 `chain-dev` 内核
 | `AngelaBox-windows-1.0.68-beta-x64.exe` | NSIS 安装器。自签，Chrome 可能拦截 |
 | `AngelaBox-windows-amd64.zip`（无版本号、无 `v`） | **命令行**，解压只有 `sing-box.exe`，不是图形界面 |
 
-1. 先关掉并卸载 1.0.65 / 1.0.66。
-2. **优先下带版本号的 zip。** 解压到本地 NTFS 磁盘（例如 `D:\VPN`），不要放 U 盘。运行 `AngelaBox.exe`。第一次会立刻提示「AngelaBox 服务未安装」，点 **安装**，UAC 选「是」。
+1. 先关掉并卸载 1.0.65 / 1.0.66 / 1.0.67。**不要** zip 和安装器混装。
+2. **优先下带版本号的 zip。** 解压到本地 NTFS 磁盘（例如 `D:\VPN`），不要放 U 盘。运行 `AngelaBox.exe`。第一次会立刻提示「AngelaBox 服务未安装」，点 **安装**，UAC 选「是」。窗口应先显示 AngelaBox 和「连接中」，不会再是纯灰空屏。
 3. 若仍提示权限不足：右键 `AngelaBox.exe` → 属性 → 勾选 **解除锁定** → 确定，再点安装。
 4. Chrome 若仍拦 `.exe`：`Ctrl + J` 打开下载页 → **保留危险文件** → **仍然保留**。也可换 Edge。
 5. SmartScreen 未知发布者：更多信息 → 仍要运行。这是自签证书，不是病毒。

@@ -74,6 +74,9 @@
     <string name="connections_in">入站</string>
     <string name="connections_out">出站</string>
     <string name="clash_mode">Clash 模式</string>
+    <string name="clash_mode_rule">规则</string>
+    <string name="clash_mode_global">全局</string>
+    <string name="clash_mode_direct">直连</string>
     <string name="mode">模式</string>
     <string name="system_proxy">系统代理</string>
     <string name="url_test">测试</string>
@@ -689,6 +692,17 @@
     <string name="ads_block">广告拦截</string>
     <string name="ads_block_summary">拒绝广告规则集匹配的域名</string>
     <string name="overlay_scripts">脚本</string>
+    <string name="rule_providers">提供者</string>
+    <string name="rule_providers_section">规则提供者</string>
+    <string name="rule_providers_empty">这份配置没有规则集。</string>
+    <string name="rule_providers_view">查看</string>
+    <string name="rule_providers_upload">上传</string>
+    <string name="rule_providers_synced">已同步</string>
+    <string name="rule_providers_uploaded">已上传</string>
+    <string name="rule_providers_sync_failed">同步失败</string>
+    <string name="rule_providers_entries">%d个条目</string>
+    <string name="rule_providers_binary">二进制规则集</string>
+    <string name="rule_providers_never">尚未下载</string>
     <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
     <string name="overlay_scripts_hint">脚本库。选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式与脚本可同时开启：脚本先处理前置订阅，再编译链式路径。</string>
     <string name="pull_drag_hint">下拉返回</string>

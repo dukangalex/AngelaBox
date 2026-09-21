@@ -138,6 +138,94 @@ object ConfigNormalize {
         return notes
     }
 
+    /**
+     * Clash mode chips only appear for names present in route/DNS rules.
+     * Scripts that rebuild route.rules drop the subscription's clash_mode
+     * entries, so the kernel reports only "Rule". Prepend Global/Direct
+     * without changing default Rule routing. Idempotent.
+     */
+    fun ensureClashModes(root: JSONObject): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val rules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
+        val existing = clashModesIn(rules) + clashModesIn(root.optJSONObject("dns")?.optJSONArray("rules"))
+        val needGlobal = existing.none { it.equals("Global", true) || it == "全局" }
+        val needDirect = existing.none { it.equals("Direct", true) || it == "直连" }
+        if (!needGlobal && !needDirect) return false
+        val directTag = findDirectTag(outs)
+        val globalTag = findGlobalTag(root, outs, directTag)
+        val merged = JSONArray()
+        val rest = JSONArray()
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (isInfraRule(rule)) merged.put(rule) else rest.put(rule)
+        }
+        if (needGlobal) {
+            merged.put(JSONObject().put("clash_mode", "Global").put("outbound", globalTag))
+        }
+        if (needDirect) {
+            merged.put(JSONObject().put("clash_mode", "Direct").put("outbound", directTag))
+        }
+        for (i in 0 until rest.length()) merged.put(rest.get(i))
+        route.put("rules", merged)
+        return true
+    }
+
+    private fun clashModesIn(rules: JSONArray?): Set<String> {
+        if (rules == null) return emptySet()
+        val out = mutableSetOf<String>()
+        for (i in 0 until rules.length()) {
+            val mode = rules.optJSONObject(i)?.optString("clash_mode")?.trim().orEmpty()
+            if (mode.isNotEmpty()) out += mode
+        }
+        return out
+    }
+
+    private fun isInfraRule(rule: JSONObject): Boolean {
+        val action = rule.optString("action").lowercase()
+        if (action == "sniff" || action == "resolve" || action == "hijack-dns") return true
+        return rule.optString("protocol").equals("dns", true)
+    }
+
+    private fun findDirectTag(outs: JSONArray): String {
+        for (i in 0 until outs.length()) {
+            val item = outs.optJSONObject(i) ?: continue
+            if (item.optString("type").equals("direct", true)) {
+                val tag = item.optString("tag").trim()
+                if (tag.isNotEmpty()) return tag
+            }
+        }
+        return "direct"
+    }
+
+    private fun findGlobalTag(root: JSONObject, outs: JSONArray, directTag: String): String {
+        val finalTag = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
+        if (finalTag.isNotEmpty() && !finalTag.equals(directTag, true) &&
+            !finalTag.equals("block", true) && !finalTag.equals("REJECT", true)
+        ) {
+            return finalTag
+        }
+        for (wanted in listOf("selector", "urltest", "url-test")) {
+            for (i in 0 until outs.length()) {
+                val item = outs.optJSONObject(i) ?: continue
+                if (!item.optString("type").equals(wanted, true)) continue
+                val tag = item.optString("tag").trim()
+                if (tag.isNotEmpty()) return tag
+            }
+        }
+        for (i in 0 until outs.length()) {
+            val item = outs.optJSONObject(i) ?: continue
+            val tag = item.optString("tag").trim()
+            val type = item.optString("type")
+            if (tag.isNotEmpty() && !type.equals("direct", true) && !type.equals("block", true) &&
+                !type.equals("dns", true)
+            ) {
+                return tag
+            }
+        }
+        return finalTag.ifBlank { directTag }
+    }
+
     fun heal(content: String): HealResult {
         val trimmed = content.trim()
         if (trimmed.isEmpty() || trimmed[0] != '{') return HealResult(content, emptyList())

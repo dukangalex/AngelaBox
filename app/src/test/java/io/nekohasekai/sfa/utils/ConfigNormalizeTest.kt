@@ -92,6 +92,55 @@ class ConfigNormalizeTest {
     }
 
     @Test
+    fun ensureClashModesInjectsGlobalAndDirect() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443},
+                {"type": "selector", "tag": "proxy", "outbounds": ["n1"]},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {
+                "rules": [
+                  {"protocol": "dns", "action": "hijack-dns"},
+                  {"domain": "example.com", "outbound": "proxy"}
+                ],
+                "final": "proxy"
+              }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(ConfigNormalize.ensureClashModes(root))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val modes = (0 until rules.length()).map { rules.getJSONObject(it) }
+        assertEquals("hijack-dns", modes[0].optString("action"))
+        val global = modes.first { it.optString("clash_mode") == "Global" }
+        val direct = modes.first { it.optString("clash_mode") == "Direct" }
+        assertEquals("proxy", global.getString("outbound"))
+        assertEquals("direct", direct.getString("outbound"))
+        assertFalse(ConfigNormalize.ensureClashModes(root))
+        assertEquals("example.com", modes.last().optString("domain"))
+    }
+
+    @Test
+    fun applyDoesNotInjectClashModes() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "n1"}
+            }
+            """.trimIndent(),
+        )
+        ConfigNormalize.apply(root)
+        assertFalse(root.toString().contains("clash_mode"))
+    }
+
+    @Test
     fun applyMigratesDnsOutboundAndKeepsUserNodes() {
         val root = JSONObject(
             """

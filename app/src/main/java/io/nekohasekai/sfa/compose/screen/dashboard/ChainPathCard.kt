@@ -511,14 +511,14 @@ private fun ModeChip(
     var expanded by remember { mutableStateOf(false) }
     Box {
         StatusChip(
-            label = selected.ifBlank { modes.first() },
+            label = clashModeLabel(selected.ifBlank { modes.first() }),
             emphasized = true,
             onClick = { expanded = true },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             modes.forEach { mode ->
                 DropdownMenuItem(
-                    text = { Text(mode) },
+                    text = { Text(clashModeLabel(mode)) },
                     onClick = {
                         onSelected(mode)
                         expanded = false

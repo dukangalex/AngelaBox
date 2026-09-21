@@ -148,6 +148,7 @@ import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.ktx.launchCustomTab
 import io.nekohasekai.sfa.update.UpdateState
 import io.nekohasekai.sfa.utils.RemoteControlManager
+import io.nekohasekai.sfa.utils.ConfigDiagnose
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -474,8 +475,13 @@ class MainActivity :
                                     }
                                 }
                             } catch (e: Exception) {
-                                errorMessage = e.message ?: e.toString()
-                                showErrorDialog = true
+                                val raw = e.message ?: e.toString()
+                                if (ConfigDiagnose.looksLikeRpcDeath(raw) && currentAlert != null) {
+                                    // Start recovery already explained the real kernel error.
+                                } else {
+                                    errorMessage = ConfigDiagnose.explain(raw)
+                                    showErrorDialog = true
+                                }
                             }
                         }
                     }
@@ -1010,6 +1016,12 @@ class MainActivity :
 
                     is UiEvent.EditProfile -> {
                         navController.navigate(ProfileRoutes.editProfile(event.profileId)) {
+                            launchSingleTop = true
+                        }
+                    }
+
+                    is UiEvent.OpenProviders -> {
+                        navController.navigate(ProfileRoutes.providers(event.profileId)) {
                             launchSingleTop = true
                         }
                     }
@@ -1637,7 +1649,9 @@ class MainActivity :
                 Alert.RequestVPNPermission -> stringResource(R.string.error_missing_vpn_permission)
                 Alert.RequestNotificationPermission -> stringResource(R.string.notification_permission_required_description)
                 Alert.EmptyConfiguration -> stringResource(R.string.error_empty_configuration)
-                else -> message?.let { io.nekohasekai.sfa.utils.ConfigDiagnose.explain(it) }
+                else -> message?.let { raw ->
+                    if (raw.any { it.code in 0x4E00..0x9FFF }) raw else ConfigDiagnose.explain(raw)
+                }
             }
 
         AlertDialog(

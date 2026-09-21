@@ -110,7 +110,7 @@ fun ClashModeCard(modes: List<String>, selectedMode: String, onModeSelected: (St
                                 onClick = { onModeSelected(mode) },
                                 selected = mode == selectedMode,
                             ) {
-                                Text(mode)
+                                Text(clashModeLabel(mode))
                             }
                         }
                     }
@@ -143,7 +143,7 @@ private fun ModeDropdown(modes: List<String>, selectedMode: String, onModeSelect
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = selectedMode,
+                    text = selectedMode.let { clashModeLabel(it) },
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -162,7 +162,7 @@ private fun ModeDropdown(modes: List<String>, selectedMode: String, onModeSelect
         ) {
             modes.forEach { mode ->
                 DropdownMenuItem(
-                    text = { Text(mode) },
+                    text = { Text(clashModeLabel(mode)) },
                     onClick = {
                         onModeSelected(mode)
                         expanded = false
@@ -180,4 +180,12 @@ private fun ModeDropdown(modes: List<String>, selectedMode: String, onModeSelect
             }
         }
     }
+}
+
+@Composable
+fun clashModeLabel(mode: String): String = when (mode.trim().lowercase()) {
+    "rule", "规则" -> stringResource(R.string.clash_mode_rule)
+    "global", "全局" -> stringResource(R.string.clash_mode_global)
+    "direct", "直连" -> stringResource(R.string.clash_mode_direct)
+    else -> mode
 }

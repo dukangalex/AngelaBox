@@ -256,22 +256,23 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         var content = ConfigQuicOverride.apply(rawContent)
         var result = tryStart(content)
         if (result.isSuccess) return true
-        var err = result.exceptionOrNull()?.message
+        val firstErr = result.exceptionOrNull()?.message
+        var err = firstErr
+
+        fun keep(retry: String?) {
+            err = ConfigDiagnose.preferKernelError(firstErr, retry)
+        }
 
         if (ConfigDiagnose.looksLikeRpcDeath(err)) {
             restartCommandServer()
             result = tryStart(content)
             if (result.isSuccess) return true
-            err = result.exceptionOrNull()?.message
+            keep(result.exceptionOrNull()?.message)
         }
 
         if (Settings.configNormalize) {
-            val needles = ConfigDiagnose.ruleSetNeedles(err)
-            if (ConfigDiagnose.looksLikeRpcDeath(err)) {
-                restartCommandServer()
-            } else {
-                runCatching { commandServer.closeService() }
-            }
+            val needles = ConfigDiagnose.ruleSetNeedles(firstErr)
+            restartCommandServer()
             if (scriptBound && needles.isNotEmpty()) {
                 result = tryStart(
                     ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
@@ -284,50 +285,47 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     OverrideStatus.set(current)
                     return true
                 }
+                keep(result.exceptionOrNull()?.message)
             }
-            val recovered = ConfigQuicOverride.apply(
-                rawContent,
-                skipScripts = true,
-                replaceRuleSetNeedles = needles,
-            )
-            result = tryStart(recovered)
-            if (result.isSuccess) {
-                if (scriptBound) {
+            if (ConfigDiagnose.looksLikeScriptFault(firstErr) ||
+                ConfigDiagnose.looksLikeScriptFault(err)
+            ) {
+                restartCommandServer()
+                val recovered = ConfigQuicOverride.apply(
+                    rawContent,
+                    skipScripts = true,
+                    replaceRuleSetNeedles = needles,
+                )
+                result = tryStart(recovered)
+                if (result.isSuccess) {
                     OverrideStatus.add(
                         OverrideNotice(
                             title = "脚本启动失败，已回滚",
-                            reason = ConfigDiagnose.explain(err, scriptsBound = true),
+                            reason = ConfigDiagnose.explain(firstErr, scriptsBound = true),
                             hint = ConfigDiagnose.rollbackHint(),
                             error = true,
                         ),
                     )
-                } else {
-                    val current = OverrideStatus.notices.value.toMutableList()
-                    val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
-                    val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
-                    if (idx >= 0) current[idx] = fixed else current += fixed
-                    OverrideStatus.set(current)
+                    return true
                 }
-                return true
+                keep(result.exceptionOrNull()?.message)
             }
             stopAndAlert(
                 Alert.CreateService,
-                ConfigDiagnose.explain(
-                    result.exceptionOrNull()?.message ?: err,
-                    scriptsBound = scriptBound,
-                ),
+                ConfigDiagnose.explain(err, scriptsBound = scriptBound),
             )
             return false
         }
 
-        if (scriptBound) {
+        if (scriptBound && ConfigDiagnose.looksLikeScriptFault(err)) {
+            restartCommandServer()
             val rolled = ConfigQuicOverride.apply(rawContent, skipScripts = true)
             result = tryStart(rolled)
             if (result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
                         title = "脚本启动失败，已回滚",
-                        reason = ConfigDiagnose.explain(err, scriptsBound = true),
+                        reason = ConfigDiagnose.explain(firstErr, scriptsBound = true),
                         hint = ConfigDiagnose.rollbackHint(),
                         error = true,
                     ),
@@ -336,14 +334,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             stopAndAlert(
                 Alert.CreateService,
-                ConfigDiagnose.explain(err, scriptsBound = true) +
+                ConfigDiagnose.explain(firstErr, scriptsBound = true) +
                     "\n\n关掉脚本后仍失败：" +
                     ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false),
             )
             return false
         }
 
-        stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(err, scriptsBound = false))
+        stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(err, scriptsBound = scriptBound))
         return false
     }
 

@@ -134,6 +134,22 @@ def main() -> int:
         errors.append("normalize recovery must not unbind scripts on that profile")
     if "restartCommandServer" not in box:
         errors.append("RPC EOF after a failed start must restart the command server")
+    if "preferKernelError" not in box:
+        errors.append("normalize recovery must keep the first kernel error instead of the retry EOF")
+    if "looksLikeScriptFault" not in box:
+        errors.append("normalize recovery must skip scripts only when the kernel error is a script fault")
+    picker = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt")
+    if "rule_providers" not in picker:
+        errors.append("profile picker overflow must include 提供者")
+    if "RuleProvidersScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):
+        errors.append("providers screen must be on the navigation graph")
+    if "fun ensureClashModes" not in normalize:
+        errors.append("ConfigNormalize.ensureClashModes must inject Global/Direct without rewriting user routing")
+    if "ConfigNormalize.ensureClashModes" not in override:
+        errors.append("runtime overlay must inject clash modes after scripts so custom overlays still get Direct/Global")
+    wf = read(".github/workflows/release-windows-desktop.yml")
+    if "body.app-ready #splash" not in wf:
+        errors.append("Windows identity check must keep splash outside React #root")
     diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
     if "scriptsBound" not in diagnose:
         errors.append("ConfigDiagnose must not blame scripts when the profile has none")
@@ -774,11 +790,15 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 13" not in sample:
-        errors.append("default script must stamp overlay-revision: 13 so stale copies refresh")
+    if "overlay-revision: 14" not in sample:
+        errors.append("default script must stamp overlay-revision: 14 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 13"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 14"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
+        errors.append("default script must expose urltest load-balance and failover groups")
+    if 'clash_mode: "Global"' not in sample or 'clash_mode: "Direct"' not in sample:
+        errors.append("default script must emit Global/Direct clash_mode so the dashboard chip has 规则/全局/直连")
     if 'interval: "10m"' not in sample or 'idle_timeout: "4h"' not in sample:
         errors.append("default script must use 10m urltest / 4h idle to keep nodes warm without 1m radio wakeups")
     if "tcp_keep_alive" not in sample or "tcp_keep_alive_interval" not in sample:

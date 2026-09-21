@@ -27,6 +27,7 @@ import io.nekohasekai.sfa.compose.screen.log.LogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
 import io.nekohasekai.sfa.compose.screen.privilegesettings.PrivilegeSettingsManageScreen
 import io.nekohasekai.sfa.compose.screen.profile.EditProfileRoute
+import io.nekohasekai.sfa.compose.screen.profile.RuleProvidersScreen
 import io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyScreen
 import io.nekohasekai.sfa.compose.screen.settings.AppSettingsScreen
 import io.nekohasekai.sfa.compose.screen.settings.BackupRestoreScreen
@@ -235,6 +236,21 @@ fun NavHost(
                 profileId = profileId,
                 onNavigateBack = { navController.navigateUp() },
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+        composable(
+            route = ProfileRoutes.Providers,
+            arguments = listOf(navArgument("profileId") { type = NavType.LongType }),
+            enterTransition = slideInFromRight,
+            exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft,
+            popExitTransition = slideOutToRight,
+        ) { backStackEntry ->
+            val profileId = backStackEntry.arguments?.getLong("profileId") ?: -1L
+            RuleProvidersScreen(
+                profileId = profileId,
+                navController = navController,
+                serviceStatus = serviceStatus,
             )
         }
         composable("connections/detail/{connectionId}") { backStackEntry ->

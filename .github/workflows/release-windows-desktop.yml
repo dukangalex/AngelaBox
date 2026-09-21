@@ -108,6 +108,10 @@ jobs:
           has 'AngelaBox-installer' desktop/build/installer-data.ps1
           has '--allow-unsafe-installation-directory-permissions' desktop/src/main/repair.ts
           has '-EncodedCommand' desktop/src/main/repair.ts
+          has 'body.app-ready #splash' desktop/src/renderer/index.html
+          if grep -aF 'id="splash"' desktop/src/renderer/index.html | grep -aF 'id="root"'; then
+            fail 'Windows splash must sit outside #root so React cannot unmount it into a blank window'
+          fi
           if grep -aF 'SagerNet/sing-box/releases' desktop/src/main/updates.ts; then
             fail 'Windows updater must not query official SagerNet/sing-box releases'
           fi

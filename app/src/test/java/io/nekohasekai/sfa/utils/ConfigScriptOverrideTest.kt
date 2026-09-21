@@ -56,6 +56,8 @@ class ConfigScriptOverrideTest {
         assertTrue(tags.any { it.contains("自动选择") || it.contains("节点选择") })
         assertTrue(tags.any { it.contains("🐟 漏网之鱼") })
         assertTrue(tags.any { it.contains("🔰 节点选择") || it.contains("♻️ 自动选择") })
+        assertTrue(tags.contains("⚖️ 负载均衡"))
+        assertTrue(tags.contains("🛡️ 故障转移"))
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
         assertEquals("https", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
@@ -77,6 +79,8 @@ class ConfigScriptOverrideTest {
         assertTrue(geoip >= 0 && (notCn < 0 || geoip < notCn))
         assertEquals(false, out.getJSONObject("route").optBoolean("find_process", true))
         assertTrue("hijack-dns", ruleText.contains("hijack-dns"))
+        assertTrue(ruleText.contains("\"clash_mode\":\"Global\"") || ruleText.contains("\"clash_mode\": \"Global\""))
+        assertTrue(ruleText.contains("\"clash_mode\":\"Direct\"") || ruleText.contains("\"clash_mode\": \"Direct\""))
         val firstAction = rules.getJSONObject(0).optString("action")
         assertEquals("hijack-dns", firstAction)
         assertTrue("quic drop", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))

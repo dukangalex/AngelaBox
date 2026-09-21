@@ -85,6 +85,29 @@ object ConfigDiagnose {
             t.contains("code = Unavailable", ignoreCase = true)
     }
 
+    fun looksLikeScriptFault(text: String?): Boolean {
+        val t = text.orEmpty()
+        return looksLike(t, "decode config") ||
+            looksLike(t, "unmarshal") ||
+            looksLike(t, "function main") ||
+            looksLike(t, "脚本执行超时") ||
+            looksLike(t, "tcp_keep_alive")
+    }
+
+    /**
+     * After closeService the retry often dies with EOF. Keep the first
+     * kernel reason (404 / decode) so the dialog is not a raw gRPC dump.
+     */
+    fun preferKernelError(first: String?, retry: String?): String? {
+        val original = first?.trim().orEmpty()
+        val next = retry?.trim().orEmpty()
+        if (next.isEmpty()) return first
+        if (looksLikeRpcDeath(next) && original.isNotEmpty() && !looksLikeRpcDeath(original)) {
+            return first
+        }
+        return retry
+    }
+
     fun ruleSetNeedles(raw: String?): List<String> {
         val text = raw.orEmpty()
         if (text.isBlank()) return emptyList()

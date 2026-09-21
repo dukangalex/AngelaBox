@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 13
+ * overlay-revision: 14
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
@@ -321,6 +321,8 @@ function main(config) {
 
   var OTHER_NAME = "其他地区";
   var AUTO_NAME = "♻️ 自动选择";
+  var LB_NAME = "⚖️ 负载均衡";
+  var FAILOVER_NAME = "🛡️ 故障转移";
   var SELECT_NAME = "🔰 节点选择";
   var regionNames = [];
   var activeRegions = [];
@@ -412,8 +414,20 @@ function main(config) {
     autoGroup = makeUrltest(AUTO_NAME, autoMembers, true);
     groupTags[AUTO_NAME] = "urltest";
   }
+  var lbGroup = null;
+  if (leafTags.length > 0) {
+    lbGroup = makeUrltest(LB_NAME, leafTags.slice(0), false);
+    groupTags[LB_NAME] = "urltest";
+  }
+  var failoverGroup = null;
+  if (autoMembers.length > 0) {
+    failoverGroup = makeUrltest(FAILOVER_NAME, autoMembers, true);
+    groupTags[FAILOVER_NAME] = "urltest";
+  }
   var selectMembers = [];
   if (autoGroup) selectMembers.push(AUTO_NAME);
+  if (lbGroup) selectMembers.push(LB_NAME);
+  if (failoverGroup) selectMembers.push(FAILOVER_NAME);
   for (var sn = 0; sn < regionNames.length; sn++) selectMembers.push(regionNames[sn]);
   var selectGroup = null;
   if (selectMembers.length > 0) {
@@ -469,6 +483,8 @@ function main(config) {
   var ordered = [];
   if (selectGroup) ordered.push(selectGroup);
   if (autoGroup) ordered.push(autoGroup);
+  if (lbGroup) ordered.push(lbGroup);
+  if (failoverGroup) ordered.push(failoverGroup);
   ordered.push(adsGroup);
   for (var sg = 0; sg < serviceGroups.length; sg++) ordered.push(serviceGroups[sg]);
   ordered.push(remoteGroup);
@@ -570,6 +586,10 @@ function main(config) {
       "🔧 远控工具": remoteTag,
       "自动选择": AUTO_NAME,
       "♻️ 自动选择": AUTO_NAME,
+      "负载均衡": LB_NAME,
+      "⚖️ 负载均衡": LB_NAME,
+      "故障转移": FAILOVER_NAME,
+      "🛡️ 故障转移": FAILOVER_NAME,
       "节点选择": SELECT_NAME,
       "🔰 节点选择": SELECT_NAME
     };
@@ -602,6 +622,9 @@ function main(config) {
 
   var prepend = [];
   function addRule(item) { if (item) prepend.push(item); }
+
+  addRule({ clash_mode: "Global", outbound: pickSelect });
+  addRule({ clash_mode: "Direct", outbound: directTag });
 
   if (disableIpv6) {
     addRule({ ip_version: 6, action: "reject" });

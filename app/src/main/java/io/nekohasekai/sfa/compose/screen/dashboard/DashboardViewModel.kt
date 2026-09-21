@@ -399,6 +399,11 @@ class DashboardViewModel :
         sendGlobalEvent(UiEvent.EditProfile(profile.id))
     }
 
+    fun openProviders(profile: Profile) {
+        updateState { copy(showProfilePickerSheet = false) }
+        sendGlobalEvent(UiEvent.OpenProviders(profile.id))
+    }
+
     fun deleteProfile(profile: Profile) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

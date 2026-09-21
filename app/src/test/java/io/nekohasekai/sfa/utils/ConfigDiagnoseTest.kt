@@ -86,4 +86,20 @@ class ConfigDiagnoseTest {
         val text = ConfigDiagnose.explain(null, scriptsBound = false)
         assertFalse(text.contains("脚本"))
     }
+
+    @Test
+    fun preferKernelErrorKeeps404OverEof() {
+        val kept = ConfigDiagnose.preferKernelError(
+            "initialize rule-set geosite-cn: HTTP 404",
+            "reload service: rpc error: code = Unavailable desc = error reading from server: EOF",
+        )
+        assertTrue(kept.orEmpty().contains("404"))
+        assertFalse(kept.orEmpty().contains("EOF"))
+    }
+
+    @Test
+    fun scriptFaultRecognizesKeepaliveBoolean() {
+        assertTrue(ConfigDiagnose.looksLikeScriptFault("decode config: unmarshal tcp_keep_alive"))
+        assertFalse(ConfigDiagnose.looksLikeScriptFault("initialize rule-set geosite-cn: HTTP 404"))
+    }
 }

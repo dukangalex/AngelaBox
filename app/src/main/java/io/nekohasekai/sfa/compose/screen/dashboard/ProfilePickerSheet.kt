@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
@@ -85,6 +86,7 @@ fun ProfilePickerSheet(
     selectedProfileId: Long,
     onProfileSelected: (Profile) -> Unit,
     onProfileEdit: (Profile) -> Unit,
+    onProfileProviders: (Profile) -> Unit = {},
     onProfileDelete: (Profile) -> Unit,
     onProfileMove: (Int, Int) -> Unit,
     onAddProfile: () -> Unit = {},
@@ -159,6 +161,7 @@ fun ProfilePickerSheet(
                             },
                             onEdit = { onProfileEdit(profile) },
                             onScripts = { scriptProfile = profile },
+                            onProviders = { onProfileProviders(profile) },
                             onShare = {
                                 coroutineScope.launch(Dispatchers.IO) {
                                     try {
@@ -238,6 +241,7 @@ private fun ProfilePickerRow(
     onSelect: () -> Unit,
     onEdit: () -> Unit,
     onScripts: () -> Unit,
+    onProviders: () -> Unit,
     onShare: () -> Unit,
     onShareURL: () -> Unit,
     onDelete: () -> Unit,
@@ -422,6 +426,21 @@ private fun ProfilePickerRow(
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.rule_providers)) },
+                            onClick = {
+                                showMenu = false
+                                onProviders()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.AccountTree,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                 )

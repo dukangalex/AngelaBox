@@ -85,6 +85,9 @@
     <string name="connections_in">Inbound</string>
     <string name="connections_out">Outbound</string>
     <string name="clash_mode">Clash Mode</string>
+    <string name="clash_mode_rule">Rule</string>
+    <string name="clash_mode_global">Global</string>
+    <string name="clash_mode_direct">Direct</string>
     <string name="mode">Mode</string>
     <string name="system_proxy">System Proxy</string>
     <string name="url_test">Test</string>
@@ -796,6 +799,17 @@
     <string name="ads_block">Ad blocking</string>
     <string name="ads_block_summary">Reject domains in the ads rule-set</string>
     <string name="overlay_scripts">Scripts</string>
+    <string name="rule_providers">Providers</string>
+    <string name="rule_providers_section">Rule providers</string>
+    <string name="rule_providers_empty">This profile has no rule-sets.</string>
+    <string name="rule_providers_view">View</string>
+    <string name="rule_providers_upload">Upload</string>
+    <string name="rule_providers_synced">Updated</string>
+    <string name="rule_providers_uploaded">Uploaded</string>
+    <string name="rule_providers_sync_failed">Update failed</string>
+    <string name="rule_providers_entries">%d entries</string>
+    <string name="rule_providers_binary">Binary rule-set</string>
+    <string name="rule_providers_never">Not downloaded yet</string>
     <string name="overlay_scripts_subtitle">Per-profile sing-box overlay scripts</string>
     <string name="overlay_scripts_hint">Script catalog. Pick a profile below, then toggle. When on, the script is the only rule set (China direct, foreign via proxy) and the subscription file is unchanged. Scripts run before chain compilation, so an entry profile can use both safely.</string>
     <string name="pull_drag_hint">Pull to go back</string>
