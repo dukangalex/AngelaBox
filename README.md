@@ -57,7 +57,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
 | 已同步基线 | 官方 **sing-box 1.15.0-alpha.6**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。修补：Windows 进程归属、自动重定向 DNS、WireGuard 域名握手、libbox 命令客户端取消） |
 | 内核型号 / tag | `v1.15.0-chain.3`（已打在 `chain-dev` 的 `d7639f61`；设置 → 核心显示 `1.15.0-chain.3（官方 1.15.0-alpha.6）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.68-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.69-beta** 测试版） |
 
 ### 同步更新策略
 

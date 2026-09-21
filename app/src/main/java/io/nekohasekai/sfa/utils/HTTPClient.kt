@@ -145,13 +145,18 @@ class HTTPClient : Closeable {
         }
     }
 
+    var lastUserinfo: String? = null
+        private set
+
     fun getString(
         url: String,
         kind: RemoteUrlGuard.Kind,
         headers: Map<String, String> = emptyMap(),
     ): String {
         val max = maxChars(kind).toLong()
-        return fetch(url, kind, headers, max) { input, _ ->
+        lastUserinfo = null
+        return fetch(url, kind, headers, max) { input, conn ->
+            lastUserinfo = header(conn, "subscription-userinfo") ?: lastUserinfo
             val bytes = readLimited(input, max)
             String(bytes, Charsets.UTF_8)
         }
@@ -209,6 +214,8 @@ class HTTPClient : Closeable {
             conn.requestMethod = "GET"
             try {
                 val code = conn.responseCode
+                val info = header(conn, "subscription-userinfo")
+                if (!info.isNullOrBlank()) lastUserinfo = info
                 if (code in 300..399) {
                     val next = nextUrl(current, conn.getHeaderField("Location"), kind)
                     if (!sameHost(current, next)) {
@@ -230,6 +237,18 @@ class HTTPClient : Closeable {
             }
         }
         throw IllegalStateException("重定向次数过多")
+    }
+
+    private fun header(conn: HttpsURLConnection, name: String): String? {
+        val direct = conn.getHeaderField(name)?.trim().orEmpty()
+        if (direct.isNotEmpty()) return direct
+        conn.headerFields?.forEach { (key, values) ->
+            if (key != null && key.equals(name, ignoreCase = true)) {
+                val hit = values?.firstOrNull()?.trim().orEmpty()
+                if (hit.isNotEmpty()) return hit
+            }
+        }
+        return null
     }
 
     private fun readLimited(input: InputStream, maxBytes: Long): ByteArray {

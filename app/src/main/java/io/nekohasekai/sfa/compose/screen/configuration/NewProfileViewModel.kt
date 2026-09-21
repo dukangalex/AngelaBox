@@ -289,15 +289,15 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
-        val content = ConfigCompat.sanitize(
-            HTTPClient().use { it.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
-        )
-        Libbox.checkConfig(content)
-        val configContent = content
-
-        configFile.writeText(configContent)
-
-        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+        HTTPClient().use { client ->
+            val content = ConfigCompat.sanitize(
+                client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION),
+            )
+            Libbox.checkConfig(content)
+            configFile.writeText(content)
+            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            io.nekohasekai.sfa.utils.SubscriptionInfoStore.capture(client, profile.id, context)
+        }
 
         if (state.autoUpdate) {
             UpdateProfileWork.reconfigureUpdater()

@@ -13,7 +13,6 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
-import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import kotlinx.coroutines.Dispatchers
@@ -261,7 +260,11 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
 
                 // Fetch remote config
                 val content = ConfigCompat.sanitize(
-                    HTTPClient().use { it.getString(profile.typed.remoteURL, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
+                        profile.typed.remoteURL,
+                        profile.id,
+                        getApplication<Application>(),
+                    ),
                 )
                 Libbox.checkConfig(content)
 

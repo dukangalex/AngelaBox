@@ -1,9 +1,13 @@
 package io.nekohasekai.sfa.utils
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.util.zip.Deflater
 
 class RuleSetProvidersTest {
 
@@ -40,5 +44,110 @@ class RuleSetProvidersTest {
         val item = root.getJSONObject("route").getJSONArray("rule_set").getJSONObject(0)
         assertEquals("/tmp/apple.srs", item.getString("initial_path"))
         assertEquals("apple", item.getString("tag"))
+    }
+
+    @Test
+    fun flattenDomainSuffixLooksLikeClashVerge() {
+        val rules = JSONArray(
+            """
+            [
+              {"domain_suffix":["abema-tv.com","abema.io","abema.tv"]},
+              {"domain":["abematv.akamaized.net","linear-abematv.akamaized.net"]}
+            ]
+            """.trimIndent(),
+        )
+        val lines = RuleSetProviders.flattenRules(rules)
+        assertEquals(
+            listOf(
+                "+.abema-tv.com",
+                "+.abema.io",
+                "+.abema.tv",
+                "abematv.akamaized.net",
+                "linear-abematv.akamaized.net",
+            ),
+            lines,
+        )
+        val numbered = RuleSetProviders.numbered(lines)
+        assertTrue(numbered.startsWith("1 +.abema-tv.com"))
+        assertTrue(numbered.contains("5 linear-abematv.akamaized.net"))
+    }
+
+    @Test
+    fun sourceUrlSwapsSrsToJson() {
+        assertEquals(
+            "https://example.com/geosite-abema.json",
+            RuleSetProviders.sourceUrl("https://example.com/geosite-abema.srs"),
+        )
+        assertNull(RuleSetProviders.sourceUrl("https://example.com/geosite-abema.json"))
+    }
+
+    @Test
+    fun listEntriesReadsSourceJson() {
+        val dir = File.createTempFile("ruleset", "dir").apply {
+            delete()
+            mkdirs()
+        }
+        val file = File(dir, "abema.json")
+        file.writeText(
+            """
+            {"version":3,"rules":[{"domain_suffix":["abema-tv.com","abema.io"]}]}
+            """.trimIndent(),
+        )
+        assertEquals(listOf("+.abema-tv.com", "+.abema.io"), RuleSetProviders.listEntries(file))
+        assertEquals(2, RuleSetProviders.sourceRuleCount(file))
+    }
+
+    @Test
+    fun srsTopLevelCountReadsUvarint() {
+        val payload = byteArrayOf(21)
+        val deflater = Deflater()
+        deflater.setInput(payload)
+        deflater.finish()
+        val buf = ByteArray(64)
+        val n = deflater.deflate(buf)
+        deflater.end()
+        val srs = ByteArray(4 + n)
+        srs[0] = 0x53
+        srs[1] = 0x52
+        srs[2] = 0x53
+        srs[3] = 0x01
+        System.arraycopy(buf, 0, srs, 4, n)
+        val file = File.createTempFile("geosite", ".srs")
+        file.writeBytes(srs)
+        assertEquals(21, RuleSetProviders.srsTopLevelCount(file))
+    }
+
+    @Test
+    fun proxyProvidersSynthesizeFromLeafOutbounds() {
+        val content = """
+            {
+              "outbounds": [
+                {"type":"vless","tag":"JP-1"},
+                {"type":"trojan","tag":"US-2"},
+                {"type":"selector","tag":"proxy","outbounds":["JP-1","US-2"]},
+                {"type":"direct","tag":"direct"}
+              ]
+            }
+        """.trimIndent()
+        val items = ProxyProviders.parse(content, "myai", "https://example.com/sub")
+        assertEquals(1, items.size)
+        assertEquals("myai", items[0].tag)
+        assertEquals(listOf("JP-1", "US-2"), items[0].entries)
+        assertTrue(items[0].remote)
+    }
+
+    @Test
+    fun proxyProvidersPreferNamedClashLeftover() {
+        val content = """
+            {
+              "proxy-providers": {
+                "provider_entry_J": {"type":"http","url":"https://example.com/j.yaml"}
+              },
+              "outbounds": [{"type":"vless","tag":"JP-1"}]
+            }
+        """.trimIndent()
+        val items = ProxyProviders.parse(content, "myai", "https://example.com/sub")
+        assertEquals(listOf("provider_entry_J"), items.map { it.tag })
+        assertTrue(items[0].remote)
     }
 }

@@ -21,6 +21,7 @@ import io.nekohasekai.sfa.chain.TrafficFlowBuilder
 import io.nekohasekai.sfa.compose.base.BaseViewModel
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.model.ConnectionStateFilter
+import io.nekohasekai.sfa.compose.navigation.ProfileRoutes
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
@@ -31,7 +32,6 @@ import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.ConfigCompat
-import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -443,9 +443,12 @@ class DashboardViewModel :
             }
 
             try {
-                // Fetch remote config
                 val content = ConfigCompat.sanitize(
-                    HTTPClient().use { it.getString(profile.typed.remoteURL, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
+                        profile.typed.remoteURL,
+                        profile.id,
+                        io.nekohasekai.sfa.Application.application,
+                    ),
                 )
                 Libbox.checkConfig(content)
 
@@ -491,6 +494,10 @@ class DashboardViewModel :
         }
     }
 
+    fun updateAllRemoteProfiles() {
+        currentState.profiles.filter { it.typed.type == TypedProfile.Type.Remote }.forEach { updateProfile(it) }
+    }
+
     fun moveProfile(from: Int, to: Int) {
         val currentProfiles = currentState.profiles.toMutableList()
 
@@ -525,7 +532,8 @@ class DashboardViewModel :
     }
 
     fun showProfilePickerSheet() {
-        updateState { copy(showProfilePickerSheet = true) }
+        updateState { copy(showProfilePickerSheet = false) }
+        sendGlobalEvent(UiEvent.Navigate(ProfileRoutes.Profiles))
     }
 
     fun hideProfilePickerSheet() {

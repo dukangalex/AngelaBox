@@ -694,8 +694,10 @@
     <string name="overlay_scripts">脚本</string>
     <string name="rule_providers">提供者</string>
     <string name="rule_providers_section">规则提供者</string>
+    <string name="proxy_providers_section">代理提供者</string>
     <string name="rule_providers_empty">这份配置没有规则集。</string>
     <string name="rule_providers_view">查看</string>
+    <string name="rule_providers_view_title">查看 - %s</string>
     <string name="rule_providers_upload">上传</string>
     <string name="rule_providers_synced">已同步</string>
     <string name="rule_providers_uploaded">已上传</string>
@@ -703,6 +705,11 @@
     <string name="rule_providers_entries">%d个条目</string>
     <string name="rule_providers_binary">二进制规则集</string>
     <string name="rule_providers_never">尚未下载</string>
+    <string name="rule_providers_no_entries">暂无源条目。同步后会拉取 JSON 列表。</string>
+    <string name="profile_traffic_none">无用量统计</string>
+    <string name="profile_traffic_unlimited">Unlimited</string>
+    <string name="profile_traffic_used">%1$s / %2$s</string>
+    <string name="profiles_add">添加配置</string>
     <string name="overlay_scripts_subtitle">按配置选择覆写脚本（sing-box）</string>
     <string name="overlay_scripts_hint">脚本库。选一份配置后开关；打开后只跑脚本这一套规则（国内直连、国外代理），不改订阅。链式与脚本可同时开启：脚本先处理前置订阅，再编译链式路径。</string>
     <string name="pull_drag_hint">下拉返回</string>

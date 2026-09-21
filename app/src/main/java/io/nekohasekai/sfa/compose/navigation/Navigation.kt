@@ -22,6 +22,7 @@ import io.nekohasekai.sfa.compose.screen.connections.ConnectionsViewModel
 import io.nekohasekai.sfa.compose.screen.dashboard.DashboardScreen
 import io.nekohasekai.sfa.compose.screen.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.compose.screen.dashboard.GroupsCard
+import io.nekohasekai.sfa.compose.screen.dashboard.ProfilesScreen
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.compose.screen.log.LogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
@@ -208,6 +209,20 @@ fun NavHost(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+        composable(
+            route = ProfileRoutes.Profiles,
+            enterTransition = slideInFromRight,
+            exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft,
+            popExitTransition = slideOutToRight,
+        ) {
+            val vm = dashboardViewModel ?: viewModel()
+            ProfilesScreen(
+                navController = navController,
+                onOpenNewProfile = onOpenNewProfile,
+                viewModel = vm,
+            )
         }
         composable(ProfileRoutes.NewProfile) {
             DisposableEffect(Unit) { onDispose { onClearNewProfileArgs() } }

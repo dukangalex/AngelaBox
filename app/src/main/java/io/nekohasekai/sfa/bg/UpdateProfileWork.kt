@@ -13,7 +13,6 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
-import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ConfigCompat
 import java.io.File
 import java.util.Date
@@ -77,7 +76,11 @@ class UpdateProfileWork {
                 }
                 try {
                     val content = ConfigCompat.sanitize(
-                        HTTPClient().use { it.getString(profile.typed.remoteURL, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION) },
+                        io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
+                            profile.typed.remoteURL,
+                            profile.id,
+                            applicationContext,
+                        ),
                     )
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)

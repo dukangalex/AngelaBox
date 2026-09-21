@@ -146,6 +146,30 @@ def main() -> int:
     providers = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/RuleProvidersScreen.kt")
     if "suspend fun syncOne" not in providers:
         errors.append("rule provider sync must call ProfileManager.get from a coroutine")
+    if "pretty(row.item.raw)" in providers or "fun viewJson" in providers:
+        errors.append("provider 查看 must list flattened entries, not the rule_set definition JSON")
+    if "proxy_providers_section" not in providers:
+        errors.append("providers page must show 代理提供者")
+    if "listEntries" not in providers:
+        errors.append("providers page must count flattened rule entries")
+    if "ViewPayload" not in providers:
+        errors.append("provider 查看 must open a numbered entry list")
+    nav = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt")
+    if "ProfilesScreen" not in nav or "ProfileRoutes.Profiles" not in nav:
+        errors.append("配置 chip must navigate to the full profiles page")
+    dest = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/NavigationDestinations.kt")
+    if "Screen.Profiles" in dest or "profile/list" in dest:
+        errors.append("配置 must not be a bottom-nav item")
+    dashboard = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt")
+    if "Navigate(ProfileRoutes.Profiles)" not in dashboard:
+        errors.append("showProfilePickerSheet must jump to the full 配置 page")
+    http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
+    if "lastUserinfo" not in http or "subscription-userinfo" not in http:
+        errors.append("HTTPClient must capture subscription-userinfo for profile traffic")
+    if "fetchRemote" not in read("app/src/main/java/io/nekohasekai/sfa/utils/SubscriptionInfo.kt"):
+        errors.append("remote profile fetch must store subscription-userinfo")
+    if "flattenRules" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetProviders.kt"):
+        errors.append("rule-set view must flatten domain_suffix into Clash-style entries")
     if "fun ensureClashModes" not in normalize:
         errors.append("ConfigNormalize.ensureClashModes must inject Global/Direct without rewriting user routing")
     if "ConfigNormalize.ensureClashModes" not in override:
