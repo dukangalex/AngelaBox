@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -38,12 +39,15 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,6 +73,7 @@ import io.nekohasekai.sfa.compose.util.ProfileIcons
 import io.nekohasekai.sfa.compose.util.QRCodeGenerator
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.shareBasename
 import io.nekohasekai.sfa.ktx.shareProfile
@@ -97,6 +102,11 @@ fun ProfilePickerSheet(
     var showQRCodeDialog by remember { mutableStateOf(false) }
     var qrCodeProfile by remember { mutableStateOf<Profile?>(null) }
     var scriptProfile by remember { mutableStateOf<Profile?>(null) }
+    var showRuleSetProviders by remember { mutableStateOf(false) }
+
+    if (showRuleSetProviders) {
+        RuleSetProviderDialog(onDismiss = { showRuleSetProviders = false })
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -208,6 +218,43 @@ fun ProfilePickerSheet(
             onDismiss = { scriptProfile = null },
         )
     }
+}
+
+@Composable
+private fun RuleSetProviderDialog(onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var selected by remember { mutableStateOf(Settings.ruleSetProvider) }
+    val providers = listOf(
+        Settings.RULE_SET_PROVIDER_TESTINGCF to "testingcf jsDelivr（推荐，中国网络）",
+        Settings.RULE_SET_PROVIDER_JSDELIVR to "jsDelivr CDN（国际网络）",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("规则源提供者") },
+        text = {
+            Column {
+                Text("选择官方 sing-geosite / sing-geoip 规则集的下载提供者。保存后，下次启动或重载会自动重写规则集地址；仅允许 HTTPS。")
+                providers.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selected = value },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected == value, onClick = { selected = value })
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                scope.launch(Dispatchers.IO) { Settings.ruleSetProvider = selected }
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 private suspend fun createProfileContent(profile: Profile): ByteArray {
@@ -422,6 +469,21 @@ private fun ProfilePickerRow(
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("规则源提供者") },
+                            onClick = {
+                                showMenu = false
+                                showRuleSetProviders = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Cloud,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                 )

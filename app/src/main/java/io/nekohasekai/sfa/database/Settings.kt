@@ -21,6 +21,9 @@ import org.json.JSONObject
 import java.io.File
 
 object Settings {
+    const val RULE_SET_PROVIDER_TESTINGCF = "testingcf"
+    const val RULE_SET_PROVIDER_JSDELIVR = "jsdelivr"
+
     private val dbLock = Any()
 
     @Volatile
@@ -91,6 +94,8 @@ object Settings {
     var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { true }
     var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { true }
     var configNormalize by dataStore.boolean(SettingsKey.CONFIG_NORMALIZE) { true }
+    /** CDN used for official sing-geosite / sing-geoip rule-set downloads. */
+    var ruleSetProvider by dataStore.string(SettingsKey.RULE_SET_PROVIDER) { RULE_SET_PROVIDER_TESTINGCF }
     var chinaDefaultsRev by dataStore.int(SettingsKey.CHINA_DEFAULTS_REV) { 0 }
     var chainEnabled by dataStore.boolean(SettingsKey.CHAIN_ENABLED) { false }
     var chainEntryTag by dataStore.string(SettingsKey.CHAIN_ENTRY_TAG) { "" }

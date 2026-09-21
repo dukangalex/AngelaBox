@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.utils
 
 import org.json.JSONArray
 import org.json.JSONObject
+import io.nekohasekai.sfa.database.Settings
 
 /**
  * Import/startup shim for sing-box 1.11–1.13 field removals. Not a kernel
@@ -310,8 +311,7 @@ object ConfigInboundCompat {
         val trimmed = url.trim()
         val jsd = JSDELIVR.matchEntire(trimmed)
         if (jsd != null) {
-            if (jsd.groupValues[1].equals(JSDELIVR_HOST, true)) return trimmed
-            return "https://$JSDELIVR_HOST/gh/${jsd.groupValues[2]}"
+            return "$ruleSetProviderBase${jsd.groupValues[2]}"
         }
         val raw = RAW_GITHUB.matchEntire(trimmed)
         if (raw != null) {
@@ -319,7 +319,7 @@ object ConfigInboundCompat {
             val repo = raw.groupValues[2]
             val ref = raw.groupValues[3]
             val path = raw.groupValues[4]
-            return "https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path"
+            return "$ruleSetProviderBase$owner/$repo@$ref/$path"
         }
         val gh = GITHUB_RAW.matchEntire(trimmed)
         if (gh != null) {
@@ -330,7 +330,7 @@ object ConfigInboundCompat {
             if (slash > 0) {
                 val ref = rest.substring(0, slash)
                 val path = rest.substring(slash + 1)
-                return "https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path"
+                return "$ruleSetProviderBase$owner/$repo@$ref/$path"
             }
         }
         return trimmed
@@ -866,11 +866,11 @@ object ConfigInboundCompat {
         return "127.0.0.1:$port"
     }
 
-    private const val JSDELIVR_HOST = "testingcf.jsdelivr.net"
-    private const val GEOSITE_BASE =
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
-    private const val GEOIP_BASE =
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
+    private val ruleSetProviderBase: String
+        get() = when (runCatching { Settings.ruleSetProvider }.getOrDefault(Settings.RULE_SET_PROVIDER_TESTINGCF)) {
+            Settings.RULE_SET_PROVIDER_JSDELIVR -> "https://cdn.jsdelivr.net/gh/"
+            else -> "https://testingcf.jsdelivr.net/gh/"
+        }
     private val JSDELIVR =
         Regex("^https?://([^/]*jsdelivr\\.net)/gh/(.+)$")
     private val RAW_GITHUB =
@@ -918,7 +918,8 @@ object ConfigInboundCompat {
 
     internal fun officialRuleSetUrl(raw: String): String {
         val file = officialRuleSetFile(raw) ?: return ""
-        return if (file.startsWith("geoip-")) GEOIP_BASE + file else GEOSITE_BASE + file
+        val repository = if (file.startsWith("geoip-")) "SagerNet/sing-geoip@rule-set/" else "SagerNet/sing-geosite@rule-set/"
+        return ruleSetProviderBase + repository + file
     }
 
     internal fun officialRuleSetFile(raw: String): String? {

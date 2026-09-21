@@ -104,10 +104,21 @@ object ConfigNormalize {
      * Rewrite [root] in place for the current kernel. Returns Chinese notes
      * for each actual change so the dashboard can tell the user. Idempotent.
      */
-    fun apply(root: JSONObject): List<String> {
+    fun apply(root: JSONObject): List<String> = applyInternal(root).notes
+
+    /**
+     * Keep mutations separate from user-facing notes. Some compatibility
+     * migrations are intentionally silent, but must still be returned to the
+     * kernel instead of being discarded with the original content.
+     */
+    private fun applyInternal(root: JSONObject): ApplyResult {
         val notes = mutableListOf<String>()
-        fun mark(changed: Boolean, message: String) {
-            if (changed) notes += message
+        var changed = false
+        fun mark(didChange: Boolean, message: String) {
+            if (didChange) {
+                changed = true
+                notes += message
+            }
         }
         val outs = root.optJSONArray("outbounds")
         if (outs != null) {
@@ -116,36 +127,40 @@ object ConfigNormalize {
                 val o = outs.optJSONObject(i) ?: continue
                 if (ConfigCompat.sanitizeOutbound(o)) n++
             }
-            if (n > 0) notes += "已修正 $n 个节点的插件选项格式"
+            if (n > 0) {
+                changed = true
+                notes += "已修正 $n 个节点的插件选项格式"
+            }
         }
         mark(ConfigCompat.migrateLegacyDns(root), "旧版 DNS / fakeip 已转为当前内核格式")
         mark(ConfigInboundCompat.migrateLegacyInbounds(root), "入站 sniff 已转为路由动作")
         // tun.stack strip is forward-compat for 1.15. Silent: default
         // subscriptions still emit the field, and removing it is not a defect.
-        ConfigInboundCompat.stripDeprecatedTunStack(root)
+        if (ConfigInboundCompat.stripDeprecatedTunStack(root)) changed = true
         mark(ConfigInboundCompat.stripSniffOverrideDestination(root), "已去掉内核不再支持的 sniff 覆盖字段")
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
         mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
-        // Clash subscriptions can carry their rule providers in proxy-provider
-        // download fields.  Keep this in the normalizer as well as the runtime
-        // compatibility pass: a normalized config must be startable even when
-        // the later overlay is disabled or a startup retry skips scripts.
-        mark(ConfigInboundCompat.sanitizeClashDownloadUrls(root), "规则提供者地址已换成 HTTPS 镜像")
+        // Validate Clash dashboard downloads in this path as well as the
+        // runtime compatibility pass, including startup retries that skip
+        // scripts. This prevents an unsafe URL from surviving normalization.
+        mark(ConfigInboundCompat.sanitizeClashDownloadUrls(root), "面板下载地址已限制为 HTTPS")
         // 1.14 download client + hijack-dns are always-safe plumbing. Do not
         // emit notes: most valid subscriptions lack these fields, and a
         // standing「已修正」banner would be a lie when nothing was wrong.
-        ConfigInboundCompat.healDownloadClients(root)
+        if (ConfigInboundCompat.healDownloadClients(root)) changed = true
         mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
-        ConfigInboundCompat.ensureHijackDns(root)
+        if (ConfigInboundCompat.ensureHijackDns(root)) changed = true
         // Never leave externally reachable management listeners behind after
         // normalization.  This was previously only done by ConfigCompat's
         // alternate path, making the switch behave differently when enabled.
         mark(ConfigInboundCompat.bindLoopbackOnly(root), "管理入站已限制为本机访问")
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
-        return notes
+        return ApplyResult(changed, notes)
     }
+
+    private data class ApplyResult(val changed: Boolean, val notes: List<String>)
 
     fun heal(content: String): HealResult {
         val trimmed = content.trim()
@@ -156,8 +171,8 @@ object ConfigNormalize {
         } catch (_: Exception) {
             return HealResult(content, emptyList())
         }
-        val notes = apply(root)
-        return if (notes.isEmpty()) HealResult(content, emptyList()) else HealResult(root.toString(), notes)
+        val result = applyInternal(root)
+        return if (!result.changed) HealResult(content, emptyList()) else HealResult(root.toString(), result.notes)
     }
 
     fun healString(content: String): String = heal(content).content

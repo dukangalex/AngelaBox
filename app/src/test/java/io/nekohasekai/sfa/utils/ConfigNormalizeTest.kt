@@ -128,7 +128,7 @@ class ConfigNormalizeTest {
     }
 
     @Test
-    fun applyNormalizesProviderDownloadsAndBindsManagementToLoopback() {
+    fun applyNormalizesDashboardDownloadAndBindsManagementToLoopback() {
         val root = JSONObject(
             """
             {
@@ -144,7 +144,7 @@ class ConfigNormalizeTest {
 
         val notes = ConfigNormalize.apply(root)
 
-        assertTrue(notes.any { it.contains("规则提供者") })
+        assertTrue(notes.any { it.contains("面板下载") })
         assertTrue(notes.any { it.contains("本机访问") })
         val clash = root.getJSONObject("experimental").getJSONObject("clash_api")
         assertEquals("127.0.0.1:9090", clash.getString("external_controller"))
@@ -158,6 +158,16 @@ class ConfigNormalizeTest {
         val healed = ConfigNormalize.heal("{not json")
         assertEquals("{not json", healed.content)
         assertTrue(healed.notes.isEmpty())
+    }
+
+    @Test
+    fun healReturnsSilentCompatibilityMigrations() {
+        val healed = ConfigNormalize.heal(
+            """{"inbounds":[{"type":"tun","stack":"system"}]}""",
+        )
+
+        assertTrue(healed.changed.not())
+        assertFalse(JSONObject(healed.content).getJSONArray("inbounds").getJSONObject(0).has("stack"))
     }
 
     @Test

@@ -27,6 +27,7 @@ object SettingsKey {
     const val CHINA_DIRECT = "china_direct"
     const val ADS_BLOCK = "ads_block"
     const val CONFIG_NORMALIZE = "config_normalize"
+    const val RULE_SET_PROVIDER = "rule_set_provider"
     const val CHINA_DEFAULTS_REV = "china_defaults_rev"
     const val CHAIN_ENABLED = "chain_enabled"
     const val CHAIN_ENTRY_TAG = "chain_entry_tag"

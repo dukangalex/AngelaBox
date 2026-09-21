@@ -31,6 +31,8 @@ def main() -> int:
         errors.append("ensureHijackDns must not create a standing 已修正 banner on valid configs")
     if "sanitizeClashDownloadUrls" not in normalize or "bindLoopbackOnly" not in normalize:
         errors.append("ConfigNormalize must include provider URL and management-listener compatibility fixes")
+    if "private fun applyInternal" not in normalize or "return if (!result.changed)" not in normalize:
+        errors.append("ConfigNormalize must retain silent compatibility migrations instead of returning original content")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
     if "Settings.configNormalize" not in override:
