@@ -134,7 +134,7 @@ git merge upstream/dev
 
 ## 发版
 
-1. 改 `version.properties`（`VERSION_NAME` 与 tag 一致，`VERSION_CODE` 必须递增）。
+1. 改 `version.properties`（`VERSION_NAME` 与 tag 去掉前导 `v` 后一致，`VERSION_CODE` 必须递增）。发布工作流会校验输入的 `version_tag` 精确等于 `v$VERSION_NAME`，不匹配会在构建前拒绝发布。
 2. Actions → **AngelaBox Release** → `version_tag=vX.Y.Z`。
 3. 用户安装 `AngelaBox-android.apk`，并用 `AngelaBox-android.apk.sha256` 校验。
 4. 发版前对照上游 `scripts/upstream_strings/`：简体用词与官方一致，仅保留 AngelaBox 新增条目。
