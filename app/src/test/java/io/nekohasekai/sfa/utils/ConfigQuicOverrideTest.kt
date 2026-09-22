@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.utils
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,6 +99,53 @@ class ConfigQuicOverrideTest {
         )
         ConfigQuicOverride.applyOnDemand(root, true)
         assertTrue(!root.getJSONArray("outbounds").getJSONObject(0).has("on_demand"))
+    }
+
+    @Test
+    fun ensureTunRewritesBadInterfaceAndDropsMixed() {
+        val root = JSONObject().put(
+            "inbounds",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("type", "tun")
+                        .put("tag", "tun-in")
+                        .put("inet6_address", "fdfe:dcba:9876::1/126")
+                        .put("stack", "gvisor")
+                        .put("mtu", 9000)
+                        .put("auto_route", false),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "mixed")
+                        .put("tag", "mixed-in")
+                        .put("listen", "127.0.0.1")
+                        .put("listen_port", 17890),
+                ),
+        )
+        ConfigInboundCompat.ensureAndroidTun(root)
+        val inbounds = root.getJSONArray("inbounds")
+        assertEquals(1, inbounds.length())
+        val tun = inbounds.getJSONObject(0)
+        assertEquals("tun", tun.getString("type"))
+        assertEquals("172.19.0.1/30", tun.getJSONArray("address").getString(0))
+        assertFalse(tun.has("inet6_address"))
+        assertFalse(tun.has("stack"))
+        assertEquals(1500, tun.getInt("mtu"))
+        assertTrue(tun.getBoolean("auto_route"))
+        ConfigQuicOverride.applyStrictRoute(root)
+        assertTrue(tun.getBoolean("strict_route"))
+    }
+
+    @Test
+    fun ensureTunInsertsOneWhenMissing() {
+        val root = JSONObject()
+        ConfigInboundCompat.ensureAndroidTun(root)
+        val tun = root.getJSONArray("inbounds").getJSONObject(0)
+        assertEquals("tun-in", tun.getString("tag"))
+        assertEquals("172.19.0.1/30", tun.getJSONArray("address").getString(0))
+        ConfigQuicOverride.applyStrictRoute(root)
+        assertTrue(tun.getBoolean("strict_route"))
     }
 }
 

@@ -121,6 +121,133 @@ object ConfigInboundCompat {
     }
 
     /**
+     * Android VPN needs one TUN. Runtime only: normalize a bad tun (the
+     * kernel returns invalid argument for inet6 / stack / huge MTU) and
+     * drop loopback mixed so 127.0.0.1:17890 is not bound twice.
+     */
+    internal fun ensureAndroidTun(root: JSONObject): Boolean {
+        val inbounds = root.optJSONArray("inbounds") ?: JSONArray().also { root.put("inbounds", it) }
+        var changed = false
+        var keptTun = false
+        val keep = JSONArray()
+        val usedTags = linkedSetOf<String>()
+        for (i in 0 until inbounds.length()) {
+            val ib = inbounds.optJSONObject(i) ?: continue
+            val type = ib.optString("type").trim().lowercase()
+            if (type == "mixed" && isLoopbackListen(ib)) {
+                changed = true
+                continue
+            }
+            if (type == "tun") {
+                if (keptTun) {
+                    changed = true
+                    continue
+                }
+                if (normalizeTun(ib)) changed = true
+                keptTun = true
+            }
+            val tag = ib.optString("tag").trim()
+            if (tag.isNotEmpty()) usedTags += tag
+            keep.put(ib)
+        }
+        if (!keptTun) {
+            var tag = "tun-in"
+            if (tag in usedTags) {
+                var n = 2
+                while ("tun-in-$n" in usedTags) n++
+                tag = "tun-in-$n"
+            }
+            keep.put(
+                JSONObject()
+                    .put("type", "tun")
+                    .put("tag", tag)
+                    .put("address", JSONArray().put(TUN_ADDRESS))
+                    .put("auto_route", true)
+                    .put("mtu", 1500),
+            )
+            changed = true
+        }
+        if (changed) {
+            while (inbounds.length() > 0) inbounds.remove(0)
+            for (i in 0 until keep.length()) inbounds.put(keep.get(i))
+        }
+        return changed
+    }
+
+    private fun isLoopbackListen(ib: JSONObject): Boolean {
+        if (ib.optInt("listen_port") == 17890) return true
+        val listen = ib.optString("listen").trim().lowercase()
+        return listen.isEmpty() || listen == "127.0.0.1" || listen == "localhost" ||
+            listen == "::1" || listen == "[::1]" || listen == "0.0.0.0"
+    }
+
+    private fun normalizeTun(ib: JSONObject): Boolean {
+        var changed = false
+        for (key in listOf("stack", "gso", "inet6_address", "inet4_address", "endpoint_independent_nat")) {
+            if (ib.has(key)) {
+                ib.remove(key)
+                changed = true
+            }
+        }
+        val v4 = v4Cidrs(ib.opt("address"))
+        val wanted = if (v4.isEmpty()) JSONArray().put(TUN_ADDRESS) else {
+            val arr = JSONArray()
+            v4.forEach { arr.put(it) }
+            arr
+        }
+        if (!sameStringArray(ib.opt("address"), wanted)) {
+            ib.put("address", wanted)
+            changed = true
+        }
+        val mtu = when (val raw = ib.opt("mtu")) {
+            is Number -> raw.toInt()
+            is String -> raw.toIntOrNull() ?: 0
+            else -> 0
+        }
+        if (ib.has("mtu") && (mtu < 1280 || mtu > 2000)) {
+            ib.put("mtu", 1500)
+            changed = true
+        }
+        if (!ib.optBoolean("auto_route")) {
+            ib.put("auto_route", true)
+            changed = true
+        }
+        return changed
+    }
+
+    private fun v4Cidrs(raw: Any?): List<String> {
+        val values = when (raw) {
+            is JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+            is String -> listOf(raw)
+            else -> emptyList()
+        }
+        return values.map { it.trim() }.filter { isV4Cidr(it) }
+    }
+
+    private fun isV4Cidr(text: String): Boolean {
+        val slash = text.indexOf('/')
+        if (slash <= 0) return false
+        val prefix = text.substring(slash + 1).toIntOrNull() ?: return false
+        if (prefix !in 8..30) return false
+        val parts = text.substring(0, slash).split('.')
+        if (parts.size != 4) return false
+        return parts.all { part ->
+            val n = part.toIntOrNull() ?: return@all false
+            n in 0..255 && part == n.toString()
+        }
+    }
+
+    private fun sameStringArray(raw: Any?, wanted: JSONArray): Boolean {
+        if (raw !is JSONArray || raw.length() != wanted.length()) return false
+        for (i in 0 until wanted.length()) {
+            if (raw.optString(i) != wanted.optString(i)) return false
+        }
+        return true
+    }
+
+    private const val TUN_ADDRESS = "172.19.0.1/30"
+
+    /**
      * sing-box 1.14 sniff action has no `override_destination`. Scripts and
      * older overlays still emit it; strip so libbox can decode.
      */

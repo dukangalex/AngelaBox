@@ -102,4 +102,24 @@ class ConfigDiagnoseTest {
         assertTrue(ConfigDiagnose.looksLikeScriptFault("decode config: unmarshal tcp_keep_alive"))
         assertFalse(ConfigDiagnose.looksLikeScriptFault("initialize rule-set geosite-cn: HTTP 404"))
     }
+
+    @Test
+    fun decodeDoesNotBlameKeepAliveUnlessNamed() {
+        val text = ConfigDiagnose.explain(
+            "decode config: outbounds[0].transport: unknown transport type: xhttp",
+            scriptsBound = true,
+        )
+        assertTrue(text.contains("xhttp"))
+        assertFalse(text.contains("tcp_keep_alive"))
+    }
+
+    @Test
+    fun yamlCharacterIsNotAGenericDecode() {
+        val text = ConfigDiagnose.explain(
+            "decode config: invalid character 'p' looking for beginning of value",
+            scriptsBound = false,
+        )
+        assertTrue(text.contains("Clash"))
+        assertFalse(text.contains("tcp_keep_alive"))
+    }
 }

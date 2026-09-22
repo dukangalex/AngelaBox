@@ -37,6 +37,9 @@ object ConfigCompat {
 
     fun sanitize(content: String): String {
         val ingested = ConfigIngest.adapt(content)
+        if (!ingested.fatal.isNullOrBlank()) {
+            throw IllegalArgumentException(ingested.fatal)
+        }
         val trimmed = ingested.content.trim()
         if (trimmed.isEmpty() || trimmed[0] != '{') return ingested.content
         if (trimmed.length > MAX_CONFIG_CHARS) return ingested.content
@@ -46,6 +49,9 @@ object ConfigCompat {
             return ingested.content
         }
         var changed = false
+        if (stripClashResidue(root)) changed = true
+        if (dropUnsupportedLeaves(root)) changed = true
+        if (coerceTcpKeepAlive(root)) changed = true
         val outs = root.optJSONArray("outbounds")
         if (outs != null) {
             for (i in 0 until outs.length()) {
@@ -60,18 +66,7 @@ object ConfigCompat {
     }
 
     fun sanitizeOutbound(o: JSONObject): Boolean {
-        var changed = false
-        when (val keepAlive = o.opt("tcp_keep_alive")) {
-            is Boolean -> {
-                if (keepAlive) {
-                    o.put("tcp_keep_alive", "60s")
-                } else {
-                    o.remove("tcp_keep_alive")
-                    o.put("disable_tcp_keep_alive", true)
-                }
-                changed = true
-            }
-        }
+        var changed = coerceKeepAliveField(o)
         if (o.has("plugin-opts") && !o.has("plugin_opts")) {
             o.put("plugin_opts", o.get("plugin-opts"))
             o.remove("plugin-opts")
@@ -87,6 +82,157 @@ object ConfigCompat {
         o.remove("plugin_opts")
         return true
     }
+
+    internal fun coerceTcpKeepAlive(node: Any?): Boolean {
+        var changed = false
+        when (node) {
+            is JSONObject -> {
+                if (coerceKeepAliveField(node)) changed = true
+                val names = node.names() ?: return changed
+                for (i in 0 until names.length()) {
+                    if (coerceTcpKeepAlive(node.opt(names.optString(i)))) changed = true
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    if (coerceTcpKeepAlive(node.opt(i))) changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+    private fun coerceKeepAliveField(o: JSONObject): Boolean {
+        when (val keepAlive = o.opt("tcp_keep_alive")) {
+            is Boolean -> {
+                if (keepAlive) {
+                    o.put("tcp_keep_alive", "60s")
+                } else {
+                    o.remove("tcp_keep_alive")
+                    o.put("disable_tcp_keep_alive", true)
+                }
+                return true
+            }
+            is String -> {
+                when (keepAlive.trim().lowercase()) {
+                    "true" -> {
+                        o.put("tcp_keep_alive", "60s")
+                        return true
+                    }
+                    "false" -> {
+                        o.remove("tcp_keep_alive")
+                        o.put("disable_tcp_keep_alive", true)
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    internal fun stripClashResidue(root: JSONObject): Boolean {
+        var changed = false
+        for (key in CLASH_DOC_KEYS) {
+            if (root.has(key)) {
+                root.remove(key)
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /**
+     * xhttp / MASQUE are not in this kernel. Drop those leaves. If nothing
+     * usable remains, fail closed instead of leaving a direct-only config.
+     */
+    internal fun dropUnsupportedLeaves(root: JSONObject): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        val dropped = linkedSetOf<String>()
+        val keep = JSONArray()
+        var changed = false
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (isUnsupportedLeaf(o)) {
+                val tag = o.optString("tag").trim()
+                if (tag.isNotEmpty()) dropped += tag
+                changed = true
+                continue
+            }
+            keep.put(o)
+        }
+        if (!changed) return false
+        while (outs.length() > 0) outs.remove(0)
+        for (i in 0 until keep.length()) outs.put(keep.get(i))
+        val tags = linkedSetOf<String>()
+        for (i in 0 until outs.length()) {
+            val tag = outs.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags += tag
+        }
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val members = o.optJSONArray("outbounds") ?: continue
+            val next = JSONArray()
+            for (j in 0 until members.length()) {
+                val item = members.opt(j)
+                val tag = when (item) {
+                    is String -> item.trim()
+                    is JSONObject -> item.optString("tag").trim()
+                    else -> ""
+                }
+                if (tag.isEmpty() || tag in tags) next.put(members.get(j))
+            }
+            o.put("outbounds", next)
+        }
+        if (dropped.isNotEmpty() && !hasUsableLeaf(root)) {
+            throw IllegalArgumentException(
+                "当前内核还不支持这份配置里的 xhttp / MASQUE。没有改成直连。",
+            )
+        }
+        return true
+    }
+
+    private fun isUnsupportedLeaf(o: JSONObject): Boolean {
+        val type = o.optString("type").trim().lowercase()
+        if (type == "masque" || type == "masque-client" || type == "xhttp") return true
+        val transport = o.optJSONObject("transport")?.optString("type")?.trim()?.lowercase().orEmpty()
+        return transport == "xhttp" || transport == "splithttp"
+    }
+
+    private fun hasUsableLeaf(root: JSONObject): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val type = o.optString("type").trim().lowercase()
+            if (type.isEmpty()) continue
+            if (type in GROUP_OR_DIRECT) continue
+            if (isUnsupportedLeaf(o)) continue
+            return true
+        }
+        return false
+    }
+
+    private val CLASH_DOC_KEYS = arrayOf(
+        "mixed-port",
+        "socks-port",
+        "redir-port",
+        "tproxy-port",
+        "allow-lan",
+        "bind-address",
+        "proxies",
+        "proxy-groups",
+        "proxy-providers",
+        "rule-providers",
+        "external-controller",
+        "external-ui",
+        "cfw-bypass",
+        "cfw-latency-timeout",
+        "log-level",
+    )
+
+    private val GROUP_OR_DIRECT = setOf(
+        "selector", "urltest", "url-test", "load-balance", "fallback",
+        "direct", "block", "dns", "relay", "chain",
+    )
 
     /**
      * Convert `dns.fakeip` + `servers[].address` to sing-box 1.12 typed

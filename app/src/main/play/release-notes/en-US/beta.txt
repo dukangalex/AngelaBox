@@ -1,1 +1,1 @@
-Import Clash YAML and V2Ray node lists as well as sing-box JSON. The live graph splits DIRECT from proxy. Settings now has docs and source links.
+Clash JSON, httpupgrade, and node ECH now import. xhttp and MASQUE are skipped instead of failing open. Missing TUN is filled in at runtime. The default script uses UDP DNS so it is no longer about twice as slow.

@@ -877,10 +877,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 15" not in sample:
-        errors.append("default script must stamp overlay-revision: 15 so stale copies refresh")
+    if "overlay-revision: 16" not in sample:
+        errors.append("default script must stamp overlay-revision: 16 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 15"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 16"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
@@ -896,6 +896,14 @@ def main() -> int:
         errors.append("tcp_keep_alive must be a duration string, not a boolean")
     if 'tcp_keep_alive = "60s"' not in sample:
         errors.append("default script must set tcp_keep_alive to 60s")
+    if 'tag: "tun-in"' not in sample:
+        errors.append("default script must create tun-in so device traffic has an inbound")
+    if "17890" in sample:
+        errors.append("default script must not bind loopback mixed 17890")
+    if 'type: "https"' in sample:
+        errors.append("default script DNS must be udp, not DoH")
+    if 'type: "udp"' not in sample:
+        errors.append("default script DNS must use udp")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
     if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
@@ -1247,8 +1255,8 @@ def main() -> int:
         errors.append("default script must include dual-stack IPv6 DNS hosts")
     if "ipv4_only" not in sample or "prefer_ipv4" not in sample:
         errors.append("default script must switch DNS strategy by overlay.disableIpv6")
-    if "fdfe:dcba:9876::1/126" not in sample:
-        errors.append("default script must assign TUN inet6_address when IPv6 is enabled")
+    if "fdfe:dcba:9876::1/126" in sample:
+        errors.append("default script must not assign TUN inet6_address; Android returns invalid argument")
     if "var overlay =" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
         errors.append("script engine must inject overlay switches as a JS global")
     if "GET_ACTIVITIES" in perapp or "GET_SERVICES" in perapp:

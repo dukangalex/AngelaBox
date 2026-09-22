@@ -1,13 +1,15 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 15
+ * overlay-revision: 16
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
- * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
+ * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持。
+ * DNS 用 UDP（8.8.8.8 走代理，223.5.5.5 走直连），不用 DoH，避免多一轮 TLS。
+ * 手机流量走 TUN（172.19.0.1/30），不额外绑定本机 mixed 端口。
  * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini/AI Studio）。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
- * urltest 对齐常见 Clash 习惯：10 分钟测一次、空闲 30 分钟停测、
+ * urltest 对齐常见习惯：10 分钟测一次、空闲 30 分钟停测、
  * 不打断已有连接；负载均衡测地区组而不是每个节点。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
  */
@@ -912,51 +914,82 @@ function main(config) {
   }
 
   var inbounds = ensureArray(config, "inbounds");
-  var hasMixed = false;
+  var hasTun = false;
+  function isV4Cidr(s) {
+    var text = "" + s;
+    var slash = text.indexOf("/");
+    if (slash <= 0) return false;
+    var prefix = parseInt(text.substring(slash + 1), 10);
+    if (!(prefix >= 8 && prefix <= 30)) return false;
+    var parts = text.substring(0, slash).split(".");
+    if (parts.length !== 4) return false;
+    for (var pi = 0; pi < 4; pi++) {
+      if (parts[pi] === "" || isNaN(parts[pi])) return false;
+      var n = parseInt(parts[pi], 10);
+      if (n < 0 || n > 255) return false;
+      if (("" + n) !== parts[pi]) return false;
+    }
+    return true;
+  }
+  var keptInbounds = [];
   for (var ib = 0; ib < inbounds.length; ib++) {
     var inbound = inbounds[ib];
     var ity = typeOf(inbound);
-    if (ity === "tun" || ity === "mixed" || ity === "socks" || ity === "http" || ity === "redirect" || ity === "tproxy") {
+    if (ity === "mixed") continue;
+    if (ity === "tun" || ity === "socks" || ity === "http" || ity === "redirect" || ity === "tproxy") {
       inbound.sniff = true;
     }
     if (ity === "tun") {
+      if (hasTun) continue;
+      hasTun = true;
+      inbound.auto_route = true;
       if (strictRoute) inbound.strict_route = true;
-      if (disableIpv6) {
-        if (inbound.inet6_address) delete inbound.inet6_address;
-      } else if (!inbound.inet6_address) {
-        inbound.inet6_address = "fdfe:dcba:9876::1/126";
+      if (inbound.stack) delete inbound.stack;
+      if (inbound.gso) delete inbound.gso;
+      if (inbound.inet6_address) delete inbound.inet6_address;
+      var addr = inbound.address;
+      var v4 = [];
+      if (Object.prototype.toString.call(addr) === "[object Array]") {
+        for (var ai = 0; ai < addr.length; ai++) {
+          if (isV4Cidr(addr[ai])) v4.push("" + addr[ai]);
+        }
+      } else if (isV4Cidr(addr)) {
+        v4.push("" + addr);
       }
+      inbound.address = v4.length ? v4 : ["172.19.0.1/30"];
+      if (inbound.mtu && (inbound.mtu < 1280 || inbound.mtu > 2000)) inbound.mtu = 1500;
     }
-    if (ity === "mixed") hasMixed = true;
+    keptInbounds.push(inbound);
   }
-  if (!hasMixed) {
-    inbounds.push({
-      type: "mixed",
-      tag: "mixed-in",
-      listen: "127.0.0.1",
-      listen_port: 17890,
+  if (!hasTun) {
+    var tunIn = {
+      type: "tun",
+      tag: "tun-in",
+      address: ["172.19.0.1/30"],
+      auto_route: true,
+      mtu: 1500,
       sniff: true
-    });
+    };
+    if (strictRoute) tunIn.strict_route = true;
+    keptInbounds.push(tunIn);
   }
-  config.inbounds = inbounds;
+  config.inbounds = keptInbounds;
 
   if (!config.dns || typeof config.dns !== "object") config.dns = {};
   var dns = config.dns;
   var remoteDns = {
-    type: "https",
+    type: "udp",
     tag: "dns-remote",
     server: "8.8.8.8",
-    server_port: 443,
-    path: "/dns-query"
+    server_port: 53
   };
   var remoteDetour = existingTag(outbounds, [pickSelect, AUTO_NAME, SELECT_NAME]);
   if (remoteDetour) remoteDns.detour = remoteDetour;
   var cnDns = {
-    type: "https",
+    type: "udp",
     tag: "dns-cn",
     server: "223.5.5.5",
-    server_port: 443,
-    path: "/dns-query",
+    server_port: 53,
     detour: directTag
   };
   dns.servers = [

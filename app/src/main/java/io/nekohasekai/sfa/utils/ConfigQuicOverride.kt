@@ -91,6 +91,11 @@ object ConfigQuicOverride {
                     hint = healed.notes.joinToString("；"),
                 )
             }
+            // Missing TUN cannot capture traffic (0 connections) and strict
+            // route has nothing to write. Insert a standard TUN at runtime
+            // only — do not turn the default script on, and do not edit the
+            // subscription file.
+            ConfigInboundCompat.ensureAndroidTun(root)
             // Script already honored overlay.* . Writing the same blocks
             // here would be a second rule set and can break routing.
             applyOne(warnings, "中国直连") {

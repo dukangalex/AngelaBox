@@ -17,6 +17,8 @@ object ConfigIngest {
         val content: String,
         val notes: List<String> = emptyList(),
         val format: Format = Format.SingBox,
+        /** Chinese reason. Do not start, and do not fall back to DIRECT. */
+        val fatal: String? = null,
     )
 
     enum class Format { SingBox, Clash, ShareLinks, Unknown }
@@ -36,7 +38,8 @@ object ConfigIngest {
             convertShareLinks(payload)?.let { return it }
         }
         if (looksLikeClash(trimmed)) {
-            convertClash(trimmed)?.let { return it }
+            return convertClash(trimmed)
+                ?: unsupported("Clash 配置无法解析，没有改成直连。")
         }
         decodeClashPayload(trimmed)?.let { yaml ->
             convertClash(yaml)?.let { return it }
@@ -65,7 +68,9 @@ object ConfigIngest {
                 wrapLeaves(arr, "已将节点列表包成可启动配置")
             } else {
                 val obj = JSONObject(raw)
-                if (obj.has("outbounds") || obj.has("inbounds") || obj.has("route") || obj.has("dns")) {
+                if (isClashDocument(obj)) {
+                    convertClashTree(jsonTree(obj) as? Map<*, *> ?: emptyMap<String, Any?>())
+                } else if (obj.has("outbounds") || obj.has("inbounds") || obj.has("route") || obj.has("dns")) {
                     Result(raw, emptyList(), Format.SingBox)
                 } else {
                     null
@@ -86,17 +91,27 @@ object ConfigIngest {
             (head.contains("\nrules:") && (head.contains("DOMAIN-SUFFIX") || head.contains("GEOIP,")))
     }
 
+    private fun isClashDocument(obj: JSONObject): Boolean {
+        if (obj.has("proxies") || obj.has("proxy-groups") || obj.has("proxy-providers")) return true
+        return obj.has("mixed-port") && !obj.has("outbounds")
+    }
+
     private fun convertClash(text: String): Result? {
         val tree = MiniYaml.parse(text) as? Map<*, *> ?: return null
+        return convertClashTree(tree)
+    }
+
+    private fun convertClashTree(tree: Map<*, *>): Result {
         val proxies = asMapList(tree["proxies"])
         val groups = asMapList(tree["proxy-groups"] ?: tree["proxy_groups"])
         val rules = asStringList(tree["rules"])
         val notes = mutableListOf<String>()
         val outbounds = JSONArray()
         val tags = LinkedHashSet<String>()
+        val skips = SkipBag()
         var skipped = 0
         for (proxy in proxies) {
-            val converted = convertClashProxy(proxy)
+            val converted = convertClashProxy(proxy, skips)
             if (converted == null) {
                 skipped++
                 continue
@@ -105,7 +120,9 @@ object ConfigIngest {
             if (tag.isBlank() || !tags.add(tag)) continue
             outbounds.put(converted)
         }
-        if (tags.isEmpty()) return null
+        if (tags.isEmpty()) {
+            return unsupported(unsupportedNodeMessage(skips))
+        }
         val leafTags = tags.toList()
         ensureDirect(outbounds, tags)
         val groupTags = LinkedHashSet<String>()
@@ -145,13 +162,49 @@ object ConfigIngest {
         }
         root.put("route", route)
         notes += "已将 Clash 配置转为 sing-box，分流规则已保留"
-        if (skipped > 0) notes += "跳过 $skipped 个内核暂不支持的节点"
+        if (skipped > 0) notes += skipNote(skipped, skips)
         return Result(root.toString(), notes, Format.Clash)
     }
 
-    private fun convertClashProxy(raw: Map<*, *>): JSONObject? {
+    private class SkipBag {
+        var xhttp = 0
+        var masque = 0
+    }
+
+    private fun skipNote(skipped: Int, skips: SkipBag): String {
+        val bits = mutableListOf<String>()
+        if (skips.xhttp > 0) bits += "xhttp"
+        if (skips.masque > 0) bits += "MASQUE"
+        return if (bits.isEmpty()) {
+            "跳过 $skipped 个内核暂不支持的节点"
+        } else {
+            "跳过 $skipped 个内核暂不支持的节点（${bits.joinToString("、")}）"
+        }
+    }
+
+    private fun unsupportedNodeMessage(skips: SkipBag): String {
+        val bits = mutableListOf<String>()
+        if (skips.xhttp > 0) bits += "xhttp"
+        if (skips.masque > 0) bits += "MASQUE"
+        val named = if (bits.isEmpty()) "这些协议" else bits.joinToString("、")
+        return "没有可用节点（$named 当前内核还不支持）。没有改成直连。"
+    }
+
+    private fun unsupported(message: String): Result =
+        Result("", listOf(message), Format.Clash, message)
+
+    private fun convertClashProxy(raw: Map<*, *>, skips: SkipBag): JSONObject? {
         val name = str(raw["name"]).ifBlank { return null }
         val type = str(raw["type"]).lowercase()
+        if (type == "masque" || type == "masque-client") {
+            skips.masque++
+            return null
+        }
+        val network = str(raw["network"]).lowercase()
+        if (network == "xhttp" || network == "splithttp") {
+            skips.xhttp++
+            return null
+        }
         val server = str(raw["server"])
         val port = intVal(raw["port"]) ?: return null
         if (server.isBlank()) return null
@@ -178,7 +231,7 @@ object ConfigIngest {
                 out.put("security", security)
                 intVal(raw["alterId"] ?: raw["alter-id"])?.let { out.put("alter_id", it) }
                 putTls(out, raw)
-                putTransport(out, raw)
+                if (!putTransport(out, raw)) return null
             }
             "vless" -> {
                 out.put("type", "vless")
@@ -187,13 +240,13 @@ object ConfigIngest {
                 str(raw["packet-encoding"] ?: raw["packet_encoding"]).takeIf { it.isNotEmpty() }
                     ?.let { out.put("packet_encoding", it) }
                 putTls(out, raw)
-                putTransport(out, raw)
+                if (!putTransport(out, raw)) return null
             }
             "trojan" -> {
                 out.put("type", "trojan")
                 out.put("password", str(raw["password"]))
                 putTls(out, raw, defaultEnabled = true)
-                putTransport(out, raw)
+                if (!putTransport(out, raw)) return null
             }
             "hysteria2", "hy2" -> {
                 out.put("type", "hysteria2")
@@ -255,8 +308,10 @@ object ConfigIngest {
     }
 
     private fun putTls(out: JSONObject, raw: Map<*, *>, defaultEnabled: Boolean = false) {
+        val ech = asMap(raw["ech-opts"] ?: raw["ech_opts"])
+        val echOn = ech != null && boolVal(ech["enable"] ?: ech["enabled"]) != false
         val enabled = boolVal(raw["tls"]) ?: defaultEnabled ||
-            raw["reality-opts"] != null || raw["reality_opts"] != null
+            raw["reality-opts"] != null || raw["reality_opts"] != null || echOn
         if (!enabled) return
         val tls = JSONObject().put("enabled", true)
         val sni = str(raw["servername"] ?: raw["sni"] ?: raw["server-name"])
@@ -280,36 +335,82 @@ object ConfigIngest {
                     .put("short_id", shortId),
             )
         }
+        if (echOn && ech != null) {
+            val echObj = JSONObject().put("enabled", true)
+            putEchConfig(echObj, ech["config"])
+            str(ech["query-server-name"] ?: ech["query_server_name"]).takeIf { it.isNotEmpty() }
+                ?.let { echObj.put("query_server_name", it) }
+            tls.put("ech", echObj)
+        }
         out.put("tls", tls)
     }
 
-    private fun putTransport(out: JSONObject, raw: Map<*, *>) {
+    private fun putEchConfig(echObj: JSONObject, raw: Any?) {
+        val arr = JSONArray()
+        when (raw) {
+            is List<*> -> raw.forEach { item ->
+                val text = str(item)
+                if (text.isNotEmpty()) arr.put(text)
+            }
+            is String -> if (raw.isNotBlank()) arr.put(raw.trim())
+            else -> {
+                val text = str(raw)
+                if (text.isNotEmpty()) arr.put(text)
+            }
+        }
+        if (arr.length() > 0) echObj.put("config", arr)
+    }
+
+    /** @return false when the transport is not in this kernel (do not invent a substitute). */
+    private fun putTransport(out: JSONObject, raw: Map<*, *>): Boolean {
         val network = str(raw["network"]).lowercase()
-        if (network.isEmpty() || network == "tcp") return
-        val transport = JSONObject().put("type", network)
-        when (network) {
-            "ws" -> {
-                val opts = asMap(raw["ws-opts"] ?: raw["ws_opts"]) ?: emptyMap<String, Any?>()
-                str(opts["path"] ?: raw["ws-path"]).takeIf { it.isNotEmpty() }
-                    ?.let { transport.put("path", it) }
-                val headers = asMap(opts["headers"])
-                val host = str(headers?.get("Host") ?: headers?.get("host") ?: raw["ws-headers"])
-                if (host.isNotEmpty()) {
-                    transport.put("headers", JSONObject().put("Host", host))
-                }
+        if (network.isEmpty() || network == "tcp" || network == "raw") return true
+        val type = when (network) {
+            "ws" -> "ws"
+            "grpc" -> "grpc"
+            "http", "h2" -> "http"
+            "httpupgrade" -> "httpupgrade"
+            "quic" -> "quic"
+            else -> return false
+        }
+        val transport = JSONObject().put("type", type)
+        when (type) {
+            "ws" -> fillWsLike(transport, asMap(raw["ws-opts"] ?: raw["ws_opts"]), raw["ws-path"], raw["ws-headers"])
+            "httpupgrade" -> {
+                val opts = asMap(raw["httpupgrade-opts"] ?: raw["httpupgrade_opts"] ?: raw["http-opts"] ?: raw["http_opts"])
+                str(opts?.get("path") ?: raw["path"]).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+                val host = str(opts?.get("host") ?: raw["host"])
+                if (host.isNotEmpty()) transport.put("host", host)
             }
             "grpc" -> {
                 val opts = asMap(raw["grpc-opts"] ?: raw["grpc_opts"]) ?: emptyMap<Any?, Any?>()
-                str(opts["grpc-service-name"] ?: opts["service_name"])
+                str(opts["grpc-service-name"] ?: opts["service_name"] ?: opts["serviceName"])
                     .takeIf { it.isNotEmpty() }?.let { transport.put("service_name", it) }
             }
-            "http", "h2" -> {
-                transport.put("type", if (network == "h2") "http" else "http")
+            "http" -> {
                 val opts = asMap(raw["h2-opts"] ?: raw["http-opts"] ?: raw["http_opts"])
                 str(opts?.get("path")).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+                val host = opts?.get("host")
+                when (host) {
+                    is List<*> -> str(host.firstOrNull()).takeIf { it.isNotEmpty() }
+                        ?.let { transport.put("host", JSONArray().put(it)) }
+                    else -> str(host).takeIf { it.isNotEmpty() }
+                        ?.let { transport.put("host", JSONArray().put(it)) }
+                }
             }
         }
         out.put("transport", transport)
+        return true
+    }
+
+    private fun fillWsLike(transport: JSONObject, opts: Map<*, *>?, path: Any?, hostFallback: Any?) {
+        val map = opts ?: emptyMap<String, Any?>()
+        str(map["path"] ?: path).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+        val headers = asMap(map["headers"])
+        val host = str(headers?.get("Host") ?: headers?.get("host") ?: map["host"] ?: hostFallback)
+        if (host.isNotEmpty()) {
+            transport.put("headers", JSONObject().put("Host", host))
+        }
     }
 
     private fun convertClashGroup(raw: Map<*, *>, known: Set<String>): JSONObject? {
@@ -508,14 +609,22 @@ object ConfigIngest {
             out.put("tls", tls)
         }
         val net = obj.optString("net").lowercase()
+        if (net == "xhttp" || net == "splithttp") return null
         if (net.isNotEmpty() && net != "tcp") {
-            val transport = JSONObject().put("type", net)
-            obj.optString("path").takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+            val mapped = when (net) {
+                "ws" -> "ws"
+                "grpc" -> "grpc"
+                "http", "h2" -> "http"
+                "httpupgrade" -> "httpupgrade"
+                "quic" -> "quic"
+                else -> return null
+            }
+            val transport = JSONObject().put("type", mapped)
+            obj.optString("path").takeIf { it.isNotEmpty() }?.let {
+                if (mapped == "grpc") transport.put("service_name", it) else transport.put("path", it)
+            }
             obj.optString("host").takeIf { it.isNotEmpty() }
                 ?.let { transport.put("headers", JSONObject().put("Host", it)) }
-            if (net == "grpc") {
-                obj.optString("path").takeIf { it.isNotEmpty() }?.let { transport.put("service_name", it) }
-            }
             out.put("transport", transport)
         }
         return out
@@ -528,7 +637,7 @@ object ConfigIngest {
         query["flow"]?.let { out.put("flow", it) }
         query["packetEncoding"]?.let { out.put("packet_encoding", it) }
         putQueryTls(out, query, host, defaultOn = query["security"].equals("tls", true) || query["security"].equals("reality", true))
-        putQueryTransport(out, query)
+        if (!putQueryTransport(out, query)) return@parseUserHostQuery false
         if (query["security"].equals("reality", true)) {
             val tls = out.optJSONObject("tls") ?: JSONObject().put("enabled", true).also { out.put("tls", it) }
             tls.put(
@@ -542,6 +651,7 @@ object ConfigIngest {
                 tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp))
             }
         }
+        true
     }
 
     private fun parseTrojan(body: String): JSONObject? = parseUserHostQuery(body, "trojan") { out, query, host ->
@@ -556,6 +666,7 @@ object ConfigIngest {
         query["obfs-password"]?.let { pwd ->
             out.put("obfs", JSONObject().put("type", "salamander").put("password", pwd))
         }
+        true
     }
 
     private fun parseTuic(body: String): JSONObject? = parseUserHostQuery(body, "tuic") { out, query, host ->
@@ -566,6 +677,7 @@ object ConfigIngest {
         if (password.isNotEmpty()) out.put("password", password)
         putQueryTls(out, query, host, defaultOn = true)
         query["congestion_control"]?.let { out.put("congestion_control", it) }
+        true
     }
 
     private fun parseUserHost(body: String, type: String): JSONObject? {
@@ -590,7 +702,7 @@ object ConfigIngest {
     private fun parseUserHostQuery(
         body: String,
         type: String,
-        fill: (JSONObject, Map<String, String>, String) -> Unit,
+        fill: (JSONObject, Map<String, String>, String) -> Boolean,
     ): JSONObject? {
         val (main, fragment) = splitFragment(body)
         val hostPortQuery = main.substringAfter('@', "")
@@ -604,7 +716,7 @@ object ConfigIngest {
             .put("tag", urlDecode(fragment).ifBlank { host })
             .put("server", host)
             .put("server_port", port)
-        fill(out, query, host)
+        if (!fill(out, query, host)) return null
         return out
     }
 
@@ -617,18 +729,33 @@ object ConfigIngest {
         if (sni.isNotEmpty()) tls.put("server_name", sni)
         if (query["allowInsecure"] == "1" || query["insecure"] == "1") tls.put("insecure", true)
         query["fp"]?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
+        val ech = query["ech"]?.trim().orEmpty()
+        if (ech.isNotEmpty()) {
+            val echObj = JSONObject().put("enabled", true)
+            putEchConfig(echObj, ech)
+            tls.put("ech", echObj)
+        }
         out.put("tls", tls)
     }
 
-    private fun putQueryTransport(out: JSONObject, query: Map<String, String>) {
-        val type = (query["type"] ?: query["network"]).orEmpty().lowercase()
-        if (type.isEmpty() || type == "tcp") return
+    private fun putQueryTransport(out: JSONObject, query: Map<String, String>): Boolean {
+        val rawType = (query["type"] ?: query["network"]).orEmpty().lowercase()
+        if (rawType.isEmpty() || rawType == "tcp" || rawType == "raw") return true
+        val type = when (rawType) {
+            "ws" -> "ws"
+            "grpc" -> "grpc"
+            "http", "h2" -> "http"
+            "httpupgrade" -> "httpupgrade"
+            "quic" -> "quic"
+            else -> return false
+        }
         val transport = JSONObject().put("type", type)
         (query["path"] ?: query["serviceName"])?.let { value ->
             if (type == "grpc") transport.put("service_name", value) else transport.put("path", value)
         }
         query["host"]?.let { transport.put("headers", JSONObject().put("Host", it)) }
         out.put("transport", transport)
+        return true
     }
 
     private fun wrapLeaves(arr: JSONArray, note: String): Result {
@@ -805,6 +932,21 @@ object ConfigIngest {
     private fun asStringList(value: Any?): List<String> {
         val list = value as? List<*> ?: return emptyList()
         return list.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+    }
+
+    private fun jsonTree(value: Any?): Any? = when (value) {
+        null, JSONObject.NULL -> null
+        is JSONObject -> {
+            val map = LinkedHashMap<String, Any?>()
+            val keys = value.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                map[key] = jsonTree(value.opt(key))
+            }
+            map
+        }
+        is JSONArray -> (0 until value.length()).map { jsonTree(value.opt(it)) }
+        else -> value
     }
 
     private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|socks5?|http)://")

@@ -50,12 +50,38 @@ object ConfigDiagnose {
             looksLike(text, "legacy DNS fakeip") || looksLike(text, "legacy inbound") -> {
                 "订阅还在用旧版写法。应用会按官方 1.14 语法修正后再试。"
             }
+            looksLike(text, "unknown transport type") &&
+                (looksLike(text, "xhttp") || looksLike(text, "splithttp")) -> {
+                "当前内核还不支持 xhttp。这种节点会跳过；如果整份都是 xhttp，不会改成直连。节点自带的 ECH 会保留在能用的节点上。"
+            }
+            looksLike(text, "masque") -> {
+                "当前内核还不支持 MASQUE。这种节点会跳过，不会改成直连。"
+            }
             looksLike(text, "unknown transport type") -> {
-                "DNS 用了内核不再支持的类型。应用会改成官方 predefined 规则后再试。"
+                if (looksLike(text, "rcode") || looksLike(text, "predefined")) {
+                    "DNS 用了内核不再支持的类型。应用会改成官方 predefined 规则后再试。"
+                } else {
+                    "节点用了当前内核不认识的传输。xhttp 和 MASQUE 还不能用，没有改成直连。"
+                }
+            }
+            looksLike(text, "invalid character") && looksLike(text, "'p'") -> {
+                "这还是 Clash 原文，没有转成 sing-box。请再保存一次。不会改成直连。"
+            }
+            looksLike(text, "mixed-port") -> {
+                "配置里还有 Clash 的 mixed-port。应用会转成 sing-box 再启动，不会改成直连。"
+            }
+            looksLike(text, "address already in use") -> {
+                "本机端口已被占用。应用会去掉多余的本地混合入站后再试。"
+            }
+            looksLike(text, "configure tun interface") ||
+                (looksLike(text, "tun") && looksLike(text, "invalid argument")) -> {
+                "这台手机不接受当前 TUN 参数。应用会改成 172.19.0.1/30，并去掉 IPv6 和旧字段后再试。"
             }
             looksLike(text, "decode config") || looksLike(text, "unmarshal") -> {
-                if (scriptsBound) {
-                    "脚本写出了内核读不了的字段。tcp_keep_alive 必须是时长（例如 60s），不能写 true。绑定还在，修好后再开。"
+                if (looksLike(text, "tcp_keep_alive")) {
+                    "tcp_keep_alive 必须是时长（例如 60s），不能写 true。应用会改成 60s 后再试。"
+                } else if (scriptsBound) {
+                    "脚本写出了内核读不了的字段。绑定还在，修好后再开。"
                 } else {
                     "配置格式不符合当前官方 sing-box 语法。应用会修正除节点、分组、分流以外的字段后再试。"
                 }

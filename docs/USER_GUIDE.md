@@ -73,7 +73,7 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 禁用 QUIC | 拦截 UDP 443 |
 | 排除国内 QUIC | 国内域名 UDP 443 走 direct，其余仍拦 |
 
-官方 sing-box 客户端并不对订阅节点自带的 ECH 做额外处理。AngelaBox 同样不提供 ECH 开关，节点里若写了 `tls.ech` 会原样交给内核，不会改写也不会强开。
+官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。xhttp 和 MASQUE 当前内核还不支持，这类节点会跳过；如果整份都是这两种，不会改成直连。
 
 内核日志等级默认 **info**。
 

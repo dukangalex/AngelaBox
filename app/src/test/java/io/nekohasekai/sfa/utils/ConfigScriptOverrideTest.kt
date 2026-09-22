@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.utils
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -60,13 +61,18 @@ class ConfigScriptOverrideTest {
         assertTrue(tags.contains("🛡️ 故障转移"))
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
-        assertEquals("https", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
+        assertEquals("udp", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
             (0 until servers.length()).map { servers.getJSONObject(it) }
                 .first { it.optString("tag") == "dns-remote" }
                 .getString("type")
         })
-        val mixed = out.getJSONArray("inbounds")
-        assertTrue((0 until mixed.length()).any { mixed.getJSONObject(it).optString("type") == "mixed" })
+        val inbounds = out.getJSONArray("inbounds")
+        val tun = (0 until inbounds.length()).map { inbounds.getJSONObject(it) }
+            .first { it.optString("type") == "tun" }
+        assertEquals("tun-in", tun.optString("tag"))
+        assertEquals(true, tun.optBoolean("auto_route"))
+        assertFalse(tun.has("inet6_address"))
+        assertFalse((0 until inbounds.length()).any { inbounds.getJSONObject(it).optString("type") == "mixed" })
         val remote = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
             (0 until servers.length()).map { servers.getJSONObject(it) }
                 .first { it.optString("tag") == "dns-remote" }
