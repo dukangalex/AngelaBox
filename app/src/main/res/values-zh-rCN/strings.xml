@@ -188,6 +188,7 @@
     <string name="core_version_title">核心版本</string>
     <string name="core_data_size">数据大小</string>
     <string name="about">关于</string>
+    <string name="documentation">文档</string>
     <string name="source_code">源代码</string>
     <string name="sponsor">赞助</string>
     <string name="working_directory">工作目录</string>

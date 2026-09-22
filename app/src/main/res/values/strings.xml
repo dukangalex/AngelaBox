@@ -209,6 +209,7 @@
     <string name="core_version_title">Core Version</string>
     <string name="core_data_size">Data Size</string>
     <string name="about">About</string>
+    <string name="documentation">Documentation</string>
     <string name="source_code">Source Code</string>
     <string name="sponsor">Sponsor</string>
     <string name="working_directory">Working Directory</string>

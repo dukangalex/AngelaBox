@@ -36,13 +36,14 @@ object ConfigCompat {
     const val MAX_CONFIG_CHARS = 8 * 1024 * 1024
 
     fun sanitize(content: String): String {
-        val trimmed = content.trim()
-        if (trimmed.isEmpty() || trimmed[0] != '{') return content
-        if (trimmed.length > MAX_CONFIG_CHARS) return content
+        val ingested = ConfigIngest.adapt(content)
+        val trimmed = ingested.content.trim()
+        if (trimmed.isEmpty() || trimmed[0] != '{') return ingested.content
+        if (trimmed.length > MAX_CONFIG_CHARS) return ingested.content
         val root = try {
             JSONObject(trimmed)
         } catch (_: Exception) {
-            return content
+            return ingested.content
         }
         var changed = false
         val outs = root.optJSONArray("outbounds")
@@ -55,7 +56,7 @@ object ConfigCompat {
         if (migrateLegacyDns(root)) changed = true
         if (ConfigInboundCompat.apply(root)) changed = true
         if (stripBrokenDnsDetours(root)) changed = true
-        return if (changed) root.toString() else content
+        return if (changed) root.toString() else ingested.content
     }
 
     fun sanitizeOutbound(o: JSONObject): Boolean {

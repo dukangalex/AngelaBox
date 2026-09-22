@@ -85,14 +85,16 @@ object TrafficFlowBuilder {
         }
         samples.forEach { sample ->
             val hopTags = hopLabelsFor(sample, chained, path, hops)
-            if (chained && (hopTags.isEmpty() || hopTags.all { isDirectTag(it) })) {
-                return@forEach
-            }
+            if (hopTags.isEmpty()) return@forEach
             val src = idOf(0, prettySource(sample.source))
             val rule = idOf(1, prettyRule(sample.rule))
             val hopIds = hopTags.mapIndexed { index, tag ->
-                val col = if (chained && hopTags.size >= 2) 2 + index else 2
-                val id = idOf(col.coerceAtMost(MAX_COLUMN), tag)
+                val col = when {
+                    hopTags.size == 1 && isDirectTag(tag) -> if (chained) MAX_COLUMN else 2
+                    chained && hopTags.size >= 2 -> (2 + index).coerceAtMost(MAX_COLUMN)
+                    else -> 2
+                }
+                val id = idOf(col, tag)
                 if (isDirectTag(tag)) directIds.add(id)
                 id
             }
@@ -129,10 +131,8 @@ object TrafficFlowBuilder {
             leaf.isNotEmpty() -> listOf(leaf)
             else -> emptyList()
         }
-        if (tags.size == 1 && isDirectTag(tags.first())) {
-            // China Direct is overlay routing. When chained it must not become
-            // a competing hop in the middle of entry → landing.
-            return if (chained) emptyList() else listOf("DIRECT")
+        if (tags.isNotEmpty() && tags.all { isDirectTag(it) }) {
+            return listOf("DIRECT")
         }
         if (chained) {
             val real = tags.filter { it.isNotEmpty() && !isDirectTag(it) }
@@ -321,7 +321,10 @@ object TrafficFlowBuilder {
         val nodes = mutableListOf<FlowNode>()
         byCol.keys.sorted().forEach { col ->
             val ranked = byCol[col].orEmpty().sortedByDescending { it.value }
-            val head = ranked.take(MAX_PER_COLUMN)
+            val direct = ranked.filter { it.key in directIds || isDirectTag(labelOf(it.key)) }
+            val proxy = ranked.filter { candidate -> direct.none { it.key == candidate.key } }
+            val keepProxy = proxy.take((MAX_PER_COLUMN - direct.size).coerceAtLeast(1))
+            val head = keepProxy + direct
             head.forEach { (id, weight) ->
                 kept.add(id)
                 val label = labelOf(id)
@@ -333,7 +336,7 @@ object TrafficFlowBuilder {
                     direct = id in directIds || isDirectTag(label),
                 )
             }
-            val rest = ranked.drop(MAX_PER_COLUMN)
+            val rest = proxy.drop(keepProxy.size)
             if (rest.isNotEmpty()) {
                 val extra = rest.sumOf { it.value }
                 val id = idOf(col, "+${rest.size}")
@@ -427,7 +430,10 @@ object TrafficFlowBuilder {
 
     internal fun isDirectTag(tag: String): Boolean {
         val t = tag.trim()
-        return t.equals("direct", ignoreCase = true) || t == "直连"
+        if (t.isEmpty()) return false
+        val key = t.removePrefix("🔰 ").replace(" ", "").lowercase()
+        if (key == "http-direct" || key.startsWith("dns-")) return false
+        return key == "direct" || key == "直连" || key == "angela-direct"
     }
 
     private fun extractAssigned(value: String): String? {

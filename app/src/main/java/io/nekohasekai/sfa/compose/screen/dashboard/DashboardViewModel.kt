@@ -820,7 +820,9 @@ class DashboardViewModel :
         var bestChain = emptyList<String>()
         var active = 0
         var flowing = false
-        val samples = ArrayList<FlowSample>(40)
+        val directSamples = ArrayList<FlowSample>(16)
+        val proxySamples = ArrayList<FlowSample>(24)
+        val seen = HashSet<String>()
         val iterator = store.iterator()
         var scanned = 0
         while (iterator.hasNext()) {
@@ -840,18 +842,28 @@ class DashboardViewModel :
             }
             val hops = runCatching { connection.chain().toList() }.getOrDefault(emptyList())
             if (hops.size > bestChain.size) bestChain = hops
-            if (samples.size < 40) {
-                samples.add(
-                    FlowSample(
-                        source = connection.source.ifBlank { connection.inbound },
-                        rule = connection.rule,
-                        outbound = connection.outbound,
-                        chain = hops,
-                        dest = dest,
-                    ),
-                )
+            val isDirect = connection.outboundType.equals("direct", true) ||
+                TrafficFlowBuilder.isDirectTag(connection.outbound) ||
+                (hops.isNotEmpty() && hops.all { it.isBlank() || TrafficFlowBuilder.isDirectTag(it) })
+            val outbound = if (isDirect) "DIRECT" else connection.outbound
+            val chain = if (isDirect) listOf("DIRECT") else hops
+            val key = "${connection.rule}|$outbound"
+            if (!seen.add(key) && !isDirect) continue
+            val sample = FlowSample(
+                source = connection.source.ifBlank { connection.inbound },
+                rule = connection.rule,
+                outbound = outbound,
+                chain = chain,
+                dest = dest,
+            )
+            if (isDirect) {
+                if (directSamples.size < 16) directSamples += sample
+            } else if (proxySamples.size < 24) {
+                proxySamples += sample
             }
+            if (directSamples.size >= 16 && proxySamples.size >= 24) break
         }
+        val samples = proxySamples + directSamples
         val destinations = destCounts.entries
             .sortedByDescending { it.value }
             .map { it.key }

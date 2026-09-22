@@ -1,1 +1,1 @@
-Current profile is highlighted on the profile list. Default script matches Clash-style urltest: 30-minute idle, no interrupt of live connections, and load-balance no longer probes every node. Network capability flaps no longer rebind the tunnel.
+Import Clash YAML and V2Ray node lists as well as sing-box JSON. The live graph splits DIRECT from proxy. Settings now has docs and source links.

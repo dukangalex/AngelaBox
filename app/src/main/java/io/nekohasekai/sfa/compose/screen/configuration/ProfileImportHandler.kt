@@ -51,7 +51,7 @@ class ProfileImportHandler(private val context: Context) {
 
             val filename = getFileNameFromUri(uri)
             val dataString = String(data)
-            if (isJsonConfiguration(dataString)) {
+            if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
                 return@withContext importJsonConfiguration(dataString, filename)
             }
 

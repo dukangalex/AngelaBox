@@ -238,16 +238,23 @@ object ConfigNormalize {
     }
 
     fun heal(content: String): HealResult {
-        val trimmed = content.trim()
-        if (trimmed.isEmpty() || trimmed[0] != '{') return HealResult(content, emptyList())
-        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return HealResult(content, emptyList())
+        val ingested = ConfigIngest.adapt(content)
+        val trimmed = ingested.content.trim()
+        if (trimmed.isEmpty() || trimmed[0] != '{') {
+            return HealResult(ingested.content, ingested.notes)
+        }
+        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return HealResult(ingested.content, ingested.notes)
         val root = try {
             JSONObject(trimmed)
         } catch (_: Exception) {
-            return HealResult(content, emptyList())
+            return HealResult(ingested.content, ingested.notes)
         }
-        val notes = apply(root)
-        return if (notes.isEmpty()) HealResult(content, emptyList()) else HealResult(root.toString(), notes)
+        val notes = ingested.notes + apply(root)
+        return if (notes.isEmpty()) {
+            HealResult(ingested.content, emptyList())
+        } else {
+            HealResult(root.toString(), notes)
+        }
     }
 
     fun healString(content: String): String = heal(content).content

@@ -19,6 +19,36 @@ def main() -> int:
         errors.append("ConfigNormalize.heal must return Chinese notes for the dashboard prompt")
     if "This is not China Direct" not in normalize:
         errors.append("ConfigNormalize must not inject China Direct / ads / QUIC")
+    ingest = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigIngest.kt")
+    if "object ConfigIngest" not in ingest:
+        errors.append("ConfigIngest must convert Clash / V2Ray subscriptions on import")
+    if "Format.Clash" not in ingest or "ShareLinks" not in ingest:
+        errors.append("ConfigIngest must distinguish Clash YAML and share-link lists")
+    if 'geosite-cn' in ingest and "payload.equals(\"CN\"" not in ingest and "payload.equals(\"CN\", true)" not in ingest:
+        errors.append("ConfigIngest must not inject geosite-cn unless the source Clash rules used CN")
+    if "China Direct" not in ingest.split("object ConfigIngest", 1)[-1][:800]:
+        errors.append("ConfigIngest must document that it does not write China Direct")
+    if "ConfigIngest.adapt" not in normalize:
+        errors.append("heal must ingest Clash/URI before JSON rewrite")
+    compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
+    if "ConfigIngest.adapt" not in compat:
+        errors.append("sanitize must ingest Clash/URI so import and remote refresh work")
+    settings = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SettingsScreen.kt")
+    if "source_code" not in settings or "documentation" not in settings:
+        errors.append("settings must expose 文档 and 源代码")
+    if "SagerNet/sing-box" in settings:
+        errors.append("about links must point at AngelaBox, not official SagerNet")
+    traffic = read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt")
+    if "angela-direct" not in traffic:
+        errors.append("DIRECT graph lane must treat angela-direct as direct")
+    if 'return if (chained) emptyList()' in traffic or "return if (chained) emptyList()" in traffic:
+        errors.append("DIRECT samples must stay on the graph in chained mode")
+    if "if (chained && (hopTags.isEmpty() || hopTags.all { isDirectTag(it) }))" in traffic:
+        errors.append("chained mode must not drop DIRECT samples")
+    if '"http_client", "http-direct"' in ingest or '.put("http_client", "http-direct")' in ingest:
+        errors.append("ConfigIngest must not point rule-sets at missing http-direct outbound")
+    if "HealResult(content, ingested.notes)" in normalize:
+        errors.append("heal must keep ingested JSON when Clash/URI conversion succeeded")
     if "webrtcRejectRules" not in normalize:
         errors.append("WebRTC STUN reject helper missing")
     if "STUN_UDP_PORTS" not in normalize or "domain_keyword" not in normalize:

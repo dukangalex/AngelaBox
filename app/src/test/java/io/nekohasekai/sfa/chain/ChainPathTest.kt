@@ -258,6 +258,72 @@ class ChainPathTest {
     }
 
     @Test
+    fun angelaDirectIsPinnedWhenProxyColumnOverflows() {
+        val path = ChainPath.regular(profileName = "UOT", exitTag = "节点选择")
+        val samples = (0 until 12).map { i ->
+            FlowSample(
+                source = "172.19.0.1:50$i",
+                rule = "geosite-site-$i",
+                outbound = "hk-$i",
+                chain = listOf("hk-$i"),
+                dest = "host$i.example.com:443",
+            )
+        } + FlowSample(
+            source = "172.19.0.1:9",
+            rule = "geoip-cn",
+            outbound = "angela-direct",
+            chain = listOf("angela-direct"),
+            dest = "www.baidu.com:443",
+        )
+        val (nodes, links) = TrafficFlowBuilder.build(samples, path, chained = false)
+        assertTrue(nodes.any { it.label == "DIRECT" && it.direct })
+        assertTrue(links.any { it.direct })
+        assertTrue(TrafficFlowBuilder.isDirectTag("angela-direct"))
+    }
+
+    @Test
+    fun chainedDirectSamplesStayOnDirectLane() {
+        val path = ChainPathBuilder.build(
+            profileName = "UOT",
+            defaultOutboundTag = "节点选择",
+            binding = ChainBinding(1L, "proxy-select", 2L, "zgo"),
+            landingProfileName = "VPS",
+        )
+        val (nodes, links) = TrafficFlowBuilder.build(
+            samples = listOf(
+                FlowSample(
+                    source = "172.19.0.1:2",
+                    rule = "geosite-cn",
+                    outbound = "angela-direct",
+                    chain = listOf("angela-direct"),
+                    dest = "www.baidu.com:443",
+                ),
+                FlowSample(
+                    source = "172.19.0.1:3",
+                    rule = "geosite-google",
+                    outbound = "韩国节点",
+                    chain = listOf("韩国节点", "hk-1"),
+                    dest = "www.google.com:443",
+                ),
+            ),
+            path = path,
+            chained = true,
+        )
+        assertTrue(nodes.any { it.label == "DIRECT" && it.direct })
+        assertTrue(nodes.any { it.label == "cn" })
+        assertTrue(links.any { it.direct })
+        val directNode = nodes.first { it.label == "DIRECT" && it.direct }
+        assertTrue(directNode.column >= 2)
+        assertFalse(
+            links.any { link ->
+                val from = nodes.find { it.id == link.fromId }?.label
+                val to = nodes.find { it.id == link.toId }?.label
+                from == "cn" && to != null && to != "DIRECT" && !to.startsWith("+")
+            },
+        )
+    }
+
+    @Test
     fun mixedColumnPutsDirectBelowProxy() {
         val nodes = listOf(
             FlowNode("0|app", "app", 0, 1, false),
