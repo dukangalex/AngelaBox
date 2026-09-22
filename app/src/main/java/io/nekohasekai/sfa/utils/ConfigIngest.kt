@@ -299,7 +299,7 @@ object ConfigIngest {
                 }
             }
             "grpc" -> {
-                val opts = asMap(raw["grpc-opts"] ?: raw["grpc_opts"]) ?: emptyMap()
+                val opts = asMap(raw["grpc-opts"] ?: raw["grpc_opts"]) ?: emptyMap<Any?, Any?>()
                 str(opts["grpc-service-name"] ?: opts["service_name"])
                     .takeIf { it.isNotEmpty() }?.let { transport.put("service_name", it) }
             }
