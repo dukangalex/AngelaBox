@@ -1,12 +1,14 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 14
+ * overlay-revision: 15
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持；
  * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini/AI Studio）。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
+ * urltest 对齐常见 Clash 习惯：10 分钟测一次、空闲 30 分钟停测、
+ * 不打断已有连接；负载均衡测地区组而不是每个节点。
  * 覆盖原配置的分组与分流，只保留节点。function main(config)。
  */
 function main(config) {
@@ -335,16 +337,16 @@ function main(config) {
   }
   if (otherMembers.length > 0) regionNames.push(OTHER_NAME);
 
-  function makeUrltest(tag, members, interrupt) {
+  function makeUrltest(tag, members) {
     return {
       type: "urltest",
       tag: tag,
       outbounds: members.slice(0),
       url: "https://www.gstatic.com/generate_204",
       interval: "10m",
-      tolerance: 50,
-      idle_timeout: "4h",
-      interrupt_exist_connections: !!interrupt
+      tolerance: 150,
+      idle_timeout: "30m",
+      interrupt_exist_connections: false
     };
   }
   function makeSelector(tag, members, defaultTag) {
@@ -411,17 +413,17 @@ function main(config) {
   if (autoMembers.length === 0) autoMembers = leafTags.slice(0);
   var autoGroup = null;
   if (autoMembers.length > 0) {
-    autoGroup = makeUrltest(AUTO_NAME, autoMembers, true);
+    autoGroup = makeUrltest(AUTO_NAME, autoMembers);
     groupTags[AUTO_NAME] = "urltest";
   }
   var lbGroup = null;
-  if (leafTags.length > 0) {
-    lbGroup = makeUrltest(LB_NAME, leafTags.slice(0), false);
+  if (autoMembers.length > 0) {
+    lbGroup = makeUrltest(LB_NAME, autoMembers);
     groupTags[LB_NAME] = "urltest";
   }
   var failoverGroup = null;
   if (autoMembers.length > 0) {
-    failoverGroup = makeUrltest(FAILOVER_NAME, autoMembers, true);
+    failoverGroup = makeUrltest(FAILOVER_NAME, autoMembers);
     groupTags[FAILOVER_NAME] = "urltest";
   }
   var selectMembers = [];

@@ -233,7 +233,7 @@ jobs:
           {
             cat docs/RELEASE_NOTES.md
             echo
-            echo "本版只发 Android：\`AngelaBox-android.apk\`（arm64）。Windows 图形端与命令行包均已暂停。"
+            echo "本版安装包：\`AngelaBox-android.apk\`（arm64）。"
             echo
             echo "Verify:"
             echo

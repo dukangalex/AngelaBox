@@ -847,17 +847,19 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 14" not in sample:
-        errors.append("default script must stamp overlay-revision: 14 so stale copies refresh")
+    if "overlay-revision: 15" not in sample:
+        errors.append("default script must stamp overlay-revision: 15 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 14"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 15"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
     if 'clash_mode: "Global"' not in sample or 'clash_mode: "Direct"' not in sample:
         errors.append("default script must emit Global/Direct clash_mode so the dashboard chip has 规则/全局/直连")
-    if 'interval: "10m"' not in sample or 'idle_timeout: "4h"' not in sample:
-        errors.append("default script must use 10m urltest / 4h idle to keep nodes warm without 1m radio wakeups")
+    if 'interval: "10m"' not in sample or 'idle_timeout: "30m"' not in sample:
+        errors.append("default script must use 10m urltest / 30m idle so unused groups stop probing")
+    if 'idle_timeout: "4h"' in sample:
+        errors.append("urltest idle_timeout 4h keeps probing unused groups and drains radio")
     if "tcp_keep_alive" not in sample or "tcp_keep_alive_interval" not in sample:
         errors.append("default script must set TCP keepalive on leaf outbounds for background NAT")
     if "tcp_keep_alive = true" in sample:
@@ -1120,8 +1122,12 @@ def main() -> int:
         errors.append("default script must emit official http_clients for rule-set download")
     if "default_http_client" not in sample:
         errors.append("default script must set route.default_http_client")
-    if "interrupt_exist_connections: !!interrupt" not in sample and "interrupt_exist_connections: true" not in sample:
-        errors.append("自动选择 urltest must interrupt connections so unhealthy nodes actually switch")
+    if "interrupt_exist_connections: !!interrupt" in sample or "interrupt_exist_connections: true" in sample:
+        errors.append("urltest must not interrupt existing connections; that is the Clash-family disconnect")
+    if "interrupt_exist_connections: false" not in sample:
+        errors.append("urltest and selector must keep interrupt_exist_connections false")
+    if "makeUrltest(LB_NAME, leafTags" in sample:
+        errors.append("load-balance must urltest region groups, not every leaf node")
     inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
     if "healDownloadClients" not in inbound or "healMissingOutboundRefs" not in inbound:
         errors.append("startup must heal 1.14 http_clients and leftover outbound refs after scripts")
@@ -1137,6 +1143,27 @@ def main() -> int:
         "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/NewProfileViewModel.kt"
     ):
         errors.append("creating a profile must not steal the current selection")
+    profiles = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilesScreen.kt")
+    if "profile_in_use" not in profiles:
+        errors.append("current profile card must show 使用中")
+    if "primaryContainer" not in profiles:
+        errors.append("selected profile must use primaryContainer so it is visible on dark theme")
+    if "surfaceContainerHigh" in profiles:
+        errors.append("selected vs unselected surfaceContainerHigh is invisible on dark theme")
+    monitor = read("app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkMonitor.kt")
+    if "Thread.sleep" in monitor:
+        errors.append("network interface monitor must not block the connectivity thread")
+    if "LOST_DEBOUNCE_MS" not in monitor or "notifyIfChanged" not in monitor:
+        errors.append("network monitor must debounce Lost and skip unchanged interfaces")
+    listener = read("app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkListener.kt")
+    if "networkActor.send(NetworkMessage.Update(network))" in listener:
+        errors.append("capability flaps must not rebind the default interface")
+    notes = read("docs/RELEASE_NOTES.md")
+    if "Windows" in notes or "windows" in notes:
+        errors.append("published release notes must be Android-only")
+    release_body = read(".github/workflows/release-chainbox.yml")
+    if "Windows 图形端" in release_body or "Windows 命令行" in release_body:
+        errors.append("Android release body must not mention Windows")
     if "andSelect = Settings.selectedProfile < 0L" not in read(
         "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/ProfileImportHandler.kt"
     ):

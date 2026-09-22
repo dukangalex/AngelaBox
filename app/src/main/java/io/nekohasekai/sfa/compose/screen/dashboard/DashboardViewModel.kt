@@ -181,7 +181,7 @@ class DashboardViewModel :
     private var pendingTopology = false
 
     companion object {
-        private const val TOPOLOGY_THROTTLE_MS = 400L
+        private const val TOPOLOGY_THROTTLE_MS = 1000L
     }
 
     private data class LiveSnap(
@@ -822,7 +822,10 @@ class DashboardViewModel :
         var flowing = false
         val samples = ArrayList<FlowSample>(40)
         val iterator = store.iterator()
+        var scanned = 0
         while (iterator.hasNext()) {
+            if (scanned >= 200) break
+            scanned++
             val connection = iterator.next()
             if (connection.outboundType == "dns") continue
             active++

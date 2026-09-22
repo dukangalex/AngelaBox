@@ -817,6 +817,7 @@
     <string name="profile_traffic_unlimited">Unlimited</string>
     <string name="profile_traffic_used">%1$s / %2$s</string>
     <string name="profiles_add">Add profile</string>
+    <string name="profile_in_use">In use</string>
     <string name="overlay_scripts_subtitle">Per-profile sing-box overlay scripts</string>
     <string name="overlay_scripts_hint">Script catalog. Pick a profile below, then toggle. When on, the script is the only rule set (China direct, foreign via proxy) and the subscription file is unchanged. Scripts run before chain compilation, so an entry profile can use both safely.</string>
     <string name="pull_drag_hint">Pull to go back</string>

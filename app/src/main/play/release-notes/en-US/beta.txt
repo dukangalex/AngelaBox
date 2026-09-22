@@ -1,1 +1,1 @@
-geoip rule-sets now list CIDRs. Providers page remembers the first decode so re-opening is instant. Android-only release.
+Current profile is highlighted on the profile list. Default script matches Clash-style urltest: 30-minute idle, no interrupt of live connections, and load-balance no longer probes every node. Network capability flaps no longer rebind the tunnel.

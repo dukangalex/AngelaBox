@@ -145,8 +145,8 @@ object DefaultNetworkListener {
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            // it's a good idea to refresh capabilities
-            runBlocking { networkActor.send(NetworkMessage.Update(network)) }
+            // Validated / bandwidth flaps are not an interface change. Forwarding
+            // them rebinds auto_detect_interface and drops live flows.
         }
 
         override fun onLost(network: Network) = runBlocking {
