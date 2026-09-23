@@ -93,10 +93,7 @@ class GitHubUpdateChecker : Closeable {
         val content = try {
             client.getString(url, RemoteUrlGuard.Kind.UPDATE, headers)
         } catch (e: Exception) {
-            throw IllegalStateException(
-                "无法连接 GitHub Releases（${e.message ?: e.javaClass.simpleName}）。可在浏览器打开 $RELEASES_PAGE_URL",
-                e,
-            )
+            throw IllegalStateException(HTTPClient.explainUpdateFailure(e), e)
         }
         val trimmed = content.trim()
         if (trimmed.isEmpty()) {

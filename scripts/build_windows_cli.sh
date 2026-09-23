@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Paused. AngelaBox is not shipping a Windows CLI. This script stays in the
+# tree so the cross-compile steps are not lost, but do not run it for a release.
 # Cross-compile AngelaBox Windows CLI from the audited chain-dev kernel.
 # Run from the kernel repository root.
 set -euo pipefail

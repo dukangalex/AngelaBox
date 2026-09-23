@@ -384,6 +384,36 @@ class ConfigIngestTest {
     }
 
     @Test
+    fun vlessEchDohKeepsQueryNameAndStripsEarlyData() {
+        val link = "vless://fcd091a3-f2c8-4339-876f-d632d311fa11@107.175.132.4:443?path=%2Fproxyip%3D216.36.110.48%3A443%3Fed%3D2560&security=tls&encryption=none&host=eight6978.longteng.de5.net&fp=chrome&ech=cloudflare-ech.com%2Bhttps%3A%2F%2Fdns.alidns.com%2Fdns-query&type=ws&sni=eight6978.longteng.de5.net#node"
+        val root = JSONObject(ConfigIngest.adapt(link).content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("type") == "vless" }
+        assertEquals("fcd091a3-f2c8-4339-876f-d632d311fa11", node.getString("uuid"))
+        val ech = node.getJSONObject("tls").getJSONObject("ech")
+        assertEquals("cloudflare-ech.com", ech.getString("query_server_name"))
+        assertFalse(ech.has("config"))
+        val ws = node.getJSONObject("transport")
+        assertEquals("/proxyip=216.36.110.48:443", ws.getString("path"))
+        assertEquals(2560, ws.getInt("max_early_data"))
+        assertEquals("Sec-WebSocket-Protocol", ws.getString("early_data_header_name"))
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        var doh = false
+        for (i in 0 until servers.length()) {
+            val server = servers.getJSONObject(i)
+            if (server.optString("server") == "dns.alidns.com" && server.optString("type") == "https") {
+                doh = true
+            }
+        }
+        assertTrue(doh)
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+        root.remove("dns")
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+    }
+
+    @Test
     fun clashKeepsRuleSetPortLogicalAndPrivate() {
         val yaml = """
             proxies:

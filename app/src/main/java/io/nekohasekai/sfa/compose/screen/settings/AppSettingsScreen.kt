@@ -448,7 +448,7 @@ fun AppSettingsScreen(
                         showDownloadDialog = false
                     } catch (e: Exception) {
                         Log.e("AppSettingsScreen", "Error downloading update", e)
-                        downloadError = e.message
+                        downloadError = io.nekohasekai.sfa.utils.HTTPClient.explainUpdateFailure(e)
                     }
                 }
             },
@@ -1393,10 +1393,7 @@ fun AppSettingsScreen(
                                         showErrorDialog = when (e) {
                                             is UpdateCheckException.TrackNotSupported ->
                                                 context.getString(R.string.update_track_not_supported)
-                                            else -> context.getString(
-                                                R.string.update_check_failed,
-                                                e.message ?: e.javaClass.simpleName,
-                                            )
+                                            else -> io.nekohasekai.sfa.utils.HTTPClient.explainUpdateFailure(e)
                                         }
                                     },
                                 )

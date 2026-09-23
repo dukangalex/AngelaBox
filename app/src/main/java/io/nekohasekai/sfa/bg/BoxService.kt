@@ -41,6 +41,7 @@ import io.nekohasekai.sfa.utils.ConfigQuicOverride
 import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
+import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -155,6 +156,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
+            TunnelGate.setUp(true)
             status.postValue(Status.Started)
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
@@ -168,6 +170,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     override fun serviceStop() {
         notification.close()
+        TunnelGate.setUp(false)
         status.postValue(Status.Starting)
         val pfd = fileDescriptor
         if (pfd != null) {
@@ -292,6 +295,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return true
             }
             keep(result.exceptionOrNull()?.message)
+        }
+
+        if (ConfigDiagnose.looksLikeDomainResolver(firstErr) ||
+            ConfigDiagnose.looksLikeDomainResolver(err)
+        ) {
+            val patched = ConfigInboundCompat.healRuntimeConfig(content)
+            if (patched != content) {
+                restartCommandServer()
+                content = patched
+                result = tryStart(content)
+                if (result.isSuccess) return true
+                keep(result.exceptionOrNull()?.message)
+            }
         }
 
         val ruleSetFail = ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
@@ -438,6 +454,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
         if (status.value != Status.Started) return
+        TunnelGate.setUp(false)
         status.value = Status.Stopping
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
@@ -458,6 +475,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             runCatching { PowerReportManager.refresh() }
             Settings.startedByUser = false
             withContext(Dispatchers.Main) {
+                TunnelGate.setUp(false)
                 status.value = Status.Stopped
                 service.stopSelf()
             }
@@ -493,6 +511,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             binder.broadcast { callback ->
                 callback.onServiceAlert(type.ordinal, message)
             }
+            TunnelGate.setUp(false)
             status.value = Status.Stopped
             service.stopSelf()
         }
@@ -502,6 +521,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
         if (status.value != Status.Stopped) return Service.START_STICKY
+        TunnelGate.setUp(false)
         status.value = Status.Starting
 
         if (!receiverRegistered) {

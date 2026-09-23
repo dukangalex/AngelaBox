@@ -302,7 +302,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 _uiState.update {
                     it.copy(
                         isUpdating = false,
-                        errorMessage = e.message,
+                        errorMessage = io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e),
                     )
                 }
             }

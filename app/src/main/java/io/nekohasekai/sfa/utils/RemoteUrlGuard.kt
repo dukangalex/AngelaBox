@@ -108,6 +108,19 @@ object RemoteUrlGuard {
     }
 
     /**
+     * Host allowlist only. Used when the tunnel is up so UPDATE dials the
+     * hostname and the proxy routes github.com, instead of a pre-resolved
+     * IP that may be poisoned or a fake-ip.
+     */
+    fun validateWithoutDns(url: String, kind: Kind): ValidatedEndpoint {
+        return validate(
+            url,
+            kind,
+            resolve = { listOf(InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))) },
+        )
+    }
+
+    /**
      * Syntactic HTTPS + public-host check for URLs the kernel fetches
      * (remote rule-sets). Hostnames skip DNS so offline start still works;
      * literal IPs still use the SCRIPT fail-closed policy.

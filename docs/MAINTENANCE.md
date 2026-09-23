@@ -57,6 +57,34 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 不做事：整包重命名 `io.nekohasekai.sfa`。那会改数千个文件、容易跟丢上游同步能力，对用户无益。
 
+## 发版说明
+
+`docs/RELEASE_NOTES.md` 只保留**当前版**。每次发布前整篇替换：先写这次新加入的行为，再写修正。不要把上一版的条目留在同一篇里。Telegram 发的就是这一篇。
+
+## Windows
+
+暂停。条件未成熟（签名、安装、服务都还不能在干净机器上单独验通）。已有 Windows 包功能残缺，无法使用，不跟进、不修、不挂到 Release。恢复之前不要改 Windows 身份常量来「顺便发一版」。详见 [WINDOWS.md](WINDOWS.md)。
+
+## 后续，按这个顺序做
+
+这三件事是方向，不是这一版的范围。Android 客户端继续用运行时覆盖层修启动和更新；内核不要为了一处报错去改 sing-box 源码。
+
+### 和上游同步
+
+- 不直接改 sing-box 核心源码。Chain 和身份常量保持离散补丁（或 submodule 加薄封装）。上游一重构 adapter / option，rebase 补丁，而不是在 fork 里散改。
+- 工具链写死在 `version.properties` 和发版工作流里：Go `1.25.5`、对应的 NDK、`KERNEL_TAG` / `KERNEL_COMMIT`。上游发版不能让 CI 自己跳到新的 Go。升到官方 CI 的 1.26.8 之前，先单独验证 gomobile 和 `go:linkname`。
+
+### 稳
+
+- libbox 进 JNI 的入口要有 `recover()`，把 panic 收成错误交给 Kotlin，而不是让进程死。这一条在内核仓库做，不在这个 Android 树里改 Go。
+- 停服务、热重载、Wi-Fi 和蜂窝切换时，关掉这次开过的 goroutine、TUN 和 UDP socket。Android 休眠很勤，漏一个就会在后台卡住。
+
+### 以后怎么拆
+
+- 改过的内核（增强版 libbox）单独当 SDK 维护。AngelaBox 只负责配置、界面和 VpnService。Windows 恢复时再复用这层，而不是现在继续分叉桌面仓库。
+- 代理链路的单测留在 GitHub Actions 里，每次提交跑。这个 Android 仓库已经对配置自愈和更新文案有 JVM 测试；协议握手本身的测试放在内核仓库。
+
+
 ## Telegram 发版通知
 
 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
@@ -91,11 +119,11 @@ Go 版本（2026-09-17 核对）：
 |------|-----|
 | `go.mod` 语言版本 | 官方 v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6、本 fork `chain-dev` 均为 **`go 1.25.5`** |
 | 官方 CI 编译器 | v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6 的 `.github/workflows/build.yml` 均为 **`go-version: 1.26.8`** |
-| AngelaBox 发版编译器 | **Go 1.25.5**（`release-chainbox.yml` / `ci.yml` / Windows CLI） |
+| AngelaBox 发版编译器 | **Go 1.25.5**（`release-chainbox.yml` / `ci.yml`）。Windows CLI 工作流已停，不要再为它升编译器 |
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `d7639f61`（含 Windows 身份常量），并已打 annotated tag `v1.15.0-chain.3`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。1.0.62-beta 设置 → 核心显示当时的 `1.15.0-chain.2（官方 1.15.0-alpha.6）`；下一版显示 `1.15.0-chain.3`。默认脚本仍为 `overlay-revision: 12`。Windows 命令行内核与 Android 同一 `KERNEL_COMMIT`，由 `release-chainbox.yml` 的 `windows-cli` 作业交叉编译；图形端见 `release-windows-desktop.yml`，不发布官方 `SFW-*.exe`。
+当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `d7639f61`（含当时写下的 Windows 身份常量），并已打 annotated tag `v1.15.0-chain.3`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本仍为 `overlay-revision: 12`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

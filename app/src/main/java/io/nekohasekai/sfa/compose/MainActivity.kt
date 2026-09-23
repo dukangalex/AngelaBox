@@ -675,7 +675,7 @@ class MainActivity :
                             }
                             showDownloadDialog = false
                         } catch (e: Exception) {
-                            downloadError = e.message
+                            downloadError = io.nekohasekai.sfa.utils.HTTPClient.explainUpdateFailure(e)
                         }
                     }
                 },

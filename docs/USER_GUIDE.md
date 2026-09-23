@@ -10,7 +10,7 @@ AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-b
 2. 允许安装未知来源应用后安装。
 3. 同一签名且 versionCode 更大的新版可直接覆盖。**v0.1.x 是调试签名，不能覆盖安装 1.0.x，必须先卸载。**
 
-Windows 图形客户端见同一次 Release 的 **`AngelaBox-v*-windows-amd64.zip`**（解压运行 `AngelaBox.exe`），用法见 [WINDOWS.md](WINDOWS.md)。无版本号的 `AngelaBox-windows-amd64.zip` 是命令行，不是图形界面。Android 与 Windows 不要混用安装包。
+Windows 版已暂停。不要安装以前的 Windows 压缩包或安装器，那些包功能不完整，项目不再维护。只使用 Android 的 `AngelaBox-android.apk`。说明见 [WINDOWS.md](WINDOWS.md)。
 
 设置 → 应用版本 应与 Release tag 一致。快捷设置磁贴名称与图标为 AngelaBox 立方体；覆盖安装后若仍显示旧名或旧图标，长按磁贴移除后再添加一次。
 
@@ -18,9 +18,11 @@ Windows 图形客户端见同一次 Release 的 **`AngelaBox-v*-windows-amd64.zi
 
 外观可在 **设置 → 主题** 中选择自动 / 浅色 / 深色、主题色彩，以及深色下的纯黑模式。
 
-检查更新：打开 **设置 → 应用 → 检查更新**。有新版本会弹出「下载安装 / 查看发布」。请先允许安装未知应用。默认会打开系统安装界面确认后再覆盖；覆盖安装完成后会自动回到 App。若开启了「静默安装」且环境允许，才会跳过确认界面。默认只提示稳定版。要装 1.15 测试内核，请把 **设置 → 应用 → 更新通道** 改为「测试版」，或从 GitHub Releases 安装标记为 Pre-release 的包。
+检查更新：打开 **设置 → 应用 → 检查更新**。代理开着时，检查和下载走当前隧道，不先把 GitHub 解析成一个 IP 再去连。代理没开时，几秒内提示先启动，不显示 SSL handshake、okhttp 或 `read return exception` 原文。有新版本会弹出「下载安装 / 查看发布」。请先允许安装未知应用。默认会打开系统安装界面确认后再覆盖；覆盖安装完成后会自动回到 App。若开启了「静默安装」且环境允许，才会跳过确认界面。默认只提示稳定版。要装测试内核，请把 **设置 → 应用 → 更新通道** 改为「测试版」，或从 GitHub Releases 安装标记为 Pre-release 的包。点「查看发布」仍可用浏览器安装。
 
-服务以前台服务和 `START_STICKY` 方式运行。设置 → 服务 里若提示后台权限，点允许忽略电池优化：仅在用户明确授权后，息屏时才保持隧道与当前节点；未授权时应用会在 Doze 暂停内核，并在设备唤醒后恢复，避免无意义耗电。自动选择约 10 分钟测一次，并靠 TCP keepalive 维持会话，避免每分钟唤醒无线电和持续占用内存。国内厂商（小米 / 华为 / OPPO / vivo）还要在系统设置里允许自启动与后台运行，见 dontkillmyapp.com。Windows 图形端以系统服务常驻，不涉及这项。
+服务以前台服务和 `START_STICKY` 方式运行。设置 → 服务 里若提示后台权限，点允许忽略电池优化：仅在用户明确授权后，息屏时才保持隧道与当前节点；未授权时应用会在 Doze 暂停内核，并在设备唤醒后恢复，避免无意义耗电。自动选择约 10 分钟测一次，并靠 TCP keepalive 维持会话，避免每分钟唤醒无线电和持续占用内存。国内厂商（小米 / 华为 / OPPO / vivo）还要在系统设置里允许自启动与后台运行，见 dontkillmyapp.com。
+
+启动时如果节点写了不存在的 DNS（内核原文是 `domain resolver not found: local`），应用会补上本机 DNS 再启动。节点和分流不会因此改成直连。补不上才会看到中文说明，而不是那行英文。
 
 ## 导入配置
 
@@ -73,7 +75,7 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 禁用 QUIC | 默认脚本只拒绝 DNS 的 HTTPS/SVCB，不丢弃 UDP 443。未开脚本时仍拒绝 UDP 443 |
 | 排除国内 QUIC | 未开脚本时，国内域名 UDP 443 走 direct，其余仍拒绝 |
 
-官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。xhttp 和 MASQUE 当前内核还不支持，这类节点会跳过；如果整份都是这两种，不会改成直连。
+官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。节点链接里的 `ech=域名+https://…` 只保留查询名，路径里的 `?ed=` 会当成 WebSocket 早数据。xhttp 和 MASQUE 当前内核还不支持，这类节点会跳过；如果整份都是这两种，不会改成直连。
 
 内核日志等级默认 **info**。
 

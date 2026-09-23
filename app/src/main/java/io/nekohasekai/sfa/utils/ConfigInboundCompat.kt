@@ -26,6 +26,8 @@ object ConfigInboundCompat {
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
         if (bindLoopbackOnly(root)) changed = true
+        if (ConfigIngest.ensureEchQueryRoute(root)) changed = true
+        if (healDanglingDomainResolvers(root)) changed = true
         return changed
     }
 
@@ -894,6 +896,129 @@ object ConfigInboundCompat {
             changed = true
         }
         return changed
+    }
+
+    /**
+     * Kernel error `domain resolver not found: local` means an outbound
+     * names a DNS tag that is not in `dns.servers`. Add a system resolver
+     * and point dangling names at it. Does not rewrite node detours to direct.
+     * Idempotent on an already-healed tree.
+     */
+    internal fun healDanglingDomainResolvers(root: JSONObject): Boolean {
+        val tags = dnsServerTags(root)
+        if (!hasDanglingResolver(root, tags)) return false
+        val localTag = ensureLocalDnsServer(root)
+        return retargetDanglingResolvers(root, dnsServerTags(root), localTag) || localTag !in tags
+    }
+
+    /** Runtime JSON after overlays. Returns the same string when nothing changed. */
+    fun healRuntimeConfig(content: String): String {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty() || trimmed[0] != '{') return content
+        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return content
+        return try {
+            val root = JSONObject(trimmed)
+            if (!healDanglingDomainResolvers(root)) content else root.toString()
+        } catch (_: Exception) {
+            content
+        }
+    }
+
+    private fun dnsServerTags(root: JSONObject): Set<String> {
+        val tags = linkedSetOf<String>()
+        val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return tags
+        for (i in 0 until servers.length()) {
+            val tag = servers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags.add(tag)
+        }
+        return tags
+    }
+
+    private fun hasDanglingResolver(node: Any?, tags: Set<String>): Boolean {
+        when (node) {
+            is JSONObject -> {
+                val keys = jsonKeys(node)
+                for (key in keys) {
+                    if (key == "domain_resolver" || key == "default_domain_resolver") {
+                        val name = resolverServerName(node.opt(key))
+                        if (name.isNotEmpty() && name !in tags) return true
+                    } else if (hasDanglingResolver(node.opt(key), tags)) {
+                        return true
+                    }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    if (hasDanglingResolver(node.opt(i), tags)) return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun ensureLocalDnsServer(root: JSONObject): String {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val tag = server.optString("tag").trim()
+            if (tag.isNotEmpty() && server.optString("type").equals("local", true)) return tag
+        }
+        servers.put(JSONObject().put("type", "local").put("tag", "local"))
+        return "local"
+    }
+
+    private fun retargetDanglingResolvers(node: Any?, tags: Set<String>, localTag: String): Boolean {
+        var changed = false
+        when (node) {
+            is JSONObject -> {
+                val keys = jsonKeys(node)
+                for (key in keys) {
+                    if (key == "domain_resolver" || key == "default_domain_resolver") {
+                        if (pointResolverAt(node, key, tags, localTag)) changed = true
+                    } else if (retargetDanglingResolvers(node.opt(key), tags, localTag)) {
+                        changed = true
+                    }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    if (retargetDanglingResolvers(node.opt(i), tags, localTag)) changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+    private fun pointResolverAt(parent: JSONObject, key: String, tags: Set<String>, localTag: String): Boolean {
+        when (val value = parent.opt(key)) {
+            is String -> {
+                val name = value.trim()
+                if (name.isEmpty() || name in tags) return false
+                parent.put(key, localTag)
+                return true
+            }
+            is JSONObject -> {
+                val name = value.optString("server").trim()
+                if (name.isEmpty() || name in tags) return false
+                value.put("server", localTag)
+                return true
+            }
+            else -> return false
+        }
+    }
+
+    private fun resolverServerName(value: Any?): String = when (value) {
+        is String -> value.trim()
+        is JSONObject -> value.optString("server").trim()
+        else -> ""
+    }
+
+    private fun jsonKeys(node: JSONObject): List<String> {
+        val keys = ArrayList<String>()
+        val it = node.keys()
+        while (it.hasNext()) keys.add(it.next())
+        return keys
     }
 
     private fun outboundTags(root: JSONObject): Set<String> {

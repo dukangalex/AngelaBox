@@ -1,8 +1,8 @@
-# AngelaBox 云备份（Android ↔ Windows）
+# AngelaBox 云备份
 
-手机和电脑用 **同一套 WebDAV 帐号、同一个远程文件**。Android 备份的 ZIP，Windows 能恢复；反过来也一样。
+Windows 客户端已暂停，见 [WINDOWS.md](WINDOWS.md)。下面的「两端共用」是格式约定，留给以后恢复 Windows 时用。**现在只在 Android 上备份和恢复。** 不要为了同步去装残缺的 Windows 包。
 
-这不是官方 SFW 的 `.bpf` 分享格式，也不是把 Android 的 SQLite 扔给电脑。两端交换的是下面这份可移植 ZIP。
+手机以后如果和电脑共用，用的是 **同一套 WebDAV 帐号、同一个远程文件**。这不是官方 SFW 的 `.bpf`，也不是把 Android 的 SQLite 直接扔给电脑。交换的是下面这份可移植 ZIP。
 
 ## 帐号怎么共用
 

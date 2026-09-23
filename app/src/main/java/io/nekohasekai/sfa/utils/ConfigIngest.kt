@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.utils
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URI
 import java.net.URLDecoder
 import java.util.Base64
 import java.util.Locale
@@ -24,8 +25,30 @@ object ConfigIngest {
 
     enum class Format { SingBox, Clash, ShareLinks, Unknown }
 
+    private val pendingEchDoh = ThreadLocal.withInitial { mutableListOf<Pair<String, String>>() }
+
+    private fun finishEch(result: Result): Result {
+        val hints = pendingEchDoh.get()
+        if (hints.isEmpty()) return result
+        val trimmed = result.content.trim()
+        if (trimmed.isEmpty() || trimmed.first() != '{') return result
+        val root = try {
+            JSONObject(trimmed)
+        } catch (_: Exception) {
+            return result
+        }
+        if (!installEchDoh(root, hints)) return result
+        val notes = result.notes + "节点的 ECH 会按链接里的 DNS 地址查询"
+        return result.copy(content = root.toString(), notes = notes)
+    }
+
     /** Format conversion only. China Direct / ads / QUIC are not written here. */
     fun adapt(content: String): Result {
+        pendingEchDoh.get().clear()
+        return finishEch(adaptUnlocked(content))
+    }
+
+    private fun adaptUnlocked(content: String): Result {
         val trimmed = stripBom(content).trim()
         if (trimmed.isEmpty()) return Result(content, emptyList(), Format.Unknown)
         if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return Result(content)
@@ -386,12 +409,53 @@ object ConfigIngest {
     }
 
     private fun putEch(tls: JSONObject, raw: Any?, queryName: String) {
+        val share = (raw as? String)?.let { parseEchShare(it) }
+        val query = share?.queryName?.takeIf { it.isNotEmpty() } ?: queryName
+        val pemSource = if (share != null && share.queryName.isNotEmpty()) null else raw
         val echObj = JSONObject().put("enabled", true)
-        val pem = echPemFrom(raw)
+        val pem = echPemFrom(pemSource)
         if (pem != null) echObj.put("config", JSONArray().put(pem))
-        if (queryName.isNotEmpty()) echObj.put("query_server_name", queryName)
-        if (pem == null && queryName.isEmpty()) return
+        if (query.isNotEmpty()) echObj.put("query_server_name", query)
+        if (pem == null && query.isEmpty()) return
+        share?.dohUrl?.takeIf { query.isNotEmpty() }?.let { pendingEchDoh.get().add(query to it) }
         tls.put("ech", echObj)
+    }
+
+    /**
+     * Xray / v2rayNG: `ech=cloudflare-ech.com+https://dns.example/dns-query`.
+     * The name is sing-box `query_server_name`. The URL is only a DNS hint;
+     * the config list is not a PEM.
+     */
+    internal fun parseEchShare(raw: String): EchShare? {
+        val text = raw.trim()
+        if (text.isEmpty() || text == "0" || text.equals("false", true)) return null
+        if (text == "1" || text.equals("true", true)) return EchShare("", null)
+        val plus = text.indexOf('+')
+        if (plus > 0) {
+            val name = text.substring(0, plus).trim()
+            val rest = text.substring(plus + 1).trim()
+            if (isDnsName(name) && rest.startsWith("https://", true)) {
+                return EchShare(name, rest)
+            }
+        }
+        val space = text.indexOf(' ')
+        if (space > 0) {
+            val name = text.substring(0, space).trim()
+            val rest = text.substring(space + 1).trim()
+            if (isDnsName(name) && rest.startsWith("https://", true)) {
+                return EchShare(name, rest)
+            }
+        }
+        if (isDnsName(text) && text.contains('.')) return EchShare(text, null)
+        return null
+    }
+
+    internal data class EchShare(val queryName: String, val dohUrl: String?)
+
+    private fun isDnsName(name: String): Boolean {
+        if (name.length !in 3..253 || !name.contains('.')) return false
+        if (name.any { it.isWhitespace() || it == '/' || it == ':' || it == '+' || it == '=' }) return false
+        return name.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }
     }
 
     /**
@@ -460,6 +524,7 @@ object ConfigIngest {
     }
 
     internal fun normalizeEchConfigs(root: JSONObject): Boolean {
+        val mark = pendingEchDoh.get().size
         var changed = false
         fun walk(key: String) {
             val arr = root.optJSONArray(key) ?: return
@@ -470,6 +535,8 @@ object ConfigIngest {
         }
         walk("outbounds")
         walk("endpoints")
+        val fresh = pendingEchDoh.get().drop(mark)
+        if (installEchDoh(root, fresh)) changed = true
         return changed
     }
 
@@ -494,6 +561,16 @@ object ConfigIngest {
         val tls = node.optJSONObject("tls") ?: return false
         val ech = tls.optJSONObject("ech") ?: return false
         val query = ech.optString("query_server_name").ifBlank { ech.optString("query-server-name") }.trim()
+        val rawConfig = echConfigText(ech.opt("config"))
+        val share = parseEchShare(rawConfig)
+        if (share != null && share.queryName.isNotEmpty()) {
+            ech.remove("config")
+            ech.put("enabled", true)
+            ech.put("query_server_name", share.queryName)
+            ech.remove("query-server-name")
+            share.dohUrl?.let { pendingEchDoh.get().add(share.queryName to it) }
+            return true
+        }
         val pem = echPemFrom(ech.opt("config"))
         if (pem != null) {
             val current = ech.optJSONArray("config")
@@ -517,6 +594,13 @@ object ConfigIngest {
         }
         tls.remove("ech")
         return true
+    }
+
+    private fun echConfigText(raw: Any?): String = when (raw) {
+        null, JSONObject.NULL -> ""
+        is String -> raw.trim()
+        is JSONArray -> if (raw.length() == 1) raw.optString(0).trim() else ""
+        else -> raw.toString().trim()
     }
 
     private fun echConfigEmpty(raw: Any?): Boolean = when (raw) {
@@ -570,7 +654,15 @@ object ConfigIngest {
 
     private fun fillWsLike(transport: JSONObject, opts: Map<*, *>?, path: Any?, hostFallback: Any?) {
         val map = opts ?: emptyMap<String, Any?>()
-        str(map["path"] ?: path).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+        str(map["path"] ?: path).takeIf { it.isNotEmpty() }?.let { applyWsPath(transport, it) }
+        val maxEd = intVal(map["max-early-data"] ?: map["max_early_data"])
+        if (maxEd != null && maxEd > 0) transport.put("max_early_data", maxEd)
+        val header = str(map["early-data-header-name"] ?: map["early_data_header_name"])
+        if (header.isNotEmpty()) {
+            transport.put("early_data_header_name", header)
+        } else if (transport.has("max_early_data")) {
+            transport.put("early_data_header_name", "Sec-WebSocket-Protocol")
+        }
         val headers = asMap(map["headers"])
         val host = str(headers?.get("Host") ?: headers?.get("host") ?: map["host"] ?: hostFallback)
         if (host.isNotEmpty()) {
@@ -955,7 +1047,7 @@ object ConfigIngest {
             }
             val transport = JSONObject().put("type", mapped)
             obj.optString("path").takeIf { it.isNotEmpty() }?.let {
-                if (mapped == "grpc") transport.put("service_name", it) else transport.put("path", it)
+                if (mapped == "grpc") transport.put("service_name", it) else applyWsPath(transport, it)
             }
             obj.optString("host").takeIf { it.isNotEmpty() }
                 ?.let { transport.put("headers", JSONObject().put("Host", it)) }
@@ -1065,10 +1157,15 @@ object ConfigIngest {
         query["fp"]?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
         val ech = query["ech"]?.trim().orEmpty()
         if (ech.isNotEmpty() && ech != "0" && !ech.equals("false", true)) {
-            val flag = ech == "1" || ech.equals("true", true)
-            val queryName = query["echQuery"] ?: query["ech_query"]
+            val share = parseEchShare(ech)
+            val flag = share == null && (ech == "1" || ech.equals("true", true))
+            val queryName = share?.queryName?.takeIf { it.isNotEmpty() }
+                ?: query["echQuery"] ?: query["ech_query"]
                 ?: if (flag) query["sni"].orEmpty() else ""
-            putEch(tls, if (flag) null else ech, queryName)
+            putEch(tls, if (share != null || flag) null else ech, queryName)
+            share?.dohUrl?.takeIf { queryName.isNotEmpty() }?.let {
+                pendingEchDoh.get().add(queryName to it)
+            }
         }
         out.put("tls", tls)
     }
@@ -1086,11 +1183,170 @@ object ConfigIngest {
         }
         val transport = JSONObject().put("type", type)
         (query["path"] ?: query["serviceName"])?.let { value ->
-            if (type == "grpc") transport.put("service_name", value) else transport.put("path", value)
+            if (type == "grpc") transport.put("service_name", value) else applyWsPath(transport, value)
         }
         query["host"]?.let { transport.put("headers", JSONObject().put("Host", it)) }
         out.put("transport", transport)
         return true
+    }
+
+    private fun applyWsPath(transport: JSONObject, rawPath: String) {
+        val split = splitEarlyData(rawPath)
+        transport.put("path", split.first)
+        val ed = split.second
+        if (ed != null && ed > 0) {
+            transport.put("max_early_data", ed)
+            if (!transport.has("early_data_header_name")) {
+                transport.put("early_data_header_name", "Sec-WebSocket-Protocol")
+            }
+        }
+    }
+
+    /** v2ray path `/?ed=2048` is early data, not part of the websocket path. */
+    internal fun splitEarlyData(rawPath: String): Pair<String, Int?> {
+        val q = rawPath.indexOf('?')
+        if (q < 0) return rawPath to null
+        val base = rawPath.substring(0, q).ifBlank { "/" }
+        var ed: Int? = null
+        val keep = ArrayList<String>()
+        for (part in rawPath.substring(q + 1).split('&')) {
+            if (part.isEmpty()) continue
+            val key = part.substringBefore('=')
+            if (key == "ed") {
+                ed = part.substringAfter('=', "").toIntOrNull()
+            } else {
+                keep.add(part)
+            }
+        }
+        val path = if (keep.isEmpty()) base else "$base?${keep.joinToString("&")}"
+        return path to ed
+    }
+
+    private fun installEchDoh(root: JSONObject, hints: List<Pair<String, String>>): Boolean {
+        if (hints.isEmpty()) return false
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        var changed = false
+        val byName = linkedMapOf<String, String>()
+        for ((name, doh) in hints) {
+            if (name.isNotBlank() && doh.startsWith("https://", true)) byName.putIfAbsent(name, doh)
+        }
+        for ((name, doh) in byName) {
+            val uri = try {
+                URI(doh)
+            } catch (_: Exception) {
+                continue
+            }
+            val host = uri.host?.trim().orEmpty()
+            if (host.isEmpty()) continue
+            val tag = "ech-" + host.lowercase().replace('.', '-').take(40)
+            if (!dnsServerHas(servers, tag)) {
+                val server = JSONObject()
+                    .put("type", "https")
+                    .put("tag", tag)
+                    .put("server", host)
+                    .put("domain_resolver", "local")
+                if (uri.port > 0 && uri.port != 443) server.put("server_port", uri.port)
+                val path = uri.rawPath?.takeIf { it.isNotEmpty() && it != "/" && it != "/dns-query" }
+                if (path != null) server.put("path", path)
+                servers.put(server)
+                changed = true
+            }
+            if (prependEchRule(dns, name, tag)) changed = true
+        }
+        return changed
+    }
+
+    /**
+     * After scripts rewrite DNS, still send ECH HTTPS lookups to a resolver
+     * that returns type-65 records. Prefer the link's DoH server, then the
+     * script's proxied `dns-remote`.
+     */
+    internal fun ensureEchQueryRoute(root: JSONObject): Boolean {
+        val names = linkedSetOf<String>()
+        fun walk(key: String) {
+            val arr = root.optJSONArray(key) ?: return
+            for (i in 0 until arr.length()) {
+                val query = arr.optJSONObject(i)
+                    ?.optJSONObject("tls")
+                    ?.optJSONObject("ech")
+                    ?.optString("query_server_name")
+                    ?.trim()
+                    .orEmpty()
+                if (query.isNotEmpty()) names.add(query)
+            }
+        }
+        walk("outbounds")
+        walk("endpoints")
+        if (names.isEmpty()) return false
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        var changed = false
+        var tag = firstDnsTag(servers) { it.startsWith("ech-") }
+            ?: firstDnsTag(servers) { it == "dns-remote" }
+        if (tag == null) {
+            tag = "ech-dns"
+            if (!dnsServerHas(servers, tag)) {
+                servers.put(
+                    JSONObject()
+                        .put("type", "tcp")
+                        .put("tag", tag)
+                        .put("server", "8.8.8.8")
+                        .put("server_port", 53)
+                        .put("domain_resolver", "local"),
+                )
+                changed = true
+            }
+        }
+        val missing = names.filter { !dnsRuleHasDomain(dns.optJSONArray("rules"), it) }
+        if (missing.isEmpty()) return changed
+        return prependEchRule(dns, missing, tag) || changed
+    }
+
+    private fun prependEchRule(dns: JSONObject, name: String, tag: String): Boolean =
+        prependEchRule(dns, listOf(name), tag)
+
+    private fun prependEchRule(dns: JSONObject, names: List<String>, tag: String): Boolean {
+        val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
+        val need = names.filter { !dnsRuleHasDomain(rules, it) }
+        if (need.isEmpty()) return false
+        val domain = JSONArray()
+        need.forEach { domain.put(it) }
+        val merged = JSONArray()
+        merged.put(JSONObject().put("domain", domain).put("action", "route").put("server", tag))
+        for (i in 0 until rules.length()) merged.put(rules.get(i))
+        dns.put("rules", merged)
+        return true
+    }
+
+    private fun dnsServerHas(servers: JSONArray, tag: String): Boolean {
+        for (i in 0 until servers.length()) {
+            if (servers.optJSONObject(i)?.optString("tag") == tag) return true
+        }
+        return false
+    }
+
+    private fun firstDnsTag(servers: JSONArray, match: (String) -> Boolean): String? {
+        for (i in 0 until servers.length()) {
+            val tag = servers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty() && match(tag)) return tag
+        }
+        return null
+    }
+
+    private fun dnsRuleHasDomain(rules: JSONArray?, name: String): Boolean {
+        if (rules == null) return false
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val domain = rule.opt("domain")
+            if (domain is String && domain.equals(name, true)) return true
+            if (domain is JSONArray) {
+                for (j in 0 until domain.length()) {
+                    if (domain.optString(j).equals(name, true)) return true
+                }
+            }
+        }
+        return false
     }
 
     private fun wrapLeaves(arr: JSONArray, note: String): Result {

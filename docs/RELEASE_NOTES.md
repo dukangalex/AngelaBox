@@ -1,1 +1,1 @@
-• **1.0.76：** 规则集下载失败会换成官方地址再启动，仍失败就去掉那几条，不再只弹窗。节点自带 ECH 会转成内核能读的格式，读不了就去掉后继续。Clash 分流补上规则集、端口和与或条件。WireGuard 链接可以导入。节点链接会提示开启默认脚本，但不会自动开。编辑配置可以粘贴。默认脚本不再把 Cloudflare 认成中非，YouTube 不再被 DNS 拦成纯 TCP。
+• **1.0.77：** 代理开着时，检查更新和「更新当前配置」都按域名走当前隧道，不再先解析成 IP。代理没开时几秒内说明原因，对话框不再出现 SSL handshake、okhttp、`Connection reset by peer` 原文。启动遇到 `domain resolver not found: local` 会补上本机 DNS 再开，节点不改成直连。VLESS 链接里的 `ech=域名+https://…` 会保留为 ECH 查询名，`path` 里的 `ed=` 会当成早数据，不再把整段塞进路径。Windows 版暂停，已有包不完整，不再维护。

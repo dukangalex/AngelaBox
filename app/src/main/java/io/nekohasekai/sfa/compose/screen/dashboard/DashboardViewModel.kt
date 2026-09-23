@@ -480,7 +480,7 @@ class DashboardViewModel :
                     }
                 }
             } catch (e: Exception) {
-                sendErrorMessage("Failed to update profile: ${e.message}")
+                sendErrorMessage(io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e))
                 // Clear updating state on error
                 withContext(Dispatchers.Main) {
                     updateState { copy(updatingProfileId = null) }

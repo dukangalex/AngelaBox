@@ -149,4 +149,52 @@ class HTTPClientRedirectTest {
         assertFalse(msg.contains("AuthenticationFailed"))
         assertTrue(msg.contains("查看发布"))
     }
+
+    @Test
+    fun updateFailureHidesOkHttpAndGoErrors() {
+        val down = HTTPClient.explainUpdateFailure(
+            java.io.IOException("SSL handshake timed out"),
+            tunnelUp = false,
+        )
+        assertTrue(down.contains("先启动"))
+        assertFalse(down.contains("SSL"))
+        assertFalse(down.contains("okhttp"))
+        val stream = HTTPClient.explainUpdateFailure(
+            java.io.IOException("unexpected end of stream on com.android.okhttp.Address@546e2f5e"),
+            tunnelUp = false,
+        )
+        assertFalse(stream.contains("okhttp"))
+        assertFalse(stream.contains("Address"))
+        val up = HTTPClient.explainUpdateFailure(
+            java.io.IOException("read return exception value -1"),
+            tunnelUp = true,
+        )
+        assertTrue(up.contains("当前代理"))
+        assertFalse(up.contains("return exception"))
+        val handshake = HTTPClient.explainUpdateFailure(
+            javax.net.ssl.SSLHandshakeException("Handshake failed"),
+            tunnelUp = true,
+        )
+        assertFalse(handshake.contains("Handshake"))
+        val wrapped = HTTPClient.explainUpdateFailure(
+            IllegalStateException("代理没开，直连更新服务器被断开。先启动，再点更新。", java.io.IOException("Handshake failed")),
+            tunnelUp = true,
+        )
+        assertFalse(wrapped.contains("Handshake"))
+        assertTrue(wrapped.contains("先启动"))
+    }
+
+    @Test
+    fun profileUpdateHidesHandshakeDump() {
+        assertTrue(HTTPClient.dialByName(RemoteUrlGuard.Kind.SUBSCRIPTION, tunnelUp = true))
+        assertFalse(HTTPClient.dialByName(RemoteUrlGuard.Kind.SUBSCRIPTION, tunnelUp = false))
+        val text = HTTPClient.explainProfileUpdate(
+            javax.net.ssl.SSLHandshakeException(
+                "ssl=0x70cc642508: I/O error during system call, Connection reset by peer",
+            ),
+        )
+        assertFalse(text.contains("ssl="))
+        assertFalse(text.contains("Failed to update"))
+        assertTrue(text.contains("更新"))
+    }
 }

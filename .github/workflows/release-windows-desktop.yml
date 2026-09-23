@@ -1,23 +1,34 @@
 name: AngelaBox Windows Desktop
 
+# Paused. Conditions are not ready. Do not attach Windows assets.
+# See docs/WINDOWS.md. Remove `if: false` only when Windows shipping resumes.
+
 on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: "GitHub Release tag to attach (leave empty unless attach_to_release)"
+        description: "Ignored while Windows is paused"
         required: false
         type: string
       attach_to_release:
-        description: "Attach installer to a public GitHub Release (default no)"
+        description: "Ignored while Windows is paused"
         required: false
         type: boolean
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  paused:
+    name: Windows desktop paused
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to build
+        run: echo "Windows builds are paused. Existing packages are incomplete and unmaintained. See docs/WINDOWS.md"
+
   desktop:
+    if: false
     name: Build Windows desktop (${{ matrix.desktop_arch }})
     runs-on: windows-latest
     timeout-minutes: 120

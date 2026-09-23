@@ -2,7 +2,9 @@
 
 方案 **B**：Windows 主程序就是 `AngelaBox.exe`。三端必须逐字相同，禁止再靠 CI 字符串替换官方 SFW。
 
-本文件是发版对照表。改其中任何一行，必须同时改内核、桌面安装脚本和 Android 文档，并重新验证 Windows 安装。
+**发版状态：** Android 在发。Windows 暂停。下表里的 Windows 名字留着，避免以后恢复时和官方 SFW 撞车；现在不要按这张表去打 Windows 包。已有 Windows 包功能残缺，无法使用，不维护。见 [WINDOWS.md](WINDOWS.md)。
+
+本文件是发版对照表。改其中任何一行，必须同时改内核、桌面安装脚本和 Android 文档，并重新验证。Windows 恢复之前，不要求重新验证 Windows 安装。
 
 ## 产品
 
@@ -46,7 +48,7 @@
 | 源码 | [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox` | 内核里的官方 `clients/desktop` 子模块现场改名 |
 | 仪表盘 | [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox` | 构建时仍指向 `SagerNet/sing-box-dashboard` |
 
-图形便携包是 `AngelaBox-v${version}-windows-amd64.zip`（解压运行 `AngelaBox.exe`）。CLI 压缩包仍是无版本号的 `AngelaBox-windows-amd64.zip`，内含内核 `sing-box.exe`（命令行工具，不是图形主程序）。两者文件名不同，这是有意的。
+图形便携包文件名仍定为 `AngelaBox-v${version}-windows-amd64.zip`（解压应运行 `AngelaBox.exe`）。CLI 压缩包仍是无版本号的 `AngelaBox-windows-amd64.zip`。**这两类都暂停，不要发，不要装。** 名字留在这里，只为恢复时不要和官方包撞名。
 
 ## 内核
 

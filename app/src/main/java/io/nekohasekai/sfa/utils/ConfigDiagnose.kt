@@ -100,6 +100,10 @@ object ConfigDiagnose {
             looksLike(text, "function main") -> {
                 "脚本需要 function main(config)，并且返回官方 sing-box JSON。"
             }
+            looksLikeDomainResolver(text) -> {
+                val name = extractAfter(text, "not found:").ifBlank { "local" }
+                "节点用来解析域名的 DNS「$name」不存在。启动时会补上本机 DNS 再试。没有改成直连。"
+            }
             looksLike(text, "404") || (looksLike(text, "not found") && looksLike(text, ".srs")) -> {
                 if (ruleSetRetried) {
                     "规则集文件换成官方地址后仍不存在。节点和分组没有改成直连。$scriptHint"
@@ -126,6 +130,12 @@ object ConfigDiagnose {
     fun looksLikeBadEch(text: String?): Boolean {
         val t = text.orEmpty()
         return looksLike(t, "invalid ECH configs pem") || looksLike(t, "invalid ech")
+    }
+
+    fun looksLikeDomainResolver(text: String?): Boolean {
+        val t = text.orEmpty()
+        return looksLike(t, "domain resolver not found") ||
+            looksLike(t, "default domain resolver not found")
     }
 
     fun looksLikeRuleSetFailure(text: String?): Boolean {
