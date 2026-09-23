@@ -878,10 +878,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 17" not in sample:
-        errors.append("default script must stamp overlay-revision: 17 so stale copies refresh")
+    if "overlay-revision: 18" not in sample:
+        errors.append("default script must stamp overlay-revision: 18 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 17"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 18"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
@@ -921,8 +921,8 @@ def main() -> int:
         errors.append("default script must create a clean direct outbound when tag direct is not type=direct")
     if '"hijack-dns"' not in sample:
         errors.append("default script must hijack DNS before routing so system lookups are not dropped")
-    if "query_type: [64, 65]" not in sample:
-        errors.append("default script must reject HTTPS/SVCB DNS so new clients prefer TCP")
+    if "query_type: [64, 65]" in sample:
+        errors.append("default script must not reject HTTPS/SVCB DNS; that forces YouTube onto TCP and buffers")
     if re.search(r'network:\s*"udp"[\s\S]{0,80}port:\s*443', sample):
         errors.append("default script must not blackhole UDP 443; apps that only speak QUIC would lose the network")
     if "detour: directTag" not in sample:

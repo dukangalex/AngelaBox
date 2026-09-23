@@ -11,6 +11,7 @@ import android.view.MenuItem
 import android.view.View
 import androidx.core.widget.addTextChangedListener
 import com.blacksquircle.ui.language.json.JsonLanguage
+import io.nekohasekai.sfa.ktx.clipboardText
 
 class ProfileCodeEditor(context: Context, syntax: CodeEditorSyntax = CodeEditorSyntax.JSON) {
 
@@ -237,6 +238,11 @@ class ProfileCodeEditor(context: Context, syntax: CodeEditorSyntax = CodeEditorS
     }
 
     fun paste() {
+        val text = clipboardText
+        if (!text.isNullOrEmpty()) {
+            insertSymbol(text)
+            return
+        }
         editor.onTextContextMenuItem(android.R.id.paste)
     }
 

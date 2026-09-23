@@ -99,7 +99,7 @@ class ConfigScriptOverrideTest {
         assertEquals("udp", cnDns.optString("type"))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
-        assertTrue(dnsRuleText.contains("65"))
+        assertFalse(dnsRuleText.contains("query_type"))
     }
 
     @Test
@@ -222,7 +222,8 @@ class ConfigScriptOverrideTest {
         assertFalse(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
-        assertTrue(dnsRuleText.contains("65"))
+        assertFalse(dnsRuleText.contains("query_type"))
+        assertTrue(ruleText.contains("youtubei.googleapis.com"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
     }
 

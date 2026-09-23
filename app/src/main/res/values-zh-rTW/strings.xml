@@ -369,6 +369,7 @@
     <string name="menu_undo">撤銷</string>
     <string name="menu_redo">重做</string>
     <string name="menu_format">格式化</string>
+    <string name="menu_paste">貼上</string>
     <string name="menu_delete">刪除</string>
     <string name="menu_share">分享</string>
 

@@ -1,14 +1,13 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 17
+ * overlay-revision: 18
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持。
  * 国外 DNS 用 TCP（8.8.8.8 走代理）。查询在隧道里，运营商看不到；TCP-only 节点也能解析。
  * 国内 223.5.5.5 仍用 UDP 直连。不用 DoH。
  * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不额外绑定本机 mixed 端口。
- * 不丢弃 UDP 443，避免只走 QUIC 的应用（YouTube、X）断网。
- * HTTPS/SVCB 记录仍拒绝，让新连接优先 TCP。
+ * 不丢弃 UDP 443，也不拒绝 HTTPS/SVCB。YouTube 可以走 QUIC，避免只剩 TCP 时缓冲很久。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
  * urltest 对齐常见习惯：10 分钟测一次、空闲 30 分钟停测、
@@ -152,7 +151,7 @@ function main(config) {
     { key: "bi", name: "🇧🇮 布隆迪节点", pattern: "🇧🇮|布隆迪|\\bBI\\b|burundi" },
     { key: "cv", name: "🇨🇻 佛得角节点", pattern: "🇨🇻|佛得角|\\bCV\\b|cabo[\\s_-]*verde|cape[\\s_-]*verde" },
     { key: "cm", name: "🇨🇲 喀麦隆节点", pattern: "🇨🇲|喀麦隆|\\bCM\\b|cameroon" },
-    { key: "cf", name: "🇨🇫 中非共和国节点", pattern: "🇨🇫|中非共和国|中非|\\bCF\\b|central[\\s_-]*african" },
+    { key: "cf", name: "🇨🇫 中非共和国节点", pattern: "🇨🇫|中非共和国|中非|central[\\s_-]*african" },
     { key: "td", name: "🇹🇩 乍得节点", pattern: "🇹🇩|乍得|\\bTD\\b|\\bchad\\b" },
     { key: "km", name: "🇰🇲 科摩罗节点", pattern: "🇰🇲|科摩罗|\\bKM\\b|comoros" },
     { key: "cg", name: "🇨🇬 刚果共和国节点", pattern: "🇨🇬|刚果共和国|刚果（布）|\\bCG\\b|\\bcongo\\b" },
@@ -253,6 +252,14 @@ function main(config) {
       leafTags.push(tg);
     }
   }
+  var endpoints = ensureArray(config, "endpoints");
+  for (var ei = 0; ei < endpoints.length; ei++) {
+    var ep = endpoints[ei];
+    var etg = tagOf(ep);
+    var ety = typeOf(ep);
+    if (!etg) continue;
+    if (ety === "wireguard" || ety === "tailscale") leafTags.push(etg);
+  }
 
   for (var si = 0; si < outbounds.length; si++) {
     var sob = outbounds[si];
@@ -289,10 +296,15 @@ function main(config) {
     }
   }
 
+  function isCloudflareName(name) {
+    return /cloudflare|cloudflera|\bwarp\b|wg[\s_-]*cf|1\.1\.1\.1/i.test(name);
+  }
   function matchRegion(name) {
     var hits = [];
+    var skipCf = isCloudflareName(name);
     for (var ri = 0; ri < REGIONS.length; ri++) {
       var r = REGIONS[ri];
+      if (skipCf && r.key === "cf") continue;
       try {
         var re = new RegExp(r.pattern, "i");
         if (re.test(name)) hits.push(r);
@@ -751,9 +763,15 @@ function main(config) {
       method: "drop"
     });
   }
-  // UDP 443 is not dropped. A reject here blackholed YouTube / X (they do not
-  // fall back to TCP) while browsers still worked. disableQuic only rejects
-  // HTTPS/SVCB below so new lookups prefer TCP.
+  // UDP 443 stays open. Rejecting it blackholed YouTube / X. HTTPS/SVCB
+  // stays too: rejecting those lookups forced TCP and made YouTube buffer.
+  // overlay.disableQuic / excludeCnQuic are still read; they no longer drop QUIC.
+  if (disableQuic || excludeCnQuic) { /* QUIC stays open */ }
+  var YT_SUFFIX = [
+    "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com",
+    "youtubekids.com", "youtube-nocookie.com", "youtubei.googleapis.com",
+    "youtube.googleapis.com"
+  ];
   addRule({
     package_name: [
       "com.anydesk.anydeskandroid", "com.oray.todesk",
@@ -778,7 +796,7 @@ function main(config) {
     outbound: youtubeTag
   });
   addRule({
-    domain_suffix: ["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtubekids.com"],
+    domain_suffix: YT_SUFFIX,
     outbound: youtubeTag
   });
   addRule({
@@ -993,7 +1011,6 @@ function main(config) {
     remoteDns
   ];
   var extraDns = [];
-  if (disableQuic) extraDns.push({ query_type: [64, 65], action: "reject" });
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
   extraDns.push({
@@ -1004,6 +1021,7 @@ function main(config) {
     ],
     server: "dns-remote"
   });
+  extraDns.push({ domain_suffix: YT_SUFFIX, server: "dns-remote" });
   if (hasRuleSet("geosite-google")) extraDns.push({ rule_set: "geosite-google", server: "dns-remote" });
   if (hasRuleSet("geosite-youtube")) extraDns.push({ rule_set: "geosite-youtube", server: "dns-remote" });
   if (hasRuleSet("geosite-telegram")) extraDns.push({ rule_set: "geosite-telegram", server: "dns-remote" });

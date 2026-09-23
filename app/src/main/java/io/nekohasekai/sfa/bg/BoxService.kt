@@ -36,6 +36,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.ConfigDiagnose
+import io.nekohasekai.sfa.utils.ConfigInboundCompat
 import io.nekohasekai.sfa.utils.ConfigQuicOverride
 import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
@@ -277,23 +278,67 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             keep(result.exceptionOrNull()?.message)
         }
 
-        if (Settings.configNormalize) {
-            val needles = ConfigDiagnose.ruleSetNeedles(firstErr)
+        if (ConfigDiagnose.looksLikeBadEch(firstErr) || ConfigDiagnose.looksLikeBadEch(err)) {
             restartCommandServer()
-            if (scriptBound && needles.isNotEmpty()) {
+            result = tryStart(ConfigQuicOverride.apply(rawContent, stripEch = true))
+            if (result.isSuccess) {
+                OverrideStatus.add(
+                    OverrideNotice(
+                        title = "ECH 已跳过",
+                        reason = "节点自带的 ECH 参数内核读不了，已去掉后启动。",
+                        hint = "节点还在，没有改成直连。",
+                    ),
+                )
+                return true
+            }
+            keep(result.exceptionOrNull()?.message)
+        }
+
+        val ruleSetFail = ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
+            ConfigDiagnose.looksLikeRuleSetFailure(err)
+        var needles = ConfigDiagnose.ruleSetNeedles(firstErr)
+        if (needles.isEmpty() && ruleSetFail) {
+            needles = ConfigInboundCompat.remoteRuleSetTags(content)
+        }
+        var ruleSetRetried = false
+        if (ruleSetFail && needles.isNotEmpty()) {
+            ruleSetRetried = true
+            restartCommandServer()
+            result = tryStart(
+                ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
+            )
+            if (result.isSuccess) {
+                OverrideStatus.add(
+                    OverrideNotice(
+                        title = "配置规范化",
+                        reason = "已修正",
+                        hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
+                    ),
+                )
+                return true
+            }
+            keep(result.exceptionOrNull()?.message)
+            val drop = ConfigDiagnose.ruleSetNeedles(err).ifEmpty { needles }
+            if (ConfigDiagnose.looksLikeRuleSetFailure(err) && drop.isNotEmpty()) {
+                restartCommandServer()
                 result = tryStart(
-                    ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
+                    ConfigQuicOverride.apply(rawContent, dropRuleSetNeedles = drop),
                 )
                 if (result.isSuccess) {
-                    val current = OverrideStatus.notices.value.toMutableList()
-                    val fixed = OverrideNotice(title = "配置规范化", reason = "已修正", hint = "")
-                    val idx = current.indexOfFirst { it.title == "配置规范化" && !it.error }
-                    if (idx >= 0) current[idx] = fixed else current += fixed
-                    OverrideStatus.set(current)
+                    OverrideStatus.add(
+                        OverrideNotice(
+                            title = "规则集已跳过",
+                            reason = "打不开的规则集已去掉后再启动。",
+                            hint = "节点和分组没动，其余分流仍在。没有改成直连。",
+                        ),
+                    )
                     return true
                 }
                 keep(result.exceptionOrNull()?.message)
             }
+        }
+
+        if (Settings.configNormalize) {
             if (ConfigDiagnose.looksLikeScriptFault(firstErr) ||
                 ConfigDiagnose.looksLikeScriptFault(err)
             ) {
@@ -319,7 +364,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             stopAndAlert(
                 Alert.CreateService,
-                ConfigDiagnose.explain(err, scriptsBound = scriptBound),
+                ConfigDiagnose.explain(
+                    err,
+                    scriptsBound = scriptBound,
+                    ruleSetRetried = ruleSetRetried,
+                ),
             )
             return false
         }
@@ -348,7 +397,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return false
         }
 
-        stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(err, scriptsBound = scriptBound))
+        stopAndAlert(
+            Alert.CreateService,
+            ConfigDiagnose.explain(err, scriptsBound = scriptBound, ruleSetRetried = ruleSetRetried),
+        )
         return false
     }
 

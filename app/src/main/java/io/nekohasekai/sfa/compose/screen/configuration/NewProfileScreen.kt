@@ -106,14 +106,29 @@ fun NewProfileScreen(
 
     // Error dialog state
     var showErrorDialog by remember { mutableStateOf(false) }
+    var showImportHint by remember { mutableStateOf(false) }
 
-    // Handle success
-    LaunchedEffect(uiState.isSuccess, uiState.createdProfile) {
+    // Share-link imports have no routing. Suggest the default script, do not bind it.
+    LaunchedEffect(uiState.isSuccess, uiState.createdProfile, uiState.importHint) {
         if (uiState.isSuccess) {
-            uiState.createdProfile?.let { profile ->
+            val profile = uiState.createdProfile ?: return@LaunchedEffect
+            if (uiState.importHint.isNullOrBlank()) {
                 onProfileCreated(profile.id)
+            } else {
+                showImportHint = true
             }
         }
+    }
+
+    if (showImportHint) {
+        SelectableMessageDialog(
+            title = "建议开启默认脚本",
+            message = uiState.importHint.orEmpty(),
+            onDismiss = {
+                showImportHint = false
+                uiState.createdProfile?.let { onProfileCreated(it.id) }
+            },
+        )
     }
 
     // Show error dialog when there's an error message

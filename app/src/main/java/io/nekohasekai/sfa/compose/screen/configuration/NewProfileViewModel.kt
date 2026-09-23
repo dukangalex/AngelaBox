@@ -12,6 +12,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigIngest
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ data class NewProfileUiState(
     val errorMessage: String? = null,
     val isSuccess: Boolean = false,
     val createdProfile: Profile? = null,
+    val importHint: String? = null,
     val nameError: String? = null,
     val remoteUrlError: String? = null,
     val importError: String? = null,
@@ -192,7 +194,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(isSaving = true, errorMessage = null) }
 
             try {
-                val profile =
+                val created =
                     withContext(Dispatchers.IO) {
                         when (state.profileType) {
                             ProfileType.Local -> createLocalProfile(state)
@@ -204,7 +206,8 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                     it.copy(
                         isSaving = false,
                         isSuccess = true,
-                        createdProfile = profile,
+                        createdProfile = created.profile,
+                        importHint = created.importHint,
                     )
                 }
             } catch (e: Exception) {
@@ -218,7 +221,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    private suspend fun createLocalProfile(state: NewProfileUiState): Profile {
+    private suspend fun createLocalProfile(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val typedProfile =
             TypedProfile().apply {
@@ -235,34 +238,33 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
-        val configContent = ConfigCompat.sanitize(
-            when (state.profileSource) {
-                ProfileSource.CreateNew -> "{}"
-                ProfileSource.Import -> {
-                    if (state.qrsData != null) {
-                        val content = Libbox.decodeProfileContent(state.qrsData)
-                        content.config
-                    } else {
-                        state.importUri?.let { uri ->
-                            if (uri.scheme != "content") {
-                                throw Exception("Only content:// profile imports are supported")
-                            }
-                            readImportText(context, uri)
-                        } ?: "{}"
-                    }
+        val raw = when (state.profileSource) {
+            ProfileSource.CreateNew -> "{}"
+            ProfileSource.Import -> {
+                if (state.qrsData != null) {
+                    val content = Libbox.decodeProfileContent(state.qrsData)
+                    content.config
+                } else {
+                    state.importUri?.let { uri ->
+                        if (uri.scheme != "content") {
+                            throw Exception("Only content:// profile imports are supported")
+                        }
+                        readImportText(context, uri)
+                    } ?: "{}"
                 }
-            },
-        )
+            }
+        }
+        val configContent = ConfigCompat.sanitize(raw)
 
         Libbox.checkConfig(configContent)
         configFile.writeText(configContent)
 
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
 
-        return profile
+        return CreatedProfile(profile, shareLinkHint(raw))
     }
 
-    private suspend fun createRemoteProfile(state: NewProfileUiState): Profile {
+    private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
         io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
@@ -290,20 +292,29 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         typedProfile.path = configFile.path
 
         HTTPClient().use { client ->
-            val content = ConfigCompat.sanitize(
-                client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION),
-            )
+            val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            val content = ConfigCompat.sanitize(raw)
             Libbox.checkConfig(content)
             configFile.writeText(content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             io.nekohasekai.sfa.utils.SubscriptionInfoStore.capture(client, profile.id, context)
+            if (state.autoUpdate) {
+                UpdateProfileWork.reconfigureUpdater()
+            }
+            return CreatedProfile(profile, shareLinkHint(raw))
         }
+    }
 
-        if (state.autoUpdate) {
-            UpdateProfileWork.reconfigureUpdater()
+    private fun shareLinkHint(raw: String): String? {
+        val ingested = try {
+            ConfigIngest.adapt(raw)
+        } catch (_: Exception) {
+            return null
         }
-
-        return profile
+        if (ingested.format != ConfigIngest.Format.ShareLinks || !ingested.fatal.isNullOrBlank()) {
+            return null
+        }
+        return "这份订阅是节点链接，里面没有分流规则。建议在这个配置上开启「默认脚本」，国内直连和国外代理才会分开。应用不会自动开启。"
     }
 
     private fun readImportText(context: Application, uri: Uri): String {
@@ -315,3 +326,8 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
+
+private data class CreatedProfile(
+    val profile: Profile,
+    val importHint: String? = null,
+)

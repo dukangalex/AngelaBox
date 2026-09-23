@@ -335,6 +335,7 @@
     <string name="menu_undo">撤销</string>
     <string name="menu_redo">重做</string>
     <string name="menu_format">格式化</string>
+    <string name="menu_paste">粘贴</string>
     <string name="menu_delete">删除</string>
     <string name="menu_share">分享</string>
     <string name="error_title">错误</string>

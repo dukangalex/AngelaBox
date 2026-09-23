@@ -5,7 +5,7 @@ package io.nekohasekai.sfa.utils
  * Does not change the config; BoxService may then heal and retry.
  */
 object ConfigDiagnose {
-    fun explain(raw: String?, scriptsBound: Boolean = false): String {
+    fun explain(raw: String?, scriptsBound: Boolean = false, ruleSetRetried: Boolean = false): String {
         val text = raw?.trim().orEmpty()
         if (text.isEmpty()) {
             return "启动失败，没有具体原因。请检查这份配置是否完整，或换一份再试。"
@@ -31,10 +31,18 @@ object ConfigDiagnose {
                     else "应用会改成直连下载后再试。"
             }
             looksLike(text, "initialize rule-set") || looksLike(text, "initial rule-set") -> {
-                "远程规则集下载失败。应用会换成官方规则集后再启动。$scriptHint"
+                if (ruleSetRetried) {
+                    "远程规则集换成官方地址后仍下载失败。节点和分组没有改成直连。$scriptHint"
+                } else {
+                    "远程规则集下载失败。应用会换成官方规则集后再启动。$scriptHint"
+                }
             }
             looksLike(text, "missing rule_set") || looksLike(text, "rule-set not found") -> {
-                "路由引用了不存在的规则集。应用会换成官方规则集后再启动。$scriptHint"
+                if (ruleSetRetried) {
+                    "路由引用了不存在的规则集，换成官方地址后仍失败。节点和分组没有改成直连。$scriptHint"
+                } else {
+                    "路由引用了不存在的规则集。应用会换成官方规则集后再启动。$scriptHint"
+                }
             }
             looksLike(text, "outbound not found") || looksLike(text, "unknown outbound") -> {
                 val tag = extractAfter(text, "outbound not found:").ifBlank {
@@ -93,7 +101,11 @@ object ConfigDiagnose {
                 "脚本需要 function main(config)，并且返回官方 sing-box JSON。"
             }
             looksLike(text, "404") || (looksLike(text, "not found") && looksLike(text, ".srs")) -> {
-                "规则集文件不存在（404）。应用会换成官方规则集后再启动。$scriptHint"
+                if (ruleSetRetried) {
+                    "规则集文件换成官方地址后仍不存在。节点和分组没有改成直连。$scriptHint"
+                } else {
+                    "规则集文件不存在（404）。应用会换成官方规则集后再启动。$scriptHint"
+                }
             }
             else -> text.take(400)
         }
@@ -109,6 +121,20 @@ object ConfigDiagnose {
             t.contains("Unavailable", ignoreCase = true) ||
             t.contains("error reading from server", ignoreCase = true) ||
             t.contains("code = Unavailable", ignoreCase = true)
+    }
+
+    fun looksLikeBadEch(text: String?): Boolean {
+        val t = text.orEmpty()
+        return looksLike(t, "invalid ECH configs pem") || looksLike(t, "invalid ech")
+    }
+
+    fun looksLikeRuleSetFailure(text: String?): Boolean {
+        val t = text.orEmpty()
+        return looksLike(t, "initialize rule-set") ||
+            looksLike(t, "initial rule-set") ||
+            looksLike(t, "missing rule_set") ||
+            looksLike(t, "rule-set not found") ||
+            (looksLike(t, ".srs") && (looksLike(t, "404") || looksLike(t, "not found")))
     }
 
     fun looksLikeScriptFault(text: String?): Boolean {

@@ -577,6 +577,23 @@ object ConfigInboundCompat {
         return true
     }
 
+    /** Tags of remote rule-sets in an already-built runtime config. */
+    internal fun remoteRuleSetTags(content: String): List<String> {
+        if (content.isBlank() || content.length > ConfigCompat.MAX_CONFIG_CHARS) return emptyList()
+        return try {
+            val sets = JSONObject(content).optJSONObject("route")?.optJSONArray("rule_set")
+                ?: return emptyList()
+            val out = ArrayList<String>()
+            for (i in 0 until sets.length()) {
+                val tag = sets.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (ConfigDiagnose.isPlausibleRuleSetName(tag)) out += tag
+            }
+            out
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     /**
      * Last-resort exact drop used by tests. Same matching rules as replace;
      * no substring-in-URL.
@@ -880,12 +897,16 @@ object ConfigInboundCompat {
     }
 
     private fun outboundTags(root: JSONObject): Set<String> {
-        val outs = root.optJSONArray("outbounds") ?: return emptySet()
         val tags = linkedSetOf<String>()
-        for (i in 0 until outs.length()) {
-            val tag = outs.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
-            if (tag.isNotEmpty()) tags.add(tag)
+        fun add(arr: JSONArray?) {
+            if (arr == null) return
+            for (i in 0 until arr.length()) {
+                val tag = arr.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (tag.isNotEmpty()) tags.add(tag)
+            }
         }
+        add(root.optJSONArray("outbounds"))
+        add(root.optJSONArray("endpoints"))
         return tags
     }
 

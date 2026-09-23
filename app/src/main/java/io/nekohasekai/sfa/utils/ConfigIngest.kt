@@ -117,8 +117,12 @@ object ConfigIngest {
         val proxies = asMapList(mapIgnoreCase(tree, "proxies"))
         val groups = asMapList(mapIgnoreCase(tree, "proxy-groups") ?: mapIgnoreCase(tree, "proxy_groups"))
         val rules = asStringList(mapIgnoreCase(tree, "rules"))
+        val providers = asMap(
+            mapIgnoreCase(tree, "rule-providers") ?: mapIgnoreCase(tree, "rule_providers"),
+        ) ?: emptyMap<Any?, Any?>()
         val notes = mutableListOf<String>()
         val outbounds = JSONArray()
+        val endpoints = JSONArray()
         val tags = LinkedHashSet<String>()
         val skips = SkipBag()
         var skipped = 0
@@ -130,7 +134,11 @@ object ConfigIngest {
             }
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
-            outbounds.put(converted)
+            if (converted.optString("type") == "wireguard") {
+                endpoints.put(converted)
+            } else {
+                outbounds.put(converted)
+            }
         }
         if (tags.isEmpty()) {
             return unsupported(unsupportedNodeMessage(skips))
@@ -146,25 +154,32 @@ object ConfigIngest {
             outbounds.put(converted)
         }
         val mappedRules = JSONArray()
-        val usedSets = LinkedHashSet<String>()
+        val usedSets = LinkedHashMap<String, String?>()
         var finalTag = groupTags.firstOrNull() ?: leafTags.first()
+        var skippedRules = 0
         for (rawRule in rules) {
-            val parsed = parseClashRule(rawRule, tags) ?: continue
+            val parsed = parseClashRule(rawRule, tags, providers) ?: run {
+                skippedRules++
+                continue
+            }
             if (parsed.finalTag != null) {
                 finalTag = parsed.finalTag
                 continue
             }
             parsed.rule?.let { mappedRules.put(it) }
-            parsed.ruleSet?.let { usedSets.add(it) }
+            parsed.ruleSets.forEach { (tag, url) ->
+                if (!usedSets.containsKey(tag)) usedSets[tag] = url
+            }
         }
         val root = JSONObject()
         root.put("outbounds", outbounds)
+        if (endpoints.length() > 0) root.put("endpoints", endpoints)
         val route = JSONObject()
         if (mappedRules.length() > 0) route.put("rules", mappedRules)
         route.put("final", finalTag)
         if (usedSets.isNotEmpty()) {
             val sets = JSONArray()
-            usedSets.forEach { tag -> sets.put(remoteRuleSet(tag)) }
+            usedSets.forEach { (tag, url) -> sets.put(remoteRuleSet(tag, url)) }
             route.put("rule_set", sets)
             root.put(
                 "http_clients",
@@ -173,7 +188,10 @@ object ConfigIngest {
             route.put("default_http_client", "angela-http-direct")
         }
         root.put("route", route)
-        notes += "已将 Clash 配置转为 sing-box，分流规则已保留"
+        notes += "已将 Clash 配置转为 sing-box，能识别的分流已保留"
+        if (skippedRules > 0) {
+            notes += "有 $skippedRules 条分流暂时对不上 sing-box，已跳过，没有改成直连"
+        }
         if (skipped > 0) notes += skipNote(skipped, skips)
         return Result(root.toString(), notes, Format.Clash)
     }
@@ -290,19 +308,29 @@ object ConfigIngest {
                 putTls(out, raw, defaultEnabled = true)
             }
             "wireguard" -> {
-                out.put("type", "wireguard")
-                out.put("private_key", str(raw["private-key"] ?: raw["private_key"]))
-                out.put("peer_public_key", str(raw["public-key"] ?: raw["public_key"]))
-                val local = raw["ip"] ?: raw["ipv6"] ?: raw["local-address"]
-                if (local != null) {
-                    val arr = JSONArray()
-                    when (local) {
-                        is List<*> -> local.forEach { arr.put(it.toString()) }
-                        else -> arr.put(local.toString())
+                val locals = mutableListOf<String>()
+                val local = raw["ip"] ?: raw["ipv6"] ?: raw["local-address"] ?: raw["local_address"]
+                when (local) {
+                    is List<*> -> local.forEach { value ->
+                        str(value).takeIf { it.isNotEmpty() }?.let { locals += it }
                     }
-                    out.put("local_address", arr)
+                    null -> Unit
+                    else -> str(local).takeIf { it.isNotEmpty() }?.let { locals += it }
                 }
-                intVal(raw["mtu"])?.let { out.put("mtu", it) }
+                val reserved = when (val value = raw["reserved"]) {
+                    is List<*> -> value.mapNotNull { intVal(it) }
+                    else -> str(value).split(',').mapNotNull { it.trim().toIntOrNull() }
+                }
+                return wireguardEndpoint(
+                    tag = name,
+                    privateKey = str(raw["private-key"] ?: raw["private_key"]),
+                    peerPublic = str(raw["public-key"] ?: raw["public_key"]),
+                    server = server,
+                    port = port,
+                    addresses = locals,
+                    reserved = reserved,
+                    mtu = intVal(raw["mtu"]),
+                )
             }
             "socks", "socks5" -> {
                 out.put("type", "socks")
@@ -348,29 +376,154 @@ object ConfigIngest {
             )
         }
         if (echOn && ech != null) {
-            val echObj = JSONObject().put("enabled", true)
-            putEchConfig(echObj, ech["config"])
-            str(ech["query-server-name"] ?: ech["query_server_name"]).takeIf { it.isNotEmpty() }
-                ?.let { echObj.put("query_server_name", it) }
-            tls.put("ech", echObj)
+            putEch(
+                tls,
+                ech["config"],
+                str(ech["query-server-name"] ?: ech["query_server_name"]),
+            )
         }
         out.put("tls", tls)
     }
 
-    private fun putEchConfig(echObj: JSONObject, raw: Any?) {
-        val arr = JSONArray()
-        when (raw) {
-            is List<*> -> raw.forEach { item ->
-                val text = str(item)
-                if (text.isNotEmpty()) arr.put(text)
+    private fun putEch(tls: JSONObject, raw: Any?, queryName: String) {
+        val echObj = JSONObject().put("enabled", true)
+        val pem = echPemFrom(raw)
+        if (pem != null) echObj.put("config", JSONArray().put(pem))
+        if (queryName.isNotEmpty()) echObj.put("query_server_name", queryName)
+        if (pem == null && queryName.isEmpty()) return
+        tls.put("ech", echObj)
+    }
+
+    /**
+     * sing-box accepts exactly one PEM block of type "ECH CONFIGS".
+     * Clash / v2ray usually store raw base64. Already-valid PEM stays.
+     * Unusable text returns null so the caller can fall back to DNS fetch
+     * or drop ECH. This does not invent a config the kernel cannot parse.
+     */
+    private fun echPemFrom(raw: Any?): String? {
+        val items = when (raw) {
+            null, JSONObject.NULL -> return null
+            is JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+            is String -> listOf(raw)
+            else -> listOf(raw.toString())
+        }.map { it.trim() }.filter { it.isNotEmpty() }
+        if (items.isEmpty()) return null
+        if (items.size == 1 && isCleanEchPem(items[0])) return items[0].trim()
+        val chunks = ArrayList<ByteArray>()
+        for (item in items) {
+            val decoded = decodeEchBytes(item) ?: return null
+            if (decoded.isNotEmpty()) chunks.add(decoded)
+        }
+        if (chunks.isEmpty()) return null
+        val all = ByteArray(chunks.sumOf { it.size })
+        var pos = 0
+        for (chunk in chunks) {
+            chunk.copyInto(all, pos)
+            pos += chunk.size
+        }
+        val body = Base64.getMimeEncoder(64, byteArrayOf('\n'.code.toByte())).encodeToString(all)
+        return "-----BEGIN ECH CONFIGS-----\n$body\n-----END ECH CONFIGS-----"
+    }
+
+    private fun isCleanEchPem(text: String): Boolean {
+        val start = text.indexOf("-----BEGIN ECH CONFIGS-----")
+        if (start < 0) return false
+        val endMark = "-----END ECH CONFIGS-----"
+        val end = text.indexOf(endMark, start)
+        if (end < 0) return false
+        return text.substring(end + endMark.length).isBlank()
+    }
+
+    private fun decodeEchBytes(item: String): ByteArray? {
+        val blocks = ECH_PEM.findAll(item).toList()
+        if (blocks.isNotEmpty()) {
+            val parts = ArrayList<ByteArray>()
+            for (block in blocks) {
+                val one = decodeB64(block.groupValues[1]) ?: return null
+                parts.add(one)
             }
-            is String -> if (raw.isNotBlank()) arr.put(raw.trim())
-            else -> {
-                val text = str(raw)
-                if (text.isNotEmpty()) arr.put(text)
+            if (parts.size == 1) return parts[0]
+            val all = ByteArray(parts.sumOf { it.size })
+            var pos = 0
+            for (part in parts) {
+                part.copyInto(all, pos)
+                pos += part.size
+            }
+            return all
+        }
+        val compact = item.replace("\\s".toRegex(), "")
+        if (compact.length < 4) return null
+        if (!compact.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' || it == '-' || it == '_' }) {
+            return null
+        }
+        return decodeB64(item)
+    }
+
+    internal fun normalizeEchConfigs(root: JSONObject): Boolean {
+        var changed = false
+        fun walk(key: String) {
+            val arr = root.optJSONArray(key) ?: return
+            for (i in 0 until arr.length()) {
+                val node = arr.optJSONObject(i) ?: continue
+                if (normalizeEchOn(node)) changed = true
             }
         }
-        if (arr.length() > 0) echObj.put("config", arr)
+        walk("outbounds")
+        walk("endpoints")
+        return changed
+    }
+
+    internal fun stripEch(root: JSONObject): Boolean {
+        var changed = false
+        fun walk(key: String) {
+            val arr = root.optJSONArray(key) ?: return
+            for (i in 0 until arr.length()) {
+                val tls = arr.optJSONObject(i)?.optJSONObject("tls") ?: continue
+                if (tls.has("ech")) {
+                    tls.remove("ech")
+                    changed = true
+                }
+            }
+        }
+        walk("outbounds")
+        walk("endpoints")
+        return changed
+    }
+
+    private fun normalizeEchOn(node: JSONObject): Boolean {
+        val tls = node.optJSONObject("tls") ?: return false
+        val ech = tls.optJSONObject("ech") ?: return false
+        val query = ech.optString("query_server_name").ifBlank { ech.optString("query-server-name") }.trim()
+        val pem = echPemFrom(ech.opt("config"))
+        if (pem != null) {
+            val current = ech.optJSONArray("config")
+            val same = current != null && current.length() == 1 && current.optString(0) == pem
+            if (!same) {
+                ech.put("enabled", true)
+                ech.put("config", JSONArray().put(pem))
+                if (query.isNotEmpty()) ech.put("query_server_name", query)
+                ech.remove("query-server-name")
+                return true
+            }
+            return false
+        }
+        if (!ech.has("config") || echConfigEmpty(ech.opt("config"))) return false
+        ech.remove("config")
+        if (query.isNotEmpty()) {
+            ech.put("enabled", true)
+            ech.put("query_server_name", query)
+            ech.remove("query-server-name")
+            return true
+        }
+        tls.remove("ech")
+        return true
+    }
+
+    private fun echConfigEmpty(raw: Any?): Boolean = when (raw) {
+        null, JSONObject.NULL -> true
+        is String -> raw.isBlank()
+        is JSONArray -> raw.length() == 0 || (0 until raw.length()).all { raw.optString(it).isBlank() }
+        else -> raw.toString().isBlank()
     }
 
     /** @return false when the transport is not in this kernel (do not invent a substitute). */
@@ -451,51 +604,149 @@ object ConfigIngest {
 
     private data class ClashRule(
         val rule: JSONObject? = null,
-        val ruleSet: String? = null,
+        val ruleSets: Map<String, String?> = emptyMap(),
         val finalTag: String? = null,
     )
 
-    private fun parseClashRule(raw: String, known: Set<String>): ClashRule? {
-        val parts = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    private fun parseClashRule(raw: String, known: Set<String>, providers: Map<*, *>): ClashRule? {
+        val parts = splitTopLevel(raw)
         if (parts.isEmpty()) return null
         val kind = parts[0].uppercase()
+        val fields = parts.drop(1).filter { !it.equals("no-resolve", true) }
         if (kind == "MATCH" || kind == "FINAL") {
-            val target = mapSpecialTag(parts.getOrNull(1) ?: return null)
+            val target = mapSpecialTag(fields.firstOrNull() ?: return null)
             return ClashRule(finalTag = target)
         }
-        if (parts.size < 3) return null
-        val payload = parts[1]
-        val target = mapSpecialTag(parts[2])
-        if (target.equals("REJECT", true) || target.equals("REJECT-DROP", true)) {
-            val rule = matchField(kind, payload) ?: return null
+        if (fields.size < 2) return null
+        val target = mapSpecialTag(fields.last())
+        val payload = fields.dropLast(1).joinToString(",")
+        val sets = LinkedHashMap<String, String?>()
+        val reject = target.equals("REJECT", true) || target.equals("REJECT-DROP", true)
+        val outbound = when {
+            reject -> null
+            target in known || target == "direct" -> target
+            else -> return null
+        }
+        val rule = when (kind) {
+            "AND", "OR", "NOT" -> parseLogical(kind, payload, known, providers, sets)
+            "GEOIP" -> geoipCondition(payload, sets)
+            "GEOSITE" -> geositeCondition(payload, sets)
+            "RULE-SET" -> ruleSetCondition(payload, providers, sets)
+            else -> matchField(kind, payload)
+        } ?: return null
+        if (reject) {
             rule.put("action", "reject")
             if (target.equals("REJECT-DROP", true)) rule.put("method", "drop")
-            return ClashRule(rule = rule)
+        } else {
+            rule.put("outbound", outbound)
         }
-        val outbound = if (target in known || target == "direct") target else return null
-        when (kind) {
-            "GEOIP" -> {
-                val tag = if (payload.equals("CN", true)) "geoip-cn" else "geoip-${payload.lowercase()}"
-                return ClashRule(
-                    rule = JSONObject().put("rule_set", tag).put("outbound", outbound),
-                    ruleSet = tag,
-                )
-            }
-            "GEOSITE" -> {
-                val tag = when {
-                    payload.equals("CN", true) -> "geosite-cn"
-                    payload.startsWith("geosite-") -> payload
-                    else -> "geosite-${payload.lowercase()}"
-                }
-                return ClashRule(
-                    rule = JSONObject().put("rule_set", tag).put("outbound", outbound),
-                    ruleSet = tag,
-                )
-            }
+        return ClashRule(rule = rule, ruleSets = sets)
+    }
+
+    private fun parseLogical(
+        kind: String,
+        payload: String,
+        known: Set<String>,
+        providers: Map<*, *>,
+        sets: MutableMap<String, String?>,
+    ): JSONObject? {
+        val inner = unwrapParens(payload)
+        if (kind == "NOT") {
+            val sub = parseClashCondition(inner, known, providers, sets) ?: return null
+            sub.put("invert", true)
+            return sub
         }
-        val rule = matchField(kind, payload) ?: return null
-        rule.put("outbound", outbound)
-        return ClashRule(rule = rule)
+        val pieces = splitTopLevel(inner)
+        val rules = JSONArray()
+        for (piece in pieces) {
+            val sub = parseClashCondition(unwrapParens(piece), known, providers, sets) ?: return null
+            rules.put(sub)
+        }
+        if (rules.length() == 0) return null
+        return JSONObject()
+            .put("type", "logical")
+            .put("mode", kind.lowercase())
+            .put("rules", rules)
+    }
+
+    private fun parseClashCondition(
+        body: String,
+        known: Set<String>,
+        providers: Map<*, *>,
+        sets: MutableMap<String, String?>,
+    ): JSONObject? {
+        val parts = splitTopLevel(body)
+        if (parts.isEmpty()) return null
+        val kind = parts[0].uppercase()
+        if (kind == "AND" || kind == "OR" || kind == "NOT") {
+            return parseLogical(kind, parts.getOrNull(1) ?: return null, known, providers, sets)
+        }
+        if (parts.size < 2) return null
+        val payload = parts[1]
+        return when (kind) {
+            "GEOIP" -> geoipCondition(payload, sets)
+            "GEOSITE" -> geositeCondition(payload, sets)
+            "RULE-SET" -> ruleSetCondition(payload, providers, sets)
+            else -> matchField(kind, payload)
+        }
+    }
+
+    private fun geoipCondition(payload: String, sets: MutableMap<String, String?>): JSONObject? {
+        if (payload.equals("private", true) || payload.equals("lan", true)) {
+            return JSONObject().put("ip_is_private", true)
+        }
+        val tag = if (payload.equals("CN", true)) "geoip-cn" else "geoip-${payload.lowercase()}"
+        if (ConfigInboundCompat.officialRuleSetFile(tag) == null && !tag.startsWith("geoip-")) return null
+        if (tag == "geoip-private" || tag == "geoip-fastly" || tag == "geoip-cloudfront") return null
+        sets.putIfAbsent(tag, null)
+        return JSONObject().put("rule_set", tag)
+    }
+
+    private fun geositeCondition(payload: String, sets: MutableMap<String, String?>): JSONObject? {
+        val tag = when {
+            payload.equals("CN", true) -> "geosite-cn"
+            payload.startsWith("geosite-") -> payload
+            else -> "geosite-${payload.lowercase()}"
+        }
+        sets.putIfAbsent(tag, null)
+        return JSONObject().put("rule_set", tag)
+    }
+
+    private fun ruleSetCondition(
+        payload: String,
+        providers: Map<*, *>,
+        sets: MutableMap<String, String?>,
+    ): JSONObject? {
+        if (payload.equals("private", true) || payload.equals("lan", true)) {
+            return JSONObject().put("ip_is_private", true)
+        }
+        val resolved = resolveRuleProvider(payload, providers) ?: return null
+        sets.putIfAbsent(resolved.first, resolved.second)
+        return JSONObject().put("rule_set", resolved.first)
+    }
+
+    private fun resolveRuleProvider(name: String, providers: Map<*, *>): Pair<String, String?>? {
+        val provider = asMap(providers[name]) ?: providers.entries.firstOrNull { (key, _) ->
+            key is String && key.equals(name, true)
+        }?.value?.let { asMap(it) }
+        val url = str(provider?.get("url"))
+        if (url.endsWith(".srs", true) || url.contains(".srs?", true)) {
+            return name to url
+        }
+        val stem = name.trim().lowercase()
+        val mapped = when (stem) {
+            "reject", "ad", "ads", "advertising", "category-ads-all", "banad", "banads" ->
+                "geosite-category-ads-all"
+            "cn", "china", "direct", "geosite-cn" -> "geosite-cn"
+            "cnip", "cn-ip", "china-ip", "geoip-cn" -> "geoip-cn"
+            "gfw", "proxy", "geolocation-!cn", "geosite-geolocation-!cn" -> "geosite-geolocation-!cn"
+            else -> null
+        }
+        if (mapped != null) return mapped to null
+        val file = ConfigInboundCompat.officialRuleSetFile(stem)
+        if (file != null) return file.removeSuffix(".srs") to null
+        if (stem.startsWith("geosite-") || stem.startsWith("geoip-")) return stem to null
+        return null
     }
 
     private fun matchField(kind: String, payload: String): JSONObject? {
@@ -507,8 +758,8 @@ object ConfigIngest {
             "DOMAIN-REGEX" -> rule.put("domain_regex", payload)
             "IP-CIDR", "IP-CIDR6" -> rule.put("ip_cidr", payload)
             "SRC-IP-CIDR" -> rule.put("source_ip_cidr", payload)
-            "DST-PORT" -> intVal(payload)?.let { rule.put("port", it) } ?: return null
-            "SRC-PORT" -> intVal(payload)?.let { rule.put("source_port", it) } ?: return null
+            "DST-PORT", "PORT" -> rule.put("port", portLiteral(payload) ?: return null)
+            "SRC-PORT" -> rule.put("source_port", portLiteral(payload) ?: return null)
             "PROCESS-NAME" -> rule.put("process_name", payload)
             "PROCESS-PATH" -> rule.put("process_path", payload)
             "NETWORK" -> rule.put("network", payload.lowercase())
@@ -517,10 +768,72 @@ object ConfigIngest {
         return rule
     }
 
+    private fun portLiteral(payload: String): Any? {
+        intVal(payload)?.let { return it }
+        val range = Regex("""^(\d{1,5})\s*[-:]\s*(\d{1,5})$""").matchEntire(payload.trim()) ?: return null
+        val start = range.groupValues[1].toInt()
+        val end = range.groupValues[2].toInt()
+        if (start > 65535 || end > 65535) return null
+        return "$start:$end"
+    }
+
+    private fun splitTopLevel(raw: String): List<String> {
+        val parts = mutableListOf<String>()
+        val cur = StringBuilder()
+        var depth = 0
+        for (ch in raw) {
+            when (ch) {
+                '(' -> {
+                    depth++
+                    cur.append(ch)
+                }
+                ')' -> {
+                    if (depth > 0) depth--
+                    cur.append(ch)
+                }
+                ',' -> if (depth == 0) {
+                    val piece = cur.toString().trim()
+                    if (piece.isNotEmpty()) parts += piece
+                    cur.clear()
+                } else {
+                    cur.append(ch)
+                }
+                else -> cur.append(ch)
+            }
+        }
+        val tail = cur.toString().trim()
+        if (tail.isNotEmpty()) parts += tail
+        return parts
+    }
+
+    private fun unwrapParens(value: String): String {
+        var text = value.trim()
+        while (text.startsWith("(") && text.endsWith(")") && parenWrapsAll(text)) {
+            text = text.substring(1, text.length - 1).trim()
+        }
+        return text
+    }
+
+    private fun parenWrapsAll(text: String): Boolean {
+        var depth = 0
+        for (i in text.indices) {
+            when (text[i]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0 && i != text.lastIndex) return false
+                    if (depth < 0) return false
+                }
+            }
+        }
+        return depth == 0
+    }
+
     private fun convertShareLinks(text: String): Result? {
         val lines = expandShareText(text)
         if (lines.isEmpty()) return null
         val outbounds = JSONArray()
+        val endpoints = JSONArray()
         val tags = LinkedHashSet<String>()
         var skipped = 0
         for (line in lines) {
@@ -537,7 +850,11 @@ object ConfigIngest {
                 n++
             }
             converted.put("tag", tag)
-            outbounds.put(converted)
+            if (converted.optString("type") == "wireguard") {
+                endpoints.put(converted)
+            } else {
+                outbounds.put(converted)
+            }
         }
         if (tags.isEmpty()) return null
         ensureDirect(outbounds, tags)
@@ -550,7 +867,11 @@ object ConfigIngest {
         val root = JSONObject()
             .put("outbounds", outbounds)
             .put("route", JSONObject().put("final", "节点选择"))
-        val notes = mutableListOf("已将节点链接转为 sing-box 配置")
+        if (endpoints.length() > 0) root.put("endpoints", endpoints)
+        val notes = mutableListOf(
+            "已将节点链接转为 sing-box 配置",
+            "节点链接没有分流。建议开启默认脚本，应用不会自动开启。",
+        )
         if (skipped > 0) notes += "跳过 $skipped 条无法识别的链接"
         return Result(root.toString(), notes, Format.ShareLinks)
     }
@@ -569,6 +890,7 @@ object ConfigIngest {
             "tuic" -> parseTuic(body)
             "socks", "socks5" -> parseUserHost(body, "socks")
             "http", "https" -> if (scheme == "http") parseUserHost(body, "http") else null
+            "wireguard", "wg" -> parseWireGuard(body)
             else -> null
         }
     }
@@ -742,10 +1064,11 @@ object ConfigIngest {
         if (query["allowInsecure"] == "1" || query["insecure"] == "1") tls.put("insecure", true)
         query["fp"]?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
         val ech = query["ech"]?.trim().orEmpty()
-        if (ech.isNotEmpty()) {
-            val echObj = JSONObject().put("enabled", true)
-            putEchConfig(echObj, ech)
-            tls.put("ech", echObj)
+        if (ech.isNotEmpty() && ech != "0" && !ech.equals("false", true)) {
+            val flag = ech == "1" || ech.equals("true", true)
+            val queryName = query["echQuery"] ?: query["ech_query"]
+                ?: if (flag) query["sni"].orEmpty() else ""
+            putEch(tls, if (flag) null else ech, queryName)
         }
         out.put("tls", tls)
     }
@@ -801,14 +1124,80 @@ object ConfigIngest {
         tags.add("direct")
     }
 
-    private fun remoteRuleSet(tag: String): JSONObject {
+    private fun remoteRuleSet(tag: String, url: String? = null): JSONObject {
         val repo = if (tag.startsWith("geoip-")) "sing-geoip@rule-set" else "sing-geosite@rule-set"
+        val resolved = url?.takeIf { it.startsWith("http", true) }
+            ?: "https://testingcf.jsdelivr.net/gh/SagerNet/$repo/$tag.srs"
         return JSONObject()
             .put("tag", tag)
             .put("type", "remote")
             .put("format", "binary")
-            .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/$repo/$tag.srs")
+            .put("url", resolved)
             .put("http_client", "angela-http-direct")
+    }
+
+    private fun wireguardEndpoint(
+        tag: String,
+        privateKey: String,
+        peerPublic: String,
+        server: String,
+        port: Int,
+        addresses: List<String>,
+        reserved: List<Int>,
+        mtu: Int?,
+    ): JSONObject? {
+        if (privateKey.isBlank() || peerPublic.isBlank() || server.isBlank() || port <= 0) return null
+        val locals = JSONArray()
+        (addresses.ifEmpty { listOf("172.16.0.2/32") }).forEach { locals.put(it) }
+        val peer = JSONObject()
+            .put("address", server)
+            .put("port", port)
+            .put("public_key", peerPublic)
+            .put("allowed_ips", JSONArray().put("0.0.0.0/0").put("::/0"))
+        if (reserved.isNotEmpty()) {
+            val arr = JSONArray()
+            reserved.forEach { arr.put(it) }
+            peer.put("reserved", arr)
+        }
+        val endpoint = JSONObject()
+            .put("type", "wireguard")
+            .put("tag", tag)
+            .put("private_key", privateKey)
+            .put("address", locals)
+            .put("peers", JSONArray().put(peer))
+        mtu?.let { endpoint.put("mtu", it) }
+        return endpoint
+    }
+
+    private fun parseWireGuard(body: String): JSONObject? {
+        val (main, fragment) = splitFragment(body)
+        val user = urlDecodeKeepPlus(main.substringBefore('@'))
+        val hostPortQuery = main.substringAfter('@', "")
+        if (user.isBlank() || hostPortQuery.isEmpty()) return null
+        val hostPort = hostPortQuery.substringBefore('?')
+        val query = parseQuery(hostPortQuery.substringAfter('?', ""))
+        val host = hostPort.substringBeforeLast(':').trim('[', ']')
+        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val addresses = (query["address"] ?: query["ip"] ?: "")
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val reserved = (query["reserved"] ?: "")
+            .split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+        val peerPublic = urlDecodeKeepPlus(
+            query["publickey"] ?: query["public_key"] ?: query["publicKey"] ?: query["peer"].orEmpty(),
+        )
+        return wireguardEndpoint(
+            tag = urlDecode(fragment).ifBlank { "WG-$host" },
+            privateKey = user,
+            peerPublic = peerPublic,
+            server = host,
+            port = port,
+            addresses = addresses,
+            reserved = reserved,
+            mtu = intVal(query["mtu"]),
+        )
     }
 
     private fun mapSpecialTag(name: String): String {
@@ -909,6 +1298,10 @@ object ConfigIngest {
         value
     }
 
+    /** Base64 keys use '+'. URLDecoder would turn that into a space. */
+    private fun urlDecodeKeepPlus(value: String): String =
+        urlDecode(value.replace("+", "%2B"))
+
     private fun stripBom(value: String): String =
         if (value.isNotEmpty() && value[0] == '\uFEFF') value.substring(1) else value
 
@@ -961,7 +1354,8 @@ object ConfigIngest {
         else -> value
     }
 
-    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|socks5?|http)://")
+    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|socks5?|http|wireguard|wg)://")
+    private val ECH_PEM = Regex("-----BEGIN ECH CONFIGS-----([\\s\\S]*?)-----END ECH CONFIGS-----")
     private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 }
 

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Save
@@ -657,6 +658,35 @@ fun EditProfileContentScreen(
                                     text = stringResource(R.string.menu_format),
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+
+                            TextButton(
+                                onClick = { viewModel.paste() },
+                                enabled = !uiState.isReadOnly,
+                                modifier = Modifier.padding(end = 8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint =
+                                    if (!uiState.isReadOnly) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    },
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = stringResource(R.string.menu_paste),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color =
+                                    if (!uiState.isReadOnly) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    },
                                 )
                             }
 

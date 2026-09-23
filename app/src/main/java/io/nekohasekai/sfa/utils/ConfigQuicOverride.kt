@@ -14,6 +14,8 @@ object ConfigQuicOverride {
         content: String,
         skipScripts: Boolean = false,
         replaceRuleSetNeedles: Collection<String> = emptyList(),
+        dropRuleSetNeedles: Collection<String> = emptyList(),
+        stripEch: Boolean = false,
     ): String {
         OverrideStatus.clear()
         val warnings = mutableListOf<OverrideNotice>()
@@ -129,8 +131,14 @@ object ConfigQuicOverride {
                 applyOnDemand(root, Settings.onDemand)
             }
             ConfigCompat.stripBrokenDnsDetours(root)
+            if (stripEch) {
+                ConfigIngest.stripEch(root)
+            }
             if (replaceRuleSetNeedles.isNotEmpty()) {
                 ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
+            }
+            if (dropRuleSetNeedles.isNotEmpty()) {
+                ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
             }
             out = root.toString()
         } catch (e: ChainApplyException) {

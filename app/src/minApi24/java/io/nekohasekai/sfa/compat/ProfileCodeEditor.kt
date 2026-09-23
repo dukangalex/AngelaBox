@@ -17,6 +17,7 @@ import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.component.EditorAutoCompletion
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
+import io.nekohasekai.sfa.ktx.clipboardText
 
 class ProfileCodeEditor(context: Context, private val syntax: CodeEditorSyntax = CodeEditorSyntax.JSON) {
 
@@ -182,7 +183,14 @@ class ProfileCodeEditor(context: Context, private val syntax: CodeEditorSyntax =
         }
     }
 
-    fun paste() = editor.pasteText()
+    fun paste() {
+        val text = clipboardText
+        if (!text.isNullOrEmpty()) {
+            editor.commitText(text)
+            return
+        }
+        editor.pasteText()
+    }
 
     fun applyColors(colors: ProfileEditorColors) {
         // Unset entries fall back to the scheme's built-in defaults, which are chosen by its
