@@ -17,8 +17,6 @@ import io.nekohasekai.sfa.ktx.long
 import io.nekohasekai.sfa.ktx.map
 import io.nekohasekai.sfa.ktx.string
 import io.nekohasekai.sfa.ktx.stringSet
-import org.json.JSONObject
-import java.io.File
 
 object Settings {
     private val dbLock = Any()
@@ -185,16 +183,12 @@ object Settings {
     }
 
     private suspend fun needVPNService(): Boolean {
+        // Runtime always inserts a TUN inbound. The saved subscription often
+        // has none, so parsing the file used to pick ProxyService, whose
+        // openTun is a stub and surfaces as "invalid argument".
         val selectedProfileId = selectedProfile
         if (selectedProfileId == -1L) return false
-        val profile = ProfileManager.get(selectedProfile) ?: return false
-        val content = JSONObject(File(profile.typed.path).readText())
-        val inbounds = content.optJSONArray("inbounds") ?: return false
-        for (index in 0 until inbounds.length()) {
-            val inbound = inbounds.optJSONObject(index) ?: continue
-            if (inbound.optString("type") == "tun") return true
-        }
-        return false
+        return ProfileManager.get(selectedProfileId) != null
     }
 
     fun closeDatabase() {

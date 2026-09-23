@@ -70,8 +70,8 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 自动重定向 | 需要 ROOT；1.15 起支持热点/中继转发。默认关 |
 | DNS 防泄漏倾向 | 强制 DNS 独立缓存、自动探测网卡 |
 | 禁用 IPv6 | 强制 DNS `ipv4_only`，拦截 IPv6。关闭后走 IPv4/IPv6 双栈 |
-| 禁用 QUIC | 拦截 UDP 443 |
-| 排除国内 QUIC | 国内域名 UDP 443 走 direct，其余仍拦 |
+| 禁用 QUIC | 默认脚本只拒绝 DNS 的 HTTPS/SVCB，不丢弃 UDP 443。未开脚本时仍拒绝 UDP 443 |
+| 排除国内 QUIC | 未开脚本时，国内域名 UDP 443 走 direct，其余仍拒绝 |
 
 官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。xhttp 和 MASQUE 当前内核还不支持，这类节点会跳过；如果整份都是这两种，不会改成直连。
 

@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.util.Base64
+import java.util.Locale
 
 /**
  * First-pass ingest so a subscription with usable nodes can start, even when
@@ -82,13 +83,24 @@ object ConfigIngest {
         return root
     }
 
+    private val CLASH_TOP = Regex("(?m)^\\s*(proxies|proxy-groups|proxy-providers)\\s*:")
+    private val CLASH_MIXED = Regex("(?m)^\\s*mixed-port\\s*:")
+    private val CLASH_PORT = Regex("(?m)^\\s*(port|socks-port|redir-port|tproxy-port|mixed-port)\\s*:")
+    private val CLASH_RULES = Regex("(?m)^\\s*rules\\s*:")
+
     private fun looksLikeClash(text: String): Boolean {
-        val head = text.take(4000)
-        return head.contains("proxies:") ||
-            head.contains("proxy-groups:") ||
-            head.contains("proxy-providers:") ||
-            head.contains("mixed-port:") ||
-            (head.contains("\nrules:") && (head.contains("DOMAIN-SUFFIX") || head.contains("GEOIP,")))
+        val lower = text.lowercase(Locale.US)
+        if (CLASH_TOP.containsMatchIn(lower)) return true
+        if (CLASH_MIXED.containsMatchIn(lower)) return true
+        return CLASH_PORT.containsMatchIn(lower) && CLASH_RULES.containsMatchIn(lower)
+    }
+
+    private fun mapIgnoreCase(tree: Map<*, *>, key: String): Any? {
+        tree[key]?.let { return it }
+        for ((k, v) in tree) {
+            if (k is String && k.equals(key, ignoreCase = true)) return v
+        }
+        return null
     }
 
     private fun isClashDocument(obj: JSONObject): Boolean {
@@ -102,9 +114,9 @@ object ConfigIngest {
     }
 
     private fun convertClashTree(tree: Map<*, *>): Result {
-        val proxies = asMapList(tree["proxies"])
-        val groups = asMapList(tree["proxy-groups"] ?: tree["proxy_groups"])
-        val rules = asStringList(tree["rules"])
+        val proxies = asMapList(mapIgnoreCase(tree, "proxies"))
+        val groups = asMapList(mapIgnoreCase(tree, "proxy-groups") ?: mapIgnoreCase(tree, "proxy_groups"))
+        val rules = asStringList(mapIgnoreCase(tree, "rules"))
         val notes = mutableListOf<String>()
         val outbounds = JSONArray()
         val tags = LinkedHashSet<String>()

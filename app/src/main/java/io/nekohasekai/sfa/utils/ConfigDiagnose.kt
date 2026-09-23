@@ -75,7 +75,7 @@ object ConfigDiagnose {
             }
             looksLike(text, "configure tun interface") ||
                 (looksLike(text, "tun") && looksLike(text, "invalid argument")) -> {
-                "这台手机不接受当前 TUN 参数。应用会改成 172.19.0.1/30，并去掉 IPv6 和旧字段后再试。"
+                "系统没能创建 TUN。请允许 VPN，并关掉其他正在占用的 VPN 后再启动。"
             }
             looksLike(text, "decode config") || looksLike(text, "unmarshal") -> {
                 if (looksLike(text, "tcp_keep_alive")) {

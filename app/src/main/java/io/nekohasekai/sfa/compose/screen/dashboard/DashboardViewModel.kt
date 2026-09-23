@@ -379,13 +379,8 @@ class DashboardViewModel :
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 Settings.selectedProfile = profileId
-                val running =
-                    _serviceStatus.value == Status.Started ||
-                        currentState.serviceStatus == Status.Started
-                if (running) {
-                    runCatching { Settings.rebuildServiceMode() }
-                    sendGlobalEvent(UiEvent.RequestReconnectService)
-                }
+                runCatching { Settings.rebuildServiceMode() }
+                sendGlobalEvent(UiEvent.RequestReconnectService)
                 loadProfiles()
             } catch (e: Exception) {
                 sendError(e)

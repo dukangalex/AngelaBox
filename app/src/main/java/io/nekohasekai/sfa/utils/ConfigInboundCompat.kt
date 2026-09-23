@@ -204,7 +204,9 @@ object ConfigInboundCompat {
             is String -> raw.toIntOrNull() ?: 0
             else -> 0
         }
-        if (ib.has("mtu") && (mtu < 1280 || mtu > 2000)) {
+        // Android's kernel default is 9000 when mtu is omitted. That burns
+        // memory and some phones reject it. Always pin 1500.
+        if (mtu != 1500) {
             ib.put("mtu", 1500)
             changed = true
         }

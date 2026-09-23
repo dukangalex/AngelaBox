@@ -41,12 +41,16 @@ object ConfigCompat {
             throw IllegalArgumentException(ingested.fatal)
         }
         val trimmed = ingested.content.trim()
-        if (trimmed.isEmpty() || trimmed[0] != '{') return ingested.content
-        if (trimmed.length > MAX_CONFIG_CHARS) return ingested.content
+        if (trimmed.isEmpty() || trimmed[0] != '{') {
+            throw IllegalArgumentException("这份订阅不是 sing-box 能读的 JSON，也没能转成可用配置，已拒绝，没有改成直连。")
+        }
+        if (trimmed.length > MAX_CONFIG_CHARS) {
+            throw IllegalArgumentException("配置过大，已拒绝，没有改成直连。")
+        }
         val root = try {
             JSONObject(trimmed)
         } catch (_: Exception) {
-            return ingested.content
+            throw IllegalArgumentException("配置不是合法 JSON，已拒绝，没有改成直连。")
         }
         var changed = false
         if (stripClashResidue(root)) changed = true

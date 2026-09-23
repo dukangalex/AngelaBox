@@ -308,4 +308,38 @@ class ConfigIngestTest {
             .first { it.getString("tag") == "ok" }
         assertEquals("60s", ok.getString("tcp_keep_alive"))
     }
+
+    @Test
+    fun clashProxiesPastTheOldHeaderWindowStillConvert() {
+        val pad = buildString {
+            append("port: 7890\n")
+            append("socks-port: 7891\n")
+            repeat(120) { append("# pad-$it ${"x".repeat(40)}\n") }
+        }
+        val yaml = pad + """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            rules:
+              - MATCH,n1
+        """.trimIndent()
+        assertTrue(yaml.indexOf("proxies:") > 4000)
+        val root = JSONObject(ConfigCompat.sanitize(yaml))
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun plainTextIsRejectedInsteadOfReachingTheJsonDecoder() {
+        try {
+            ConfigCompat.sanitize("port: 1\n")
+            throw AssertionError("expected reject")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("直连"))
+            assertFalse(e.message.orEmpty().contains("invalid character"))
+        }
+    }
 }

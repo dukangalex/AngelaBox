@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.utils
 
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.IDN
 import java.net.InetAddress
 import java.net.URI
@@ -308,7 +310,116 @@ object RemoteUrlGuard {
         return bytes.copyOfRange(12, 16)
     }
 
+    private val PUBLIC_DNS = arrayOf("223.5.5.5", "119.29.29.29", "1.1.1.1")
+
     private fun systemResolve(host: String): List<InetAddress> {
-        return InetAddress.getAllByName(host)?.toList().orEmpty()
+        val system = try {
+            InetAddress.getAllByName(host)?.toList().orEmpty()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (system.isNotEmpty()) return system
+        if (!canQueryDns(host)) return emptyList()
+        for (server in PUBLIC_DNS) {
+            val found = try {
+                queryA(host, server)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            if (found.isNotEmpty()) return found
+        }
+        return emptyList()
+    }
+
+    private fun canQueryDns(host: String): Boolean {
+        if (host.length > 253 || host.startsWith(".") || host.endsWith(".")) return false
+        val labels = host.split('.')
+        if (labels.size < 2) return false
+        return labels.all { label ->
+            label.isNotEmpty() && label.length <= 63 && label.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+        }
+    }
+
+    /**
+     * Direct UDP A lookup. Used only when the system resolver returns nothing
+     * (VPN DNS down, or the ISP resolver is unreachable). Answers still go
+     * through [isAddressAllowed]; this does not skip the pin.
+     */
+    private fun queryA(host: String, server: String): List<InetAddress> {
+        val id = (System.nanoTime() ushr 8).toInt() and 0xffff
+        val query = buildDnsQuery(id, host)
+        DatagramSocket().use { socket ->
+            socket.soTimeout = 2000
+            val target = InetAddress.getByAddress(parseIpv4(server))
+            socket.send(DatagramPacket(query, query.size, target, 53))
+            val buf = ByteArray(512)
+            val response = DatagramPacket(buf, buf.size)
+            socket.receive(response)
+            return parseDnsA(buf, response.length, id)
+        }
+    }
+
+    private fun buildDnsQuery(id: Int, host: String): ByteArray {
+        val labels = host.split('.')
+        val qnameLen = labels.sumOf { it.length + 1 } + 1
+        val buf = ByteArray(12 + qnameLen + 4)
+        buf[0] = (id shr 8).toByte()
+        buf[1] = (id and 0xff).toByte()
+        buf[2] = 0x01
+        var off = 12
+        for (label in labels) {
+            buf[off++] = label.length.toByte()
+            for (ch in label) buf[off++] = ch.code.toByte()
+        }
+        buf[off++] = 0
+        buf[off++] = 0
+        buf[off++] = 1
+        buf[off++] = 0
+        buf[off] = 1
+        return buf
+    }
+
+    private fun parseDnsA(buf: ByteArray, length: Int, id: Int): List<InetAddress> {
+        if (length < 12) return emptyList()
+        val respId = ((buf[0].toInt() and 0xff) shl 8) or (buf[1].toInt() and 0xff)
+        if (respId != id) return emptyList()
+        if ((buf[3].toInt() and 0x0f) != 0) return emptyList()
+        val questions = ((buf[4].toInt() and 0xff) shl 8) or (buf[5].toInt() and 0xff)
+        val answers = ((buf[6].toInt() and 0xff) shl 8) or (buf[7].toInt() and 0xff)
+        var off = 12
+        repeat(questions) {
+            off = skipDnsName(buf, length, off) + 4
+            if (off > length) return emptyList()
+        }
+        val out = ArrayList<InetAddress>(answers)
+        repeat(answers) {
+            off = skipDnsName(buf, length, off)
+            if (off + 10 > length) return out
+            val type = ((buf[off].toInt() and 0xff) shl 8) or (buf[off + 1].toInt() and 0xff)
+            val rdlen = ((buf[off + 8].toInt() and 0xff) shl 8) or (buf[off + 9].toInt() and 0xff)
+            off += 10
+            if (rdlen < 0 || off + rdlen > length) return out
+            if (type == 1 && rdlen == 4) {
+                out += InetAddress.getByAddress(buf.copyOfRange(off, off + 4))
+            }
+            off += rdlen
+        }
+        return out
+    }
+
+    private fun skipDnsName(buf: ByteArray, length: Int, start: Int): Int {
+        var off = start
+        var hops = 0
+        while (off < length && hops < 20) {
+            val len = buf[off].toInt() and 0xff
+            if (len == 0) return off + 1
+            if (len and 0xC0 == 0xC0) {
+                if (off + 1 >= length) return length
+                return off + 2
+            }
+            off += 1 + len
+            hops++
+        }
+        return length
     }
 }

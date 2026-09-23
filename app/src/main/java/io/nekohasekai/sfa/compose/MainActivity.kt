@@ -352,9 +352,8 @@ class MainActivity :
 
     private fun startService0() {
         lifecycleScope.launch(Dispatchers.IO) {
-            if (Settings.rebuildServiceMode()) {
-                connection.reconnect()
-            }
+            Settings.rebuildServiceMode()
+            connection.reconnect()
             if (Settings.serviceMode == ServiceMode.VPN) {
                 if (prepare()) {
                     return@launch
@@ -403,7 +402,6 @@ class MainActivity :
         var showErrorDialog by remember { mutableStateOf(false) }
         var errorMessage by remember { mutableStateOf("") }
         var pendingApplyServiceChangeMode by remember { mutableStateOf<UiEvent.ApplyServiceChange.Mode?>(null) }
-        var activeApplyServiceChangeMode by remember { mutableStateOf<UiEvent.ApplyServiceChange.Mode?>(null) }
         var applyServiceChangeJob by remember { mutableStateOf<Job?>(null) }
 
         fun mergeApplyServiceChangeMode(
@@ -419,73 +417,26 @@ class MainActivity :
         }
 
         fun enqueueApplyServiceChange(mode: UiEvent.ApplyServiceChange.Mode) {
-            if (currentServiceStatus != Status.Started) {
-                return
-            }
-
             pendingApplyServiceChangeMode = mergeApplyServiceChangeMode(pendingApplyServiceChangeMode, mode)
-
-            val activeMode = activeApplyServiceChangeMode
-            if (activeMode != null &&
-                mergeApplyServiceChangeMode(activeMode, mode) != activeMode
-            ) {
-                snackbarHostState.currentSnackbarData?.dismiss()
-            }
-
-            if (applyServiceChangeJob?.isActive == true) {
-                return
-            }
-
-            applyServiceChangeJob =
-                scope.launch {
-                    while (true) {
-                        val modeToShow = pendingApplyServiceChangeMode ?: break
-                        pendingApplyServiceChangeMode = null
-                        activeApplyServiceChangeMode = modeToShow
-                        val (message, actionLabel) =
-                            when (modeToShow) {
-                                UiEvent.ApplyServiceChange.Mode.Reload -> {
-                                    getString(R.string.service_reload_required) to
-                                        getString(R.string.action_reload)
-                                }
-
-                                UiEvent.ApplyServiceChange.Mode.Restart -> {
-                                    getString(R.string.service_restart_required) to
-                                        getString(R.string.action_restart)
-                                }
-                            }
-                        val result =
-                            snackbarHostState.showSnackbar(
-                                message = message,
-                                actionLabel = actionLabel,
-                                duration = androidx.compose.material3.SnackbarDuration.Short,
-                            )
-                        activeApplyServiceChangeMode = null
-                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
-                            try {
-                                when (modeToShow) {
-                                    UiEvent.ApplyServiceChange.Mode.Reload -> {
-                                        withContext(Dispatchers.IO) {
-                                            Libbox.newStandaloneCommandClient().serviceReload()
-                                        }
-                                    }
-
-                                    UiEvent.ApplyServiceChange.Mode.Restart -> {
-                                        restartServiceForApplyChange()
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                val raw = e.message ?: e.toString()
-                                if (ConfigDiagnose.looksLikeRpcDeath(raw) && currentAlert != null) {
-                                    // Start recovery already explained the real kernel error.
-                                } else {
-                                    errorMessage = ConfigDiagnose.explain(raw)
-                                    showErrorDialog = true
-                                }
-                            }
+            if (applyServiceChangeJob?.isActive == true) return
+            applyServiceChangeJob = scope.launch {
+                while (true) {
+                    delay(200)
+                    val modeToApply = pendingApplyServiceChangeMode ?: break
+                    pendingApplyServiceChangeMode = null
+                    try {
+                        applyServiceChangeNow(modeToApply)
+                    } catch (e: Exception) {
+                        val raw = e.message ?: e.toString()
+                        if (ConfigDiagnose.looksLikeRpcDeath(raw) && currentAlert != null) {
+                            // Start recovery already explained the real kernel error.
+                        } else {
+                            errorMessage = ConfigDiagnose.explain(raw)
+                            showErrorDialog = true
                         }
                     }
                 }
+            }
         }
 
         // Groups Sheet state
@@ -1580,6 +1531,15 @@ class MainActivity :
                 return requestLocationPermission()
             }
 
+            Alert.RestartAsVpn -> {
+                lifecycleScope.launch {
+                    delay(200)
+                    connection.reconnect()
+                    startService()
+                }
+                return
+            }
+
             else -> {
                 currentAlert = Pair(type, message)
             }
@@ -1604,27 +1564,42 @@ class MainActivity :
         showBackgroundLocationDialog = true
     }
 
-    private suspend fun restartServiceForApplyChange() {
-        if (currentServiceStatus != Status.Started) {
+    private suspend fun applyServiceChangeNow(mode: UiEvent.ApplyServiceChange.Mode) {
+        if (currentServiceStatus == Status.Stopped) {
+            startService()
             return
         }
-
-        BoxService.stop()
-        while (true) {
-            when (currentServiceStatus) {
-                Status.Stopped -> {
-                    startService()
-                    return
-                }
-
-                Status.Starting -> {
-                    return
-                }
-
-                Status.Started, Status.Stopping -> {
-                    delay(100L)
-                }
+        val modeChanged = withContext(Dispatchers.IO) { Settings.rebuildServiceMode() }
+        val restart = mode == UiEvent.ApplyServiceChange.Mode.Restart || modeChanged ||
+            currentServiceStatus != Status.Started
+        if (restart) {
+            restartServiceForApplyChange()
+        } else {
+            withContext(Dispatchers.IO) {
+                Libbox.newStandaloneCommandClient().serviceReload()
             }
+        }
+    }
+
+    private suspend fun restartServiceForApplyChange() {
+        var spins = 0
+        while (currentServiceStatus == Status.Starting && spins < 40) {
+            delay(100)
+            spins++
+        }
+        if (currentServiceStatus == Status.Stopped) {
+            startService()
+            return
+        }
+        BoxService.stop()
+        spins = 0
+        while (spins < 50) {
+            if (currentServiceStatus == Status.Stopped) {
+                startService()
+                return
+            }
+            delay(100)
+            spins++
         }
     }
 

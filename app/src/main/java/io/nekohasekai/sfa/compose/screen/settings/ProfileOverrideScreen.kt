@@ -455,10 +455,13 @@ fun ProfileOverrideScreen(
                 }
                 OverrideSwitch(
                     title = "禁用 QUIC",
-                    subtitle = "拦截 UDP 443",
+                    subtitle = "优先 TCP，不丢 UDP 443",
                     checked = disableQuic,
                     onHelp = {
-                        help = SwitchHelp("禁用 QUIC", "强制在路由最前插入 UDP 443 拒绝规则，覆盖订阅原值。脚本开着时由脚本写入，本开关决定开或关。")
+                        help = SwitchHelp(
+                            "禁用 QUIC",
+                            "默认脚本不再丢弃 UDP 443，否则 YouTube、X 这类应用不会改走 TCP。开启后只拒绝 DNS 的 HTTPS/SVCB，新连接优先 TCP。未绑定脚本时，应用仍会拒绝 UDP 443。",
+                        )
                     },
                 ) {
                     disableQuic = it
@@ -475,7 +478,10 @@ fun ProfileOverrideScreen(
                     checked = excludeCnQuic,
                     enabled = disableQuic,
                     onHelp = {
-                        help = SwitchHelp("排除国内 QUIC", "国内域名 UDP 443 强制直连，其余仍拦。脚本开着时由脚本写入，本开关决定开或关。")
+                        help = SwitchHelp(
+                            "排除国内 QUIC",
+                            "未绑定脚本时，国内域名的 UDP 443 走直连，其余仍拒绝。默认脚本不再丢弃 UDP 443，这个开关不在脚本里另写规则。",
+                        )
                     },
                 ) {
                     excludeCnQuic = it

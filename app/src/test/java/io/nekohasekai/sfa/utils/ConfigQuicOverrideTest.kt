@@ -144,6 +144,7 @@ class ConfigQuicOverrideTest {
         val tun = root.getJSONArray("inbounds").getJSONObject(0)
         assertEquals("tun-in", tun.getString("tag"))
         assertEquals("172.19.0.1/30", tun.getJSONArray("address").getString(0))
+        assertEquals(1500, tun.getInt("mtu"))
         ConfigQuicOverride.applyStrictRoute(root)
         assertTrue(tun.getBoolean("strict_route"))
     }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Source guards for ChainBox overlay modules. Run from repo root."""
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -877,10 +878,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 16" not in sample:
-        errors.append("default script must stamp overlay-revision: 16 so stale copies refresh")
+    if "overlay-revision: 17" not in sample:
+        errors.append("default script must stamp overlay-revision: 17 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 16"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 17"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
@@ -901,9 +902,13 @@ def main() -> int:
     if "17890" in sample:
         errors.append("default script must not bind loopback mixed 17890")
     if 'type: "https"' in sample:
-        errors.append("default script DNS must be udp, not DoH")
+        errors.append("default script DNS must not use DoH")
+    if 'type: "tcp"' not in sample:
+        errors.append("dns-remote must be tcp inside the proxy so TCP-only nodes can resolve")
     if 'type: "udp"' not in sample:
-        errors.append("default script DNS must use udp")
+        errors.append("dns-cn must stay udp direct")
+    if "inbound.mtu = 1500" not in sample:
+        errors.append("default script must force TUN mtu 1500 so Android does not use 9000")
     geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
     geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
     if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
@@ -917,9 +922,9 @@ def main() -> int:
     if '"hijack-dns"' not in sample:
         errors.append("default script must hijack DNS before routing so system lookups are not dropped")
     if "query_type: [64, 65]" not in sample:
-        errors.append("default script must reject HTTPS/SVCB DNS so YouTube/Gemini fall back from HTTP3")
-    if "port: 443" not in sample or 'method: "drop"' not in sample:
-        errors.append("default script must reject non-CN QUIC (UDP 443) like the original airport overwrite")
+        errors.append("default script must reject HTTPS/SVCB DNS so new clients prefer TCP")
+    if re.search(r'network:\s*"udp"[\s\S]{0,80}port:\s*443', sample):
+        errors.append("default script must not blackhole UDP 443; apps that only speak QUIC would lose the network")
     if "detour: directTag" not in sample:
         errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
     if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:

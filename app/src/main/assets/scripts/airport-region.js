@@ -1,12 +1,14 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 16
+ * overlay-revision: 17
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持。
- * DNS 用 UDP（8.8.8.8 走代理，223.5.5.5 走直连），不用 DoH，避免多一轮 TLS。
- * 手机流量走 TUN（172.19.0.1/30），不额外绑定本机 mixed 端口。
- * 国外 QUIC/HTTP3 拦截后回落到 TCP（YouTube/Gemini/AI Studio）。
+ * 国外 DNS 用 TCP（8.8.8.8 走代理）。查询在隧道里，运营商看不到；TCP-only 节点也能解析。
+ * 国内 223.5.5.5 仍用 UDP 直连。不用 DoH。
+ * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不额外绑定本机 mixed 端口。
+ * 不丢弃 UDP 443，避免只走 QUIC 的应用（YouTube、X）断网。
+ * HTTPS/SVCB 记录仍拒绝，让新连接优先 TCP。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
  * urltest 对齐常见习惯：10 分钟测一次、空闲 30 分钟停测、
@@ -749,31 +751,9 @@ function main(config) {
       method: "drop"
     });
   }
-  if (disableQuic && excludeCnQuic && chinaDirect) {
-    addRule({
-      type: "logical",
-      mode: "and",
-      rules: [
-        { network: "udp", port: 443 },
-        { rule_set: "geoip-cn" }
-      ],
-      outbound: directTag
-    });
-    addRule({
-      network: "udp",
-      port: 443,
-      domain_suffix: CN_DOMAINS,
-      outbound: directTag
-    });
-  }
-  if (disableQuic) {
-    addRule({
-      network: "udp",
-      port: 443,
-      action: "reject",
-      method: "drop"
-    });
-  }
+  // UDP 443 is not dropped. A reject here blackholed YouTube / X (they do not
+  // fall back to TCP) while browsers still worked. disableQuic only rejects
+  // HTTPS/SVCB below so new lookups prefer TCP.
   addRule({
     package_name: [
       "com.anydesk.anydeskandroid", "com.oray.todesk",
@@ -957,7 +937,7 @@ function main(config) {
         v4.push("" + addr);
       }
       inbound.address = v4.length ? v4 : ["172.19.0.1/30"];
-      if (inbound.mtu && (inbound.mtu < 1280 || inbound.mtu > 2000)) inbound.mtu = 1500;
+      inbound.mtu = 1500;
     }
     keptInbounds.push(inbound);
   }
@@ -978,7 +958,7 @@ function main(config) {
   if (!config.dns || typeof config.dns !== "object") config.dns = {};
   var dns = config.dns;
   var remoteDns = {
-    type: "udp",
+    type: "tcp",
     tag: "dns-remote",
     server: "8.8.8.8",
     server_port: 53
@@ -1013,7 +993,7 @@ function main(config) {
     remoteDns
   ];
   var extraDns = [];
-  extraDns.push({ query_type: [64, 65], action: "reject" });
+  if (disableQuic) extraDns.push({ query_type: [64, 65], action: "reject" });
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
   extraDns.push({

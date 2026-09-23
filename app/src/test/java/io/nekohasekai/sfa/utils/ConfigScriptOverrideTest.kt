@@ -61,7 +61,7 @@ class ConfigScriptOverrideTest {
         assertTrue(tags.contains("🛡️ 故障转移"))
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
-        assertEquals("udp", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
+        assertEquals("tcp", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
             (0 until servers.length()).map { servers.getJSONObject(it) }
                 .first { it.optString("tag") == "dns-remote" }
                 .getString("type")
@@ -71,6 +71,7 @@ class ConfigScriptOverrideTest {
             .first { it.optString("type") == "tun" }
         assertEquals("tun-in", tun.optString("tag"))
         assertEquals(true, tun.optBoolean("auto_route"))
+        assertEquals(1500, tun.optInt("mtu"))
         assertFalse(tun.has("inet6_address"))
         assertFalse((0 until inbounds.length()).any { inbounds.getJSONObject(it).optString("type") == "mixed" })
         val remote = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
@@ -89,12 +90,13 @@ class ConfigScriptOverrideTest {
         assertTrue(ruleText.contains("\"clash_mode\":\"Direct\"") || ruleText.contains("\"clash_mode\": \"Direct\""))
         val firstAction = rules.getJSONObject(0).optString("action")
         assertEquals("hijack-dns", firstAction)
-        assertTrue("quic drop", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertFalse("udp 443 must stay open", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
         val cnDns = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
             (0 until servers.length()).map { servers.getJSONObject(it) }
                 .first { it.optString("tag") == "dns-cn" }
         }
         assertEquals("direct", cnDns.optString("detour"))
+        assertEquals("udp", cnDns.optString("type"))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
         assertTrue(dnsRuleText.contains("65"))
@@ -217,7 +219,10 @@ class ConfigScriptOverrideTest {
         assertTrue(ruleText.contains("geoip-cn"))
         assertTrue(ruleText.contains("geosite-category-ads-all"))
         assertTrue(ruleText.contains("3478:3481"))
-        assertTrue(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertFalse(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
+        val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
+        assertTrue(dnsRuleText.contains("65"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
     }
 

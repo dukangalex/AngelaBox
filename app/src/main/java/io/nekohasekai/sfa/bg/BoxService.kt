@@ -31,6 +31,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
+import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -58,6 +59,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             val intent =
                 runBlocking {
                     withContext(Dispatchers.IO) {
+                        runCatching { Settings.rebuildServiceMode() }
                         Intent(Application.application, Settings.serviceClass())
                     }
                 }
@@ -257,6 +259,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         var result = tryStart(content)
         if (result.isSuccess) return true
         val firstErr = result.exceptionOrNull()?.message
+        if (shouldRestartAsVpn(firstErr)) {
+            Settings.serviceMode = ServiceMode.VPN
+            stopAndAlert(Alert.RestartAsVpn, null)
+            return false
+        }
         var err = firstErr
 
         fun keep(retry: String?) {
@@ -343,6 +350,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         stopAndAlert(Alert.CreateService, ConfigDiagnose.explain(err, scriptsBound = scriptBound))
         return false
+    }
+
+    private fun shouldRestartAsVpn(err: String?): Boolean {
+        if (service is VPNService) return false
+        if (err.isNullOrBlank()) return false
+        val text = err.lowercase()
+        return text.contains("configure tun interface") ||
+            (text.contains("invalid argument") && text.contains("tun"))
     }
 
     private fun restartCommandServer() {

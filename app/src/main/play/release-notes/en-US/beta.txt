@@ -1,1 +1,1 @@
-Clash JSON, httpupgrade, and node ECH now import. xhttp and MASQUE are skipped instead of failing open. Missing TUN is filled in at runtime. The default script uses UDP DNS so it is no longer about twice as slow.
+Import falls back to public DNS when the system resolver is empty. Clash text is no longer sent to the JSON decoder. The selected profile uses the VPN, and a TUN failure switches into it. The default script resolves foreign DNS with TCP inside the proxy and no longer drops UDP 443. Profile, script, and chain changes apply immediately. TUN MTU is 1500.
