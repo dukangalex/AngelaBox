@@ -99,7 +99,16 @@ class ConfigScriptOverrideTest {
         assertEquals("udp", cnDns.optString("type"))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
-        assertFalse(dnsRuleText.contains("query_type"))
+        assertTrue(dnsRuleText.contains("dns-fakeip"))
+        assertFalse(dnsRuleText.contains("64, 65") || dnsRuleText.contains("[64"))
+        val fake = (0 until out.getJSONObject("dns").getJSONArray("servers").length())
+            .map { out.getJSONObject("dns").getJSONArray("servers").getJSONObject(it) }
+            .first { it.optString("tag") == "dns-fakeip" }
+        assertEquals("fakeip", fake.getString("type"))
+        val direct = (0 until out.getJSONArray("outbounds").length())
+            .map { out.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.optString("tag") == "direct" }
+        assertEquals("8s", direct.getString("connect_timeout"))
     }
 
     @Test

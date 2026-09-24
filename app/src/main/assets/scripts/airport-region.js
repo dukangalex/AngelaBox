@@ -1,11 +1,11 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 18
+ * overlay-revision: 19
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
- * 国内 IP/域名（含 IPv6）先直连，国外走代理；DNS 必须劫持。
- * 国外 DNS 用 TCP（8.8.8.8 走代理）。查询在隧道里，运营商看不到；TCP-only 节点也能解析。
- * 国内 223.5.5.5 仍用 UDP 直连。不用 DoH。
+ * 国内 IP/域名（含 IPv6）先直连，国外走代理。国内 DNS 直连 223.5.5.5。
+ * 非国内的 A/AAAA 用 fake-ip，连接不必先等 8.8.8.8。HTTPS/SVCB 仍走节点上的 TCP DNS。
+ * ECH 查询由应用在脚本之后改到直连解析，避免节点自己等自己。
  * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不额外绑定本机 mixed 端口。
  * 不丢弃 UDP 443，也不拒绝 HTTPS/SVCB。YouTube 可以走 QUIC，避免只剩 TCP 时缓冲很久。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
@@ -395,6 +395,10 @@ function main(config) {
     directTag = cleanDirect;
   }
   groupTags[directTag] = "direct";
+  var bypass = outboundByTag(directTag);
+  if (bypass && typeOf(bypass) === "direct" && !bypass.connect_timeout) {
+    bypass.connect_timeout = "8s";
+  }
   var dropTag = "REJECT-DROP";
   var rejectTag = "REJECT";
   function makeBlackhole(tag) {
@@ -1007,36 +1011,23 @@ function main(config) {
       }
     },
     { type: "local", tag: "dns-local" },
+    { type: "fakeip", tag: "dns-fakeip", inet4_range: "198.18.0.0/15" },
     cnDns,
     remoteDns
   ];
   var extraDns = [];
   extraDns.push({ domain: ["dns.alidns.com", "doh.pub", "dns.google", "cloudflare-dns.com"], server: "dns-hosts" });
   extraDns.push({ domain: ["testingcf.jsdelivr.net"], server: "dns-cn" });
-  extraDns.push({
-    domain_suffix: [
-      "gemini.google.com", "aistudio.google.com",
-      "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
-      "anthropic.com", "claude.ai"
-    ],
-    server: "dns-remote"
-  });
-  extraDns.push({ domain_suffix: YT_SUFFIX, server: "dns-remote" });
-  if (hasRuleSet("geosite-google")) extraDns.push({ rule_set: "geosite-google", server: "dns-remote" });
-  if (hasRuleSet("geosite-youtube")) extraDns.push({ rule_set: "geosite-youtube", server: "dns-remote" });
-  if (hasRuleSet("geosite-telegram")) extraDns.push({ rule_set: "geosite-telegram", server: "dns-remote" });
-  if (hasRuleSet("geosite-openai")) extraDns.push({ rule_set: "geosite-openai", server: "dns-remote" });
-  if (hasRuleSet("geosite-category-ai-!cn")) extraDns.push({ rule_set: "geosite-category-ai-!cn", server: "dns-remote" });
-  if (hasRuleSet("geosite-geolocation-!cn")) extraDns.push({ rule_set: "geosite-geolocation-!cn", server: "dns-remote" });
   if (chinaDirect) {
     extraDns.push({ domain_suffix: CN_DOMAINS, server: "dns-cn" });
     if (hasRuleSet("geosite-cn")) extraDns.push({ rule_set: "geosite-cn", server: "dns-cn" });
     if (hasRuleSet("geosite-geolocation-cn")) extraDns.push({ rule_set: "geosite-geolocation-cn", server: "dns-cn" });
     extraDns.push({ domain_suffix: [".cn", ".中国"], server: "dns-cn" });
   }
+  extraDns.push({ query_type: ["A", "AAAA"], server: "dns-fakeip" });
   dns.rules = extraDns;
   dns.final = "dns-remote";
-  if (dnsProtect) dns.independent_cache = true;
+  dns.independent_cache = true;
   dns.strategy = disableIpv6 ? "ipv4_only" : "prefer_ipv4";
   route.default_domain_resolver = "dns-local";
   if (dnsProtect) route.auto_detect_interface = true;

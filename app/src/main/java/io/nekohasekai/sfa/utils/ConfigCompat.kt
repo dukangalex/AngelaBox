@@ -543,6 +543,8 @@ object ConfigCompat {
             "inet6_address",
         )
         if (keys.any { key -> o.optString(key).isNotBlank() }) return false
+        if (o.optString("connect_timeout").isNotBlank()) return false
+        if (o.optBoolean("reuse_addr") || o.optBoolean("tcp_fast_open")) return false
         val port = o.opt("override_port")
         return !(port is Number && port.toInt() != 0)
     }

@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -87,8 +89,10 @@ import io.nekohasekai.sfa.utils.SubscriptionInfoStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ProfilesScreen(
     navController: NavController,
@@ -139,34 +143,42 @@ fun ProfilesScreen(
                         .padding(24.dp),
                 )
             } else {
+                val lazyListState = rememberLazyListState()
+                val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
+                    viewModel.moveProfile(from.index, to.index)
+                }
                 LazyColumn(
+                    state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(uiState.profiles, key = { it.id }) { profile ->
+                    itemsIndexed(uiState.profiles, key = { _, profile -> profile.id }) { _, profile ->
                         val info = remember(profile.id, profile.typed.lastUpdated) {
                             SubscriptionInfoStore.get(context, profile.id)
                         }
-                        ProfileListCard(
-                            profile = profile,
-                            selected = profile.id == uiState.selectedProfileId,
-                            info = info,
-                            onClick = { viewModel.selectProfile(profile.id) },
-                            onEdit = { viewModel.editProfile(profile) },
-                            onScripts = { scriptProfile = profile },
-                            onProviders = { viewModel.openProviders(profile) },
-                            onShare = {
-                                scope.launch(Dispatchers.IO) {
-                                    runCatching { context.shareProfile(profile) }
-                                }
-                            },
-                            onShareURL = {
-                                qrCodeProfile = profile
-                                showQRCodeDialog = true
-                            },
-                            onDelete = { viewModel.deleteProfile(profile) },
-                        )
+                        ReorderableItem(reorderableLazyListState, key = profile.id) {
+                            ProfileListCard(
+                                profile = profile,
+                                selected = profile.id == uiState.selectedProfileId,
+                                info = info,
+                                modifier = Modifier.longPressDraggableHandle(),
+                                onClick = { viewModel.selectProfile(profile.id) },
+                                onEdit = { viewModel.editProfile(profile) },
+                                onScripts = { scriptProfile = profile },
+                                onProviders = { viewModel.openProviders(profile) },
+                                onShare = {
+                                    scope.launch(Dispatchers.IO) {
+                                        runCatching { context.shareProfile(profile) }
+                                    }
+                                },
+                                onShareURL = {
+                                    qrCodeProfile = profile
+                                    showQRCodeDialog = true
+                                },
+                                onDelete = { viewModel.deleteProfile(profile) },
+                            )
+                        }
                     }
                 }
             }
@@ -229,6 +241,7 @@ private fun ProfileListCard(
     profile: Profile,
     selected: Boolean,
     info: SubscriptionInfo?,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onScripts: () -> Unit,
@@ -276,7 +289,7 @@ private fun ProfileListCard(
             null
         },
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {

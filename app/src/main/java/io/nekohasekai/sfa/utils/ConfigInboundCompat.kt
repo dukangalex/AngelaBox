@@ -25,6 +25,7 @@ object ConfigInboundCompat {
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
+        if (rejectStaleFakeIp(root)) changed = true
         if (bindLoopbackOnly(root)) changed = true
         if (ConfigIngest.ensureEchQueryRoute(root)) changed = true
         if (healDanglingDomainResolvers(root)) changed = true
@@ -1076,6 +1077,36 @@ object ConfigInboundCompat {
             )
         prependRouteRules(root, extra)
         return true
+    }
+
+    /**
+     * 198.18.0.0/15 is Clash fake-ip. A real mapping is rewritten to a domain
+     * before rules run. An address that is still in this range is a stale
+     * answer and must not be dialed through a node.
+     */
+    internal fun rejectStaleFakeIp(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val rules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (!rule.optString("action").equals("reject", true)) continue
+            if (cidrHas(rule.opt("ip_cidr"), "198.18.0.0/15")) return false
+        }
+        prependRouteRules(
+            root,
+            JSONArray().put(JSONObject().put("ip_cidr", "198.18.0.0/15").put("action", "reject")),
+        )
+        return true
+    }
+
+    private fun cidrHas(raw: Any?, cidr: String): Boolean {
+        if (raw is String) return raw.trim().equals(cidr, true)
+        if (raw is JSONArray) {
+            for (i in 0 until raw.length()) {
+                if (raw.optString(i).trim().equals(cidr, true)) return true
+            }
+        }
+        return false
     }
 
     private fun prependRouteRules(root: JSONObject, extra: JSONArray) {

@@ -21,6 +21,14 @@ jobs:
         with:
           path: sing-box-for-android
 
+      - name: Security regression
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          python3 scripts/test_security_guards.py
+          python3 scripts/test_override_guards.py
+          python3 scripts/test_inbound_compat.py
+
       - name: Read kernel pin
         id: pin
         working-directory: sing-box-for-android

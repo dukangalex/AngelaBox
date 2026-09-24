@@ -407,6 +407,12 @@ class ConfigIngestTest {
             }
         }
         assertTrue(doh)
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        val echDns = (0 until root.getJSONObject("dns").getJSONArray("servers").length())
+            .map { root.getJSONObject("dns").getJSONArray("servers").getJSONObject(it) }
+            .first { it.optString("tag").startsWith("ech-") }
+        assertEquals("direct", echDns.getString("detour"))
+        assertEquals("223.5.5.5", echDns.getString("server"))
         assertFalse(ConfigIngest.ensureEchQueryRoute(root))
         root.remove("dns")
         assertTrue(ConfigIngest.ensureEchQueryRoute(root))
@@ -460,5 +466,46 @@ class ConfigIngestTest {
         assertTrue(sets.contains("geosite-category-ads-all"))
         assertTrue(sets.contains("geoip-cn"))
         assertFalse(sets.contains("geoip-private"))
+    }
+
+    @Test
+    fun clashNestedGroupsKeepLaterMembersAndWildcard() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: 节点选择
+                type: select
+                proxies: [自动选择, DIRECT]
+              - name: 自动选择
+                type: url-test
+                proxies: [n1]
+            rule-providers:
+              google:
+                type: http
+                behavior: domain
+                url: https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/google.txt
+                path: ./google.yaml
+            rules:
+              - DOMAIN-WILDCARD,+ .example.com,节点选择
+              - RULE-SET,google,节点选择
+              - MATCH,节点选择
+        """.trimIndent().replace("+ .example.com", "+.example.com")
+        val root = JSONObject(ConfigIngest.adapt(yaml).content)
+        val select = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "节点选择" }
+        val members = select.getJSONArray("outbounds").toString()
+        assertTrue(members.contains("自动选择"))
+        assertTrue(members.contains("direct"))
+        val rules = root.getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(rules.contains("example.com"))
+        assertTrue(rules.contains("geosite-google"))
+        assertEquals("节点选择", root.getJSONObject("route").getString("final"))
     }
 }

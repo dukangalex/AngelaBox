@@ -15,6 +15,7 @@ import java.util.Locale
  * ads / QUIC are not written here — those belong to overlay scripts.
  */
 object ConfigIngest {
+    // Format conversion only. China Direct / ads / QUIC are not written here.
     data class Result(
         val content: String,
         val notes: List<String> = emptyList(),
@@ -168,9 +169,15 @@ object ConfigIngest {
         }
         val leafTags = tags.toList()
         ensureDirect(outbounds, tags)
+        val declared = LinkedHashSet(tags)
+        declared.add("direct")
+        for (group in groups) {
+            val name = str(group["name"])
+            if (name.isNotBlank()) declared.add(name)
+        }
         val groupTags = LinkedHashSet<String>()
         for (group in groups) {
-            val converted = convertClashGroup(group, tags) ?: continue
+            val converted = convertClashGroup(group, declared) ?: continue
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
             groupTags.add(tag)
@@ -809,10 +816,14 @@ object ConfigIngest {
         providers: Map<*, *>,
         sets: MutableMap<String, String?>,
     ): JSONObject? {
-        if (payload.equals("private", true) || payload.equals("lan", true)) {
+        if (payload.equals("private", true) ||
+            payload.equals("lan", true) ||
+            payload.equals("lancidr", true)
+        ) {
             return JSONObject().put("ip_is_private", true)
         }
         val resolved = resolveRuleProvider(payload, providers) ?: return null
+        if (resolved.first == "ip-private") return JSONObject().put("ip_is_private", true)
         sets.putIfAbsent(resolved.first, resolved.second)
         return JSONObject().put("rule_set", resolved.first)
     }
@@ -825,20 +836,64 @@ object ConfigIngest {
         if (url.endsWith(".srs", true) || url.contains(".srs?", true)) {
             return name to url
         }
-        val stem = name.trim().lowercase()
-        val mapped = when (stem) {
-            "reject", "ad", "ads", "advertising", "category-ads-all", "banad", "banads" ->
-                "geosite-category-ads-all"
-            "cn", "china", "direct", "geosite-cn" -> "geosite-cn"
-            "cnip", "cn-ip", "china-ip", "geoip-cn" -> "geoip-cn"
-            "gfw", "proxy", "geolocation-!cn", "geosite-geolocation-!cn" -> "geosite-geolocation-!cn"
-            else -> null
-        }
+        val mapped = mapKnownRuleSet(name.trim().lowercase())
+            ?: urlFileStem(url)?.let { mapKnownRuleSet(it) }
+        if (mapped == "ip-private") return mapped to null
         if (mapped != null) return mapped to null
-        val file = ConfigInboundCompat.officialRuleSetFile(stem)
+        val file = ConfigInboundCompat.officialRuleSetFile(name.trim().lowercase())
         if (file != null) return file.removeSuffix(".srs") to null
-        if (stem.startsWith("geosite-") || stem.startsWith("geoip-")) return stem to null
+        if (name.trim().startsWith("geosite-", true) || name.trim().startsWith("geoip-", true)) {
+            return name.trim().lowercase() to null
+        }
         return null
+    }
+
+    /** Clash rule-provider file names that have a sing-box rule-set, or `ip-private`. */
+    private fun mapKnownRuleSet(stem: String): String? {
+        val raw = stem.trim().lowercase()
+            .removeSuffix(".txt")
+            .removeSuffix(".yaml")
+            .removeSuffix(".yml")
+            .removeSuffix(".list")
+            .removeSuffix(".mrs")
+        if (raw.isEmpty()) return null
+        return when (raw) {
+            "reject", "reject-domain", "ad", "ads", "advertising",
+            "category-ads-all", "banad", "banads",
+            -> "geosite-category-ads-all"
+            "proxy", "gfw", "greatfire", "geolocation-!cn", "geosite-geolocation-!cn" ->
+                "geosite-geolocation-!cn"
+            "direct", "cn", "china", "geolocation-cn", "geosite-cn", "geosite-geolocation-cn" ->
+                "geosite-cn"
+            "cncidr", "cnip", "cn-ip", "china-ip", "geoip-cn" -> "geoip-cn"
+            "private", "lancidr", "lan", "private-ip" -> "ip-private"
+            "apple" -> "geosite-apple"
+            "google" -> "geosite-google"
+            "youtube" -> "geosite-youtube"
+            "telegram", "telegramcidr" -> "geosite-telegram"
+            "microsoft" -> "geosite-microsoft"
+            "netflix" -> "geosite-netflix"
+            "spotify" -> "geosite-spotify"
+            "steam" -> "geosite-steam"
+            "tiktok" -> "geosite-tiktok"
+            "twitter" -> "geosite-twitter"
+            "facebook", "meta" -> "geosite-facebook"
+            "instagram" -> "geosite-instagram"
+            "github" -> "geosite-github"
+            "openai" -> "geosite-openai"
+            "discord" -> "geosite-discord"
+            "bilibili" -> "geosite-bilibili"
+            "icloud" -> "geosite-icloud"
+            else -> ConfigInboundCompat.officialRuleSetFile(raw)?.removeSuffix(".srs")
+        }
+    }
+
+    private fun urlFileStem(url: String): String? {
+        if (url.isBlank()) return null
+        val path = url.substringBefore('?').substringBefore('#')
+        val file = path.substringAfterLast('/').trim().lowercase()
+        if (file.isEmpty() || file == path.lowercase()) return null
+        return file
     }
 
     private fun matchField(kind: String, payload: String): JSONObject? {
@@ -848,6 +903,18 @@ object ConfigIngest {
             "DOMAIN-SUFFIX" -> rule.put("domain_suffix", payload)
             "DOMAIN-KEYWORD" -> rule.put("domain_keyword", payload)
             "DOMAIN-REGEX" -> rule.put("domain_regex", payload)
+            "DOMAIN-WILDCARD" -> {
+                val wild = payload.trim()
+                when {
+                    wild.startsWith("+.") -> rule.put("domain_suffix", wild.removePrefix("+."))
+                    wild.startsWith("*.") -> rule.put("domain_suffix", wild.removePrefix("*."))
+                    wild.contains('*') -> rule.put(
+                        "domain_regex",
+                        "^" + Regex.escape(wild).replace("\\*", ".*") + "$",
+                    )
+                    else -> rule.put("domain", wild)
+                }
+            }
             "IP-CIDR", "IP-CIDR6" -> rule.put("ip_cidr", payload)
             "SRC-IP-CIDR" -> rule.put("source_ip_cidr", payload)
             "DST-PORT", "PORT" -> rule.put("port", portLiteral(payload) ?: return null)
@@ -1258,9 +1325,9 @@ object ConfigIngest {
     }
 
     /**
-     * After scripts rewrite DNS, still send ECH HTTPS lookups to a resolver
-     * that returns type-65 records. Prefer the link's DoH server, then the
-     * script's proxied `dns-remote`.
+     * ECH HTTPS lookups must not use a DNS server that detours through the
+     * same proxy. That proxy is waiting on this lookup (`fetch ECH config
+     * list: context deadline exceeded`). Dial AliDNS directly.
      */
     internal fun ensureEchQueryRoute(root: JSONObject): Boolean {
         val names = linkedSetOf<String>()
@@ -1279,28 +1346,107 @@ object ConfigIngest {
         walk("outbounds")
         walk("endpoints")
         if (names.isEmpty()) return false
+        val bypass = ensureDirectBypass(root)
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
-        var changed = false
+        var changed = bypass.changed
         var tag = firstDnsTag(servers) { it.startsWith("ech-") }
-            ?: firstDnsTag(servers) { it == "dns-remote" }
         if (tag == null) {
             tag = "ech-dns"
             if (!dnsServerHas(servers, tag)) {
                 servers.put(
                     JSONObject()
-                        .put("type", "tcp")
+                        .put("type", "https")
                         .put("tag", tag)
-                        .put("server", "8.8.8.8")
-                        .put("server_port", 53)
-                        .put("domain_resolver", "local"),
+                        .put("server", "223.5.5.5")
+                        .put("server_port", 443)
+                        .put("path", "/dns-query")
+                        .put(
+                            "tls",
+                            JSONObject().put("enabled", true).put("server_name", "dns.alidns.com"),
+                        )
+                        .put("detour", bypass.tag),
                 )
                 changed = true
             }
         }
-        val missing = names.filter { !dnsRuleHasDomain(dns.optJSONArray("rules"), it) }
+        if (forceEchDetour(servers, tag, bypass.tag)) changed = true
+        val missing = names.filter { !dnsRuleRoutesTo(dns.optJSONArray("rules"), it, tag) }
         if (missing.isEmpty()) return changed
         return prependEchRule(dns, missing, tag) || changed
+    }
+
+    private class DirectBypass(val tag: String, val changed: Boolean)
+
+    /** Empty `direct` cannot be a DNS detour (kernel rejects it). A timeout makes it usable. */
+    private fun ensureDirectBypass(root: JSONObject): DirectBypass {
+        val outs = root.optJSONArray("outbounds") ?: JSONArray().also { root.put("outbounds", it) }
+        var fallback = -1
+        for (i in 0 until outs.length()) {
+            val outbound = outs.optJSONObject(i) ?: continue
+            if (!outbound.optString("type").equals("direct", true)) continue
+            val tag = outbound.optString("tag").trim()
+            if (tag.isEmpty()) continue
+            if (tag.equals("direct", true)) {
+                return DirectBypass(tag, stampDirectBypass(outbound))
+            }
+            if (fallback < 0) fallback = i
+        }
+        if (fallback >= 0) {
+            val outbound = outs.getJSONObject(fallback)
+            return DirectBypass(outbound.optString("tag"), stampDirectBypass(outbound))
+        }
+        outs.put(
+            JSONObject()
+                .put("type", "direct")
+                .put("tag", "direct")
+                .put("connect_timeout", "8s"),
+        )
+        return DirectBypass("direct", true)
+    }
+
+    private fun stampDirectBypass(outbound: JSONObject): Boolean {
+        if (outbound.optString("connect_timeout").isNotBlank()) return false
+        outbound.put("connect_timeout", "8s")
+        return true
+    }
+
+    private fun forceEchDetour(servers: JSONArray, tag: String, detour: String): Boolean {
+        var changed = false
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("tag") != tag) continue
+            if (server.optString("server").equals("dns.alidns.com", true)) {
+                server.put("server", "223.5.5.5")
+                if (server.optInt("server_port", 0) == 0) server.put("server_port", 443)
+                val tls = server.optJSONObject("tls") ?: JSONObject().also { server.put("tls", it) }
+                tls.put("enabled", true)
+                if (tls.optString("server_name").isBlank()) tls.put("server_name", "dns.alidns.com")
+                server.remove("domain_resolver")
+                changed = true
+            }
+            if (server.optString("detour") != detour) {
+                server.put("detour", detour)
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    private fun dnsRuleRoutesTo(rules: JSONArray?, name: String, tag: String): Boolean {
+        if (rules == null) return false
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("server") != tag) continue
+            val domain = rule.opt("domain")
+            if (domain is String && domain.equals(name, true)) return true
+            if (domain is JSONArray) {
+                for (j in 0 until domain.length()) {
+                    if (domain.optString(j).equals(name, true)) return true
+                }
+            }
+        }
+        return false
     }
 
     private fun prependEchRule(dns: JSONObject, name: String, tag: String): Boolean =

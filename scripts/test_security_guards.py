@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -155,15 +156,15 @@ def test_source_guards() -> None:
     assert "gomobile init" in release
     assert 'version || "$(go env GOPATH)/bin/gomobile" init' not in release
     assert 'test "${{ inputs.version_tag }}" = "v$VERSION_NAME"' in release
+    assert "name: Security regression" in release
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
     version_name = next((line.removeprefix("VERSION_NAME=") for line in props.splitlines() if line.startswith("VERSION_NAME=")), "")
     version_code = next((line.removeprefix("VERSION_CODE=") for line in props.splitlines() if line.startswith("VERSION_CODE=")), "")
     assert version_name
-    assert version_code.isdecimal() and int(version_code) > 0
-    assert version_name == "1.0.76-beta"
-    assert version_code == "10076"
+    assert version_code.isdecimal() and int(version_code) >= 10000
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", version_name), version_name
     assert "KERNEL_UPSTREAM=1.15.0-alpha.6" in props
     assert "KERNEL_TAG=v1.15.0-chain.3" in props
 
