@@ -15,7 +15,9 @@ class RemoteUrlGuardTest {
 
     @Test
     fun fakeIpIsNotADialAddress() {
-        val fake = InetAddress.getByAddress(byteArrayOf(198, 18, 1, 9))
+        val fake = InetAddress.getByAddress(
+            byteArrayOf(198.toByte(), 18.toByte(), 1.toByte(), 9.toByte()),
+        )
         assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.UPDATE))
         assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.SUBSCRIPTION))
     }
