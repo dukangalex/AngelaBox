@@ -317,41 +317,40 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             needles = ConfigInboundCompat.remoteRuleSetTags(content)
         }
         var ruleSetRetried = false
-        if (ruleSetFail && needles.isNotEmpty()) {
+        if (ruleSetFail) {
             ruleSetRetried = true
-            restartCommandServer()
-            result = tryStart(
-                ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
-            )
-            if (result.isSuccess) {
-                OverrideStatus.add(
-                    OverrideNotice(
-                        title = "配置规范化",
-                        reason = "已修正",
-                        hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
-                    ),
-                )
-                return true
-            }
-            keep(result.exceptionOrNull()?.message)
-            val drop = ConfigDiagnose.ruleSetNeedles(err).ifEmpty { needles }
-            if (ConfigDiagnose.looksLikeRuleSetFailure(err) && drop.isNotEmpty()) {
+            if (needles.isNotEmpty()) {
                 restartCommandServer()
                 result = tryStart(
-                    ConfigQuicOverride.apply(rawContent, dropRuleSetNeedles = drop),
+                    ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
                 )
                 if (result.isSuccess) {
                     OverrideStatus.add(
                         OverrideNotice(
-                            title = "规则集已跳过",
-                            reason = "打不开的规则集已去掉后再启动。",
-                            hint = "节点和分组没动，其余分流仍在。没有改成直连。",
+                            title = "配置规范化",
+                            reason = "已修正",
+                            hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
                         ),
                     )
                     return true
                 }
                 keep(result.exceptionOrNull()?.message)
             }
+            restartCommandServer()
+            result = tryStart(
+                ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true),
+            )
+            if (result.isSuccess) {
+                OverrideStatus.add(
+                    OverrideNotice(
+                        title = "规则集已跳过",
+                        reason = "远程规则集下不下来，已跳过这些规则集后启动。",
+                        hint = "节点和分组还在，其余分流还在。没有改成直连。",
+                    ),
+                )
+                return true
+            }
+            keep(result.exceptionOrNull()?.message)
         }
 
         if (Settings.configNormalize) {

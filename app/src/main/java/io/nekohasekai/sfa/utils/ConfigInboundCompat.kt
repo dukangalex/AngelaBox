@@ -598,9 +598,36 @@ object ConfigInboundCompat {
     }
 
     /**
-     * Last-resort exact drop used by tests. Same matching rules as replace;
-     * no substring-in-URL.
+     * Last resort when official rule-set URLs still cannot be downloaded.
+     * Removes every remote set and the rules that name them. Local sets,
+     * nodes, groups, and rules that do not use those tags stay.
      */
+    internal fun dropAllRemoteRuleSets(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: return false
+        val sets = route.optJSONArray("rule_set") ?: return false
+        val dropTags = mutableSetOf<String>()
+        val keep = JSONArray()
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val tag = item.optString("tag").trim()
+            val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
+            if (remote) {
+                if (tag.isNotEmpty()) dropTags.add(tag)
+                continue
+            }
+            keep.put(item)
+        }
+        if (dropTags.isEmpty() && keep.length() == sets.length()) return false
+        replaceArray(sets, keep)
+        if (dropTags.isNotEmpty()) {
+            stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+            stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        }
+        return true
+    }
+
+    /** Last-resort exact drop used by tests. Same matching rules as replace. */
     internal fun dropRemoteRuleSetsMatching(root: JSONObject, needles: Collection<String>): Boolean {
         val want = needles.map { ruleSetStem(it) }.filter { ConfigDiagnose.isPlausibleRuleSetName(it) }
         if (want.isEmpty()) return false

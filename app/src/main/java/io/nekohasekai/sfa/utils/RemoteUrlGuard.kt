@@ -121,6 +121,26 @@ object RemoteUrlGuard {
     }
 
     /**
+     * Resolve a host without the VPN DNS. Used when a proxied download was
+     * reset and the next attempt must dial a real address outside the tunnel.
+     * System resolution is ignored here: with the tunnel up it is often a
+     * fake-ip. Answers still pass [isAddressAllowed].
+     */
+    internal fun resolveOutsideTunnel(host: String): List<InetAddress> {
+        if (!canQueryDns(host)) return emptyList()
+        for (server in PUBLIC_DNS) {
+            val found = try {
+                queryA(host, server, protect = true)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
+            if (usable.isNotEmpty()) return usable
+        }
+        return emptyList()
+    }
+
+    /**
      * Syntactic HTTPS + public-host check for URLs the kernel fetches
      * (remote rule-sets). Hostnames skip DNS so offline start still works;
      * literal IPs still use the SCRIPT fail-closed policy.
@@ -146,10 +166,26 @@ object RemoteUrlGuard {
         val embedded = embeddedIpv4(bytes)
         if (embedded != null) {
             if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded)) return false
-            if (isRfc1918(embedded) || isCgnat(embedded)) return false
+            if (isRfc1918(embedded) || isCgnat(embedded) || isFakeIp(embedded)) return false
         }
-        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
+        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes) || isFakeIp(bytes)) return false
         return true
+    }
+
+    /** sing-box fake-ip (198.18.0.0/15) and the documentation prefix used as fake-ip6. */
+    internal fun isFakeIp(bytes: ByteArray): Boolean {
+        if (bytes.size == 4) {
+            val a = bytes[0].toInt() and 0xff
+            val b = bytes[1].toInt() and 0xff
+            return a == 198 && (b == 18 || b == 19)
+        }
+        if (bytes.size == 16) {
+            return bytes[0] == 0x20.toByte() &&
+                bytes[1] == 0x01.toByte() &&
+                bytes[2] == 0x00.toByte() &&
+                bytes[3] == 0x02.toByte()
+        }
+        return false
     }
 
     internal fun normalizeHost(host: String): String {
@@ -341,7 +377,7 @@ object RemoteUrlGuard {
         if (!canQueryDns(host)) return emptyList()
         for (server in PUBLIC_DNS) {
             val found = try {
-                queryA(host, server)
+                queryA(host, server, protect = false)
             } catch (_: Exception) {
                 emptyList()
             }
@@ -364,10 +400,11 @@ object RemoteUrlGuard {
      * (VPN DNS down, or the ISP resolver is unreachable). Answers still go
      * through [isAddressAllowed]; this does not skip the pin.
      */
-    private fun queryA(host: String, server: String): List<InetAddress> {
+    private fun queryA(host: String, server: String, protect: Boolean): List<InetAddress> {
         val id = (System.nanoTime() ushr 8).toInt() and 0xffff
         val query = buildDnsQuery(id, host)
         DatagramSocket().use { socket ->
+            if (protect) DirectDial.protect(socket)
             socket.soTimeout = 2000
             val target = InetAddress.getByAddress(parseIpv4(server))
             socket.send(DatagramPacket(query, query.size, target, 53))

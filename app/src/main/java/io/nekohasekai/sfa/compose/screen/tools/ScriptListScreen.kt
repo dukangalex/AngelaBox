@@ -99,10 +99,6 @@ fun ScriptListScreen(
             context.assets.open(OverlayScripts.SAMPLE_ASSET).bufferedReader().use { it.readText() }
         }.getOrNull()
         if (!sample.isNullOrBlank()) OverlayScripts.refreshStaleSample(sample)
-        val airport = runCatching {
-            context.assets.open(OverlayScripts.AIRPORT_ASSET).bufferedReader().use { it.readText() }
-        }.getOrNull()
-        if (!airport.isNullOrBlank()) OverlayScripts.refreshStaleAirport(airport)
         mutableStateOf(OverlayScripts.list())
     }
     var showImport by remember { mutableStateOf(false) }
@@ -353,7 +349,6 @@ fun ScriptListScreen(
                                         }
                                         OverlayScripts.SOURCE_FILE -> stringResource(R.string.overlay_scripts_from_file)
                                         OverlayScripts.SOURCE_SAMPLE -> stringResource(R.string.overlay_scripts_from_sample)
-                                        OverlayScripts.SOURCE_AIRPORT -> stringResource(R.string.overlay_scripts_from_airport)
                                         else -> stringResource(R.string.overlay_scripts_from_code)
                                     },
                                     style = MaterialTheme.typography.bodySmall,
@@ -516,30 +511,6 @@ fun ScriptListScreen(
                             OverlayScripts.upsertSample(sample)
                             scripts = OverlayScripts.list()
                             reloadService()
-                        } catch (e: Exception) {
-                            snackbar.showSnackbar(
-                                e.message ?: context.getString(R.string.overlay_scripts_failed),
-                            )
-                        }
-                    }
-                }
-                ImportRow(Icons.Outlined.Code, stringResource(R.string.overlay_scripts_import_airport)) {
-                    showImport = false
-                    scope.launch {
-                        val code = withContext(Dispatchers.IO) {
-                            runCatching {
-                                context.assets.open(OverlayScripts.AIRPORT_ASSET).bufferedReader().use { it.readText() }
-                            }.getOrNull()
-                        }
-                        if (code.isNullOrBlank()) {
-                            snackbar.showSnackbar(context.getString(R.string.overlay_scripts_empty_file))
-                            return@launch
-                        }
-                        try {
-                            OverlayScripts.upsertAirport(code)
-                            scripts = OverlayScripts.list()
-                            reloadService()
-                            snackbar.showSnackbar(context.getString(R.string.overlay_scripts_airport_hint))
                         } catch (e: Exception) {
                             snackbar.showSnackbar(
                                 e.message ?: context.getString(R.string.overlay_scripts_failed),

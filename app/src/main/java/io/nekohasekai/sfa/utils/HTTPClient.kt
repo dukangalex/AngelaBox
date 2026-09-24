@@ -50,6 +50,7 @@ class HTTPClient : Closeable {
             location: String?,
             kind: RemoteUrlGuard.Kind,
             resolveDns: Boolean = true,
+            outsideTunnel: Boolean = false,
         ): String {
             require(!location.isNullOrBlank()) { "重定向缺少 Location" }
             val next = try {
@@ -57,10 +58,12 @@ class HTTPClient : Closeable {
             } catch (e: Exception) {
                 throw IllegalArgumentException("非法重定向", e)
             }
-            if (resolveDns) {
-                RemoteUrlGuard.requireAllowed(next, kind)
-            } else {
+            if (!resolveDns) {
                 RemoteUrlGuard.validateWithoutDns(next, kind)
+            } else if (outsideTunnel) {
+                RemoteUrlGuard.validate(next, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
+            } else {
+                RemoteUrlGuard.requireAllowed(next, kind)
             }
             return next
         }
@@ -85,14 +88,13 @@ class HTTPClient : Closeable {
             url: String,
             kind: RemoteUrlGuard.Kind,
             headers: Map<String, String> = emptyMap(),
+            bypassTunnel: Boolean = false,
         ): HttpsURLConnection {
-            val viaTunnel = dialByName(kind, TunnelGate.up)
-            val endpoint = if (viaTunnel) {
-                RemoteUrlGuard.validateWithoutDns(url, kind)
+            val endpoint = if (bypassTunnel) {
+                RemoteUrlGuard.validate(url, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
             } else {
                 RemoteUrlGuard.validate(url, kind)
             }
-            if (viaTunnel) return openNamed(url, endpoint, kind, headers)
             val addr = endpoint.addresses.firstOrNull()
                 ?: throw IllegalArgumentException("无法解析主机，已拒绝")
             val pinned = requestUrlOnIp(url, addr, endpoint.port)
@@ -105,7 +107,7 @@ class HTTPClient : Closeable {
             conn.setRequestProperty("User-Agent", userAgent)
             conn.setRequestProperty("Connection", "close")
             headers.forEach { (key, value) -> conn.setRequestProperty(key, value) }
-            conn.sslSocketFactory = PinnedSniSslSocketFactory(endpoint.host, addr)
+            conn.sslSocketFactory = PinnedSniSslSocketFactory(endpoint.host, addr, endpoint.port, bypassTunnel)
             conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, session ->
                 HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, session)
             }
@@ -198,17 +200,36 @@ class HTTPClient : Closeable {
                 kind == RemoteUrlGuard.Kind.SCRIPT
         }
 
-        internal fun explainProfileUpdate(error: Throwable): String {
+        /** First attempt may use the running node. A reset then retries outside the tunnel. */
+        internal enum class Route { PROXY, DIRECT }
+
+        internal fun openFor(
+            url: String,
+            kind: RemoteUrlGuard.Kind,
+            headers: Map<String, String>,
+            route: Route,
+        ): HttpsURLConnection {
+            if (route == Route.PROXY) {
+                val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
+                return openNamed(url, endpoint, kind, headers)
+            }
+            return openPinned(url, kind, headers, bypassTunnel = TunnelGate.up)
+        }
+
+        internal fun explainProfileUpdate(error: Throwable): String =
+            explainProfileUpdate(error, TunnelGate.up)
+
+        internal fun explainProfileUpdate(error: Throwable, tunnelUp: Boolean): String {
             val messages = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
             val chinese = messages.firstOrNull { msg ->
                 msg.any { it.code in 0x4E00..0x9FFF } && !msg.startsWith("Failed to update")
             }
             if (chinese != null) return chinese.take(240)
-            return if (TunnelGate.up) {
-                "当前配置已经走代理更新，连接被对端断开。换一个节点后再点「更新当前配置」。"
+            return if (tunnelUp) {
+                "订阅没更新上。当前节点把连接断开了，不经过节点再试也失败。"
             } else {
-                "代理没开，直连订阅被断开。先启动，再更新当前配置。"
+                "订阅没更新上。直连被断开，请检查网络后再更新。"
             }
         }
 
@@ -221,9 +242,9 @@ class HTTPClient : Closeable {
             val chinese = messages.firstOrNull { msg -> msg.any { it.code in 0x4E00..0x9FFF } }
             if (chinese != null) return chinese.take(240)
             return if (tunnelUp) {
-                "更新已经走当前代理，握手仍失败。换一个节点后再点更新，或点「查看发布」。"
+                "更新没下完。当前代理把连接断开了，不经过节点再试也失败。可点「查看发布」。"
             } else {
-                "代理没开，直连更新服务器被断开。先启动，再点更新。"
+                "更新没下完。直连更新服务器被断开。请检查网络，或点「查看发布」。"
             }
         }
 
@@ -272,8 +293,8 @@ class HTTPClient : Closeable {
     ): String {
         val max = maxChars(kind).toLong()
         lastUserinfo = null
-        return withUpdateRetry(kind) {
-            fetch(url, kind, headers, max) { input, conn ->
+        return withUpdateRetry(kind) { route ->
+            fetch(url, kind, headers, max, route) { input, conn ->
                 lastUserinfo = header(conn, "subscription-userinfo") ?: lastUserinfo
                 val bytes = readLimited(input, max)
                 String(bytes, Charsets.UTF_8)
@@ -289,8 +310,8 @@ class HTTPClient : Closeable {
         onProgress: ((Long, Long) -> Unit)? = null,
     ) {
         val max = if (kind == RemoteUrlGuard.Kind.UPDATE) MAX_UPDATE_FILE_BYTES else maxChars(kind).toLong()
-        withUpdateRetry(kind) {
-            fetch(url, kind, headers, max) { input, conn ->
+        withUpdateRetry(kind) { route ->
+            fetch(url, kind, headers, max, route) { input, conn ->
                 val total = conn.contentLengthLong
                 dest.parentFile?.mkdirs()
                 if (dest.exists()) dest.delete()
@@ -318,22 +339,25 @@ class HTTPClient : Closeable {
         }
     }
 
-    private fun <T> withUpdateRetry(kind: RemoteUrlGuard.Kind, block: () -> T): T {
+    /**
+     * One ladder for subscription, script, and app-update downloads.
+     * Tunnel up: try the current node once. A reset, timeout, or handshake
+     * failure retries outside the tunnel (protected socket, not fake-ip).
+     * Neither path tells the user to switch nodes.
+     */
+    private fun <T> withUpdateRetry(kind: RemoteUrlGuard.Kind, block: (Route) -> T): T {
         val tunnel = dialByName(kind, TunnelGate.up)
-        if (kind != RemoteUrlGuard.Kind.UPDATE && !tunnel) return block()
-        val attempts = if (tunnel) 2 else 1
-        var last: Exception? = null
-        repeat(attempts) { index ->
+        if (!tunnel) return block(Route.DIRECT)
+        return try {
+            block(Route.PROXY)
+        } catch (e: Exception) {
+            if (!isTransientUpdateFailure(e)) throw friendlyFetch(kind, e)
             try {
-                return block()
-            } catch (e: Exception) {
-                last = e
-                val retry = index < attempts - 1 && isTransientUpdateFailure(e)
-                if (!retry) throw friendlyFetch(kind, e)
+                block(Route.DIRECT)
+            } catch (direct: Exception) {
+                throw friendlyFetch(kind, direct)
             }
         }
-        val fallback = last ?: IllegalStateException("更新没有完成")
-        throw friendlyFetch(kind, fallback)
     }
 
     private fun friendlyFetch(kind: RemoteUrlGuard.Kind, error: Exception): Exception {
@@ -350,12 +374,15 @@ class HTTPClient : Closeable {
         kind: RemoteUrlGuard.Kind,
         headers: Map<String, String>,
         maxBytes: Long,
+        route: Route,
         reader: (InputStream, HttpsURLConnection) -> T,
     ): T {
         var current = startUrl.trim()
-        val byName = dialByName(kind, TunnelGate.up)
+        val byName = route == Route.PROXY
         if (byName) {
             RemoteUrlGuard.validateWithoutDns(current, kind)
+        } else if (TunnelGate.up && dialByName(kind, true)) {
+            RemoteUrlGuard.validate(current, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
         } else {
             RemoteUrlGuard.requireAllowed(current, kind)
         }
@@ -364,7 +391,7 @@ class HTTPClient : Closeable {
         repeat(MAX_REDIRECTS + 1) {
             require(seen.add(current)) { "重定向循环" }
             hdrs = headersForHop(current, kind, hdrs)
-            val conn = openPinned(current, kind, hdrs)
+            val conn = openFor(current, kind, hdrs, route)
             conn.requestMethod = "GET"
             try {
                 val code = conn.responseCode
@@ -376,6 +403,7 @@ class HTTPClient : Closeable {
                         conn.getHeaderField("Location"),
                         kind,
                         resolveDns = !byName,
+                        outsideTunnel = !byName && TunnelGate.up,
                     )
                     if (!sameHost(current, next)) {
                         hdrs = hdrs.filterKeys { !it.equals("Authorization", ignoreCase = true) }
@@ -435,6 +463,8 @@ class HTTPClient : Closeable {
 private class PinnedSniSslSocketFactory(
     private val hostname: String,
     private val peer: InetAddress,
+    private val port: Int,
+    private val bypassTunnel: Boolean,
 ) : SSLSocketFactory() {
     private val delegate =
         SSLCertificateSocketFactory.getDefault(HTTPClient.CONNECT_TIMEOUT_MS, null)
@@ -445,20 +475,36 @@ private class PinnedSniSslSocketFactory(
         return socket
     }
 
+    /** Protect before connect so a dead node cannot reset the direct retry. */
+    private fun connectOutside(): Socket {
+        val raw = Socket()
+        if (bypassTunnel) DirectDial.protect(raw)
+        raw.connect(java.net.InetSocketAddress(peer, port), HTTPClient.UPDATE_DIRECT_CONNECT_TIMEOUT_MS)
+        val ssl = delegate.createSocket(raw, hostname, port, true)
+        return pin(ssl)
+    }
+
     override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
     override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
-    override fun createSocket(s: Socket, host: String, port: Int, autoClose: Boolean): Socket =
-        pin(delegate.createSocket(s, hostname, port, autoClose))
+    override fun createSocket(s: Socket, host: String, port: Int, autoClose: Boolean): Socket {
+        if (!bypassTunnel) return pin(delegate.createSocket(s, hostname, port, autoClose))
+        if (autoClose) runCatching { s.close() }
+        return connectOutside()
+    }
     override fun createSocket(host: String, port: Int): Socket =
-        pin(delegate.createSocket(peer, port))
+        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
     override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket =
-        pin(delegate.createSocket(peer, port, localHost, localPort))
+        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port, localHost, localPort))
     override fun createSocket(address: InetAddress, port: Int): Socket =
-        pin(delegate.createSocket(peer, port))
+        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
     override fun createSocket(
         address: InetAddress,
         port: Int,
         localAddress: InetAddress,
         localPort: Int,
-    ): Socket = pin(delegate.createSocket(peer, port, localAddress, localPort))
+    ): Socket = if (bypassTunnel) {
+        connectOutside()
+    } else {
+        pin(delegate.createSocket(peer, port, localAddress, localPort))
+    }
 }

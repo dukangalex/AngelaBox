@@ -13,6 +13,7 @@ import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.toIpPrefix
 import io.nekohasekai.sfa.ktx.toList
+import io.nekohasekai.sfa.utils.DirectDial
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -26,6 +27,11 @@ class VPNService :
 
     private val service = BoxService(this, this)
 
+    init {
+        DirectDial.protectTcp = { socket -> protect(socket) }
+        DirectDial.protectUdp = { socket -> protect(socket) }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = service.onStartCommand()
 
     override fun onBind(intent: Intent): IBinder {
@@ -37,6 +43,8 @@ class VPNService :
     }
 
     override fun onDestroy() {
+        DirectDial.protectTcp = null
+        DirectDial.protectUdp = null
         service.onDestroy()
     }
 

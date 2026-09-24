@@ -31,14 +31,10 @@ object OverlayScripts {
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
     const val SAMPLE_REVISION = "overlay-revision: 19"
-    const val AIRPORT_ASSET = "scripts/airport-tun.js"
-    const val AIRPORT_NAME = "机场覆写"
-    const val AIRPORT_REVISION = "airport-tun-revision: 4"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"
     const val SOURCE_SAMPLE = "sample"
-    const val SOURCE_AIRPORT = "airport"
 
     fun list(): List<OverlayScript> {
         val items = decode(Settings.overlayScriptsJson)
@@ -105,30 +101,6 @@ object OverlayScripts {
         )
         upsert(item)
         return item
-    }
-
-    fun upsertAirport(code: String): OverlayScript {
-        val existing = list().firstOrNull { it.source == SOURCE_AIRPORT }
-        val item = OverlayScript(
-            id = existing?.id ?: newId(),
-            name = existing?.name?.takeIf { it.isNotBlank() } ?: AIRPORT_NAME,
-            enabled = existing?.enabled ?: true,
-            source = SOURCE_AIRPORT,
-            code = code,
-            updatedAt = System.currentTimeMillis(),
-        )
-        upsert(item)
-        return item
-    }
-
-    /** Replace an imported airport script that predates the current asset. */
-    fun refreshStaleAirport(bundled: String? = null) {
-        val code = bundled?.takeIf { it.isNotBlank() } ?: return
-        if (AIRPORT_REVISION !in code) return
-        val existing = decode(Settings.overlayScriptsJson).firstOrNull { it.source == SOURCE_AIRPORT }
-            ?: return
-        if (AIRPORT_REVISION in existing.code) return
-        upsertAirport(code)
     }
 
     /**

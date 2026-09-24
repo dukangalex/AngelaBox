@@ -15,6 +15,7 @@ object ConfigQuicOverride {
         skipScripts: Boolean = false,
         replaceRuleSetNeedles: Collection<String> = emptyList(),
         dropRuleSetNeedles: Collection<String> = emptyList(),
+        dropAllRemoteRuleSets: Boolean = false,
         stripEch: Boolean = false,
     ): String {
         OverrideStatus.clear()
@@ -137,7 +138,9 @@ object ConfigQuicOverride {
             if (replaceRuleSetNeedles.isNotEmpty()) {
                 ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
             }
-            if (dropRuleSetNeedles.isNotEmpty()) {
+            if (dropAllRemoteRuleSets) {
+                ConfigInboundCompat.dropAllRemoteRuleSets(root)
+            } else if (dropRuleSetNeedles.isNotEmpty()) {
                 ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
             }
             out = root.toString()
