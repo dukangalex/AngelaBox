@@ -264,7 +264,8 @@ def test_source_guards() -> None:
     assert "fun embeddedIpv4" in guard
     assert "data class ValidatedEndpoint" in guard
     assert "resolved.all { isAddressAllowed(it, kind) }" in guard
-    assert "if (isRfc1918(embedded) || isCgnat(embedded)) return false" in guard
+    assert "if (isRfc1918(embedded) || isCgnat(embedded) || isFakeIp(embedded)) return false" in guard
+    assert "fun isFakeIp" in guard
 
     inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
     assert "RemoteUrlGuard.isPublicHttpsUrl" in inbound
