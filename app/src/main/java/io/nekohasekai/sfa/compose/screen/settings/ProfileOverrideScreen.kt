@@ -384,12 +384,13 @@ fun ProfileOverrideScreen(
             ) {
                 OverrideSwitch(
                     title = "严格路由",
-                    subtitle = "强制开启 TUN strict_route",
+                    subtitle = "默认关闭。打开后切网可能整机掉线",
                     checked = strictRoute,
                     onHelp = {
                         help = SwitchHelp(
                             "严格路由",
-                            "无论订阅是否已写 strict_route，开启后都强制写成 true。没有 TUN 入站时该开关无法生效，其它开关不受影响。脚本开着时由脚本写入，本开关决定开或关。",
+                            "打开后把 TUN strict_route 写成 true，订阅里原来的值也会被盖掉。关掉就写成 false。\n\n" +
+                                "切 Wi-Fi 和移动数据时，打开会把还没改道的包丢掉，表现是突然没网。需要防泄漏再打开。已经装过的手机会自动关一次。脚本开着时由脚本按这个开关写，不再只在打开时写 true。",
                         )
                     },
                 ) {
@@ -455,12 +456,12 @@ fun ProfileOverrideScreen(
                 }
                 OverrideSwitch(
                     title = "禁用 QUIC",
-                    subtitle = "优先 TCP，不丢 UDP 443",
+                    subtitle = "不再丢 UDP 443，避免只走 QUIC 的应用卡住",
                     checked = disableQuic,
                     onHelp = {
                         help = SwitchHelp(
                             "禁用 QUIC",
-                            "默认脚本不再丢弃 UDP 443，否则 YouTube、X 这类应用不会改走 TCP。开启后只拒绝 DNS 的 HTTPS/SVCB，新连接优先 TCP。未绑定脚本时，应用仍会拒绝 UDP 443。",
+                            "以前没绑定脚本时，应用会拒绝全部 UDP 443。YouTube、X 这类应用不会改走 TCP，表现是一直转圈或直接掉网。现在脚本开着和没开都一样，不写这条拒绝。开关还在，打开也不会丢包。",
                         )
                     },
                 ) {
@@ -474,13 +475,13 @@ fun ProfileOverrideScreen(
                 }
                 OverrideSwitch(
                     title = "排除国内 QUIC",
-                    subtitle = "放行中国大陆 QUIC",
+                    subtitle = "不再单独改 UDP 443",
                     checked = excludeCnQuic,
                     enabled = disableQuic,
                     onHelp = {
                         help = SwitchHelp(
                             "排除国内 QUIC",
-                            "未绑定脚本时，国内域名的 UDP 443 走直连，其余仍拒绝。默认脚本不再丢弃 UDP 443，这个开关不在脚本里另写规则。",
+                            "以前没开脚本时，国内域名的 UDP 443 走直连，其余拒绝。拒绝其余会让国外 QUIC 超时。现在这条也不写了。",
                         )
                     },
                 ) {

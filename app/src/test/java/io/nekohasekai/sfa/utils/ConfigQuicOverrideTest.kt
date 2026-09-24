@@ -44,6 +44,16 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun strictRouteOffClearsTun() {
+        val root = JSONObject().put(
+            "inbounds",
+            JSONArray().put(JSONObject().put("type", "tun").put("tag", "tun-in").put("strict_route", true)),
+        )
+        ConfigQuicOverride.applyStrictRoute(root, false)
+        assertFalse(root.getJSONArray("inbounds").getJSONObject(0).getBoolean("strict_route"))
+    }
+
+    @Test
     fun disableIpv6OverwritesStrategy() {
         val root = JSONObject().put("dns", JSONObject().put("strategy", "prefer_ipv6"))
         ConfigQuicOverride.applyDisableIpv6(root)

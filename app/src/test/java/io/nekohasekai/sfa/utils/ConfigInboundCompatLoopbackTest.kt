@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -7,6 +8,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfigInboundCompatLoopbackTest {
+    @Test
+    fun sniffFollowsHijackAndIsNotDuplicated() {
+        val root = JSONObject().put(
+            "route",
+            JSONObject().put(
+                "rules",
+                JSONArray()
+                    .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+                    .put(JSONObject().put("domain_suffix", "example.com").put("outbound", "proxy")),
+            ),
+        )
+        assertTrue(ConfigInboundCompat.ensureSniff(root))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        assertEquals("hijack-dns", rules.getJSONObject(0).getString("action"))
+        assertEquals("sniff", rules.getJSONObject(1).getString("action"))
+        assertFalse(ConfigInboundCompat.ensureSniff(root))
+    }
+
     @Test
     fun tunStackStrippedSilently() {
         val root = JSONObject().put(

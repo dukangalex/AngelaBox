@@ -1,1 +1,1 @@
-Profile updates follow the running proxy instead of a pinned IP. ECH links that use a DNS name plus a DoH URL keep the query name, and websocket early-data is no longer left inside the path. Missing domain resolver "local" is filled with system DNS before start. Windows builds stay paused.
+Stored airport override is removed when the script list opens. UDP 443 is no longer rejected. Strict route defaults off so a network switch does not drop the tunnel. The screen turning off no longer pauses the VPN.

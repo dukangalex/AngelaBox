@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 19
+ * overlay-revision: 20
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理。国内 DNS 直连 223.5.5.5。
@@ -945,7 +945,7 @@ function main(config) {
       if (hasTun) continue;
       hasTun = true;
       inbound.auto_route = true;
-      if (strictRoute) inbound.strict_route = true;
+      inbound.strict_route = !!strictRoute;
       if (inbound.stack) delete inbound.stack;
       if (inbound.gso) delete inbound.gso;
       if (inbound.inet6_address) delete inbound.inet6_address;
@@ -970,9 +970,9 @@ function main(config) {
       address: ["172.19.0.1/30"],
       auto_route: true,
       mtu: 1500,
-      sniff: true
+      sniff: true,
+      strict_route: !!strictRoute
     };
-    if (strictRoute) tunIn.strict_route = true;
     keptInbounds.push(tunIn);
   }
   config.inbounds = keptInbounds;

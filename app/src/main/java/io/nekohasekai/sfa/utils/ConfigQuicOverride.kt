@@ -104,11 +104,8 @@ object ConfigQuicOverride {
             applyOne(warnings, "中国直连") {
                 if (Settings.chinaDirect && !scriptOn) ConfigChinaDirect.apply(root)
             }
-            applyOne(warnings, "禁用 QUIC") {
-                if (Settings.disableQuic && !scriptOn) applyQuic(root)
-            }
             applyOne(warnings, "严格路由") {
-                if (Settings.strictRoute && !scriptOn) applyStrictRoute(root)
+                if (!scriptOn) applyStrictRoute(root, Settings.strictRoute)
             }
             applyOne(warnings, "DNS 防泄漏") {
                 if (Settings.dnsProtect && !scriptOn) applyDnsProtect(root)
@@ -187,38 +184,16 @@ object ConfigQuicOverride {
         route.put("rules", merged)
     }
 
-    private fun applyQuic(root: JSONObject) {
-        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val oldRules = route.optJSONArray("rules") ?: JSONArray()
-        val injected = JSONArray()
-        if (Settings.excludeCnQuic && Settings.chinaDirect) {
-            injected.put(
-                JSONObject()
-                    .put("network", "udp")
-                    .put("port", 443)
-                    .put("domain_suffix", ConfigNormalize.cnDomainSuffixArray())
-                    .put("outbound", ConfigChinaDirect.findOrCreateDirect(ensureOutbounds(root))),
-            )
-        }
-        injected.put(
-            JSONObject().put("network", "udp").put("port", 443).put("action", "reject"),
-        )
-        val merged = JSONArray()
-        for (i in 0 until injected.length()) merged.put(injected.get(i))
-        for (i in 0 until oldRules.length()) merged.put(oldRules.get(i))
-        route.put("rules", merged)
-    }
-
-    internal fun applyStrictRoute(root: JSONObject) {
+    internal fun applyStrictRoute(root: JSONObject, enabled: Boolean = true) {
         val inbounds = root.optJSONArray("inbounds") ?: JSONArray().also { root.put("inbounds", it) }
         var touched = false
         for (i in 0 until inbounds.length()) {
             val ib = inbounds.optJSONObject(i) ?: continue
             if (ib.optString("type") != "tun") continue
-            ib.put("strict_route", true)
+            ib.put("strict_route", enabled)
             touched = true
         }
-        if (!touched) {
+        if (!touched && enabled) {
             throw IllegalStateException("当前配置没有 TUN 入站，严格路由无法写入")
         }
     }
@@ -263,10 +238,6 @@ object ConfigQuicOverride {
             val ib = inbounds.optJSONObject(i) ?: continue
             if (ib.optString("type") == "tun") ib.remove("inet6_address")
         }
-    }
-
-    private fun ensureOutbounds(root: JSONObject): JSONArray {
-        return root.optJSONArray("outbounds") ?: JSONArray().also { root.put("outbounds", it) }
     }
 
     private fun outboundExists(content: String, tag: String): Boolean {

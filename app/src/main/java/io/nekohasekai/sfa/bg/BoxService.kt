@@ -12,9 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
-import android.os.PowerManager
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.MutableLiveData
@@ -91,12 +89,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 when (intent.action) {
                     Action.SERVICE_CLOSE -> {
                         stopService()
-                    }
-
-                    PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            serviceUpdateIdleMode()
-                        }
                     }
                 }
             }
@@ -433,23 +425,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         startCommandServer()
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
-    private fun serviceUpdateIdleMode() {
-        if (Application.powerManager.isDeviceIdleMode) {
-            val keepAlive = Application.powerManager.isIgnoringBatteryOptimizations(
-                Application.application.packageName,
-            )
-            if (keepAlive) {
-                // User allowed background: keep TUN and the selected node.
-                // Urltest is 10m; TCP keepalive holds NAT. Do not DevicePause.
-                return
-            }
-            commandServer.pause()
-        } else {
-            commandServer.wake()
-        }
-    }
-
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
         if (status.value != Status.Started) return
@@ -529,9 +504,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 receiver,
                 IntentFilter().apply {
                     addAction(Action.SERVICE_CLOSE)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
-                    }
                 },
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )

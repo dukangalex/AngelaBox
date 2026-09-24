@@ -237,7 +237,7 @@ def test_source_guards() -> None:
     assert "external-files-path" not in cache
 
     quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    assert "Settings.excludeCnQuic && Settings.chinaDirect" in quic
+    assert 'put("port", 443)' not in quic
 
     http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
     assert "RemoteUrlGuard.Kind" in http

@@ -82,7 +82,7 @@ object Settings {
     var onDemand by dataStore.boolean(SettingsKey.ON_DEMAND) { true }
     var disableQuic by dataStore.boolean(SettingsKey.DISABLE_QUIC) { true }
     var excludeCnQuic by dataStore.boolean(SettingsKey.EXCLUDE_CN_QUIC) { true }
-    var strictRoute by dataStore.boolean(SettingsKey.STRICT_ROUTE) { true }
+    var strictRoute by dataStore.boolean(SettingsKey.STRICT_ROUTE) { false }
     var dnsProtect by dataStore.boolean(SettingsKey.DNS_PROTECT) { true }
     var disableIpv6 by dataStore.boolean(SettingsKey.DISABLE_IPV6) { true }
     var webrtcProtect by dataStore.boolean(SettingsKey.WEBRTC_PROTECT) { true }
@@ -125,7 +125,6 @@ object Settings {
             adsBlock = true
             webrtcProtect = true
             dnsProtect = true
-            strictRoute = true
             disableIpv6 = true
             disableQuic = true
             excludeCnQuic = true
@@ -134,6 +133,12 @@ object Settings {
         if (chinaDefaultsRev < 2) {
             configNormalize = true
             chinaDefaultsRev = 2
+        }
+        if (chinaDefaultsRev < 3) {
+            // 1.0.79 forced this on. It drops packets while Wi-Fi and
+            // cellular swap, which shows up as the whole device going offline.
+            strictRoute = false
+            chinaDefaultsRev = 3
         }
     }
 

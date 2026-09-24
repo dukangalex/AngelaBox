@@ -30,7 +30,7 @@ object OverlayScripts {
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
-    const val SAMPLE_REVISION = "overlay-revision: 19"
+    const val SAMPLE_REVISION = "overlay-revision: 20"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"
@@ -45,8 +45,28 @@ object OverlayScripts {
                 script
             }
         }
-        if (migrated != items) save(migrated)
-        return migrated
+        val kept = withoutRetiredAirport(migrated)
+        if (kept != items) {
+            save(kept)
+            val removed = items.map { it.id }.toSet() - kept.map { it.id }.toSet()
+            if (removed.isNotEmpty()) {
+                saveBindings(
+                    loadBindings().mapValues { (_, ids) -> ids.filterNot { it in removed } },
+                )
+            }
+        }
+        return kept
+    }
+
+    internal fun withoutRetiredAirport(items: List<OverlayScript>): List<OverlayScript> =
+        items.filterNot { isRetiredAirport(it) }
+
+    /** In-app airport override is gone. A copy saved by 1.0.79 stays in
+     *  settings and the list used to show it as「代码导入」because that
+     *  source has no label. Drop it, including a paste that kept the name. */
+    internal fun isRetiredAirport(script: OverlayScript): Boolean {
+        if (script.source == "airport") return true
+        return script.name.trim() == "机场覆写"
     }
 
     fun enabled(): List<OverlayScript> = list().filter { it.enabled && it.code.isNotBlank() }

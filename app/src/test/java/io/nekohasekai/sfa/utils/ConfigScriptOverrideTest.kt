@@ -112,6 +112,57 @@ class ConfigScriptOverrideTest {
     }
 
     @Test
+    fun sampleClearsStrictRouteWhenSwitchOff() {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return
+        val input = JSONObject()
+            .put(
+                "inbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "tun")
+                        .put("tag", "tun-in")
+                        .put("strict_route", true)
+                        .put("address", "172.19.0.1/30"),
+                ),
+            )
+            .put(
+                "outbounds",
+                JSONArray().put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .toString()
+        val overlay = ConfigScriptOverride.defaultOverlayFlags().put("strictRoute", false).toString()
+        val out = JSONObject(
+            ConfigScriptOverride.ScriptEngine.run(file.readText(), input, "sample", overlay),
+        )
+        val inbounds = out.getJSONArray("inbounds")
+        val tun = (0 until inbounds.length()).map { inbounds.getJSONObject(it) }
+            .first { it.optString("type") == "tun" }
+        assertFalse(tun.getBoolean("strict_route"))
+    }
+
+    @Test
+    fun retiredAirportLeavesTheLibrary() {
+        val airport = OverlayScript(
+            id = "old",
+            name = "机场覆写",
+            enabled = false,
+            source = "airport",
+            code = "function main(config) { return config; }",
+        )
+        val pasted = airport.copy(id = "paste", source = OverlayScripts.SOURCE_CODE)
+        val keep = OverlayScript(
+            id = "keep",
+            name = "我的脚本",
+            enabled = true,
+            source = OverlayScripts.SOURCE_FILE,
+            code = "function main(config) { return config; }",
+        )
+        val kept = OverlayScripts.withoutRetiredAirport(listOf(airport, pasted, keep))
+        assertEquals(listOf("keep"), kept.map { it.id })
+    }
+
+    @Test
     fun overlayScriptsRoundTrip() {
         val item = OverlayScript(
             id = "a",

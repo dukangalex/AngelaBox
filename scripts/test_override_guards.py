@@ -878,10 +878,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 19" not in sample:
-        errors.append("default script must stamp overlay-revision: 19 so stale copies refresh")
+    if "overlay-revision: 20" not in sample:
+        errors.append("default script must stamp overlay-revision: 20 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 19"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 20"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
@@ -946,8 +946,12 @@ def main() -> int:
     if (ROOT / "app/src/main/assets/scripts/airport-tun.js").exists():
         errors.append("in-app airport override asset must stay removed; the HiClash port is not bundled")
     overlay_src = overlay_kt
+    if "withoutRetiredAirport" not in overlay_src:
+        errors.append("opening the script list must delete a stored airport override")
     if "AIRPORT_ASSET" in overlay_src or "upsertAirport" in overlay_src or "SOURCE_AIRPORT" in overlay_src:
         errors.append("script library must not bundle or refresh an airport override")
+    if "inbound.strict_route = !!strictRoute" not in sample:
+        errors.append("default script must clear strict_route when the switch is off")
     if "overlay_scripts_import_airport" in read("app/src/main/res/values-zh-rCN/strings.xml"):
         errors.append("zh-rCN must not offer an in-app airport override import")
     if "换一个节点" in read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt"):
@@ -989,8 +993,10 @@ def main() -> int:
         errors.append("SettingsKey.CHINA_DEFAULTS_REV missing")
     if "DISABLE_QUIC) { true }" not in settings:
         errors.append("disableQuic should default on for China HTTP3 leak protection")
-    if "STRICT_ROUTE) { true }" not in settings:
-        errors.append("strictRoute should default on")
+    if "STRICT_ROUTE) { false }" not in settings:
+        errors.append("strictRoute should default off so a network switch does not drop the tunnel")
+    if "chinaDefaultsRev < 3" not in settings:
+        errors.append("existing installs must turn strict_route off once")
     if "DISABLE_IPV6) { true }" not in settings:
         errors.append("disableIpv6 should default on to block IPv6 bypass")
     if "EXCLUDE_CN_QUIC) { true }" not in settings:
@@ -1344,8 +1350,14 @@ def main() -> int:
         errors.append("DNS protect must not double-write when a script is already running")
     if "Settings.disableIpv6 && !scriptOn" not in quic:
         errors.append("IPv6 overlay must not double-write when a script is already running")
-    if "Settings.strictRoute && !scriptOn" not in quic:
-        errors.append("strict route must not double-write when a script is already running")
+    if "applyStrictRoute(root, Settings.strictRoute)" not in quic:
+        errors.append("strict route must follow the switch both ways and must not double-write when a script is running")
+    if 'put("port", 443)' in quic:
+        errors.append("unbound profile must not reject UDP 443")
+    if "commandServer.pause()" in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("doze must not pause the tunnel")
+    if "ensureSniff" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt"):
+        errors.append("startup must sniff when the subscription has no sniff rule")
     if "prefer_ipv4" not in quic:
         errors.append("DNS protect must set dual-stack prefer_ipv4")
     if "2400:3200::1/128" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChinaDirect.kt"):

@@ -26,6 +26,7 @@ object ConfigInboundCompat {
         if (healMissingOutboundRefs(root)) changed = true
         if (ensureHijackDns(root)) changed = true
         if (rejectStaleFakeIp(root)) changed = true
+        if (ensureSniff(root)) changed = true
         if (bindLoopbackOnly(root)) changed = true
         if (ConfigIngest.ensureEchQueryRoute(root)) changed = true
         if (healDanglingDomainResolvers(root)) changed = true
@@ -1078,6 +1079,42 @@ object ConfigInboundCompat {
         if (tag.isEmpty()) return false
         for (i in 0 until clients.length()) {
             if (clients.optJSONObject(i)?.optString("tag") == tag) return true
+        }
+        return false
+    }
+
+    /**
+     * Domain rules do nothing until the client hello is sniffed. Put sniff
+     * after hijack-dns so port 53 is not held for the sniff timeout.
+     * Subscriptions that already sniff are left alone.
+     */
+    internal fun ensureSniff(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val rules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
+        if (hasAction(rules, "sniff")) return false
+        var insertAt = 0
+        while (insertAt < rules.length()) {
+            val rule = rules.optJSONObject(insertAt) ?: break
+            val action = rule.optString("action")
+            if (!action.equals("hijack-dns", true) && !action.equals("reject", true)) break
+            if (action.equals("reject", true) && !cidrHas(rule.opt("ip_cidr"), "198.18.0.0/15")) break
+            insertAt++
+        }
+        val sniff = JSONObject().put("action", "sniff")
+        val merged = JSONArray()
+        for (i in 0 until insertAt) merged.put(rules.get(i))
+        merged.put(sniff)
+        for (i in insertAt until rules.length()) merged.put(rules.get(i))
+        route.put("rules", merged)
+        return true
+    }
+
+    private fun hasAction(rules: JSONArray, action: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("action").equals(action, true)) return true
+            val nested = rule.optJSONArray("rules")
+            if (nested != null && hasAction(nested, action)) return true
         }
         return false
     }
