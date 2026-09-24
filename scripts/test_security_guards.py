@@ -157,6 +157,9 @@ def test_source_guards() -> None:
     assert 'version || "$(go env GOPATH)/bin/gomobile" init' not in release
     assert 'test "${{ inputs.version_tag }}" = "v$VERSION_NAME"' in release
     assert "name: Security regression" in release
+    assert "name: Unit tests before release" in release
+    assert ":app:testDebugUnitTest" in release
+    assert "ConfigScriptOverrideTest" in release
 
     props = read("version.properties")
     assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props

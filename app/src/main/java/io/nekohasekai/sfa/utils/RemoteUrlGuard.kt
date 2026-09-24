@@ -325,6 +325,9 @@ object RemoteUrlGuard {
 
     private val PUBLIC_DNS = arrayOf("223.5.5.5", "119.29.29.29", "1.1.1.1")
 
+    /** Public resolvers are only for tunnel-down. Tunnel-up must not query them. */
+    internal fun allowPublicDnsFallback(): Boolean = !TunnelGate.up
+
     private fun systemResolve(host: String): List<InetAddress> {
         val system = try {
             InetAddress.getAllByName(host)?.toList().orEmpty()
@@ -332,6 +335,9 @@ object RemoteUrlGuard {
             emptyList()
         }
         if (system.isNotEmpty()) return system
+        // While the tunnel is up, a raw UDP query would leave the VPN.
+        // Fail closed instead of asking a public resolver.
+        if (!allowPublicDnsFallback()) return emptyList()
         if (!canQueryDns(host)) return emptyList()
         for (server in PUBLIC_DNS) {
             val found = try {

@@ -201,6 +201,32 @@ jobs:
           test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
           echo "RELEASE_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
+      - name: Unit tests before release
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          fi
+          chmod +x gradlew
+          ./gradlew :app:compileOtherDebugKotlin \
+            :app:testDebugUnitTest \
+            --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
+            --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
+            --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
+            --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --no-daemon --stacktrace
+
       - name: Assemble release APK
         working-directory: sing-box-for-android
         run: |

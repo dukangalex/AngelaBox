@@ -32,6 +32,9 @@ object BackupManager {
     private const val MAX_ENTRY_SIZE = 32L * 1024 * 1024
     private const val MAX_TOTAL_SIZE = 128L * 1024 * 1024
 
+    /** Size and path limits always abort. Compat may skip unknown entries, not these. */
+    private class BackupRejected(message: String) : IllegalStateException(message)
+
     fun createBackupFile(context: Context, dest: File): Result<File> = runCatching {
         dest.parentFile?.mkdirs()
         val savedDavPass = Settings.webdavPassword
@@ -96,7 +99,7 @@ object BackupManager {
                 var entry = zis.nextEntry
                 while (entry != null) {
                     if (++entries > MAX_ENTRIES) {
-                        if (compat) break else error("备份包含过多文件")
+                        throw BackupRejected("备份包含过多文件")
                     }
                     val name = entry.name.trimStart('/')
                     if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
@@ -107,7 +110,7 @@ object BackupManager {
                             name.startsWith("configs/") -> {
                                 val relative = name.removePrefix("configs/")
                                 if (relative.isBlank() || relative.contains('/')) {
-                                    if (compat) null else error("非法备份路径")
+                                    throw BackupRejected("非法备份路径")
                                 } else {
                                     File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
                                 }
@@ -131,7 +134,7 @@ object BackupManager {
                                     entryBytes += read
                                     total += read
                                     if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
-                                        if (compat) break else error("备份展开大小超过限制")
+                                        throw BackupRejected("备份展开大小超过限制")
                                     }
                                     fos.write(buffer, 0, read)
                                 }
@@ -142,6 +145,9 @@ object BackupManager {
                     entry = zis.nextEntry
                 }
             }
+        } catch (e: BackupRejected) {
+            staging.deleteRecursively()
+            throw e
         } catch (e: Exception) {
             if (!compat) throw e
         }

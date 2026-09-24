@@ -832,12 +832,15 @@
     <string name="overlay_scripts_import_url">Import from URL</string>
     <string name="overlay_scripts_import_file">Import from file</string>
     <string name="overlay_scripts_import_sample">Import default script</string>
+    <string name="overlay_scripts_import_airport">Import airport override</string>
     <string name="overlay_scripts_edit">Edit script</string>
     <string name="overlay_scripts_code">Code</string>
     <string name="overlay_scripts_from_code">Pasted code</string>
     <string name="overlay_scripts_from_url">Imported from URL</string>
     <string name="overlay_scripts_from_file">Imported from file</string>
     <string name="overlay_scripts_from_sample">Default script</string>
+    <string name="overlay_scripts_from_airport">Airport override, no chain</string>
+    <string name="overlay_scripts_airport_hint">Added to the script list. Do not bind it on the same profile as the default script.</string>
     <string name="overlay_scripts_imported">Imported script</string>
     <string name="overlay_scripts_duplicate">Duplicate</string>
     <string name="overlay_scripts_sync">Sync</string>

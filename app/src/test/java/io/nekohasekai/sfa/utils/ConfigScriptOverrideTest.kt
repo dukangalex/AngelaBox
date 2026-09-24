@@ -231,7 +231,8 @@ class ConfigScriptOverrideTest {
         assertFalse(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
-        assertFalse(dnsRuleText.contains("query_type"))
+        assertTrue(dnsRuleText.contains("dns-fakeip"))
+        assertTrue(dnsRuleText.contains("A"))
         assertTrue(ruleText.contains("youtubei.googleapis.com"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
     }
@@ -276,8 +277,11 @@ class ConfigScriptOverrideTest {
         assertTrue(selectMembers.none { it.equals("direct", ignoreCase = true) })
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
-        assertTrue(dnsText.contains("aistudio.google.com"))
-        assertTrue(dnsText.contains("dns-remote"))
+        val routeRules = out.getJSONObject("route").getJSONArray("rules")
+        val routeText = (0 until routeRules.length()).joinToString { routeRules.getJSONObject(it).toString() }
+        assertTrue(routeText.contains("aistudio.google.com"))
+        assertTrue(dnsText.contains("dns-fakeip"))
+        assertEquals("dns-remote", out.getJSONObject("dns").optString("final"))
     }
 
     @Test
@@ -285,7 +289,7 @@ class ConfigScriptOverrideTest {
         val file = File("../docs/scripts/airport-tun.js")
         if (!file.isFile) return
         val code = file.readText()
-        assertTrue(code.contains("airport-tun-revision: 3"))
+        assertTrue(code.contains("airport-tun-revision: 4"))
         assertTrue(!code.contains("function find(") && !code.contains(".find("))
         assertTrue(!code.contains("?.") && !code.contains("..."))
         val input = JSONObject()
@@ -335,5 +339,11 @@ class ConfigScriptOverrideTest {
         assertTrue(!leaf.has("dialer-proxy"))
         assertTrue(!out.has("proxies"))
         assertTrue(!out.has("proxy-groups"))
+        val dns = out.getJSONObject("dns")
+        assertEquals("dns-remote", dns.optString("final"))
+        assertTrue(dns.toString().contains("fakeip"))
+        assertFalse(dns.toString().contains("\"https\""))
+        val direct = byTag.getValue("direct")
+        assertEquals("8s", direct.optString("connect_timeout"))
     }
 }

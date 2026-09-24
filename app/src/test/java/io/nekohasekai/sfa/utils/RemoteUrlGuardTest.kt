@@ -14,6 +14,17 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun publicDnsFallbackStaysOffWhileTunnelIsUp() {
+        TunnelGate.setUp(true)
+        try {
+            assertFalse(RemoteUrlGuard.allowPublicDnsFallback())
+        } finally {
+            TunnelGate.setUp(false)
+        }
+        assertTrue(RemoteUrlGuard.allowPublicDnsFallback())
+    }
+
+    @Test
     fun subscriptionAllowsHttpsPublicHost() {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, publicResolve)
     }

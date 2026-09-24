@@ -943,6 +943,28 @@ def main() -> int:
         errors.append("远控工具 must keep DIRECT as an exception")
     if 'delete sob.detour' not in sample or 'dialer-proxy' not in sample:
         errors.append("default script must strip leaf detour / dialer-proxy so airport overlay is not chained")
+    airport = read("app/src/main/assets/scripts/airport-tun.js")
+    airport_doc = read("docs/scripts/airport-tun.js")
+    if airport != airport_doc:
+        errors.append("airport override asset and docs copy diverged")
+    if "airport-tun-revision: 4" not in airport:
+        errors.append("airport override must stamp airport-tun-revision: 4")
+    if 'type: "fakeip"' not in airport or "dns-fakeip" not in airport:
+        errors.append("airport override must fake-ip non-CN A/AAAA")
+    if 'type: "https"' in airport or "query_type: [64, 65]" in airport:
+        errors.append("airport override must not use DoH or reject HTTPS/SVCB")
+    if "17890" not in airport:
+        errors.append("airport override must keep loopback mixed 17890")
+    if "链式中转" in airport:
+        errors.append("airport override must not include the chain relay group")
+    if "AIRPORT_ASSET" not in overlay_kt or "upsertAirport" not in overlay_kt:
+        errors.append("script library must be able to import the bundled airport override")
+    if "overlay_scripts_import_airport" not in read("app/src/main/res/values-zh-rCN/strings.xml"):
+        errors.append("zh-rCN must name the airport override import")
+    if "allowPublicDnsFallback" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
+        errors.append("public DNS fallback must be gated while the tunnel is up")
+    if "BackupRejected" not in read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt"):
+        errors.append("backup size and path limits must fail closed")
     if "relay: 1, chain: 1" not in sample:
         errors.append("default script must replace chain outbounds, not keep subscription chains")
     if "mixed-port" in sample or "geox-url" in sample or "nameserver-policy" in sample:
