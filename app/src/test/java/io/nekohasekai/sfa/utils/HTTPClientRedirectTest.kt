@@ -185,6 +185,23 @@ class HTTPClientRedirectTest {
     }
 
     @Test
+    fun dnsGuardIsNotShownAsTheUpdateError() {
+        val update = HTTPClient.explainUpdateFailure(
+            IllegalArgumentException("主机解析到禁止地址，已拒绝"),
+            tunnelUp = true,
+        )
+        assertFalse(update.contains("禁止地址"))
+        assertFalse(update.contains("已拒绝"))
+        assertTrue(update.contains("当前代理"))
+        val profile = HTTPClient.explainProfileUpdate(
+            IllegalArgumentException("无法解析主机，已拒绝"),
+            tunnelUp = true,
+        )
+        assertFalse(profile.contains("已拒绝"))
+        assertTrue(profile.contains("订阅没更新上"))
+    }
+
+    @Test
     fun profileUpdateHidesHandshakeDump() {
         assertTrue(HTTPClient.dialByName(RemoteUrlGuard.Kind.SUBSCRIPTION, tunnelUp = true))
         assertFalse(HTTPClient.dialByName(RemoteUrlGuard.Kind.SUBSCRIPTION, tunnelUp = false))

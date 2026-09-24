@@ -129,11 +129,12 @@ object RemoteUrlGuard {
     internal fun resolveOutsideTunnel(host: String): List<InetAddress> {
         if (!canQueryDns(host)) return emptyList()
         for (server in PUBLIC_DNS) {
-            val found = try {
-                queryA(host, server, protect = true)
-            } catch (_: Exception) {
-                emptyList()
-            }
+            val found = lookup(host, server, tcp = false)
+            val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
+            if (usable.isNotEmpty()) return usable
+        }
+        for (server in PUBLIC_DNS) {
+            val found = lookup(host, server, tcp = true)
             val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
             if (usable.isNotEmpty()) return usable
         }
@@ -359,7 +360,13 @@ object RemoteUrlGuard {
         return bytes.copyOfRange(12, 16)
     }
 
-    private val PUBLIC_DNS = arrayOf("223.5.5.5", "119.29.29.29", "1.1.1.1")
+    private val PUBLIC_DNS = arrayOf(
+        "223.5.5.5",
+        "223.6.6.6",
+        "119.29.29.29",
+        "114.114.114.114",
+        "1.1.1.1",
+    )
 
     /** Public resolvers are only for tunnel-down. Tunnel-up must not query them. */
     internal fun allowPublicDnsFallback(): Boolean = !TunnelGate.up
@@ -369,29 +376,26 @@ object RemoteUrlGuard {
             InetAddress.getAllByName(host)?.toList().orEmpty()
         } catch (_: Exception) {
             emptyList()
-        }
+        }.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
         if (system.isNotEmpty()) return system
-        // While the tunnel is up, a raw UDP query would leave the VPN.
-        // Fail closed instead of asking a public resolver.
+        // Tunnel DNS is fake-ip. A raw answer in 198.18/15 is not a dial
+        // target and must not be reported as a forbidden address.
+        if (TunnelGate.up) return resolveOutsideTunnel(host)
         if (!allowPublicDnsFallback()) return emptyList()
         if (!canQueryDns(host)) return emptyList()
         for (server in PUBLIC_DNS) {
-            val found = try {
-                queryA(host, server, protect = false)
-            } catch (_: Exception) {
-                emptyList()
-            }
-            if (found.isNotEmpty()) return found
+            val found = lookup(host, server, tcp = false, protect = false)
+            val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
+            if (usable.isNotEmpty()) return usable
         }
         return emptyList()
     }
 
-    private fun canQueryDns(host: String): Boolean {
-        if (host.length > 253 || host.startsWith(".") || host.endsWith(".")) return false
-        val labels = host.split('.')
-        if (labels.size < 2) return false
-        return labels.all { label ->
-            label.isNotEmpty() && label.length <= 63 && label.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true): List<InetAddress> {
+        return try {
+            if (tcp) queryATcp(host, server, protect) else queryA(host, server, protect)
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
@@ -404,7 +408,8 @@ object RemoteUrlGuard {
         val id = (System.nanoTime() ushr 8).toInt() and 0xffff
         val query = buildDnsQuery(id, host)
         DatagramSocket().use { socket ->
-            if (protect) DirectDial.protect(socket)
+            // Unprotected while the tunnel is up re-enters fake-ip DNS.
+            if (protect && !DirectDial.protect(socket)) return emptyList()
             socket.soTimeout = 2000
             val target = InetAddress.getByAddress(parseIpv4(server))
             socket.send(DatagramPacket(query, query.size, target, 53))
@@ -412,6 +417,48 @@ object RemoteUrlGuard {
             val response = DatagramPacket(buf, buf.size)
             socket.receive(response)
             return parseDnsA(buf, response.length, id)
+        }
+    }
+
+    private fun queryATcp(host: String, server: String, protect: Boolean): List<InetAddress> {
+        val id = (System.nanoTime() ushr 8).toInt() and 0xffff
+        val query = buildDnsQuery(id, host)
+        java.net.Socket().use { socket ->
+            if (protect && !DirectDial.protect(socket)) return emptyList()
+            socket.soTimeout = 3000
+            socket.connect(java.net.InetSocketAddress(InetAddress.getByAddress(parseIpv4(server)), 53), 3000)
+            val out = socket.getOutputStream()
+            out.write(
+                byteArrayOf(
+                    (query.size shr 8).toByte(),
+                    (query.size and 0xff).toByte(),
+                ),
+            )
+            out.write(query)
+            out.flush()
+            val input = socket.getInputStream()
+            val lenHi = input.read()
+            val lenLo = input.read()
+            if (lenHi < 0 || lenLo < 0) return emptyList()
+            val len = (lenHi shl 8) or lenLo
+            if (len !in 12..4096) return emptyList()
+            val buf = ByteArray(len)
+            var got = 0
+            while (got < len) {
+                val n = input.read(buf, got, len - got)
+                if (n < 0) return emptyList()
+                got += n
+            }
+            return parseDnsA(buf, got, id)
+        }
+    }
+
+    private fun canQueryDns(host: String): Boolean {
+        if (host.length > 253 || host.startsWith(".") || host.endsWith(".")) return false
+        val labels = host.split('.')
+        if (labels.size < 2) return false
+        return labels.all { label ->
+            label.isNotEmpty() && label.length <= 63 && label.all { it.isLetterOrDigit() || it == '-' || it == '_' }
         }
     }
 

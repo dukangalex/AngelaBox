@@ -1,1 +1,1 @@
-Stored airport override is removed when the script list opens. UDP 443 is no longer rejected. Strict route defaults off so a network switch does not drop the tunnel. The screen turning off no longer pauses the VPN.
+Update checks no longer treat VPN fake-ip answers as forbidden. Profile updates resolve outside the tunnel, then retry through the node by the real address.

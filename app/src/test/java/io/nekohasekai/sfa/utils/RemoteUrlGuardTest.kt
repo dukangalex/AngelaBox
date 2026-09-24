@@ -14,6 +14,13 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun fakeIpIsNotADialAddress() {
+        val fake = InetAddress.getByAddress(byteArrayOf(198, 18, 1, 9))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.UPDATE))
+        assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.SUBSCRIPTION))
+    }
+
+    @Test
     fun publicDnsFallbackStaysOffWhileTunnelIsUp() {
         TunnelGate.setUp(true)
         try {

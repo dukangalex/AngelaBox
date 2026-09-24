@@ -960,6 +960,8 @@ def main() -> int:
         errors.append("rule-set download failure must skip remote sets and still start")
     if "resolveOutsideTunnel" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
         errors.append("direct retry must resolve outside the tunnel, not via fake-ip")
+    if "if (protect && !DirectDial.protect(socket)) return emptyList()" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
+        errors.append("tunnel DNS lookup must not send when protect fails")
     if "allowPublicDnsFallback" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
         errors.append("public DNS fallback must be gated while the tunnel is up")
     if "BackupRejected" not in read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt"):

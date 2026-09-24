@@ -89,11 +89,12 @@ class HTTPClient : Closeable {
             kind: RemoteUrlGuard.Kind,
             headers: Map<String, String> = emptyMap(),
             bypassTunnel: Boolean = false,
+            resolve: ((String) -> List<InetAddress>)? = null,
         ): HttpsURLConnection {
-            val endpoint = if (bypassTunnel) {
-                RemoteUrlGuard.validate(url, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
-            } else {
-                RemoteUrlGuard.validate(url, kind)
+            val endpoint = when {
+                resolve != null -> RemoteUrlGuard.validate(url, kind, resolve = resolve)
+                bypassTunnel -> RemoteUrlGuard.validate(url, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
+                else -> RemoteUrlGuard.validate(url, kind)
             }
             val addr = endpoint.addresses.firstOrNull()
                 ?: throw IllegalArgumentException("无法解析主机，已拒绝")
@@ -200,8 +201,8 @@ class HTTPClient : Closeable {
                 kind == RemoteUrlGuard.Kind.SCRIPT
         }
 
-        /** First attempt may use the running node. A reset then retries outside the tunnel. */
-        internal enum class Route { PROXY, DIRECT }
+        /** First attempt may use the running node. A reset then retries outside, then through the node by real IP. */
+        internal enum class Route { PROXY, DIRECT, TUNNEL_IP }
 
         internal fun openFor(
             url: String,
@@ -213,6 +214,15 @@ class HTTPClient : Closeable {
                 val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
                 return openNamed(url, endpoint, kind, headers)
             }
+            if (route == Route.TUNNEL_IP) {
+                return openPinned(
+                    url,
+                    kind,
+                    headers,
+                    bypassTunnel = false,
+                    resolve = RemoteUrlGuard::resolveOutsideTunnel,
+                )
+            }
             return openPinned(url, kind, headers, bypassTunnel = TunnelGate.up)
         }
 
@@ -223,7 +233,7 @@ class HTTPClient : Closeable {
             val messages = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
             val chinese = messages.firstOrNull { msg ->
-                msg.any { it.code in 0x4E00..0x9FFF } && !msg.startsWith("Failed to update")
+                isUserFacing(msg) && !msg.startsWith("Failed to update")
             }
             if (chinese != null) return chinese.take(240)
             return if (tunnelUp) {
@@ -239,13 +249,18 @@ class HTTPClient : Closeable {
         internal fun explainUpdateFailure(error: Throwable, tunnelUp: Boolean): String {
             val messages = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
-            val chinese = messages.firstOrNull { msg -> msg.any { it.code in 0x4E00..0x9FFF } }
+            val chinese = messages.firstOrNull { isUserFacing(it) }
             if (chinese != null) return chinese.take(240)
             return if (tunnelUp) {
                 "更新没下完。当前代理把连接断开了，不经过节点再试也失败。可点「查看发布」。"
             } else {
                 "更新没下完。直连更新服务器被断开。先启动，再点更新，或点「查看发布」。"
             }
+        }
+
+        internal fun isUserFacing(msg: String): Boolean {
+            if (msg == "无法解析主机，已拒绝" || msg == "主机解析到禁止地址，已拒绝") return false
+            return msg.any { it.code in 0x4E00..0x9FFF }
         }
 
         internal fun isTransientUpdateFailure(error: Throwable): Boolean {
@@ -355,7 +370,11 @@ class HTTPClient : Closeable {
             try {
                 block(Route.DIRECT)
             } catch (direct: Exception) {
-                throw friendlyFetch(kind, direct)
+                try {
+                    block(Route.TUNNEL_IP)
+                } catch (_: Exception) {
+                    throw friendlyFetch(kind, direct)
+                }
             }
         }
     }
