@@ -70,7 +70,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 
-细节与命令见 [docs/MAINTENANCE.md](docs/MAINTENANCE.md)。
+细节与命令见 [docs/MAINTENANCE.md](docs/MAINTENANCE.md)。当前结构以 [docs/DESIGN.md](docs/DESIGN.md) 为准。
 
 ## 架构
 
