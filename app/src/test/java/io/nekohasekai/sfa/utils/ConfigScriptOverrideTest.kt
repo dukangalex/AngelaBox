@@ -90,7 +90,8 @@ class ConfigScriptOverrideTest {
         assertTrue(ruleText.contains("\"clash_mode\":\"Direct\"") || ruleText.contains("\"clash_mode\": \"Direct\""))
         val firstAction = rules.getJSONObject(0).optString("action")
         assertEquals("hijack-dns", firstAction)
-        assertFalse("udp 443 must stay open", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertTrue("udp 443 reject resets", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertFalse(Regex(""""port"\s*:\s*443[\s\S]{0,40}"method"\s*:\s*"drop"""").containsMatchIn(ruleText))
         val cnDns = out.getJSONObject("dns").getJSONArray("servers").let { servers ->
             (0 until servers.length()).map { servers.getJSONObject(it) }
                 .first { it.optString("tag") == "dns-cn" }
