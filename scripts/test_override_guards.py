@@ -927,6 +927,9 @@ def main() -> int:
         errors.append("disableQuic must reject UDP 443 so HTTP/3 falls back to TCP")
     if re.search(r'port:\s*443[\s\S]{0,40}method:\s*"drop"', sample):
         errors.append("UDP 443 reject must reset, not drop")
+    groups = read("docs/scripts/service-groups.js")
+    if re.search(r'port:\s*443[\s\S]{0,80}method:\s*"drop"', groups):
+        errors.append("service-groups.js UDP 443 reject must reset, not drop")
     if "detour: directTag" not in sample:
         errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
     if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:

@@ -765,8 +765,7 @@ function main(config) {
     addRule({
       network: "udp",
       port: 443,
-      action: "reject",
-      method: "drop"
+      action: "reject"
     });
   }
   addRule({

@@ -75,6 +75,7 @@ object ChainRuntimeCompiler {
         route.put("final", chainTag)
         root.put("outbounds", outs)
         pinTrafficToChain(root, chainTag, landingMergedTag, setOf(main, entryHop))
+        pinHopServerResolvers(root, entryHop, landingMergedTag)
         return root.toString()
     }
 
@@ -133,6 +134,55 @@ object ChainRuntimeCompiler {
     fun parseConfig(content: String, label: String = "配置"): JSONObject {
         require(content.length <= MAX_CONFIG_CHARS) { "${label}过大（>${MAX_CONFIG_CHARS} 字符），已拒绝解析" }
         return JSONObject(content)
+    }
+
+    /**
+     * True only when every concrete leaf on both hops uses TLS.
+     * sing-box cannot reliably detour one TLS protocol through another
+     * (SagerNet/sing-box#3205). A group that still contains a non-TLS leaf
+     * can avoid that pair, so it does not warn.
+     */
+    fun bothHopsAreTls(
+        entryContent: String,
+        entryTag: String,
+        landingContent: String,
+        landingTag: String,
+    ): Boolean {
+        return allLeavesUseTls(entryContent, entryTag) && allLeavesUseTls(landingContent, landingTag)
+    }
+
+    internal fun allLeavesUseTls(content: String, tag: String): Boolean {
+        val outs = parseConfig(content).optJSONArray("outbounds") ?: return false
+        val leaves = ArrayList<JSONObject>()
+        collectLeafObjects(outs, tag, leaves, HashSet())
+        return leaves.isNotEmpty() && leaves.all { usesTls(it) }
+    }
+
+    /**
+     * Entry and landing server names must resolve on a direct DNS.
+     * A resolver that detours through the proxy, or a fake-ip pool, cannot
+     * be dialed until the hop is already up.
+     */
+    internal fun pinHopServerResolvers(root: JSONObject, entryTag: String, landingTag: String) {
+        val outs = root.optJSONArray("outbounds") ?: return
+        val risky = proxyDetourDnsTags(root)
+        val fallback = resolverName(root.optJSONObject("route")?.opt("default_domain_resolver"))
+        val fallbackRisky = fallback.isNotEmpty() && fallback in risky
+        val leaves = ArrayList<JSONObject>()
+        collectLeafObjects(outs, entryTag, leaves, HashSet())
+        collectLeafObjects(outs, landingTag, leaves, HashSet())
+        var direct: String? = null
+        for (leaf in leaves) {
+            val current = resolverName(leaf.opt("domain_resolver"))
+            val needsDirect = when {
+                current.isEmpty() -> fallbackRisky
+                else -> current in risky
+            }
+            if (!needsDirect) continue
+            val tag = direct ?: directDnsTag(root) ?: ensureLocalDns(root)
+            direct = tag
+            pointResolver(leaf, tag)
+        }
     }
 
     internal fun pinTrafficToChain(root: JSONObject, chainTag: String, landingTag: String, entryTags: Set<String> = emptySet()) {
@@ -381,6 +431,88 @@ object ChainRuntimeCompiler {
             return newTag
         }
         return merge(rootTag)
+    }
+
+    private val alwaysTlsTypes = setOf("hysteria", "hysteria2", "tuic", "anytls", "naive", "shadowtls")
+
+    private fun collectLeafObjects(
+        outs: JSONArray,
+        tag: String,
+        into: MutableList<JSONObject>,
+        seen: MutableSet<String>,
+    ) {
+        if (tag.isEmpty() || !seen.add(tag)) return
+        val outbound = find(outs, tag) ?: return
+        val type = outbound.optString("type").trim()
+        if (type in groupTypes) {
+            val members = outbound.optJSONArray("outbounds") ?: return
+            for (i in 0 until members.length()) {
+                collectLeafObjects(outs, members.optString(i).trim(), into, seen)
+            }
+            return
+        }
+        if (type.isEmpty() || type in forbiddenTypes) return
+        into.add(outbound)
+    }
+
+    private fun usesTls(outbound: JSONObject): Boolean {
+        val type = outbound.optString("type").trim().lowercase()
+        if (type in alwaysTlsTypes) return true
+        val tls = outbound.optJSONObject("tls") ?: return false
+        return tls.optBoolean("enabled", false)
+    }
+
+    private fun proxyDetourDnsTags(root: JSONObject): Set<String> {
+        val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return emptySet()
+        val tags = HashSet<String>()
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val tag = server.optString("tag").trim()
+            if (tag.isEmpty()) continue
+            val type = server.optString("type").trim().lowercase()
+            if (type == "fakeip") {
+                tags.add(tag)
+                continue
+            }
+            val detour = server.optString("detour").trim()
+            if (detour.isNotEmpty() && !isDirectLike(detour)) tags.add(tag)
+        }
+        return tags
+    }
+
+    private fun directDnsTag(root: JSONObject): String? {
+        val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return null
+        var plain: String? = null
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val tag = server.optString("tag").trim()
+            if (tag.isEmpty()) continue
+            if (server.optString("type").equals("local", true)) return tag
+            val detour = server.optString("detour").trim()
+            val type = server.optString("type").trim().lowercase()
+            if (plain == null && type != "fakeip" && (detour.isEmpty() || isDirectLike(detour))) plain = tag
+        }
+        return plain
+    }
+
+    private fun ensureLocalDns(root: JSONObject): String {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        servers.put(JSONObject().put("type", "local").put("tag", "local"))
+        return "local"
+    }
+
+    private fun resolverName(raw: Any?): String {
+        return when (raw) {
+            is String -> raw.trim()
+            is JSONObject -> raw.optString("server").trim()
+            else -> ""
+        }
+    }
+
+    private fun pointResolver(outbound: JSONObject, server: String) {
+        val raw = outbound.opt("domain_resolver")
+        if (raw is JSONObject) raw.put("server", server) else outbound.put("domain_resolver", server)
     }
 
     private fun find(outs: JSONArray, tag: String): JSONObject? {

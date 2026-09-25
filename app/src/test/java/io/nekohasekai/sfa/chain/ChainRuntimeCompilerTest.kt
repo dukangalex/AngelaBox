@@ -422,4 +422,89 @@ class ChainRuntimeCompilerTest {
         val rule = JSONObject().put("rule_set", JSONArray().put("geosite-geolocation-!cn")).put("outbound", "direct")
         assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
     }
+
+    @Test
+    fun bothTlsLeavesWarnAndAPlainLeafDoesNot() {
+        val tlsNode = { tag: String ->
+            node(tag).put("tls", JSONObject().put("enabled", true))
+        }
+        val tls = JSONObject()
+            .put("outbounds", JSONArray().put(tlsNode("a")).put(tlsNode("b")))
+            .toString()
+        assertTrue(ChainRuntimeCompiler.bothHopsAreTls(tls, "a", tls, "b"))
+        val mixed = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(tlsNode("a"))
+                    .put(JSONObject().put("type", "socks").put("tag", "b").put("server", "127.0.0.1").put("server_port", 1080)),
+            )
+            .toString()
+        assertFalse(ChainRuntimeCompiler.bothHopsAreTls(mixed, "a", mixed, "b"))
+        val group = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(tlsNode("a"))
+                    .put(JSONObject().put("type", "shadowsocks").put("tag", "ss").put("server", "example.com").put("server_port", 443))
+                    .put(JSONObject().put("type", "selector").put("tag", "g").put("outbounds", JSONArray().put("a").put("ss"))),
+            )
+            .toString()
+        assertFalse(ChainRuntimeCompiler.bothHopsAreTls(group, "g", tls, "b"))
+    }
+
+    @Test
+    fun hopServerResolverLeavesDirectDnsAndRetargetsProxyDns() {
+        val content = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(node("hk-1").put("domain_resolver", "dns-remote"))
+                    .put(node("jp-1"))
+                    .put(node("idle").put("domain_resolver", "dns-remote"))
+                    .put(
+                        JSONObject()
+                            .put("type", "selector")
+                            .put("tag", "节点选择")
+                            .put("outbounds", JSONArray().put("hk-1").put("jp-1")),
+                    )
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray()
+                        .put(JSONObject().put("type", "local").put("tag", "dns-local"))
+                        .put(
+                            JSONObject()
+                                .put("type", "tcp")
+                                .put("tag", "dns-remote")
+                                .put("server", "8.8.8.8")
+                                .put("detour", "节点选择"),
+                        )
+                        .put(JSONObject().put("type", "fakeip").put("tag", "dns-fakeip").put("inet4_range", "198.18.0.0/15")),
+                ),
+            )
+            .put("route", JSONObject().put("final", "节点选择").put("default_domain_resolver", "dns-remote"))
+            .toString()
+        val compiled = ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = content,
+                currentProfileId = 1L,
+                entryTag = "节点选择",
+                landingProfileId = 1L,
+                landingTag = "jp-1",
+                landingContent = null,
+            ),
+        )
+        val outs = JSONObject(compiled).getJSONArray("outbounds")
+        fun resolver(tag: String): String {
+            val outbound = (0 until outs.length()).map { outs.getJSONObject(it) }.first { it.optString("tag") == tag }
+            return outbound.optString("domain_resolver")
+        }
+        assertEquals("dns-local", resolver("hk-1"))
+        assertEquals("dns-local", resolver("jp-1"))
+        assertEquals("dns-remote", resolver("idle"))
+    }
 }

@@ -144,6 +144,29 @@ fun ChainBuilderScreen(
     var pickerQuery by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
     var profileMenu by remember { mutableStateOf(false) }
+    var tlsWarning by remember { mutableStateOf(false) }
+
+    LaunchedEffect(entry?.profileId, entry?.tag, exit?.profileId, exit?.tag, currentProfilePath) {
+        val entryHop = entry
+        val landingHop = exit
+        val entryPath = currentProfilePath
+        if (entryHop == null || landingHop == null || entryPath.isNullOrBlank()) {
+            tlsWarning = false
+            return@LaunchedEffect
+        }
+        tlsWarning = withContext(Dispatchers.IO) {
+            runCatching {
+                val entryText = File(entryPath).readText()
+                val landingText = if (landingHop.profileId == entryHop.profileId) {
+                    entryText
+                } else {
+                    val profile = ProfileManager.get(landingHop.profileId) ?: return@runCatching false
+                    File(profile.typed.path).readText()
+                }
+                ChainRuntimeCompiler.bothHopsAreTls(entryText, entryHop.tag, landingText, landingHop.tag)
+            }.getOrDefault(false)
+        }
+    }
 
     fun reload(targetId: Long = -1L) {
         val fallbackId = if (targetId > 0L) targetId else currentProfileId
@@ -457,6 +480,16 @@ fun ChainBuilderScreen(
                 )
             }
 
+            if (tlsWarning) {
+                Text(
+                    "入口和落地的节点都带 TLS。sing-box 不能稳定地把一条 TLS 从另一条 TLS 里转出去，这条链可能没有网。一边改用 SOCKS、HTTP 或 SSH 更稳。仍可保存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+
             Spacer(Modifier.height(4.dp))
 
             val ctaShape = RoundedCornerShape(18.dp)
@@ -618,7 +651,8 @@ fun ChainBuilderScreen(
                         "6. Fail Closed：链路失败会明确报错并停止启动，不会偷偷改走 DIRECT。\n" +
                         "7. 链式代理模式下，所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国直连开关仍可让国内与局域网走 DIRECT。\n" +
                         "8. 链式与脚本可同时启用：先对当前（前置）订阅运行脚本，再把脚本生成的入口串到落地。脚本不能删除已选入口或把它改成 DIRECT，否则启动会明确报错。\n" +
-                        "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。",
+                        "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。节点服务器域名若被指到会绕进代理或 fake-ip 的解析，会改走直连解析。\n" +
+                        "10. 入口和落地的节点都带 TLS 时，这条链可能没有网。一边改用 SOCKS、HTTP 或 SSH 更稳。",
                 )
             },
             confirmButton = { TextButton(onClick = { showHelp = false }) { Text("知道了") } },

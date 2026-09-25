@@ -2,7 +2,7 @@
 
 应用不内置机场覆写。以前导入并留在本机的「机场覆写」，打开脚本列表时会删掉。HiClash 适配版单独提供，用 **工具 → 脚本 → + → 通过文件导入**。不要和默认脚本绑在同一配置上。链式开启时前置订阅的脚本仍然会跑（先脚本，再组链）。
 
-内置默认脚本是 `app/src/main/assets/scripts/airport-region.js`。它按 sing-box JSON 写地区组、自动选择、负载均衡、故障转移和国内直连。
+内置默认脚本是 `app/src/main/assets/scripts/airport-region.js`。它按 sing-box JSON 写地区组、自动选择和国内直连。没有 load-balance / fallback；延迟挑选用 urltest，手选用 selector。
 
 ## service-groups.js
 
