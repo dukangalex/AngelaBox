@@ -13,7 +13,7 @@
 | 注重隐私 | 不上传配置与日志，崩溃报告不含配置明文，日志不落盘 |
 | 安全防护 | 校验 APK、防篡改覆盖安装；启动失败明示并回滚，不静默直连 |
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑、分应用扫描不解析应用组件 |
-| 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 默认开；严格路由默认关（切网时打开会掉线）；禁用 QUIC 不再丢 UDP 443；脚本开着时由同一套开关控制，不叠两套规则；节点能用就能代理 |
+| 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 / 禁用 QUIC 默认开；严格路由默认关，打开后丢掉没进隧道的包；QUIC 用复位拒绝 UDP 443，国内可排除；脚本开着时由同一套开关控制，不叠两套规则；节点能用就能代理 |
 
 AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。**当前只发 Android。** Windows 图形端和命令行都已暂停：条件未成熟，已有 Windows 包功能残缺、无法使用，未来一段时间不会再发，也不再跟进维护。时机成熟后再做。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
 
@@ -44,7 +44,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 更新检查 | 仅本仓库 GitHub Releases |
 | 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
 | 安装包 | 只发 Android：`AngelaBox-android.apk`。Windows 不在发行范围内 |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.82-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.83-beta** 测试版） |
 
 曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。Windows 版暂停，不因为改名而恢复打包。
 
@@ -58,7 +58,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
 | 已同步基线 | 官方 **sing-box 1.15.0-alpha.6**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。修补：Windows 进程归属、自动重定向 DNS、WireGuard 域名握手、libbox 命令客户端取消） |
 | 内核型号 / tag | `v1.15.0-chain.3`（已打在 `chain-dev` 的 `d7639f61`；设置 → 核心显示 `1.15.0-chain.3（官方 1.15.0-alpha.6）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.82-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.83-beta** 测试版） |
 
 ### 同步更新策略
 

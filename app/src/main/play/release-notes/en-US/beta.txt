@@ -1,1 +1,1 @@
-Update checks no longer treat VPN fake-ip answers as forbidden. Profile updates resolve outside the tunnel, then retry through the node by the real address.
+Disabling QUIC rejects UDP 443 with a reset so apps fall back to TCP. Domestic QUIC can stay direct. Strict route drops only packets that miss the tunnel.

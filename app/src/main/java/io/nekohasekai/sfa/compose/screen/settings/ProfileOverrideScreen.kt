@@ -384,13 +384,13 @@ fun ProfileOverrideScreen(
             ) {
                 OverrideSwitch(
                     title = "严格路由",
-                    subtitle = "默认关闭。打开后切网可能整机掉线",
+                    subtitle = "打开后，没进隧道的包会丢掉，避免切网时从系统网卡漏出去",
                     checked = strictRoute,
                     onHelp = {
                         help = SwitchHelp(
                             "严格路由",
-                            "打开后把 TUN strict_route 写成 true，订阅里原来的值也会被盖掉。关掉就写成 false。\n\n" +
-                                "切 Wi-Fi 和移动数据时，打开会把还没改道的包丢掉，表现是突然没网。需要防泄漏再打开。已经装过的手机会自动关一次。脚本开着时由脚本按这个开关写，不再只在打开时写 true。",
+                            "打开后把 TUN strict_route 写成 true，关掉写成 false。\n\n" +
+                                "切 Wi-Fi 和移动数据时，还没改绑到新网卡的包会被丢掉，这是防泄漏，不是把代理关掉。新网卡由系统回调交给内核。脚本开着时由脚本按这个开关写。",
                         )
                     },
                 ) {
@@ -456,12 +456,13 @@ fun ProfileOverrideScreen(
                 }
                 OverrideSwitch(
                     title = "禁用 QUIC",
-                    subtitle = "不再丢 UDP 443，避免只走 QUIC 的应用卡住",
+                    subtitle = "拒绝 UDP 443，并用复位让应用改走 TCP",
                     checked = disableQuic,
                     onHelp = {
                         help = SwitchHelp(
                             "禁用 QUIC",
-                            "以前没绑定脚本时，应用会拒绝全部 UDP 443。YouTube、X 这类应用不会改走 TCP，表现是一直转圈或直接掉网。现在脚本开着和没开都一样，不写这条拒绝。开关还在，打开也不会丢包。",
+                            "打开后拒绝 UDP 443。用内核默认复位，相当于 mihomo 的 REJECT，不是静默丢包。只走 QUIC 的应用会马上改走 TCP，而不是一直转圈。\n\n" +
+                                "脚本开着时由脚本按这个开关写，应用不再写第二套。",
                         )
                     },
                 ) {
@@ -475,13 +476,14 @@ fun ProfileOverrideScreen(
                 }
                 OverrideSwitch(
                     title = "排除国内 QUIC",
-                    subtitle = "不再单独改 UDP 443",
+                    subtitle = "国内 UDP 443 先直连，其余拒绝",
                     checked = excludeCnQuic,
                     enabled = disableQuic,
                     onHelp = {
                         help = SwitchHelp(
                             "排除国内 QUIC",
-                            "以前没开脚本时，国内域名的 UDP 443 走直连，其余拒绝。拒绝其余会让国外 QUIC 超时。现在这条也不写了。",
+                            "和「禁用 QUIC」一起用。国内 IP、国内域名的 UDP 443 先走直连，其余 UDP 443 拒绝。关掉则 UDP 443 全部拒绝。\n\n" +
+                                "脚本开着时由脚本按这个开关写。",
                         )
                     },
                 ) {

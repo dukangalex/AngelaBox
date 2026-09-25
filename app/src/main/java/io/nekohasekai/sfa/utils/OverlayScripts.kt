@@ -30,7 +30,7 @@ object OverlayScripts {
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
-    const val SAMPLE_REVISION = "overlay-revision: 20"
+    const val SAMPLE_REVISION = "overlay-revision: 21"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"

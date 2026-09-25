@@ -279,7 +279,8 @@ class ConfigScriptOverrideTest {
         assertTrue(ruleText.contains("geoip-cn"))
         assertTrue(ruleText.contains("geosite-category-ads-all"))
         assertTrue(ruleText.contains("3478:3481"))
-        assertFalse(ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertTrue("quic reject resets instead of dropping", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
+        assertFalse(Regex(""""port"\s*:\s*443[\s\S]{0,40}"method"\s*:\s*"drop"""").containsMatchIn(ruleText))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
         val dnsRuleText = (0 until dnsRules.length()).joinToString { dnsRules.getJSONObject(it).toString() }
         assertTrue(dnsRuleText.contains("dns-fakeip"))

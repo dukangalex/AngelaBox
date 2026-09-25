@@ -1,13 +1,13 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 20
+ * overlay-revision: 21
  * 配置覆盖开关通过全局 overlay 控制本脚本对应功能，默认全开。
  * 不要在脚本里改开关：到「设置 → 配置覆盖」即可。全程只跑这一套规则。
  * 国内 IP/域名（含 IPv6）先直连，国外走代理。国内 DNS 直连 223.5.5.5。
  * 非国内的 A/AAAA 用 fake-ip，连接不必先等 8.8.8.8。HTTPS/SVCB 仍走节点上的 TCP DNS。
  * ECH 查询由应用在脚本之后改到直连解析，避免节点自己等自己。
  * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不额外绑定本机 mixed 端口。
- * 不丢弃 UDP 443，也不拒绝 HTTPS/SVCB。YouTube 可以走 QUIC，避免只剩 TCP 时缓冲很久。
+ * 禁用 QUIC 时拒绝 UDP 443，用内核默认复位（不是 drop）。排除国内 QUIC 时，国内 IP/域名的 UDP 443 先直连。
  * 广告拦截与远控可切到 DIRECT，但节点选择不提供 DIRECT。
  * 叶节点去掉 detour / dialer-proxy，避免订阅把链式带进来。
  * urltest 对齐常见习惯：10 分钟测一次、空闲 30 分钟停测、
@@ -767,10 +767,13 @@ function main(config) {
       method: "drop"
     });
   }
-  // UDP 443 stays open. Rejecting it blackholed YouTube / X. HTTPS/SVCB
-  // stays too: rejecting those lookups forced TCP and made YouTube buffer.
-  // overlay.disableQuic / excludeCnQuic are still read; they no longer drop QUIC.
-  if (disableQuic || excludeCnQuic) { /* QUIC stays open */ }
+  if (disableQuic && excludeCnQuic && chinaDirect) {
+    addRule({ network: "udp", port: 443, rule_set: "geoip-cn", outbound: directTag });
+    addRule({ network: "udp", port: 443, rule_set: ["geosite-cn", "geosite-geolocation-cn"], outbound: directTag });
+  }
+  if (disableQuic) {
+    addRule({ network: "udp", port: 443, action: "reject" });
+  }
   var YT_SUFFIX = [
     "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com",
     "youtubekids.com", "youtube-nocookie.com", "youtubei.googleapis.com",

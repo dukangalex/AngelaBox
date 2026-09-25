@@ -237,7 +237,10 @@ def test_source_guards() -> None:
     assert "external-files-path" not in cache
 
     quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    assert 'put("port", 443)' not in quic
+    assert "fun applyQuic" in quic
+    assert 'put("port", 443)' in quic
+    quic_fn = quic.split("fun applyQuic", 1)[1].split("fun applyStrictRoute", 1)[0]
+    assert 'put("method", "drop")' not in quic_fn
 
     http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
     assert "RemoteUrlGuard.Kind" in http

@@ -107,6 +107,9 @@ object ConfigQuicOverride {
             applyOne(warnings, "严格路由") {
                 if (!scriptOn) applyStrictRoute(root, Settings.strictRoute)
             }
+            applyOne(warnings, "禁用 QUIC") {
+                if (Settings.disableQuic && !scriptOn) applyQuic(root)
+            }
             applyOne(warnings, "DNS 防泄漏") {
                 if (Settings.dnsProtect && !scriptOn) applyDnsProtect(root)
             }
@@ -182,6 +185,74 @@ object ConfigQuicOverride {
         for (i in 0 until extra.length()) merged.put(extra.get(i))
         for (i in 0 until old.length()) merged.put(old.get(i))
         route.put("rules", merged)
+    }
+
+    /**
+     * Mihomo REJECT, not REJECT-DROP. Default reject resets the flow so
+     * HTTP/3 clients fall back to TCP. method drop blackholes UDP 443 and
+     * looks like a hang. China UDP 443 is routed direct first when that
+     * switch is on and the China rule-sets exist.
+     */
+    internal fun applyQuic(root: JSONObject) {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val direct = firstDirectTag(root)
+        val sets = ruleSetTags(route)
+        val extra = JSONArray()
+        if (Settings.excludeCnQuic && direct != null) {
+            if ("geoip-cn" in sets) {
+                extra.put(
+                    JSONObject()
+                        .put("network", "udp")
+                        .put("port", 443)
+                        .put("rule_set", "geoip-cn")
+                        .put("outbound", direct),
+                )
+            }
+            val domains = JSONArray()
+            if ("geosite-cn" in sets) domains.put("geosite-cn")
+            if ("geosite-geolocation-cn" in sets) domains.put("geosite-geolocation-cn")
+            if (domains.length() > 0) {
+                extra.put(
+                    JSONObject()
+                        .put("network", "udp")
+                        .put("port", 443)
+                        .put("rule_set", domains)
+                        .put("outbound", direct),
+                )
+            }
+        }
+        extra.put(
+            JSONObject()
+                .put("network", "udp")
+                .put("port", 443)
+                .put("action", "reject"),
+        )
+        val merged = JSONArray()
+        for (i in 0 until extra.length()) merged.put(extra.get(i))
+        for (i in 0 until old.length()) merged.put(old.get(i))
+        route.put("rules", merged)
+    }
+
+    private fun firstDirectTag(root: JSONObject): String? {
+        val outs = root.optJSONArray("outbounds") ?: return null
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (!o.optString("type").equals("direct", true)) continue
+            val tag = o.optString("tag").trim()
+            if (tag.isNotEmpty()) return tag
+        }
+        return null
+    }
+
+    private fun ruleSetTags(route: JSONObject): Set<String> {
+        val sets = route.optJSONArray("rule_set") ?: return emptySet()
+        val tags = linkedSetOf<String>()
+        for (i in 0 until sets.length()) {
+            val tag = sets.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags += tag
+        }
+        return tags
     }
 
     internal fun applyStrictRoute(root: JSONObject, enabled: Boolean = true) {

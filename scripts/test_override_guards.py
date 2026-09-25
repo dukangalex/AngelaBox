@@ -878,10 +878,10 @@ def main() -> int:
         errors.append("default script must replace original groups and routing, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 20" not in sample:
-        errors.append("default script must stamp overlay-revision: 20 so stale copies refresh")
+    if "overlay-revision: 21" not in sample:
+        errors.append("default script must stamp overlay-revision: 21 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 20"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 21"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
         errors.append("default script must expose urltest load-balance and failover groups")
@@ -923,8 +923,10 @@ def main() -> int:
         errors.append("default script must hijack DNS before routing so system lookups are not dropped")
     if "query_type: [64, 65]" in sample:
         errors.append("default script must not reject HTTPS/SVCB DNS; that forces YouTube onto TCP and buffers")
-    if re.search(r'network:\s*"udp"[\s\S]{0,80}port:\s*443', sample):
-        errors.append("default script must not blackhole UDP 443; apps that only speak QUIC would lose the network")
+    if 'network: "udp", port: 443, action: "reject"' not in sample:
+        errors.append("disableQuic must reject UDP 443 so HTTP/3 falls back to TCP")
+    if re.search(r'port:\s*443[\s\S]{0,40}method:\s*"drop"', sample):
+        errors.append("UDP 443 reject must reset, not drop")
     if "detour: directTag" not in sample:
         errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
     if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:
@@ -1354,8 +1356,10 @@ def main() -> int:
         errors.append("IPv6 overlay must not double-write when a script is already running")
     if "applyStrictRoute(root, Settings.strictRoute)" not in quic:
         errors.append("strict route must follow the switch both ways and must not double-write when a script is running")
-    if 'put("port", 443)' in quic:
-        errors.append("unbound profile must not reject UDP 443")
+    if "fun applyQuic" not in quic or 'put("port", 443)' not in quic:
+        errors.append("disable QUIC must reject UDP 443 when no script is bound")
+    if 'put("method", "drop")' in quic.split("fun applyQuic", 1)[-1].split("fun applyStrictRoute", 1)[0]:
+        errors.append("UDP 443 reject must reset, not drop")
     if "commandServer.pause()" in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
         errors.append("doze must not pause the tunnel")
     if "ensureSniff" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt"):
