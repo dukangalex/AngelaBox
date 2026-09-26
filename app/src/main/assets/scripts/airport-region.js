@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 22
+ * overlay-revision: 23
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -411,6 +411,41 @@ function matchedRegions(name, compiled) {
   return kept;
 }
 
+function applyTransport(config) {
+  var strictRoute = on("strictRoute");
+  var inbounds = isArray(config.inbounds) ? config.inbounds : [];
+  var kept = [];
+  var hasTun = false;
+  for (var ib = 0; ib < inbounds.length; ib++) {
+    var inbound = inbounds[ib];
+    if (!inbound || typeof inbound !== "object") continue;
+    if (typeOf(inbound) === "mixed") continue;
+    if (typeOf(inbound) === "tun") {
+      hasTun = true;
+      inbound.tag = inbound.tag || "tun-in";
+      inbound.address = ["172.19.0.1/30"];
+      inbound.mtu = 1500;
+      inbound.auto_route = true;
+      inbound.strict_route = !!strictRoute;
+      inbound.sniff = true;
+      if (inbound.stack) delete inbound.stack;
+      if (inbound.inet6_address) delete inbound.inet6_address;
+    }
+    kept.push(inbound);
+  }
+  if (!hasTun) {
+    kept.push({
+      type: "tun",
+      tag: "tun-in",
+      address: ["172.19.0.1/30"],
+      auto_route: true,
+      strict_route: !!strictRoute,
+      mtu: 1500,
+      sniff: true
+    });
+  }
+  config.inbounds = kept;
+}
 function main(config) {
   if (!config || typeof config !== "object") return config;
   var outbounds = isArray(config.outbounds) ? config.outbounds : [];
@@ -462,7 +497,8 @@ function main(config) {
     leafTags.push(ct);
   }
   if (leafTags.length === 0) {
-    throw new Error("配置里没有可用节点");
+    applyTransport(config);
+    return config;
   }
 
   var buckets = {};
@@ -702,7 +738,19 @@ function main(config) {
     addService({ name: "Steam", direct: true, sets: [{ tag: "geosite-steam", file: "geosite-steam.srs", out: "Steam" }] });
     addService({ name: "TikTok", def: "🇯🇵 日本", sets: [{ tag: "geosite-tiktok", file: "geosite-tiktok.srs", out: "TikTok" }] });
     addService({ name: "Twitter", sets: [{ tag: "geosite-twitter", file: "geosite-twitter.srs", out: "Twitter" }] });
-    addService({ name: "Meta", sets: [{ tag: "geosite-facebook", file: "geosite-facebook.srs", out: "Meta" }] });
+    addService({
+      name: "Meta",
+      sets: [
+        { tag: "geosite-facebook", file: "geosite-facebook.srs", out: "Meta" },
+        { tag: "geosite-instagram", file: "geosite-instagram.srs", out: "Meta" },
+        { tag: "geosite-whatsapp", file: "geosite-whatsapp.srs", out: "Meta" },
+        { tag: "geosite-threads", file: "geosite-threads.srs", out: "Meta" },
+        { tag: "geosite-messenger", file: "geosite-messenger.srs", out: "Meta" },
+        { tag: "geosite-meta", file: "geosite-meta.srs", out: "Meta" },
+        { tag: "geosite-oculus", file: "geosite-oculus.srs", out: "Meta" }
+      ],
+      domains: [{ domain_suffix: ["facebook.com", "fb.com", "instagram.com", "whatsapp.com", "threads.net", "messenger.com", "meta.com", "oculus.com"], outbound: "Meta" }]
+    });
     addService({
       name: "Line",
       domains: [{ domain_suffix: ["line.me", "line-apps.com", "line.naver.jp"], outbound: "Line" }]
@@ -836,38 +884,7 @@ function main(config) {
     independent_cache: true
   };
 
-  var inbounds = isArray(config.inbounds) ? config.inbounds : [];
-  var kept = [];
-  var hasTun = false;
-  for (var ib = 0; ib < inbounds.length; ib++) {
-    var inbound = inbounds[ib];
-    if (!inbound || typeof inbound !== "object") continue;
-    if (typeOf(inbound) === "mixed") continue;
-    if (typeOf(inbound) === "tun") {
-      hasTun = true;
-      inbound.tag = inbound.tag || "tun-in";
-      inbound.address = ["172.19.0.1/30"];
-      inbound.mtu = 1500;
-      inbound.auto_route = true;
-      inbound.strict_route = !!strictRoute;
-      inbound.sniff = true;
-      if (inbound.stack) delete inbound.stack;
-      if (inbound.inet6_address) delete inbound.inet6_address;
-    }
-    kept.push(inbound);
-  }
-  if (!hasTun) {
-    kept.push({
-      type: "tun",
-      tag: "tun-in",
-      address: ["172.19.0.1/30"],
-      auto_route: true,
-      strict_route: !!strictRoute,
-      mtu: 1500,
-      sniff: true
-    });
-  }
-  config.inbounds = kept;
+  applyTransport(config);
   if (!config.log || typeof config.log !== "object") config.log = {};
   config.log.level = "info";
   return config;

@@ -197,10 +197,7 @@ class ProfileImportHandler(private val context: Context) {
             Libbox.ProfileTypeiCloud -> return ImportResult.Error(context.getString(R.string.icloud_profile_unsupported))
             Libbox.ProfileTypeRemote -> {
                 try {
-                    io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
-                        content.remotePath,
-                        io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
-                    )
+                    io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(content.remotePath)
                 } catch (e: Exception) {
                     return ImportResult.Error(e.message ?: "订阅地址不安全")
                 }
@@ -224,10 +221,7 @@ class ProfileImportHandler(private val context: Context) {
     private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
         val secureUrl = url.trim()
         try {
-            io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
-                secureUrl,
-                io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
-            )
+            io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(secureUrl)
         } catch (e: Exception) {
             return ImportResult.Error(e.message ?: "订阅地址不安全")
         }

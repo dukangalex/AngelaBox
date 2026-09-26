@@ -211,10 +211,15 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
             } catch (e: Exception) {
+                val message = if (state.profileType == ProfileType.Remote) {
+                    io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e)
+                } else {
+                    e.message ?: "Unknown error"
+                }
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = e.message ?: "Unknown error",
+                        errorMessage = message,
                     )
                 }
             }
@@ -267,10 +272,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
-        io.nekohasekai.sfa.utils.RemoteUrlGuard.requireAllowed(
-            remoteUrl,
-            io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
-        )
+        io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(remoteUrl)
 
         val typedProfile =
             TypedProfile().apply {

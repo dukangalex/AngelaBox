@@ -54,6 +54,20 @@ object RemoteUrlGuard {
         validate(url, kind, resolve, requireResolved = kind != Kind.UPDATE)
     }
 
+    /**
+     * Saving or importing a subscription while the tunnel is up must not
+     * require a direct DNS answer. The tunnel's resolver is fake-ip, and a
+     * failed bypass lookup used to reject the URL before the node could
+     * fetch it by name.
+     */
+    fun acceptSubscription(url: String) {
+        if (TunnelGate.up) {
+            validateWithoutDns(url, Kind.SUBSCRIPTION)
+        } else {
+            requireAllowed(url, Kind.SUBSCRIPTION)
+        }
+    }
+
     fun validate(
         url: String,
         kind: Kind,

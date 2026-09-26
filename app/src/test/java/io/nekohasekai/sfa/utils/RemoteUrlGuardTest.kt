@@ -34,6 +34,22 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun subscriptionImportDoesNotNeedDirectDnsWhileTunnelIsUp() {
+        TunnelGate.setUp(true)
+        try {
+            RemoteUrlGuard.acceptSubscription("https://example.com/sub.yaml")
+            try {
+                RemoteUrlGuard.acceptSubscription("https://127.0.0.1/secret")
+                throw AssertionError("loopback must stay rejected")
+            } catch (e: IllegalArgumentException) {
+                assertTrue(e.message.orEmpty().isNotBlank())
+            }
+        } finally {
+            TunnelGate.setUp(false)
+        }
+    }
+
+    @Test
     fun subscriptionAllowsHttpsPublicHost() {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, publicResolve)
     }

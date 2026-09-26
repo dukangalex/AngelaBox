@@ -203,7 +203,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
 
             try {
                 if (profile.typed.type == TypedProfile.Type.Remote) {
-                    RemoteUrlGuard.requireAllowed(state.remoteUrl, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                    RemoteUrlGuard.acceptSubscription(state.remoteUrl)
                 }
                 // Update profile object
                 profile.name = state.name
@@ -239,7 +239,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = e.message,
+                        errorMessage = io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e),
                     )
                 }
             }
