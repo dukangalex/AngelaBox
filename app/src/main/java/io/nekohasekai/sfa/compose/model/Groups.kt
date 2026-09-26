@@ -59,3 +59,17 @@ internal fun OutboundGroupItemIterator.toList(): List<OutboundGroupItem> {
     }
     return list
 }
+
+/** Region urltest cards such as 「美国-自动选择」 stay inside the matching selector. */
+internal fun isNestedRegionAutoSelect(tag: String, groupTags: Set<String>): Boolean {
+    val mark = "-自动选择"
+    val split = tag.lastIndexOf(mark)
+    if (split <= 0) return false
+    return tag.substring(0, split) in groupTags
+}
+
+internal fun List<Group>.withoutNestedRegionAutoSelect(): List<Group> {
+    if (size < 2) return this
+    val tags = mapTo(HashSet(size)) { it.tag }
+    return filterNot { isNestedRegionAutoSelect(it.tag, tags) }
+}

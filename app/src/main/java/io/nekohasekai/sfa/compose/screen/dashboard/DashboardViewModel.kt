@@ -21,6 +21,7 @@ import io.nekohasekai.sfa.chain.TrafficFlowBuilder
 import io.nekohasekai.sfa.compose.base.BaseViewModel
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.model.ConnectionStateFilter
+import io.nekohasekai.sfa.compose.model.isNestedRegionAutoSelect
 import io.nekohasekai.sfa.compose.navigation.ProfileRoutes
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
@@ -763,15 +764,17 @@ class DashboardViewModel :
 
     override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
         viewModelScope.launch(Dispatchers.Main) {
-            val hasGroups = newGroups.isNotEmpty()
-            // Read only tag/selected. Do not iterate items — GroupsViewModel
-            // consumes that iterator after this primary handler. Delays come
-            // from ConnectionType.Outbounds.
+            val tags = HashSet<String>(newGroups.size)
+            for (group in newGroups) tags.add(group.tag)
+            var visible = 0
+            for (group in newGroups) {
+                if (!isNestedRegionAutoSelect(group.tag, tags)) visible++
+            }
             groupHints = newGroups.map { group ->
                 GroupHint(tag = group.tag, selected = group.selected)
             }
             updateState {
-                copy(hasGroups = hasGroups, groupsCount = newGroups.size)
+                copy(hasGroups = visible > 0, groupsCount = visible)
             }
             requestTopologyPublish(force = true)
             maybePrimeDelay()

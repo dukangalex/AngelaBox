@@ -7,6 +7,7 @@ import io.nekohasekai.sfa.compose.base.ScreenEvent
 import io.nekohasekai.sfa.compose.model.Group
 import io.nekohasekai.sfa.compose.model.GroupItem
 import io.nekohasekai.sfa.compose.model.toList
+import io.nekohasekai.sfa.compose.model.withoutNestedRegionAutoSelect
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
@@ -291,7 +292,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 val converted = Group(goGroup)
                 val existing = currentByTag[converted.tag]
                 if (existing == converted) existing else converted
-            }
+            }.withoutNestedRegionAutoSelect()
 
             withContext(Dispatchers.Main) {
                 updateState {
