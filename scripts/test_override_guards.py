@@ -874,17 +874,17 @@ def main() -> int:
         errors.append("default script must keep non-CN geolocation routing from the original sample")
     if "geosite-spotify" not in sample or "geosite-steam" not in sample:
         errors.append("default script must keep media/game rule-sets that exist on testingcf")
-    if "REPLACE_GROUP_TYPES" not in sample or "isInfraRule" not in sample:
-        errors.append("default script must replace original groups and routing, not merge a second set")
+    if "config.outbounds = cleaned" not in sample:
+        errors.append("default script must replace original groups, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 21" not in sample:
-        errors.append("default script must stamp overlay-revision: 21 so stale copies refresh")
+    if "overlay-revision: 22" not in sample:
+        errors.append("default script must stamp overlay-revision: 22 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 21"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 22"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
-    if "⚖️ 负载均衡" not in sample or "🛡️ 故障转移" not in sample:
-        errors.append("default script must expose urltest load-balance and failover groups")
+    if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
+        errors.append("default script must not fake load-balance or failover groups")
     if 'clash_mode: "Global"' not in sample or 'clash_mode: "Direct"' not in sample:
         errors.append("default script must emit Global/Direct clash_mode so the dashboard chip has 规则/全局/直连")
     if 'interval: "10m"' not in sample or 'idle_timeout: "30m"' not in sample:
@@ -909,8 +909,8 @@ def main() -> int:
         errors.append("dns-cn must stay udp direct")
     if "inbound.mtu = 1500" not in sample:
         errors.append("default script must force TUN mtu 1500 so Android does not use 9000")
-    geoip_cn_at = sample.find('rule("geoip-cn"', sample.find("var prepend"))
-    geolocation_not_cn_at = sample.find('rule("geosite-geolocation-!cn"', sample.find("var prepend"))
+    geoip_cn_at = sample.find('useSet(sets, rules, "geoip-cn"')
+    geolocation_not_cn_at = sample.find('useSet(sets, rules, "geosite-geolocation-!cn"')
     if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
         errors.append("default script must route geoip-cn DIRECT before geosite-geolocation-!cn")
     if "remoteDns.detour" not in sample and "remoteDns.detour =" not in sample:
@@ -930,23 +930,23 @@ def main() -> int:
     groups = read("docs/scripts/service-groups.js")
     if re.search(r'port:\s*443[\s\S]{0,80}method:\s*"drop"', groups):
         errors.append("service-groups.js UDP 443 reject must reset, not drop")
-    if "detour: directTag" not in sample:
-        errors.append("dns-cn must detour via direct so AliDNS DoH does not go through the proxy")
+    if "cnDns.detour = directTag" not in sample and "detour: directTag" not in sample:
+        errors.append("dns-cn must detour via direct so AliDNS does not go through the proxy")
     if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:
         errors.append("default script must keep Gemini domains on the AI group")
     if "aistudio.google.com" not in sample or "claude.ai" not in sample:
         errors.append("default script must keep AI Studio / Claude on the AI group and remote DNS")
-    if "🐟 漏网之鱼" not in sample:
-        errors.append("default script final group must be 🐟 漏网之鱼")
-    if "🔰 节点选择" not in sample or "♻️ 自动选择" not in sample:
-        errors.append("default script must use 🔰 节点选择 / ♻️ 自动选择 group names")
+    if "漏网之鱼" not in sample:
+        errors.append("default script final group must be 漏网之鱼")
+    if 'selector("默认代理"' not in sample or 'urltest("自动选择"' not in sample:
+        errors.append("default script must use 默认代理 / 自动选择 group names")
     if "selectMembers.push(directTag)" in sample:
         errors.append("节点选择 must not expose DIRECT as a general member")
-    if "makeSelector(adsTag, [dropTag, rejectTag, directTag]" not in sample:
-        errors.append("广告拦截 must keep DIRECT as an exception")
-    if "makeSelector(remoteTag, [dropTag, globalTag, directTag]" not in sample:
-        errors.append("远控工具 must keep DIRECT as an exception")
-    if 'delete sob.detour' not in sample or 'dialer-proxy' not in sample:
+    if 'name: "AdBlock"' not in sample or 'tag: "REJECT"' not in sample:
+        errors.append("AdBlock must keep a REJECT member")
+    if 'fixed: ["REJECT", "默认代理", "直连"]' not in sample:
+        errors.append("远控工具 must keep REJECT, 默认代理 and 直连")
+    if "delete item.detour" not in sample or "dialer-proxy" not in sample:
         errors.append("default script must strip leaf detour / dialer-proxy so airport overlay is not chained")
     if (ROOT / "app/src/main/assets/scripts/airport-tun.js").exists():
         errors.append("in-app airport override asset must stay removed; the HiClash port is not bundled")
@@ -1142,14 +1142,12 @@ def main() -> int:
         errors.append("chain compiler must keep China/LAN DIRECT while pinning other DIRECT to chain")
     if "isDirectLike" not in compiler:
         errors.append("chain compiler must recognize DIRECT tags when pinning non-China traffic")
-    if "🛑 广告拦截" not in sample or "REJECT-DROP" not in sample:
-        errors.append("default script must expose 广告拦截 and REJECT-DROP like the original overlay")
-    if "makeSelector(adsTag, [dropTag, rejectTag, directTag], dropTag)" not in sample:
-        errors.append("广告拦截 must default to REJECT-DROP with REJECT and DIRECT")
-    if "makeSelector(remoteTag, [dropTag, globalTag, directTag], dropTag)" not in sample:
-        errors.append("远控工具 must default to REJECT-DROP with 国外服务 and DIRECT")
-    if "ordered.push(remoteGroup)" not in sample:
-        errors.append("region groups must be appended after 远控工具 so they sit last")
+    if "🛑 广告拦截" in sample or "REJECT-DROP" in sample:
+        errors.append("default script uses AdBlock and REJECT, not the old drop tags")
+    if 'name: "AdBlock"' not in sample:
+        errors.append("default script must expose AdBlock")
+    if 'fixed: ["REJECT", "默认代理", "直连"]' not in sample:
+        errors.append("远控工具 must default to REJECT with 默认代理 and 直连")
     script_override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt")
     if "ChainBindings.get(profileId) != null" in script_override:
         errors.append("chain entry scripts must not be muted")
@@ -1278,8 +1276,8 @@ def main() -> int:
         errors.append("default script must not fetch GitHub raw rule-sets")
     if "19302:19310" not in sample:
         errors.append("default script STUN range must cover 19302-19310")
-    if "3478:3481" not in sample:
-        errors.append("default script STUN range must cover 3478-3481")
+    if "3478:3497" not in sample:
+        errors.append("default script STUN range must cover 3478-3497")
     if 'on("chinaDirect")' not in sample or 'on("adsBlock")' not in sample:
         errors.append("default script must honor overlay.chinaDirect / adsBlock switches")
     if 'on("webrtcProtect")' not in sample or 'on("disableQuic")' not in sample:

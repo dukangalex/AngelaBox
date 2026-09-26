@@ -54,11 +54,18 @@ class ConfigScriptOverrideTest {
         }
         assertTrue(tags.any { it.contains("香港") })
         assertTrue(tags.any { it.contains("日本") })
-        assertTrue(tags.any { it.contains("自动选择") || it.contains("节点选择") })
-        assertTrue(tags.any { it.contains("🐟 漏网之鱼") })
-        assertTrue(tags.any { it.contains("🔰 节点选择") || it.contains("♻️ 自动选择") })
-        assertTrue(tags.contains("⚖️ 负载均衡"))
-        assertTrue(tags.contains("🛡️ 故障转移"))
+        assertTrue(tags.any { it.contains("自动选择") })
+        assertTrue(tags.contains("漏网之鱼"))
+        assertTrue(tags.contains("默认代理"))
+        assertFalse(tags.contains("⚖️ 负载均衡"))
+        assertFalse(tags.contains("🛡️ 故障转移"))
+        val us = (0 until out.getJSONArray("outbounds").length())
+            .map { out.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.optString("tag") == "🇭🇰 香港" }
+        val usMembers = (0 until us.getJSONArray("outbounds").length()).map {
+            us.getJSONArray("outbounds").getString(it)
+        }
+        assertTrue(usMembers.contains("🇭🇰 香港-自动选择"))
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
         assertEquals("tcp", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
@@ -254,7 +261,7 @@ class ConfigScriptOverrideTest {
         val ruleText = (0 until rules.length()).joinToString("\n") { rules.getJSONObject(it).toString() }
         assertTrue("hijack-dns stays", ruleText.contains("hijack-dns"))
         assertTrue("ads off", !ruleText.contains("geosite-category-ads-all"))
-        assertTrue("stun off", !ruleText.contains("3478:3481"))
+        assertTrue("stun off", !ruleText.contains("3478:3497"))
         assertTrue("quic off", !ruleText.contains("\"port\":443") && !ruleText.contains("\"port\": 443"))
         assertEquals("prefer_ipv4", out.getJSONObject("dns").optString("strategy"))
         assertTrue(out.getJSONObject("dns").toString().contains("2400:3200::1"))
@@ -279,7 +286,7 @@ class ConfigScriptOverrideTest {
         val ruleText = (0 until rules.length()).joinToString("\n") { rules.getJSONObject(it).toString() }
         assertTrue(ruleText.contains("geoip-cn"))
         assertTrue(ruleText.contains("geosite-category-ads-all"))
-        assertTrue(ruleText.contains("3478:3481"))
+        assertTrue(ruleText.contains("3478:3497"))
         assertTrue("quic reject resets instead of dropping", ruleText.contains("\"port\":443") || ruleText.contains("\"port\": 443"))
         assertFalse(Regex(""""port"\s*:\s*443[\s\S]{0,40}"method"\s*:\s*"drop"""").containsMatchIn(ruleText))
         val dnsRules = out.getJSONObject("dns").getJSONArray("rules")
@@ -318,12 +325,12 @@ class ConfigScriptOverrideTest {
         val leaf = byTag.getValue("香港 01")
         assertTrue(leaf.optString("detour").isEmpty())
         assertTrue(!leaf.has("dialer-proxy"))
-        val ads = byTag.getValue("🛑 广告拦截")
-        val adsMembers = (0 until ads.getJSONArray("outbounds").length()).map {
-            ads.getJSONArray("outbounds").getString(it)
+        val remoteTools = byTag.getValue("远控工具")
+        val remoteMembers = (0 until remoteTools.getJSONArray("outbounds").length()).map {
+            remoteTools.getJSONArray("outbounds").getString(it)
         }
-        assertTrue(adsMembers.contains("direct"))
-        val select = byTag.entries.first { it.key.contains("节点选择") }.value
+        assertTrue(remoteMembers.contains("直连"))
+        val select = byTag.getValue("默认代理")
         val selectMembers = (0 until select.getJSONArray("outbounds").length()).map {
             select.getJSONArray("outbounds").getString(it)
         }
