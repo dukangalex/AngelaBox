@@ -144,6 +144,17 @@ object ConfigIngest {
         val providers = asMap(
             mapIgnoreCase(tree, "rule-providers") ?: mapIgnoreCase(tree, "rule_providers"),
         ) ?: emptyMap<Any?, Any?>()
+        if (proxies.isEmpty()) {
+            val sources = asMap(
+                mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
+            )
+            val message = if (!sources.isNullOrEmpty()) {
+                "这份 Clash 订阅只有远程节点源，节点不在文件里。没有改成直连。"
+            } else {
+                "这份 Clash 订阅里没有节点。没有改成直连。"
+            }
+            return unsupported(message)
+        }
         val notes = mutableListOf<String>()
         val outbounds = JSONArray()
         val endpoints = JSONArray()
@@ -229,12 +240,24 @@ object ConfigIngest {
     private class SkipBag {
         var xhttp = 0
         var masque = 0
+        val others = LinkedHashMap<String, Int>()
+
+        fun other(name: String) {
+            val key = name.ifBlank { "未知" }
+            others[key] = (others[key] ?: 0) + 1
+        }
     }
 
-    private fun skipNote(skipped: Int, skips: SkipBag): String {
+    private fun skipBits(skips: SkipBag): List<String> {
         val bits = mutableListOf<String>()
         if (skips.xhttp > 0) bits += "xhttp"
         if (skips.masque > 0) bits += "MASQUE"
+        bits += skips.others.keys
+        return bits
+    }
+
+    private fun skipNote(skipped: Int, skips: SkipBag): String {
+        val bits = skipBits(skips)
         return if (bits.isEmpty()) {
             "跳过 $skipped 个内核暂不支持的节点"
         } else {
@@ -243,9 +266,7 @@ object ConfigIngest {
     }
 
     private fun unsupportedNodeMessage(skips: SkipBag): String {
-        val bits = mutableListOf<String>()
-        if (skips.xhttp > 0) bits += "xhttp"
-        if (skips.masque > 0) bits += "MASQUE"
+        val bits = skipBits(skips)
         val named = if (bits.isEmpty()) "这些协议" else bits.joinToString("、")
         return "没有可用节点（$named 当前内核还不支持）。没有改成直连。"
     }
@@ -291,7 +312,7 @@ object ConfigIngest {
                 out.put("security", security)
                 intVal(raw["alterId"] ?: raw["alter-id"])?.let { out.put("alter_id", it) }
                 putTls(out, raw)
-                if (!putTransport(out, raw)) return null
+                if (!putTransport(out, raw, skips)) return null
             }
             "vless" -> {
                 out.put("type", "vless")
@@ -300,13 +321,13 @@ object ConfigIngest {
                 str(raw["packet-encoding"] ?: raw["packet_encoding"]).takeIf { it.isNotEmpty() }
                     ?.let { out.put("packet_encoding", it) }
                 putTls(out, raw)
-                if (!putTransport(out, raw)) return null
+                if (!putTransport(out, raw, skips)) return null
             }
             "trojan" -> {
                 out.put("type", "trojan")
                 out.put("password", str(raw["password"]))
                 putTls(out, raw, defaultEnabled = true)
-                if (!putTransport(out, raw)) return null
+                if (!putTransport(out, raw, skips)) return null
             }
             "hysteria2", "hy2" -> {
                 out.put("type", "hysteria2")
@@ -372,7 +393,21 @@ object ConfigIngest {
                 str(raw["username"]).takeIf { it.isNotEmpty() }?.let { out.put("username", it) }
                 str(raw["password"]).takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
             }
-            else -> return null
+            "anytls", "any-tls" -> {
+                out.put("type", "anytls")
+                out.put("password", str(raw["password"]))
+                putTls(out, raw, defaultEnabled = true)
+                clashDuration(raw["idle-session-check-interval"] ?: raw["idle_session_check_interval"])
+                    ?.let { out.put("idle_session_check_interval", it) }
+                clashDuration(raw["idle-session-timeout"] ?: raw["idle_session_timeout"])
+                    ?.let { out.put("idle_session_timeout", it) }
+                intVal(raw["min-idle-session"] ?: raw["min_idle_session"])
+                    ?.let { out.put("min_idle_session", it) }
+            }
+            else -> {
+                skips.other(type.ifBlank { "未知" })
+                return null
+            }
         }
         return out
     }
@@ -617,8 +652,17 @@ object ConfigIngest {
         else -> raw.toString().isBlank()
     }
 
+    private fun clashDuration(raw: Any?): String? {
+        val text = str(raw)
+        if (text.isEmpty()) return null
+        if (text.any { it.isLetter() }) return text
+        val seconds = text.toLongOrNull() ?: return null
+        if (seconds <= 0) return null
+        return "${seconds}s"
+    }
+
     /** @return false when the transport is not in this kernel (do not invent a substitute). */
-    private fun putTransport(out: JSONObject, raw: Map<*, *>): Boolean {
+    private fun putTransport(out: JSONObject, raw: Map<*, *>, skips: SkipBag): Boolean {
         val network = str(raw["network"]).lowercase()
         if (network.isEmpty() || network == "tcp" || network == "raw") return true
         val type = when (network) {
@@ -627,7 +671,10 @@ object ConfigIngest {
             "http", "h2" -> "http"
             "httpupgrade" -> "httpupgrade"
             "quic" -> "quic"
-            else -> return false
+            else -> {
+                skips.other(network)
+                return false
+            }
         }
         val transport = JSONObject().put("type", type)
         when (type) {
@@ -1046,6 +1093,7 @@ object ConfigIngest {
             "vless" -> parseVless(body)
             "trojan" -> parseTrojan(body)
             "hysteria2", "hy2" -> parseHysteria2(body)
+            "anytls" -> parseAnyTls(body)
             "tuic" -> parseTuic(body)
             "socks", "socks5" -> parseUserHost(body, "socks")
             "http", "https" -> if (scheme == "http") parseUserHost(body, "http") else null
@@ -1159,6 +1207,12 @@ object ConfigIngest {
         query["obfs-password"]?.let { pwd ->
             out.put("obfs", JSONObject().put("type", "salamander").put("password", pwd))
         }
+        true
+    }
+
+    private fun parseAnyTls(body: String): JSONObject? = parseUserHostQuery(body, "anytls") { out, query, host ->
+        out.put("password", urlDecode(body.substringBefore('@')))
+        putQueryTls(out, query, host, defaultOn = true)
         true
     }
 
@@ -1756,7 +1810,7 @@ object ConfigIngest {
         else -> value
     }
 
-    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|socks5?|http|wireguard|wg)://")
+    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks5?|http|wireguard|wg)://")
     private val ECH_PEM = Regex("-----BEGIN ECH CONFIGS-----([\\s\\S]*?)-----END ECH CONFIGS-----")
     private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 }

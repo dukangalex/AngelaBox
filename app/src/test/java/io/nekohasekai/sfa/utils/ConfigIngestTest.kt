@@ -508,4 +508,70 @@ class ConfigIngestTest {
         assertTrue(rules.contains("geosite-google"))
         assertEquals("节点选择", root.getJSONObject("route").getString("final"))
     }
+
+    @Test
+    fun clashAnyTlsBecomesSingBoxAnyTls() {
+        val yaml = """
+            proxies:
+              - name: us-any
+                type: anytls
+                server: us.example.com
+                port: 443
+                password: secret
+                sni: us.example.com
+                client-fingerprint: chrome
+                skip-cert-verify: true
+                idle-session-check-interval: 30
+                idle-session-timeout: 30
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies:
+                  - us-any
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        assertTrue(result.fatal == null)
+        val root = JSONObject(result.content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "us-any" }
+        assertEquals("anytls", node.getString("type"))
+        assertEquals("secret", node.getString("password"))
+        assertEquals("30s", node.getString("idle_session_check_interval"))
+        assertTrue(node.getJSONObject("tls").getBoolean("enabled"))
+        assertEquals("us.example.com", node.getJSONObject("tls").getString("server_name"))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun anyTlsShareLinkConverts() {
+        val link = "anytls://secret@us.example.com:443?sni=us.example.com&insecure=1#US"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val root = JSONObject(result.content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "US" }
+        assertEquals("anytls", node.getString("type"))
+        assertEquals("secret", node.getString("password"))
+        assertTrue(node.getJSONObject("tls").getBoolean("enabled"))
+    }
+
+    @Test
+    fun unknownClashTypeIsNamed() {
+        val yaml = """
+            proxies:
+              - name: old
+                type: snell
+                server: 1.2.3.4
+                port: 443
+                psk: secret
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty().contains("snell"))
+        assertFalse(result.fatal.orEmpty().contains("这些协议"))
+    }
 }
