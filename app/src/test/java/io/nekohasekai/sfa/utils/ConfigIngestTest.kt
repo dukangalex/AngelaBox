@@ -574,4 +574,135 @@ class ConfigIngestTest {
         assertTrue(result.fatal.orEmpty().contains("snell"))
         assertFalse(result.fatal.orEmpty().contains("这些协议"))
     }
+
+    @Test
+    fun ssLinkWithPluginKeepsPort() {
+        val link = "ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388/?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com#home"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val node = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "home" }
+        assertEquals(8388, node.getInt("server_port"))
+        assertEquals("obfs-local", node.getString("plugin"))
+        assertTrue(node.getString("plugin_opts").contains("obfs=http"))
+    }
+
+    @Test
+    fun hysteriaShareLinkConverts() {
+        val link = "hysteria://example.com:443?auth=secret&peer=example.com&insecure=1&upmbps=50&downmbps=100&obfsParam=obfs-pass#HY"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val node = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "HY" }
+        assertEquals("hysteria", node.getString("type"))
+        assertEquals("secret", node.getString("auth_str"))
+        assertEquals(50, node.getInt("up_mbps"))
+        assertEquals("obfs-pass", node.getString("obfs"))
+        assertTrue(node.getJSONObject("tls").getBoolean("insecure"))
+    }
+
+    @Test
+    fun ssrOnlyIsNamedRemoved() {
+        val result = ConfigIngest.adapt("ssr://YWVzLTI1Ni1jZmI6cGFzcw@example.com:8388#old")
+        assertTrue(result.fatal.orEmpty().contains("ssr"))
+    }
+
+    @Test
+    fun usableNodeSurvivesUnsupportedSibling() {
+        val text = """
+            ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388#good
+            ssr://YWVzLTI1Ni1jZmI6cGFzcw@example.com:8388#old
+        """.trimIndent()
+        val result = ConfigIngest.adapt(text)
+        assertTrue(result.fatal == null)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("good"))
+        assertFalse(tags.contains("old"))
+    }
+
+    @Test
+    fun clashKernelProtocolsAndObfsFieldsConvert() {
+        val yaml = """
+            proxies:
+              - name: hy
+                type: hysteria2
+                server: hy.example.com
+                port: 443
+                password: secret
+                ports: 20000-55000
+                obfs: salamander
+                obfs-password: obfs-pass
+                sni: hy.example.com
+                skip-cert-verify: 1
+                alpn:
+                  - h3
+              - name: obfs
+                type: ss
+                server: ss.example.com
+                port: 8388
+                cipher: aes-256-gcm
+                password: secret
+                plugin: obfs
+                plugin-opts:
+                  mode: http
+                  host: ss.example.com
+              - name: naive-1
+                type: naive
+                server: naive.example.com
+                port: 443
+                username: user
+                password: secret
+              - name: ssh-1
+                type: ssh
+                server: ssh.example.com
+                port: 22
+                username: user
+                password: secret
+              - name: st
+                type: shadowtls
+                server: st.example.com
+                port: 443
+                password: secret
+                version: 3
+                sni: st.example.com
+              - name: snell-1
+                type: snell
+                server: snell.example.com
+                port: 44046
+                psk: secret
+                version: 4
+                obfs-opts:
+                  mode: http
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [hy, obfs, naive-1, ssh-1, st, snell-1]
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val root = JSONObject(result.content)
+        val nodes = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .associateBy { it.getString("tag") }
+        val hy = nodes.getValue("hy")
+        assertEquals("hysteria2", hy.getString("type"))
+        assertFalse(hy.has("server_port"))
+        assertEquals("20000:55000", hy.getJSONArray("server_ports").getString(0))
+        assertEquals("obfs-pass", hy.getJSONObject("obfs").getString("password"))
+        assertTrue(hy.getJSONObject("tls").getBoolean("insecure"))
+        assertEquals("h3", hy.getJSONObject("tls").getJSONArray("alpn").getString(0))
+        assertTrue(nodes.getValue("obfs").getString("plugin_opts").contains("obfs=http"))
+        assertTrue(nodes.getValue("obfs").getString("plugin_opts").contains("obfs-host=ss.example.com"))
+        assertEquals("naive", nodes.getValue("naive-1").getString("type"))
+        assertEquals("ssh", nodes.getValue("ssh-1").getString("type"))
+        assertEquals("user", nodes.getValue("ssh-1").getString("user"))
+        assertEquals("shadowtls", nodes.getValue("st").getString("type"))
+        assertEquals(3, nodes.getValue("st").getInt("version"))
+        assertEquals("snell", nodes.getValue("snell-1").getString("type"))
+        assertEquals("http", nodes.getValue("snell-1").getString("obfs_mode"))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
 }

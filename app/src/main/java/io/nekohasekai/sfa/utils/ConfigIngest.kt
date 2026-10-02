@@ -302,7 +302,10 @@ object ConfigIngest {
                 if (plugin.isNotEmpty()) {
                     out.put("plugin", plugin)
                     val opts = raw["plugin-opts"] ?: raw["plugin_opts"]
-                    if (opts != null) out.put("plugin_opts", pluginOpts(opts))
+                    if (opts != null) out.put("plugin_opts", pluginOpts(plugin, opts))
+                }
+                if (boolVal(raw["udp-over-tcp"] ?: raw["udp_over_tcp"]) == true) {
+                    out.put("udp_over_tcp", true)
                 }
             }
             "vmess" -> {
@@ -333,22 +336,22 @@ object ConfigIngest {
                 out.put("type", "hysteria2")
                 out.put("password", str(raw["password"]).ifBlank { str(raw["auth"]) })
                 putTls(out, raw, defaultEnabled = true)
-                val obfs = raw["obfs"] ?: raw["obfs-password"]
-                val obfsPwd = str(raw["obfs-password"]).ifBlank { str(obfs) }
-                if (obfsPwd.isNotEmpty() && str(raw["obfs"]).lowercase() != "none") {
-                    out.put(
-                        "obfs",
-                        JSONObject().put("type", "salamander").put("password", obfsPwd),
-                    )
-                }
+                putHysteria2Obfs(out, raw)
+                putServerPorts(out, raw)
             }
             "hysteria" -> {
                 out.put("type", "hysteria")
-                intVal(raw["up"] ?: raw["up-mbps"])?.let { out.put("up_mbps", it) }
-                intVal(raw["down"] ?: raw["down-mbps"])?.let { out.put("down_mbps", it) }
-                str(raw["auth-str"] ?: raw["auth_str"]).takeIf { it.isNotEmpty() }
+                intVal(raw["up"] ?: raw["up-mbps"] ?: raw["up_mbps"])?.let { out.put("up_mbps", it) }
+                intVal(raw["down"] ?: raw["down-mbps"] ?: raw["down_mbps"])?.let { out.put("down_mbps", it) }
+                str(raw["auth-str"] ?: raw["auth_str"] ?: raw["auth"]).takeIf { it.isNotEmpty() }
                     ?.let { out.put("auth_str", it) }
+                val obfs = raw["obfs"]
+                if (asMap(obfs) == null) {
+                    str(obfs).takeIf { it.isNotEmpty() && !it.equals("none", true) }
+                        ?.let { out.put("obfs", it) }
+                }
                 putTls(out, raw, defaultEnabled = true)
+                putServerPorts(out, raw)
             }
             "tuic" -> {
                 out.put("type", "tuic")
@@ -404,6 +407,57 @@ object ConfigIngest {
                 intVal(raw["min-idle-session"] ?: raw["min_idle_session"])
                     ?.let { out.put("min_idle_session", it) }
             }
+            "naive" -> {
+                out.put("type", "naive")
+                str(raw["username"]).takeIf { it.isNotEmpty() }?.let { out.put("username", it) }
+                str(raw["password"]).takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
+                putTls(out, raw, defaultEnabled = true)
+            }
+            "ssh" -> {
+                val user = str(raw["username"]).ifBlank { str(raw["user"]) }
+                val password = str(raw["password"])
+                val key = str(raw["private-key"] ?: raw["private_key"])
+                if (user.isBlank() || (password.isBlank() && key.isBlank())) {
+                    skips.other("ssh")
+                    return null
+                }
+                out.put("type", "ssh")
+                out.put("user", user)
+                if (password.isNotEmpty()) out.put("password", password)
+                if (key.isNotEmpty()) out.put("private_key", key)
+                str(raw["private-key-passphrase"] ?: raw["private_key_passphrase"])
+                    .takeIf { it.isNotEmpty() }?.let { out.put("private_key_passphrase", it) }
+            }
+            "shadowtls" -> {
+                out.put("type", "shadowtls")
+                str(raw["password"]).takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
+                intVal(raw["version"])?.let { out.put("version", it) }
+                putTls(out, raw, defaultEnabled = true)
+            }
+            "snell" -> {
+                val version = intVal(raw["version"]) ?: 4
+                val psk = str(raw["psk"])
+                if ((version != 4 && version != 6) || psk.isBlank()) {
+                    skips.other("snell")
+                    return null
+                }
+                out.put("type", "snell")
+                out.put("version", version)
+                out.put("psk", psk)
+                if (version == 4) {
+                    val obfs = asMap(raw["obfs-opts"] ?: raw["obfs_opts"])
+                    val mode = str(obfs?.get("mode")).ifBlank { str(raw["obfs"]) }
+                    if (mode.isNotEmpty() && !mode.equals("none", true)) out.put("obfs_mode", mode)
+                    str(obfs?.get("host")).takeIf { it.isNotEmpty() }?.let { out.put("obfs_host", it) }
+                } else {
+                    val v6 = asMap(raw["v6-opts"] ?: raw["v6_opts"])
+                    str(v6?.get("mode")).takeIf { it.isNotEmpty() }?.let { out.put("mode", it) }
+                }
+            }
+            "ssr", "shadowsocksr" -> {
+                skips.other("ssr")
+                return null
+            }
             else -> {
                 skips.other(type.ifBlank { "未知" })
                 return null
@@ -428,6 +482,7 @@ object ConfigIngest {
         if (fp.isNotEmpty()) {
             tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp))
         }
+        putStringList(tls, "alpn", raw["alpn"])
         val reality = asMap(raw["reality-opts"] ?: raw["reality_opts"])
         if (reality != null) {
             val pub = str(reality["public-key"] ?: reality["public_key"])
@@ -650,6 +705,42 @@ object ConfigIngest {
         is String -> raw.isBlank()
         is JSONArray -> raw.length() == 0 || (0 until raw.length()).all { raw.optString(it).isBlank() }
         else -> raw.toString().isBlank()
+    }
+
+    private fun putStringList(obj: JSONObject, key: String, raw: Any?) {
+        val arr = JSONArray()
+        when (raw) {
+            is List<*> -> raw.forEach { str(it).takeIf { item -> item.isNotEmpty() }?.let { arr.put(it) } }
+            else -> str(raw).takeIf { it.isNotEmpty() }?.let { arr.put(it) }
+        }
+        if (arr.length() > 0) obj.put(key, arr)
+    }
+
+    private fun putHysteria2Obfs(out: JSONObject, raw: Map<*, *>) {
+        val obfsRaw = raw["obfs"]
+        val obfsMap = asMap(obfsRaw)
+        val obfsType = if (obfsMap != null) str(obfsMap["type"] ?: obfsMap["mode"]) else str(obfsRaw)
+        if (obfsType.equals("none", true)) return
+        val password = str(raw["obfs-password"] ?: raw["obfs_password"])
+            .ifBlank { if (obfsMap != null) str(obfsMap["password"]) else "" }
+        if (password.isEmpty()) return
+        out.put(
+            "obfs",
+            JSONObject().put("type", obfsType.ifBlank { "salamander" }).put("password", password),
+        )
+    }
+
+    /** Clash `ports: 20000-55000`. sing-box uses `server_ports` and rejects a leftover `server_port`. */
+    private fun putServerPorts(out: JSONObject, raw: Map<*, *>) {
+        val ports = str(raw["ports"])
+        if (ports.isEmpty() || !ports.any { it == '-' || it == ':' || it == ',' }) return
+        val arr = JSONArray()
+        ports.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { part ->
+            arr.put(part.replace('-', ':'))
+        }
+        if (arr.length() == 0) return
+        out.put("server_ports", arr)
+        out.remove("server_port")
     }
 
     private fun clashDuration(raw: Any?): String? {
@@ -1062,7 +1153,17 @@ object ConfigIngest {
                 outbounds.put(converted)
             }
         }
-        if (tags.isEmpty()) return null
+        if (tags.isEmpty()) {
+            val schemes = lines.map { it.substringBefore("://").lowercase() }.filter { it.isNotEmpty() }.distinct()
+            val removed = schemes.filter { it == "ssr" }
+            val rest = schemes.filter { it != "ssr" }
+            val parts = mutableListOf<String>()
+            if (removed.isNotEmpty()) parts += "ssr 已从内核移除"
+            if (rest.isNotEmpty()) parts += "${rest.joinToString("、")} 没能转成节点"
+            val named = parts.joinToString("；").ifBlank { "这些协议" }
+            val message = "没有可用节点（$named）。没有改成直连。"
+            return Result("", listOf(message), Format.ShareLinks, message)
+        }
         ensureDirect(outbounds, tags)
         val selector = JSONObject()
             .put("type", "selector")
@@ -1093,7 +1194,9 @@ object ConfigIngest {
             "vless" -> parseVless(body)
             "trojan" -> parseTrojan(body)
             "hysteria2", "hy2" -> parseHysteria2(body)
+            "hysteria" -> parseHysteria(body)
             "anytls" -> parseAnyTls(body)
+            "ssr" -> null
             "tuic" -> parseTuic(body)
             "socks", "socks5" -> parseUserHost(body, "socks")
             "http", "https" -> if (scheme == "http") parseUserHost(body, "http") else null
@@ -1104,30 +1207,40 @@ object ConfigIngest {
 
     private fun parseSs(body: String): JSONObject? {
         val (main, fragment) = splitFragment(body)
-        val decoded = if ('@' in main && !main.substringBefore('@').contains(':')) {
-            main
-        } else if ('@' in main) {
-            main
+        val query = parseQuery(main.substringAfter('?', ""))
+        val bare = main.substringBefore('?')
+        val decoded = if ('@' in bare && !bare.substringBefore('@').contains(':')) {
+            bare
+        } else if ('@' in bare) {
+            bare
         } else {
-            val inner = decodeB64(main.substringBefore('#'))?.toString(Charsets.UTF_8) ?: return null
+            val inner = decodeB64(bare)?.toString(Charsets.UTF_8) ?: return null
             if ('@' in inner) inner else "$inner@placeholder"
         }
         val userHost = if ('@' in decoded) decoded else return null
         val user = userHost.substringBefore('@')
-        val hostPort = userHost.substringAfter('@')
+        val hostPort = userHost.substringAfter('@').substringBefore('?')
         val methodPass = decodeB64(user)?.toString(Charsets.UTF_8) ?: user
         val method = methodPass.substringBefore(':')
         val password = methodPass.substringAfter(':', "")
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
         val port = intVal(hostPort.substringAfterLast(':')) ?: return null
         val tag = fragment.ifBlank { host }
-        return JSONObject()
+        val out = JSONObject()
             .put("type", "shadowsocks")
             .put("tag", urlDecode(tag))
             .put("server", host)
             .put("server_port", port)
             .put("method", method)
             .put("password", password)
+        val plugin = query["plugin"].orEmpty()
+        if (plugin.isNotEmpty()) {
+            val name = plugin.substringBefore(';')
+            val opts = plugin.substringAfter(';', "")
+            if (name.isNotEmpty()) out.put("plugin", name)
+            if (opts.isNotEmpty()) out.put("plugin_opts", opts)
+        }
+        return out
     }
 
     private fun parseVmess(body: String): JSONObject? {
@@ -1199,6 +1312,36 @@ object ConfigIngest {
         out.put("password", body.substringBefore('@'))
         putQueryTls(out, query, host, defaultOn = true)
         putQueryTransport(out, query)
+    }
+
+    private fun parseHysteria(body: String): JSONObject? {
+        val (main, fragment) = splitFragment(body)
+        val query = parseQuery(main.substringAfter('?', ""))
+        val beforeQuery = main.substringBefore('?')
+        val hostPort = if ('@' in beforeQuery) beforeQuery.substringAfter('@') else beforeQuery
+        val user = if ('@' in beforeQuery) urlDecode(beforeQuery.substringBefore('@')) else ""
+        if (hostPort.isEmpty() || ':' !in hostPort) return null
+        val host = hostPort.substringBeforeLast(':').trim('[', ']')
+        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val out = JSONObject()
+            .put("type", "hysteria")
+            .put("tag", urlDecode(fragment).ifBlank { host })
+            .put("server", host)
+            .put("server_port", port)
+        val auth = user.ifBlank { query["auth"] ?: query["auth_str"].orEmpty() }
+        if (auth.isNotEmpty()) out.put("auth_str", auth)
+        intVal(query["upmbps"] ?: query["up"])?.let { out.put("up_mbps", it) }
+        intVal(query["downmbps"] ?: query["down"])?.let { out.put("down_mbps", it) }
+        val obfs = query["obfsParam"]?.takeIf { it.isNotEmpty() }
+            ?: query["obfs"]?.takeIf { it.isNotEmpty() && !it.equals("xplus", true) && !it.equals("none", true) }
+        if (!obfs.isNullOrEmpty()) out.put("obfs", obfs)
+        val tls = JSONObject().put("enabled", true)
+        val peer = query["peer"] ?: query["sni"] ?: host
+        if (peer.isNotEmpty()) tls.put("server_name", peer)
+        if (query["insecure"] == "1" || query["allowInsecure"] == "1") tls.put("insecure", true)
+        query["alpn"]?.takeIf { it.isNotEmpty() }?.let { tls.put("alpn", JSONArray().put(it)) }
+        out.put("tls", tls)
+        return out
     }
 
     private fun parseHysteria2(body: String): JSONObject? = parseUserHostQuery(body, "hysteria2") { out, query, host ->
@@ -1664,11 +1807,13 @@ object ConfigIngest {
         }
     }
 
-    private fun pluginOpts(raw: Any?): String {
-        if (raw is Map<*, *>) {
-            return raw.entries.joinToString(";") { "${it.key}=${it.value}" }
+    private fun pluginOpts(plugin: String, raw: Any?): String {
+        val map = raw as? Map<*, *> ?: return raw?.toString().orEmpty()
+        val obj = JSONObject()
+        map.forEach { (key, value) ->
+            if (key is String && value != null) obj.put(key, value)
         }
-        return raw?.toString().orEmpty()
+        return ConfigCompat.objectToPluginOpts(plugin, obj)
     }
 
     private fun expandShareText(text: String): List<String> {
@@ -1682,14 +1827,14 @@ object ConfigIngest {
         val compact = text.trim().replace("\\s".toRegex(), "")
         if (compact.length < 16 || compact.any { it !in B64_CHARS }) return null
         val bytes = decodeB64(compact) ?: return null
-        val decoded = bytes.toString(Charsets.UTF_8)
+        val decoded = stripBom(bytes.toString(Charsets.UTF_8))
         return decoded.takeIf { SHARE_LINE.containsMatchIn(it) }
     }
 
     private fun decodeClashPayload(text: String): String? {
         val compact = text.trim().replace("\\s".toRegex(), "")
         if (compact.length < 16 || compact.any { it !in B64_CHARS }) return null
-        val decoded = decodeB64(compact)?.toString(Charsets.UTF_8) ?: return null
+        val decoded = stripBom(decodeB64(compact)?.toString(Charsets.UTF_8) ?: return null)
         return decoded.takeIf { looksLikeClash(it) }
     }
 
@@ -1775,6 +1920,11 @@ object ConfigIngest {
 
     private fun boolVal(value: Any?): Boolean? = when (value) {
         is Boolean -> value
+        is Number -> when (value.toInt()) {
+            1 -> true
+            0 -> false
+            else -> null
+        }
         is String -> when (value.trim().lowercase()) {
             "true", "yes", "1" -> true
             "false", "no", "0" -> false
