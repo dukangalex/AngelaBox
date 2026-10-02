@@ -878,10 +878,10 @@ def main() -> int:
         errors.append("default script must replace original groups, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 23" not in sample:
-        errors.append("default script must stamp overlay-revision: 23 so stale copies refresh")
+    if "overlay-revision: 24" not in sample:
+        errors.append("default script must stamp overlay-revision: 24 so stale copies refresh")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 23"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 24"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
         errors.append("default script must not fake load-balance or failover groups")
@@ -921,6 +921,10 @@ def main() -> int:
         errors.append("default script must create a clean direct outbound when tag direct is not type=direct")
     if '"hijack-dns"' not in sample:
         errors.append("default script must hijack DNS before routing so system lookups are not dropped")
+    if "geosite-steam@cn" not in sample:
+        errors.append("default script must send geosite-steam@cn direct before the Steam group")
+    if "geosite-binance" not in sample or "geosite-paypal" not in sample or "geosite-category-cryptocurrency" not in sample:
+        errors.append("Crypto must use official geosite sets, not a handful of domain suffixes")
     if "query_type: [64, 65]" in sample:
         errors.append("default script must not reject HTTPS/SVCB DNS; that forces YouTube onto TCP and buffers")
     if 'network: "udp", port: 443, action: "reject"' not in sample:

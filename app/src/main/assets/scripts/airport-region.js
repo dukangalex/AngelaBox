@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 23
+ * overlay-revision: 24
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -627,6 +627,7 @@ function main(config) {
     useSet(sets, rules, "geosite-nvidia@cn", "geosite-nvidia@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-apple@cn", "geosite-apple@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-microsoft@cn", "geosite-microsoft@cn.srs", false, "直连");
+    useSet(sets, rules, "geosite-steam@cn", "geosite-steam@cn.srs", false, "直连");
     rules.push({ domain: ["fsend.cn", "international-gfe.download.nvidia.com"], outbound: "直连" });
   }
   if (webrtcProtect) {
@@ -773,7 +774,15 @@ function main(config) {
     addService({
       name: "Crypto",
       def: "🇯🇵 日本",
-      domains: [{ domain_suffix: ["binance.com", "okx.com", "bybit.com", "htx.com"], outbound: "Crypto" }]
+      sets: [
+        { tag: "geosite-paypal", file: "geosite-paypal.srs", out: "Crypto" },
+        { tag: "geosite-binance", file: "geosite-binance.srs", out: "Crypto" },
+        { tag: "geosite-okx", file: "geosite-okx.srs", out: "Crypto" },
+        { tag: "geosite-bybit", file: "geosite-bybit.srs", out: "Crypto" },
+        { tag: "geosite-huobi", file: "geosite-huobi.srs", out: "Crypto" },
+        { tag: "geosite-category-cryptocurrency", file: "geosite-category-cryptocurrency.srs", out: "Crypto" }
+      ],
+      domains: [{ domain_suffix: ["htx.com"], outbound: "Crypto" }]
     });
     addService({
       name: "EHentai",
