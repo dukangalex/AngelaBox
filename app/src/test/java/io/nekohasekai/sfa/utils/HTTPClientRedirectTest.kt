@@ -156,7 +156,8 @@ class HTTPClientRedirectTest {
             java.io.IOException("SSL handshake timed out"),
             tunnelUp = false,
         )
-        assertTrue(down.contains("先启动"))
+        assertTrue(down.contains("查看发布"))
+        assertFalse(down.contains("先启动"))
         assertFalse(down.contains("SSL"))
         assertFalse(down.contains("okhttp"))
         val stream = HTTPClient.explainUpdateFailure(

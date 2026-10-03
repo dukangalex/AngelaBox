@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 24
+ * overlay-revision: 25
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -720,10 +720,17 @@ function main(config) {
     });
     addService({ name: "Google", sets: [{ tag: "geosite-google", file: "geosite-google.srs", out: "Google" }] });
     addService({
+      name: "ClaudeAI",
+      def: "🇺🇸 美国",
+      sets: [{ tag: "geosite-anthropic", file: "geosite-anthropic.srs", out: "ClaudeAI" }],
+      domains: [{ domain_suffix: ["claude.ai", "anthropic.com", "claudeusercontent.com"], outbound: "ClaudeAI" }],
+      extra: [{ package_name: ["com.anthropic.claude"], outbound: "ClaudeAI" }]
+    });
+    addService({
       name: "AI",
       def: "🇺🇸 美国",
       sets: [{ tag: "geosite-category-ai-!cn", file: "geosite-category-ai-!cn.srs", out: "AI" }],
-      domains: [{ domain_suffix: ["openai.com", "chatgpt.com", "anthropic.com", "claude.ai", "gemini.google.com", "generativelanguage.googleapis.com", "aistudio.google.com"], outbound: "AI" }],
+      domains: [{ domain_suffix: ["openai.com", "chatgpt.com", "gemini.google.com", "generativelanguage.googleapis.com", "aistudio.google.com"], outbound: "AI" }],
       extra: [{ package_name: ["com.google.android.apps.bard"], outbound: "AI" }]
     });
     addService({

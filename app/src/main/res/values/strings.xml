@@ -797,7 +797,7 @@
     <string name="chain_path_running">Running</string>
     <string name="chain_path_ms">%1$d ms</string>
     <string name="telegram_channel">Telegram</string>
-    <string name="telegram_channel_url" translatable="false">https://t.me/AngelaBox</string>
+    <string name="telegram_channel_url" translatable="false">https://t.me/AngelaNexus</string>
     <string name="ads_block">Ad blocking</string>
     <string name="ads_block_summary">Reject domains in the ads rule-set</string>
     <string name="overlay_scripts">Scripts</string>

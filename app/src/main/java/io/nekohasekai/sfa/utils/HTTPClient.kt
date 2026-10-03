@@ -254,7 +254,7 @@ class HTTPClient : Closeable {
             return if (tunnelUp) {
                 "更新没下完。当前代理把连接断开了，不经过节点再试也失败。可点「查看发布」。"
             } else {
-                "更新没下完。直连更新服务器被断开。先启动，再点更新，或点「查看发布」。"
+                "更新没下完。当前网络到更新服务器被断开。可点「查看发布」。"
             }
         }
 
@@ -356,13 +356,27 @@ class HTTPClient : Closeable {
 
     /**
      * One ladder for subscription, script, and app-update downloads.
-     * Tunnel up: try the current node once. A reset, timeout, or handshake
-     * failure retries outside the tunnel (protected socket, not fake-ip).
-     * Neither path tells the user to switch nodes.
+     * Our tunnel up: try the current node once. A reset, timeout, or handshake
+     * failure retries outside the tunnel, then through the node by real IP.
+     * Our tunnel down: an update dials the hostname on the current network
+     * first, so another VPN can route GitHub. Pinning a pre-resolved address
+     * fails when that VPN answers DNS with fake-ip.
      */
     private fun <T> withUpdateRetry(kind: RemoteUrlGuard.Kind, block: (Route) -> T): T {
         val tunnel = dialByName(kind, TunnelGate.up)
-        if (!tunnel) return block(Route.DIRECT)
+        if (!tunnel) {
+            if (kind != RemoteUrlGuard.Kind.UPDATE) return block(Route.DIRECT)
+            return try {
+                block(Route.PROXY)
+            } catch (named: Exception) {
+                if (!isTransientUpdateFailure(named)) throw friendlyFetch(kind, named)
+                try {
+                    block(Route.DIRECT)
+                } catch (direct: Exception) {
+                    throw friendlyFetch(kind, direct)
+                }
+            }
+        }
         return try {
             block(Route.PROXY)
         } catch (e: Exception) {

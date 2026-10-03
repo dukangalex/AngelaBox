@@ -302,10 +302,11 @@ jobs:
 
       - name: Notify Telegram
         if: success()
+        continue-on-error: true
         working-directory: sing-box-for-android
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHANNEL_ID: ${{ secrets.TG_CHANNEL_ID }}
+          TG_CHANNEL_ID: "@AngelaNexus"
           TAG: ${{ inputs.version_tag }}
           RELEASE_URL: https://github.com/dukangalex/AngelaBox/releases/tag/${{ inputs.version_tag }}
           APK_URL: https://github.com/dukangalex/AngelaBox/releases/download/${{ inputs.version_tag }}/AngelaBox-android.apk

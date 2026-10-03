@@ -34,7 +34,7 @@ git merge upstream/dev
 
 Windows 身份与云备份格式见 [IDENTITY.md](IDENTITY.md)、[BACKUP.md](BACKUP.md)。不要再对官方 SFW 做构建时改名。
 
-Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
+Telegram 频道：[https://t.me/AngelaNexus](https://t.me/AngelaNexus)
 
 | 项目 | 值 |
 |------|-----|
@@ -47,7 +47,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 - 对外产品名、README、About、Release、APK 文件名、仓库路径都是 AngelaBox。包名仍为 `io.chainbox.app`。
 - 只发布 `AngelaBox-android.apk`。曾用名 ChainBox 不再出安装包。
-- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secrets：`TG_BOT_TOKEN`、`TG_CHANNEL_ID`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
+- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaNexus](https://t.me/AngelaNexus) 发说明并上传 APK。需仓库 Secret：`TG_BOT_TOKEN`。频道固定为 `@AngelaNexus`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
 - **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。
 - **Git 历史：** 当前树没有 `.jks` / `.keystore`。全量历史上 `7736e1e` **是** `dev` 与现存 tag 的祖先（浅克隆会误判）。已于 2026-09-18 公开说明：不改写历史、不轮换 CN=ChainBox、直链 200 是接受的残留。CI overlay-guards 用 `fetch-depth: 0` 扫工作树，防止再提交。`goodmen001/AngelaBox` 已独立（`fork: false`）。**不要为清历史反复改仓库可见性。**
@@ -87,15 +87,15 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 ## Telegram 发版通知
 
-频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
+频道：[https://t.me/AngelaNexus](https://t.me/AngelaNexus)
 
 GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` 往频道发更新说明：先发文字（关闭网页预览），再把 `AngelaBox-android.apk` 作为可直接安装的文件上传。`telegram.yml`（Actions 里显示为 **Telegram Release**）也可手动补发。需仓库管理员一次性配置：
 
 1. Telegram 打开 [@BotFather](https://t.me/BotFather)，`/newbot` 拿到 token。
-2. 把该 bot 加进频道 **AngelaBox**，授予「发布消息」权限。
+2. 把该 bot 加进频道 **AngelaNexus**，授予「发布消息」权限。
 3. 仓库 **Settings → Secrets and variables → Actions** 增加：
    - `TG_BOT_TOKEN`：BotFather 给出的 token
-   - `TG_CHANNEL_ID`：`@AngelaBox`（或频道的 `-100…` 数字 ID）
+   - `TG_CHANNEL_ID`：`@AngelaNexus`（或频道的 `-100…` 数字 ID）。机器人必须是该频道管理员。
 
 未配置时发版仍成功，只是跳过频道通知。配好后也可在 Actions 里手动跑 **Telegram Release**（文件 `telegram.yml`）。
 
@@ -123,7 +123,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `5ef2960b`（urltest 选中节点拨号失败时改试下一个，最多 3 个），并已打 tag `v1.15.0-chain.4`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 24`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核为官方 **1.15.0-alpha.6**（2026-09-17）：在 alpha.5（新 TUN 栈、Tailcat、Android auto_redirect、on_demand）之上合入修补（Windows 进程归属、go 栈内存、自动重定向 DNS 劫持、WireGuard 域名握手、libbox 命令客户端取消）。`go.mod` 为 1.25.5；官方该 tag 的 CI 用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 已应用到 `5ef2960b`（urltest 选中节点拨号失败时改试下一个，最多 3 个），并已打 tag `v1.15.0-chain.4`。官方 tag 不是 `chain-dev` 的 git 祖先（alpha.5 当时是单亲提交接入），因此 alpha.6 按官方 tag 之间的 17 个文件接入，Chain outbound 保持不变。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 25`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 
