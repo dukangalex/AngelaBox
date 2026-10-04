@@ -476,27 +476,14 @@ def main() -> int:
         errors.append("launcher background must be fully transparent #00000000")
     if ">#FFFFFF<" in icon_bg or ">#ffffff<" in icon_bg:
         errors.append("launcher background must not be an opaque white plate")
-
-    icon_fg = read("app/src/main/res/drawable/ic_launcher_foreground.xml")
-    gen = read("scripts/gen_cube_icon.py")
-    if "#FBBF24" not in icon_fg and "#F59E0B" not in icon_fg:
-        errors.append("launcher foreground must be a Rubik cube (orange-yellow top missing)")
-    if "#0EA5E9" not in icon_fg:
-        errors.append("launcher foreground 正面 must be saturated sky-blue #0EA5E9")
-    if "They meet at (3, 3, 3)" not in gen and "meet at (3, 3, 3)" not in gen:
-        errors.append("cube faces must meet at (3,3,3) so the silhouette is a solid hexagon")
-    if "z=3" not in gen or "x=3" not in gen:
-        errors.append("cube 正面 is z=3 (left) and 侧面 is x=3 (right); x=0+z=0 is a chevron")
-    if "x=0 + z=0" not in gen and "chevron" not in gen:
-        errors.append("cube generator must document that x=0+z=0 is a chevron, not a cube")
-    if "two opposite" not in gen:
-        errors.append("cube generator must document that x=0 and x=3 are opposite faces")
-    if "#F43F5E" not in icon_fg and "#E11D48" not in icon_fg:
-        errors.append("launcher foreground must be a Rubik cube (rose face missing)")
-    if "gift" in icon_fg.lower() and "cube" not in icon_fg.lower():
-        errors.append("launcher foreground should be a cube, not a gift box")
-    if "assert_solid_cube" not in gen:
-        errors.append("cube generator must assert the silhouette is filled, not a chevron hole")
+    fg_png = ROOT / "app/src/main/res/drawable-nodpi/ic_launcher_foreground.png"
+    if not fg_png.is_file() or fg_png.stat().st_size < 1000:
+        errors.append("launcher foreground must be the supplied mark, not the old cube vector")
+    if (ROOT / "app/src/main/res/drawable/ic_launcher_foreground.xml").is_file():
+        errors.append("do not keep the cube vector beside the new launcher foreground")
+    adaptive = read("app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml")
+    if "ic_launcher_foreground" not in adaptive:
+        errors.append("adaptive icon must use the new foreground mark")
 
     logs = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/log/LogModels.kt")
     if "filterLogLevel: LogLevel = LogLevel.INFO" not in logs:

@@ -308,6 +308,7 @@ def write_b64(path: Path) -> None:
 
 
 def main() -> None:
+    raise SystemExit("launcher art is the supplied mark in drawable-nodpi; this cube generator is retired")
     write_vector()
     master = draw_cube(1024)
     assert_solid_cube(master)
