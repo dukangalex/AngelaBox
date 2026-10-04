@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.bg
 
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -17,21 +18,32 @@ object DefaultNetworkMonitor {
     private var lastIndex: Int? = null
     private var pendingLost: Runnable? = null
     private var pendingRetry: Runnable? = null
+    private var pendingRebind: Runnable? = null
+    private var pendingWatch: Runnable? = null
+    private var rebindToken = 0
+    @Volatile
+    private var running = false
 
     suspend fun start() {
-        DefaultNetworkListener.start(this) {
-            defaultNetwork = it
-            checkDefaultInterfaceUpdate(it)
+        DefaultNetworkListener.start(this) { network ->
+            val replaced = network != null && defaultNetwork != null && network != defaultNetwork
+            defaultNetwork = network
+            checkDefaultInterfaceUpdate(network, replaced)
         }
         defaultNetwork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Application.connectivity.activeNetwork
         } else {
             DefaultNetworkListener.get()
         }
+        running = true
+        scheduleWatch()
     }
 
     suspend fun stop() {
+        running = false
         cancelPending()
+        pendingWatch?.let { mainHandler.removeCallbacks(it) }
+        pendingWatch = null
         DefaultNetworkListener.stop(this)
     }
 
@@ -47,34 +59,35 @@ object DefaultNetworkMonitor {
         this.listener = listener
         lastName = null
         lastIndex = null
-        checkDefaultInterfaceUpdate(defaultNetwork)
+        checkDefaultInterfaceUpdate(defaultNetwork, false)
     }
 
-    private fun checkDefaultInterfaceUpdate(newNetwork: Network?) {
+    private fun checkDefaultInterfaceUpdate(newNetwork: Network?, replaced: Boolean) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { checkDefaultInterfaceUpdate(newNetwork) }
+            mainHandler.post { checkDefaultInterfaceUpdate(newNetwork, replaced) }
             return
         }
+        val lostPending = pendingLost != null
         cancelPending()
         if (newNetwork == null) {
             val lost = Runnable {
                 pendingLost = null
-                notifyIfChanged("", -1)
+                notifyIfChanged("", -1, false)
             }
             pendingLost = lost
             mainHandler.postDelayed(lost, LOST_DEBOUNCE_MS)
             return
         }
-        resolveAndNotify(newNetwork, 0)
+        resolveAndNotify(newNetwork, 0, replaced || lostPending)
     }
 
-    private fun resolveAndNotify(network: Network, attempt: Int) {
+    private fun resolveAndNotify(network: Network, attempt: Int, forceReset: Boolean) {
         val linkProperties = Application.connectivity.getLinkProperties(network)
         val name = linkProperties?.interfaceName
         if (!name.isNullOrBlank()) {
             try {
                 val index = NetworkInterface.getByName(name).index
-                notifyIfChanged(name, index)
+                notifyIfChanged(name, index, forceReset)
                 return
             } catch (_: Exception) {
             }
@@ -83,19 +96,89 @@ object DefaultNetworkMonitor {
         val retry = Runnable {
             pendingRetry = null
             if (defaultNetwork === network) {
-                resolveAndNotify(network, attempt + 1)
+                resolveAndNotify(network, attempt + 1, forceReset)
             }
         }
         pendingRetry = retry
         mainHandler.postDelayed(retry, RETRY_MS)
     }
 
-    private fun notifyIfChanged(name: String, index: Int) {
+    private fun notifyIfChanged(name: String, index: Int, forceReset: Boolean) {
         val current = listener
-        if (name == lastName && index == lastIndex) return
+        val same = name == lastName && index == lastIndex
+        if (same && !forceReset) return
+        if (name.isNotEmpty() && same && forceReset) {
+            // The kernel ignores an update when the name and index did not change,
+            // so a Wi-Fi drop that comes back as the same wlan0 never resets dials.
+            current?.updateDefaultInterface("", -1, false, false)
+            val token = ++rebindToken
+            val rebound = Runnable {
+                if (token != rebindToken) return@Runnable
+                pendingRebind = null
+                listener?.updateDefaultInterface(name, index, false, false)
+            }
+            pendingRebind = rebound
+            mainHandler.postDelayed(rebound, REBIND_DELAY_MS)
+            return
+        }
         lastName = name
         lastIndex = index
         current?.updateDefaultInterface(name, index, false, false)
+    }
+
+    private fun scheduleWatch() {
+        if (!running) return
+        val watch = Runnable {
+            pendingWatch = null
+            if (!running) return@Runnable
+            reconcileUnderlying()
+            scheduleWatch()
+        }
+        pendingWatch = watch
+        mainHandler.postDelayed(watch, WATCH_MS)
+    }
+
+    // Callbacks are dropped after doze on some phones. If the interface we told
+    // the kernel about is down, bind whatever physical network is up now.
+    private fun reconcileUnderlying() {
+        if (listener == null || pendingRebind != null) return
+        if (!lastName.isNullOrEmpty() && interfaceUp(lastName)) return
+        val network = physicalNetwork()
+        if (network == null) {
+            if (!lastName.isNullOrEmpty()) notifyIfChanged("", -1, false)
+            return
+        }
+        val name = Application.connectivity.getLinkProperties(network)?.interfaceName
+        if (name.isNullOrBlank()) return
+        val index = try {
+            NetworkInterface.getByName(name)?.index
+        } catch (_: Exception) {
+            null
+        } ?: return
+        if (name == lastName && index == lastIndex) return
+        defaultNetwork = network
+        notifyIfChanged(name, index, false)
+    }
+
+    private fun interfaceUp(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        return try {
+            NetworkInterface.getByName(name)?.isUp == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun physicalNetwork(): Network? {
+        val connectivity = Application.connectivity
+        for (network in connectivity.allNetworks) {
+            val caps = connectivity.getNetworkCapabilities(network) ?: continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+            return network
+        }
+        return null
     }
 
     private fun cancelPending() {
@@ -103,9 +186,14 @@ object DefaultNetworkMonitor {
         pendingLost = null
         pendingRetry?.let { mainHandler.removeCallbacks(it) }
         pendingRetry = null
+        pendingRebind?.let { mainHandler.removeCallbacks(it) }
+        pendingRebind = null
+        rebindToken++
     }
 
     private const val LOST_DEBOUNCE_MS = 500L
     private const val RETRY_MS = 150L
+    private const val REBIND_DELAY_MS = 200L
+    private const val WATCH_MS = 30_000L
     private const val MAX_RETRIES = 8
 }

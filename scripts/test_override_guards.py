@@ -1223,6 +1223,10 @@ def main() -> int:
         errors.append("network interface monitor must not block the connectivity thread")
     if "LOST_DEBOUNCE_MS" not in monitor or "notifyIfChanged" not in monitor:
         errors.append("network monitor must debounce Lost and skip unchanged interfaces")
+    if "forceReset" not in monitor or "REBIND_DELAY_MS" not in monitor:
+        errors.append("same interface coming back after a drop must rebind, not no-op")
+    if "reconcileUnderlying" not in monitor or "interfaceUp" not in monitor:
+        errors.append("network monitor must rebind when the remembered interface is down")
     listener = read("app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkListener.kt")
     if "networkActor.send(NetworkMessage.Update(network))" in listener:
         errors.append("capability flaps must not rebind the default interface")
