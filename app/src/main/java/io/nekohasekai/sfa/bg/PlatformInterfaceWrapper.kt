@@ -111,6 +111,14 @@ interface PlatformInterfaceWrapper : PlatformInterface {
                 networkInterfaces.find { it.name == boxInterface.name } ?: continue
             boxInterface.dnsServer =
                 StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress }.iterator())
+            val searchDomains = linkProperties.domains
+                ?.split(' ', ',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+            if (searchDomains.isNotEmpty()) {
+                boxInterface.dnsSearchDomain = StringArray(searchDomains.iterator())
+            }
             boxInterface.gateway =
                 StringArray(
                     linkProperties.routes

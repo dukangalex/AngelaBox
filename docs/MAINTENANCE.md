@@ -108,8 +108,8 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 | 官方上游 | SagerNet/sing-box **v1.15.0-alpha.10** |
 | 本仓库 | dukangalex/sing-box 分支 `chain-dev` |
 | 已对齐基线 | 官方 1.15.0-alpha.10（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5） |
-| 内核 tag | v1.15.0-chain.6 |
-| 发版钉死的 commit | `6a17a78d0cb95261c64f06cebab13776a393cac2`（`version.properties` 的 `KERNEL_COMMIT`） |
+| 内核 tag | v1.15.0-chain.7 |
+| 发版钉死的 commit | `9c0a0c714d7eb113cb246916292ba9438970438c`（`version.properties` 的 `KERNEL_COMMIT`） |
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。**不跟进 v1.14.1**：稳定安装包钉的是 1.14.0；测试线已在 1.15，没有产品理由再回头吃一版修补。官方 1.15.0-alpha.6（2026-09-17）同样是修补、无新类型，测试线跟进。
 
@@ -123,7 +123,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `6a17a78d`（`v1.15.0-chain.6`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 25`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 25`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

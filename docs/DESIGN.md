@@ -58,7 +58,7 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 
 先不追：
 
-- 测试线已对齐官方 **1.15.0-alpha.10**（内核 `6a17a78d` / `v1.15.0-chain.6`）。Chain、urltest 失败换人、空闲组不测速、网卡回退都还在。官方 1.15.0-alpha.5 在 Android 上有过 TUN 源地址变成局域网地址的报告（[SagerNet/sing-box#4543](https://github.com/SagerNet/sing-box/issues/4543)），这份内核没有单独改那一处。
+- 测试线已对齐官方 **1.15.0-alpha.10**（内核 `9c0a0c71` / `v1.15.0-chain.7`）。Chain、urltest 失败换人、空闲组不测速、网卡回退都还在。官方 1.15.0-alpha.5 在 Android 上有过 TUN 源地址变成局域网地址的报告（[SagerNet/sing-box#4543](https://github.com/SagerNet/sing-box/issues/4543)），这份内核没有单独改那一处。
 - 稳定线仍是 1.14.0 的 1.0.57。1.14.2 只有修复，不为此把测试线拉回去。
 - 不为 urltest 做「成本选路」或负载均衡，等官方有字段再接。
 
