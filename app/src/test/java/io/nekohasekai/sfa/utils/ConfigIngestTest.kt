@@ -115,6 +115,7 @@ class ConfigIngestTest {
         val root = JSONObject(out)
         assertTrue(root.getJSONArray("outbounds").length() >= 1)
         assertEquals("n1", root.getJSONObject("route").getString("final"))
+        assertTrue(out.contains("hijack-dns"))
     }
 
     @Test

@@ -126,7 +126,7 @@ object ConfigQuicOverride {
             // After scripts and chain merge: rewrite 404 remote rule-sets to
             // official testingcf geosite/geoip URLs so APP routing still
             // matches the original tags. Chain landing is untouched.
-            ConfigInboundCompat.apply(root)
+            ConfigInboundCompat.applyKernelCompat(root)
             ConfigNormalize.ensureClashModes(root)
             if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
                 applyOnDemand(root, Settings.onDemand)

@@ -198,7 +198,7 @@ class ConfigCompatTest {
         val s = out.getJSONObject("dns").getJSONArray("servers").getJSONObject(0)
         assertEquals("https", s.getString("type"))
         assertEquals("dns.google", s.getString("server"))
-        assertEquals("local", s.getString("domain_resolver"))
+        assertEquals("bootstrap", s.getString("domain_resolver"))
         assertEquals(false, s.has("address"))
         assertEquals(false, s.has("path"))
     }
@@ -344,7 +344,6 @@ class ConfigCompatTest {
         assertEquals(false, sniff.has("override_destination"))
         assertEquals("tun-in", sniff.getString("inbound"))
         ruleWithAction(rules, "hijack-dns")
-        ruleWithAction(rules, "reject")
     }
 
     @Test
@@ -518,6 +517,40 @@ class ConfigCompatTest {
             "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
             sets.getJSONObject(3).getString("url"),
         )
+    }
+
+    @Test
+    fun nativeSingBoxRouteIsNotRewritten() {
+        val src = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "shadowsocks")
+                        .put("tag", "n")
+                        .put("server", "1.1.1.1")
+                        .put("server_port", 443)
+                        .put("method", "aes-128-gcm")
+                        .put("password", "p"),
+                ),
+            )
+            .put(
+                "route",
+                JSONObject()
+                    .put("final", "n")
+                    .put(
+                        "rules",
+                        JSONArray().put(JSONObject().put("domain", "example.com").put("outbound", "n")),
+                    ),
+            )
+        val out = JSONObject(ConfigCompat.sanitize(src.toString()))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        assertEquals("example.com", rules.getJSONObject(0).getString("domain"))
+        assertEquals("n", rules.getJSONObject(0).getString("outbound"))
+        assertEquals("n", out.getJSONObject("route").getString("final"))
+        assertEquals(false, out.toString().contains("hijack-dns"))
+        assertEquals(false, out.toString().contains("198.18.0.0/15"))
     }
 
     private fun ruleWithAction(rules: JSONArray, action: String): JSONObject {

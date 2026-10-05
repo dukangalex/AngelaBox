@@ -132,12 +132,8 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
         mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
         mark(ConfigIngest.normalizeEchConfigs(root), "节点自带的 ECH 已整理成内核能读的格式")
-        // 1.14 download client + hijack-dns are always-safe plumbing. Do not
-        // emit notes: most valid subscriptions lack these fields, and a
-        // standing「已修正」banner would be a lie when nothing was wrong.
         ConfigInboundCompat.healDownloadClients(root)
         mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
-        ConfigInboundCompat.ensureHijackDns(root)
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
         return notes
     }
@@ -257,10 +253,14 @@ object ConfigNormalize {
             return HealResult(ingested.content, ingested.notes)
         }
         val notes = ingested.notes + apply(root)
-        return if (notes.isEmpty()) {
+        if (ingested.format != ConfigIngest.Format.SingBox) {
+            ConfigInboundCompat.applyStartupPolicy(root)
+        }
+        val next = root.toString()
+        return if (notes.isEmpty() && next == trimmed) {
             HealResult(ingested.content, emptyList())
         } else {
-            HealResult(root.toString(), notes)
+            HealResult(next, notes)
         }
     }
 

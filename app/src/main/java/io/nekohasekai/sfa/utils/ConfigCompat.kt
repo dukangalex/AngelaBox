@@ -64,7 +64,12 @@ object ConfigCompat {
             }
         }
         if (migrateLegacyDns(root)) changed = true
-        if (ConfigInboundCompat.apply(root)) changed = true
+        if (ConfigInboundCompat.applyKernelCompat(root)) changed = true
+        if (ingested.format != ConfigIngest.Format.SingBox &&
+            ConfigInboundCompat.applyStartupPolicy(root)
+        ) {
+            changed = true
+        }
         if (ConfigIngest.normalizeEchConfigs(root)) changed = true
         if (stripBrokenDnsDetours(root)) changed = true
         return if (changed) root.toString() else ingested.content

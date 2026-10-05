@@ -13,6 +13,16 @@ import org.json.JSONObject
  */
 object ConfigInboundCompat {
     fun apply(root: JSONObject): Boolean {
+        var changed = applyKernelCompat(root)
+        if (applyStartupPolicy(root)) changed = true
+        return changed
+    }
+
+    /**
+     * Fields the current kernel rejects or that 404 at startup.
+     * Does not add routing the file did not already have.
+     */
+    fun applyKernelCompat(root: JSONObject): Boolean {
         var changed = false
         if (migrateLegacyInbounds(root)) changed = true
         if (stripDeprecatedTunStack(root)) changed = true
@@ -24,10 +34,21 @@ object ConfigInboundCompat {
         if (sanitizeClashDownloadUrls(root)) changed = true
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
+        if (bindLoopbackOnly(root)) changed = true
+        return changed
+    }
+
+    /**
+     * Startup routing for a config this app generated from Clash or a share
+     * link. A sing-box file is left alone: official clients do not insert
+     * sniff, DNS hijack, or a fake-ip reject into a document that already
+     * has its own route.
+     */
+    fun applyStartupPolicy(root: JSONObject): Boolean {
+        var changed = false
         if (ensureHijackDns(root)) changed = true
         if (rejectStaleFakeIp(root)) changed = true
         if (ensureSniff(root)) changed = true
-        if (bindLoopbackOnly(root)) changed = true
         if (ConfigIngest.ensureEchQueryRoute(root)) changed = true
         if (healDanglingDomainResolvers(root)) changed = true
         return changed
