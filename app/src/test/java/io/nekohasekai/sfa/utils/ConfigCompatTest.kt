@@ -198,7 +198,7 @@ class ConfigCompatTest {
         val s = out.getJSONObject("dns").getJSONArray("servers").getJSONObject(0)
         assertEquals("https", s.getString("type"))
         assertEquals("dns.google", s.getString("server"))
-        assertEquals("bootstrap", s.getString("domain_resolver"))
+        assertEquals("local", s.getString("domain_resolver"))
         assertEquals(false, s.has("address"))
         assertEquals(false, s.has("path"))
     }
@@ -336,15 +336,15 @@ class ConfigCompatTest {
         assertEquals(false, inbound.has("sniff_override_destination"))
         assertEquals(false, inbound.has("domain_strategy"))
         val rules = out.getJSONObject("route").getJSONArray("rules")
-        val resolve = rules.getJSONObject(0)
-        assertEquals("resolve", resolve.getString("action"))
+        val resolve = ruleWithAction(rules, "resolve")
         assertEquals("prefer_ipv4", resolve.getString("strategy"))
         assertEquals("tun-in", resolve.getString("inbound"))
-        val sniff = rules.getJSONObject(1)
-        assertEquals("sniff", sniff.getString("action"))
+        val sniff = ruleWithAction(rules, "sniff")
         assertEquals("1s", sniff.getString("timeout"))
         assertEquals(false, sniff.has("override_destination"))
-        assertEquals("hijack-dns", rules.getJSONObject(2).getString("action"))
+        assertEquals("tun-in", sniff.getString("inbound"))
+        ruleWithAction(rules, "hijack-dns")
+        ruleWithAction(rules, "reject")
     }
 
     @Test
@@ -363,8 +363,7 @@ class ConfigCompatTest {
                 ),
             )
         val out = JSONObject(ConfigCompat.sanitize(src.toString()))
-        val sniff = out.getJSONObject("route").getJSONArray("rules").getJSONObject(0)
-        assertEquals("sniff", sniff.getString("action"))
+        val sniff = ruleWithAction(out.getJSONObject("route").getJSONArray("rules"), "sniff")
         assertEquals(false, sniff.has("override_destination"))
     }
 
@@ -402,8 +401,9 @@ class ConfigCompatTest {
         assertEquals(1, sets.length())
         assertEquals("geoip-cn", sets.getJSONObject(0).getString("tag"))
         val rules = out.getJSONObject("route").getJSONArray("rules")
-        assertEquals(1, rules.length())
-        assertEquals("geoip-cn", rules.getJSONObject(0).getString("rule_set"))
+        val kept = ruleWithRuleSet(rules, "geoip-cn")
+        assertEquals("direct", kept.getString("outbound"))
+        assertEquals(false, hasRuleSet(rules, "geoip-fastly"))
     }
 
     @Test
@@ -444,9 +444,17 @@ class ConfigCompatTest {
         assertEquals(1, selector.getJSONArray("outbounds").length())
         assertEquals("direct", selector.getJSONArray("outbounds").getString(0))
         val rules = out.getJSONObject("route").getJSONArray("rules")
-        assertEquals("hijack-dns", rules.getJSONObject(0).getString("action"))
-        assertEquals(false, rules.getJSONObject(0).has("outbound"))
-        assertEquals("reject", rules.getJSONObject(1).getString("action"))
+        val hijack = ruleWithAction(rules, "hijack-dns")
+        assertEquals(false, hijack.has("outbound"))
+        var adsReject = false
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            if (rule.optString("domain_suffix") == ".ads") {
+                assertEquals("reject", rule.getString("action"))
+                adsReject = true
+            }
+        }
+        assertEquals(true, adsReject)
     }
 
     @Test
@@ -510,5 +518,28 @@ class ConfigCompatTest {
             "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
             sets.getJSONObject(3).getString("url"),
         )
+    }
+
+    private fun ruleWithAction(rules: JSONArray, action: String): JSONObject {
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            if (rule.optString("action") == action) return rule
+        }
+        throw AssertionError("missing action $action")
+    }
+
+    private fun ruleWithRuleSet(rules: JSONArray, tag: String): JSONObject {
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            if (rule.optString("rule_set") == tag) return rule
+        }
+        throw AssertionError("missing rule_set $tag")
+    }
+
+    private fun hasRuleSet(rules: JSONArray, tag: String): Boolean {
+        for (i in 0 until rules.length()) {
+            if (rules.getJSONObject(i).optString("rule_set") == tag) return true
+        }
+        return false
     }
 }

@@ -1319,7 +1319,7 @@ object ConfigIngest {
         }
         val userHost = if ('@' in decoded) decoded else return null
         val user = userHost.substringBefore('@')
-        val hostPort = userHost.substringAfter('@').substringBefore('?')
+        val hostPort = userHost.substringAfter('@').substringBefore('?').trimEnd('/')
         val methodPass = decodeB64(user)?.toString(Charsets.UTF_8) ?: user
         val method = methodPass.substringBefore(':')
         val password = methodPass.substringAfter(':', "")
