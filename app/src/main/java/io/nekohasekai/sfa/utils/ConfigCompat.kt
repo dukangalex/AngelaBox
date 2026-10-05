@@ -35,8 +35,8 @@ import org.json.JSONObject
 object ConfigCompat {
     const val MAX_CONFIG_CHARS = 8 * 1024 * 1024
 
-    fun sanitize(content: String): String {
-        val ingested = ConfigIngest.adapt(content)
+    fun sanitize(content: String, fetch: ((String) -> String)? = null): String {
+        val ingested = ConfigIngest.adapt(content, fetch)
         if (!ingested.fatal.isNullOrBlank()) {
             throw IllegalArgumentException(ingested.fatal)
         }
@@ -68,6 +68,11 @@ object ConfigCompat {
         if (ConfigIngest.normalizeEchConfigs(root)) changed = true
         if (stripBrokenDnsDetours(root)) changed = true
         return if (changed) root.toString() else ingested.content
+    }
+
+    /** Import and subscription refresh. HTTPS proxy-providers are pulled here. */
+    fun sanitizeRemote(content: String): String = sanitize(content) { url ->
+        HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
     }
 
     fun sanitizeOutbound(o: JSONObject): Boolean {

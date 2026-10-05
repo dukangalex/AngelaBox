@@ -75,7 +75,7 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    val content = ConfigCompat.sanitize(
+                    val content = ConfigCompat.sanitizeRemote(
                         io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                             profile.typed.remoteURL,
                             profile.id,

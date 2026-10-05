@@ -565,14 +565,81 @@ class ConfigIngestTest {
         val yaml = """
             proxies:
               - name: old
-                type: snell
+                type: mieru
                 server: 1.2.3.4
                 port: 443
                 psk: secret
         """.trimIndent()
         val result = ConfigIngest.adapt(yaml)
-        assertTrue(result.fatal.orEmpty().contains("snell"))
+        assertTrue(result.fatal.orEmpty().contains("mieru"))
         assertFalse(result.fatal.orEmpty().contains("这些协议"))
+    }
+
+    @Test
+    fun kernelShareLinksConvert() {
+        val ssh = ConfigIngest.adapt("ssh://root:secret@10.0.0.8:22#gate")
+        assertEquals(ConfigIngest.Format.ShareLinks, ssh.format)
+        val sshNode = outbound(ssh.content, "gate")
+        assertEquals("ssh", sshNode.getString("type"))
+        assertEquals("root", sshNode.getString("user"))
+        assertEquals(22, sshNode.getInt("server_port"))
+
+        val naive = ConfigIngest.adapt("naive+https://user:pass@edge.example:443?sni=edge.example#naive")
+        val naiveNode = outbound(naive.content, "naive")
+        assertEquals("naive", naiveNode.getString("type"))
+        assertEquals("user", naiveNode.getString("username"))
+        assertEquals("pass", naiveNode.getString("password"))
+        assertTrue(naiveNode.getJSONObject("tls").getBoolean("enabled"))
+
+        val snell = ConfigIngest.adapt("snell://psk@1.2.3.4:44046?version=4&obfs=tls&obfs-host=www.example.com#sn")
+        val snellNode = outbound(snell.content, "sn")
+        assertEquals("snell", snellNode.getString("type"))
+        assertEquals(4, snellNode.getInt("version"))
+        assertEquals("tls", snellNode.getString("obfs_mode"))
+
+        val shadow = ConfigIngest.adapt("shadowtls://pw@1.2.3.4:443?version=3&sni=www.example.com#st")
+        val shadowNode = outbound(shadow.content, "st")
+        assertEquals("shadowtls", shadowNode.getString("type"))
+        assertEquals(3, shadowNode.getInt("version"))
+        assertEquals("pw", shadowNode.getString("password"))
+    }
+
+    @Test
+    fun clashProxyProviderIsInlinedWhenFetched() {
+        val yaml = """
+            proxy-providers:
+              extra:
+                type: http
+                url: https://example.com/nodes.yaml
+            proxy-groups:
+              - name: PROXY
+                type: select
+                use:
+                  - extra
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val provider = """
+            proxies:
+              - name: us-ss
+                type: ss
+                server: 1.2.3.4
+                port: 8388
+                cipher: aes-256-gcm
+                password: secret
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { provider }
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "us-ss")
+        assertEquals("shadowsocks", node.getString("type"))
+        val root = JSONObject(result.content)
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
+
+    private fun outbound(content: String, tag: String): JSONObject {
+        val outs = JSONObject(content).getJSONArray("outbounds")
+        return (0 until outs.length()).map { outs.getJSONObject(it) }.first { it.getString("tag") == tag }
     }
 
     @Test

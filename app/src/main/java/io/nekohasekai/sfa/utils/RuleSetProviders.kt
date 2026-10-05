@@ -222,7 +222,7 @@ object ProxyProviders {
     private val LEAF_TYPES = setOf(
         "shadowsocks", "shadowsocksr", "vmess", "vless", "trojan", "hysteria",
         "hysteria2", "tuic", "socks", "http", "naive", "shadowtls", "wireguard",
-        "ssh", "anytls", "tor", "mieru",
+        "ssh", "anytls", "snell", "tor", "mieru",
     )
 
     fun leafTags(content: String): List<String> {

@@ -423,7 +423,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         if (loaded.typed.type != TypedProfile.Type.Remote || loaded.typed.remoteURL.isBlank()) {
             error("这个提供者没有远程地址")
         }
-        val content = ConfigCompat.sanitize(
+        val content = ConfigCompat.sanitizeRemote(
             SubscriptionInfoStore.fetchRemote(
                 loaded.typed.remoteURL,
                 loaded.id,

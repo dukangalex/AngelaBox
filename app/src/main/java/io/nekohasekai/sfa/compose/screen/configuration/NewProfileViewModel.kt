@@ -259,7 +259,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
-        val configContent = ConfigCompat.sanitize(raw)
+        val configContent = ConfigCompat.sanitizeRemote(raw)
 
         Libbox.checkConfig(configContent)
         configFile.writeText(configContent)
@@ -295,7 +295,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 
         HTTPClient().use { client ->
             val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
-            val content = ConfigCompat.sanitize(raw)
+            val content = ConfigCompat.sanitizeRemote(raw)
             Libbox.checkConfig(content)
             configFile.writeText(content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)

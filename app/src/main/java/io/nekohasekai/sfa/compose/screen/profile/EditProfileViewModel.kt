@@ -259,7 +259,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 var selectedProfileUpdated = false
 
                 // Fetch remote config
-                val content = ConfigCompat.sanitize(
+                val content = ConfigCompat.sanitizeRemote(
                     io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                         profile.typed.remoteURL,
                         profile.id,

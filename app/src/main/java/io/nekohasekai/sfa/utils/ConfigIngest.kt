@@ -44,30 +44,30 @@ object ConfigIngest {
     }
 
     /** Format conversion only. China Direct / ads / QUIC are not written here. */
-    fun adapt(content: String): Result {
+    fun adapt(content: String, fetch: ((String) -> String)? = null): Result {
         pendingEchDoh.get().clear()
-        return finishEch(adaptUnlocked(content))
+        return finishEch(adaptUnlocked(content, fetch))
     }
 
-    private fun adaptUnlocked(content: String): Result {
+    private fun adaptUnlocked(content: String, fetch: ((String) -> String)?): Result {
         val trimmed = stripBom(content).trim()
         if (trimmed.isEmpty()) return Result(content, emptyList(), Format.Unknown)
         if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return Result(content)
 
         val jsonish = trimmed.first() == '{' || trimmed.first() == '['
         if (jsonish) {
-            parseSingBox(trimmed)?.let { return it }
+            parseSingBox(trimmed, fetch)?.let { return it }
             parseVmessJsonBlob(trimmed)?.let { return it }
         }
         decodeSharePayload(trimmed)?.let { payload ->
             convertShareLinks(payload)?.let { return it }
         }
         if (looksLikeClash(trimmed)) {
-            return convertClash(trimmed)
+            return convertClash(trimmed, fetch)
                 ?: unsupported("Clash 配置无法解析，没有改成直连。")
         }
         decodeClashPayload(trimmed)?.let { yaml ->
-            convertClash(yaml)?.let { return it }
+            convertClash(yaml, fetch)?.let { return it }
         }
         convertShareLinks(trimmed)?.let { return it }
         return Result(content, emptyList(), Format.Unknown)
@@ -83,7 +83,7 @@ object ConfigIngest {
         return decodeClashPayload(trimmed) != null
     }
 
-    private fun parseSingBox(raw: String): Result? {
+    private fun parseSingBox(raw: String, fetch: ((String) -> String)?): Result? {
         val root = try {
             if (raw.first() == '[') {
                 val arr = JSONArray(raw)
@@ -94,7 +94,7 @@ object ConfigIngest {
             } else {
                 val obj = JSONObject(raw)
                 if (isClashDocument(obj)) {
-                    convertClashTree(jsonTree(obj) as? Map<*, *> ?: emptyMap<String, Any?>())
+                    convertClashTree(jsonTree(obj) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch)
                 } else if (obj.has("outbounds") || obj.has("inbounds") || obj.has("route") || obj.has("dns")) {
                     Result(raw, emptyList(), Format.SingBox)
                 } else {
@@ -132,24 +132,32 @@ object ConfigIngest {
         return obj.has("mixed-port") && !obj.has("outbounds")
     }
 
-    private fun convertClash(text: String): Result? {
+    private fun convertClash(text: String, fetch: ((String) -> String)?): Result? {
         val tree = MiniYaml.parse(text) as? Map<*, *> ?: return null
-        return convertClashTree(tree)
+        return convertClashTree(tree, fetch)
     }
 
-    private fun convertClashTree(tree: Map<*, *>): Result {
-        val proxies = asMapList(mapIgnoreCase(tree, "proxies"))
+    private fun convertClashTree(tree: Map<*, *>, fetch: ((String) -> String)?): Result {
+        val proxies = asMapList(mapIgnoreCase(tree, "proxies")).toMutableList()
+        val shareFromProviders = JSONArray()
+        val providerMembers = LinkedHashMap<String, List<String>>()
+        val providerNotes = mutableListOf<String>()
+        pullProxyProviders(tree, fetch, proxies, shareFromProviders, providerMembers, providerNotes)
         val groups = asMapList(mapIgnoreCase(tree, "proxy-groups") ?: mapIgnoreCase(tree, "proxy_groups"))
         val rules = asStringList(mapIgnoreCase(tree, "rules"))
         val providers = asMap(
             mapIgnoreCase(tree, "rule-providers") ?: mapIgnoreCase(tree, "rule_providers"),
         ) ?: emptyMap<Any?, Any?>()
-        if (proxies.isEmpty()) {
+        if (proxies.isEmpty() && shareFromProviders.length() == 0) {
             val sources = asMap(
                 mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
             )
             val message = if (!sources.isNullOrEmpty()) {
-                "这份 Clash 订阅只有远程节点源，节点不在文件里。没有改成直连。"
+                if (fetch == null) {
+                    "这份 Clash 订阅只有远程节点源，节点不在文件里。没有改成直连。"
+                } else {
+                    "这份 Clash 订阅的远程节点源没有拉到可用节点。没有改成直连。"
+                }
             } else {
                 "这份 Clash 订阅里没有节点。没有改成直连。"
             }
@@ -175,6 +183,12 @@ object ConfigIngest {
                 outbounds.put(converted)
             }
         }
+        for (i in 0 until shareFromProviders.length()) {
+            val converted = shareFromProviders.optJSONObject(i) ?: continue
+            val tag = converted.optString("tag")
+            if (tag.isBlank() || !tags.add(tag)) continue
+            if (converted.optString("type") == "wireguard") endpoints.put(converted) else outbounds.put(converted)
+        }
         if (tags.isEmpty()) {
             return unsupported(unsupportedNodeMessage(skips))
         }
@@ -188,7 +202,7 @@ object ConfigIngest {
         }
         val groupTags = LinkedHashSet<String>()
         for (group in groups) {
-            val converted = convertClashGroup(group, declared) ?: continue
+            val converted = convertClashGroup(group, declared, providerMembers) ?: continue
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
             groupTags.add(tag)
@@ -230,6 +244,7 @@ object ConfigIngest {
         }
         root.put("route", route)
         notes += "已将 Clash 配置转为 sing-box，能识别的分流已保留"
+        notes += providerNotes
         if (skippedRules > 0) {
             notes += "有 $skippedRules 条分流暂时对不上 sing-box，已跳过，没有改成直连"
         }
@@ -353,7 +368,7 @@ object ConfigIngest {
                 putTls(out, raw, defaultEnabled = true)
                 putServerPorts(out, raw)
             }
-            "tuic" -> {
+            "tuic", "tuic-v5" -> {
                 out.put("type", "tuic")
                 str(raw["uuid"]).takeIf { it.isNotEmpty() }?.let { out.put("uuid", it) }
                 out.put("password", str(raw["password"]))
@@ -815,11 +830,92 @@ object ConfigIngest {
         }
     }
 
-    private fun convertClashGroup(raw: Map<*, *>, known: Set<String>): JSONObject? {
+    private fun pullProxyProviders(
+        tree: Map<*, *>,
+        fetch: ((String) -> String)?,
+        proxies: MutableList<Map<*, *>>,
+        shareNodes: JSONArray,
+        providerMembers: MutableMap<String, List<String>>,
+        notes: MutableList<String>,
+    ) {
+        if (fetch == null) return
+        val sources = asMap(
+            mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
+        ) ?: return
+        var pulled = 0
+        for ((key, value) in sources) {
+            if (pulled >= 8) break
+            val spec = asMap(value) ?: continue
+            val name = key?.toString()?.trim().orEmpty()
+            if (name.isEmpty()) continue
+            val url = str(spec["url"])
+            if (!url.startsWith("https://", ignoreCase = true)) {
+                notes += "节点源「$name」不是 HTTPS，没有拉取"
+                continue
+            }
+            val body = try {
+                fetch(url)
+            } catch (_: Exception) {
+                notes += "节点源「$name」没拉下来"
+                continue
+            }
+            pulled++
+            val (clashNodes, linkNodes) = readProviderBody(body)
+            val tags = mutableListOf<String>()
+            for (item in clashNodes) {
+                val tag = str(item["name"])
+                if (tag.isNotEmpty()) tags += tag
+                proxies += item
+            }
+            for (node in linkNodes) {
+                val tag = node.optString("tag")
+                if (tag.isBlank()) continue
+                tags += tag
+                shareNodes.put(node)
+            }
+            if (tags.isNotEmpty()) providerMembers[name] = tags
+            else notes += "节点源「$name」里没有能识别的节点"
+        }
+    }
+
+    private fun readProviderBody(body: String): Pair<List<Map<*, *>>, List<JSONObject>> {
+        val trimmed = stripBom(body).trim()
+        decodeClashPayload(trimmed)?.let { return readProviderBody(it) }
+        decodeSharePayload(trimmed)?.let { return emptyList<Map<*, *>>() to shareNodesOf(it) }
+        if (looksLikeClash(trimmed)) {
+            val tree = MiniYaml.parse(trimmed) as? Map<*, *> ?: return emptyList<Map<*, *>>() to emptyList()
+            return asMapList(mapIgnoreCase(tree, "proxies")) to emptyList()
+        }
+        if (SHARE_LINE.containsMatchIn(trimmed)) {
+            return emptyList<Map<*, *>>() to shareNodesOf(trimmed)
+        }
+        return emptyList<Map<*, *>>() to emptyList()
+    }
+
+    private fun shareNodesOf(text: String): List<JSONObject> {
+        val nodes = mutableListOf<JSONObject>()
+        for (line in expandShareText(text)) {
+            val node = convertShareLine(line) ?: continue
+            nodes += node
+        }
+        return nodes
+    }
+
+    private fun convertClashGroup(
+        raw: Map<*, *>,
+        known: Set<String>,
+        providerMembers: Map<String, List<String>>,
+    ): JSONObject? {
         val name = str(raw["name"]).ifBlank { return null }
         val type = str(raw["type"]).lowercase()
         val members = asStringList(raw["proxies"]).map { mapSpecialTag(it) }
             .filter { it.isNotEmpty() && (it in known || it == "direct") }
+            .toMutableList()
+        for (used in asStringList(raw["use"])) {
+            for (tag in providerMembers[used].orEmpty()) {
+                if (tag !in members && (tag in known || tag == "direct")) members += tag
+            }
+        }
         if (members.isEmpty()) return null
         val arr = JSONArray()
         members.forEach { arr.put(it) }
@@ -1196,8 +1292,12 @@ object ConfigIngest {
             "hysteria2", "hy2" -> parseHysteria2(body)
             "hysteria" -> parseHysteria(body)
             "anytls" -> parseAnyTls(body)
-            "ssr" -> null
             "tuic" -> parseTuic(body)
+            "ssh" -> parseSsh(body)
+            "naive", "naive+https", "naive+quic" -> parseNaive(body, scheme)
+            "shadowtls" -> parseShadowTls(body)
+            "snell" -> parseSnell(body)
+            "ssr" -> null
             "socks", "socks5" -> parseUserHost(body, "socks")
             "http", "https" -> if (scheme == "http") parseUserHost(body, "http") else null
             "wireguard", "wg" -> parseWireGuard(body)
@@ -1356,6 +1456,54 @@ object ConfigIngest {
     private fun parseAnyTls(body: String): JSONObject? = parseUserHostQuery(body, "anytls") { out, query, host ->
         out.put("password", urlDecode(body.substringBefore('@')))
         putQueryTls(out, query, host, defaultOn = true)
+        true
+    }
+
+    private fun parseSsh(body: String): JSONObject? = parseUserHostQuery(body, "ssh") { out, query, _ ->
+        val user = urlDecode(body.substringBefore('@'))
+        val name = urlDecode(user.substringBefore(':'))
+        val pass = urlDecode(user.substringAfter(':', ""))
+        val key = query["private_key"] ?: query["pk"]
+        if (name.isBlank() || (pass.isBlank() && key.isNullOrBlank())) return@parseUserHostQuery false
+        out.put("user", name)
+        if (pass.isNotEmpty()) out.put("password", pass)
+        if (!key.isNullOrBlank()) out.put("private_key", urlDecode(key))
+        true
+    }
+
+    private fun parseNaive(body: String, scheme: String): JSONObject? = parseUserHostQuery(body, "naive") { out, query, host ->
+        val user = urlDecode(body.substringBefore('@'))
+        val name = urlDecode(user.substringBefore(':'))
+        val pass = urlDecode(user.substringAfter(':', ""))
+        if (name.isNotEmpty()) out.put("username", name)
+        if (pass.isNotEmpty()) out.put("password", pass)
+        putQueryTls(out, query, host, defaultOn = true)
+        if (scheme.contains("quic")) out.put("quic", true)
+        query["congestion_control"]?.let { out.put("quic_congestion_control", it) }
+        true
+    }
+
+    private fun parseShadowTls(body: String): JSONObject? = parseUserHostQuery(body, "shadowtls") { out, query, host ->
+        out.put("password", urlDecode(body.substringBefore('@')))
+        out.put("version", intVal(query["version"]) ?: 3)
+        putQueryTls(out, query, host, defaultOn = true)
+        true
+    }
+
+    private fun parseSnell(body: String): JSONObject? = parseUserHostQuery(body, "snell") { out, query, _ ->
+        val version = intVal(query["version"]) ?: 4
+        val psk = urlDecode(body.substringBefore('@'))
+        if ((version != 4 && version != 6) || psk.isBlank()) return@parseUserHostQuery false
+        out.put("version", version)
+        out.put("psk", psk)
+        if (version == 4) {
+            val mode = query["obfs"] ?: query["obfs_mode"]
+            if (!mode.isNullOrBlank() && !mode.equals("none", true)) out.put("obfs_mode", mode)
+            val host = query["obfs-host"] ?: query["host"]
+            if (!host.isNullOrBlank()) out.put("obfs_host", host)
+        } else {
+            query["mode"]?.let { out.put("mode", it) }
+        }
         true
     }
 
@@ -1960,7 +2108,7 @@ object ConfigIngest {
         else -> value
     }
 
-    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks5?|http|wireguard|wg)://")
+    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks5?|http|wireguard|wg|ssh|naive(?:\\+https|\\+quic)?|shadowtls|snell)://")
     private val ECH_PEM = Regex("-----BEGIN ECH CONFIGS-----([\\s\\S]*?)-----END ECH CONFIGS-----")
     private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 }
