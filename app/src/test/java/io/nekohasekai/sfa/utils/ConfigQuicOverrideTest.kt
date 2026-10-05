@@ -143,6 +143,7 @@ class ConfigQuicOverrideTest {
         assertFalse(tun.has("stack"))
         assertEquals(1500, tun.getInt("mtu"))
         assertTrue(tun.getBoolean("auto_route"))
+        assertEquals("hijack", tun.getString("dns_mode"))
         ConfigQuicOverride.applyStrictRoute(root)
         assertTrue(tun.getBoolean("strict_route"))
     }
@@ -155,6 +156,7 @@ class ConfigQuicOverrideTest {
         assertEquals("tun-in", tun.getString("tag"))
         assertEquals("172.19.0.1/30", tun.getJSONArray("address").getString(0))
         assertEquals(1500, tun.getInt("mtu"))
+        assertEquals("hijack", tun.getString("dns_mode"))
         ConfigQuicOverride.applyStrictRoute(root)
         assertTrue(tun.getBoolean("strict_route"))
     }

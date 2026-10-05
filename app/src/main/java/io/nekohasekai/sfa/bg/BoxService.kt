@@ -150,6 +150,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             TunnelGate.setUp(true)
             status.postValue(Status.Started)
+            notePrivateDns()
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
             }
@@ -158,6 +159,20 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
             return
         }
+    }
+
+    private fun notePrivateDns() {
+        val mode = runCatching {
+            android.provider.Settings.Global.getString(service.contentResolver, "private_dns_mode")
+        }.getOrNull()
+        if (mode != "hostname") return
+        OverrideStatus.add(
+            OverrideNotice(
+                title = "私人 DNS 开着",
+                reason = "系统正在用指定的 DNS over TLS，查询可能不经过本应用。",
+                hint = "到系统设置的「私人 DNS」里改成「自动」或「关闭」。",
+            ),
+        )
     }
 
     override fun serviceStop() {

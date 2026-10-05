@@ -772,4 +772,22 @@ class ConfigIngestTest {
         assertEquals("http", nodes.getValue("snell-1").getString("obfs_mode"))
         assertEquals("PROXY", root.getJSONObject("route").getString("final"))
     }
+
+    @Test
+    fun singBoxCommentsAndTrailingCommasImport() {
+        val raw = """
+            // desktop export
+            {
+              "outbounds": [
+                {"type":"direct","tag":"a // b","server":"https://example.com",},
+              ],
+            }
+        """.trimIndent()
+        val result = ConfigIngest.adapt(raw)
+        assertEquals(ConfigIngest.Format.SingBox, result.format)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "a // b")
+        assertEquals("https://example.com", node.getString("server"))
+        JSONObject(result.content)
+    }
 }

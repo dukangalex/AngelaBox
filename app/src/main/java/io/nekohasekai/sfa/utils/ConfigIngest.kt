@@ -54,9 +54,10 @@ object ConfigIngest {
         if (trimmed.isEmpty()) return Result(content, emptyList(), Format.Unknown)
         if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return Result(content)
 
-        val jsonish = trimmed.first() == '{' || trimmed.first() == '['
+        val opened = openJsonDocument(trimmed)
+        val jsonish = opened.first() == '{' || opened.first() == '['
         if (jsonish) {
-            parseSingBox(trimmed, fetch)?.let { return it }
+            parseSingBox(opened, fetch)?.let { return it }
             parseVmessJsonBlob(trimmed)?.let { return it }
         }
         decodeSharePayload(trimmed)?.let { payload ->
@@ -76,27 +77,46 @@ object ConfigIngest {
     fun looksConvertible(content: String): Boolean {
         val trimmed = stripBom(content).trim()
         if (trimmed.isEmpty()) return false
-        if (trimmed.first() == '{' || trimmed.first() == '[') return true
+        if (trimmed.first() == '{' || trimmed.first() == '[' ||
+            trimmed.startsWith("//") || trimmed.startsWith("/*")
+        ) {
+            return true
+        }
         if (looksLikeClash(trimmed)) return true
         if (SHARE_LINE.containsMatchIn(trimmed)) return true
         if (decodeSharePayload(trimmed) != null) return true
         return decodeClashPayload(trimmed) != null
     }
 
+    private fun openJsonDocument(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("//") || trimmed.startsWith("/*")) {
+            return JsonConfig.standardize(trimmed).trim()
+        }
+        return trimmed
+    }
+
     private fun parseSingBox(raw: String, fetch: ((String) -> String)?): Result? {
         val root = try {
             if (raw.first() == '[') {
-                val arr = JSONArray(raw)
+                val arr = JsonConfig.arrayOrNull(raw) ?: return null
                 if (arr.length() == 0) return null
                 val first = arr.optJSONObject(0) ?: return null
                 if (!first.has("type") && !first.has("tag")) return null
                 wrapLeaves(arr, "已将节点列表包成可启动配置")
             } else {
-                val obj = JSONObject(raw)
-                if (isClashDocument(obj)) {
-                    convertClashTree(jsonTree(obj) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch)
-                } else if (obj.has("outbounds") || obj.has("inbounds") || obj.has("route") || obj.has("dns")) {
-                    Result(raw, emptyList(), Format.SingBox)
+                val parsed = JsonConfig.objectOrNull(raw) ?: return null
+                if (isClashDocument(parsed)) {
+                    convertClashTree(jsonTree(parsed) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch)
+                } else if (parsed.has("outbounds") || parsed.has("inbounds") || parsed.has("route") || parsed.has("dns") || parsed.has("endpoints")) {
+                    val stored = try {
+                        JSONObject(raw)
+                        raw
+                    } catch (_: Exception) {
+                        JsonConfig.standardize(raw)
+                    }
+                    val notes = if (stored == raw) emptyList() else listOf("已按 sing-box 的读法去掉注释和行尾逗号")
+                    Result(stored, notes, Format.SingBox)
                 } else {
                     null
                 }

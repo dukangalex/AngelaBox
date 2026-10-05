@@ -181,7 +181,11 @@ fun ProfileOverrideScreen(
             ) {
                 ListItem(
                     headlineContent = { Text("自动重定向") },
-                    supportingContent = { Text("需要 ROOT；1.15 起支持热点/中继转发") },
+                    supportingContent = {
+                        Text(
+                            "需要 ROOT，1.15 起才能转发热点。当前内核开着时，发往路由器自己地址的 UDP DNS 可能绕过劫持。没开 ROOT 就不要开。",
+                        )
+                    },
                     leadingContent = { Icon(Icons.Outlined.Route, contentDescription = null) },
                     trailingContent = {
                         Switch(

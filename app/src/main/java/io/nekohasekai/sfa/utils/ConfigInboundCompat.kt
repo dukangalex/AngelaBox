@@ -167,6 +167,7 @@ object ConfigInboundCompat {
                     .put("tag", tag)
                     .put("address", JSONArray().put(TUN_ADDRESS))
                     .put("auto_route", true)
+                    .put("dns_mode", "hijack")
                     .put("mtu", 1500),
             )
             changed = true
@@ -216,6 +217,11 @@ object ConfigInboundCompat {
         }
         if (!ib.optBoolean("auto_route")) {
             ib.put("auto_route", true)
+            changed = true
+        }
+        // Official default. disabled / native leave port 53 on the system resolver.
+        if (!ib.optString("dns_mode").equals("hijack", true)) {
+            ib.put("dns_mode", "hijack")
             changed = true
         }
         return changed

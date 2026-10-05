@@ -55,6 +55,7 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 - 节点域名的解析走直连引导 DNS。远程 DNS 可以走代理，但只走一跳。
 - 1.15 的 TUN 自有栈、按需连接、Android 上需 root 的 `auto_redirect`。`auto_redirect` 默认关。
 - 证书校验用整张证书的 SHA-256。内核从官方 1.15.0-alpha.7 起有 `certificate_sha256`，sing-box 配置里写了就会生效。应用不再另做一套开关。
+- 官方能读的 JSON 注释和行尾逗号，导入时去掉再交给 org.json。Android 上这份 TUN 的 `dns_mode` 固定为 `hijack`，不沿用桌面配置里的 `disabled` / `native`。系统「私人 DNS」指定主机时，启动后提示改成自动或关闭。`auto_redirect` 仍默认关；官方 [sing-box#4540](https://github.com/SagerNet/sing-box/issues/4540) 里，打开后发往路由器自己地址的 UDP DNS 可能漏掉。
 
 先不追：
 
