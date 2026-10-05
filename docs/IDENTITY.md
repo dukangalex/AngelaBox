@@ -55,7 +55,7 @@
 | 项 | 值 |
 |---|---|
 | 仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 `chain-dev` |
-| 身份补丁 | 已含在 `chain-dev` 的 `a45ff2af` / `v1.15.0-chain.5`（身份提交 `5ef2960b` 之上，只加测速和网卡回退）。`angelabox-identity` 仍停在 `5ef2960b`。图形安装包仍须干净机器装通后再发 |
+| 身份补丁 | 已含在 `chain-dev` 的 `6a17a78d` / `v1.15.0-chain.6`（身份提交 `5ef2960b` 之上）。`angelabox-identity` 仍停在 `5ef2960b`。图形安装包仍须干净机器装通后再发 |
 | 上游 | `SagerNet/sing-box`，只解决 Chain 与身份常量冲突 |
 | `applicationExecutableName` | `AngelaBox.exe` |
 | `daemonExecutableName` | `sing-box-daemon.exe` |

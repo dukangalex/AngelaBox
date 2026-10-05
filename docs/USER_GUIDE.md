@@ -75,7 +75,7 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 禁用 QUIC | 拒绝 UDP 443，内核默认复位，应用改走 TCP。不是静默丢包 |
 | 排除国内 QUIC | 国内 IP/域名的 UDP 443 先直连，其余拒绝 |
 
-官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。节点链接里的 `ech=域名+https://…` 只保留查询名，路径里的 `?ed=` 会当成 WebSocket 早数据。ECH 的 HTTPS 记录走直连阿里 DNS，不经过还在等这份记录的节点。xhttp 和 MASQUE 当前内核还不支持，这类节点会跳过；如果整份都是这两种，不会改成直连。
+官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。节点链接里的 `ech=域名+https://…` 只保留查询名，路径里的 `?ed=` 会当成 WebSocket 早数据。ECH 的 HTTPS 记录走直连阿里 DNS，不经过还在等这份记录的节点。xhttp 当前内核还不支持，这类节点会跳过。sing-box 配置里的 MASQUE 端点会原样启动；Clash 里名叫 masque 的节点还对不上这个端点，会跳过。如果整份都是这两种，不会改成直连。
 
 内核日志等级默认 **info**。
 

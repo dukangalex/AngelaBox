@@ -54,11 +54,11 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 - 分流只有一个作者。Clash 用户要的地区组和功能组，用脚本写成真实的 `selector` / `urltest` 和会命中的规则。
 - 节点域名的解析走直连引导 DNS。远程 DNS 可以走代理，但只走一跳。
 - 1.15 的 TUN 自有栈、按需连接、Android 上需 root 的 `auto_redirect`。`auto_redirect` 默认关。
-- 证书校验用整张证书的 SHA-256（官方 1.15.0-alpha.7 起的 `certificate_sha256`）可以留给下一轮内核，不在应用里再做一套。
+- 证书校验用整张证书的 SHA-256。内核从官方 1.15.0-alpha.7 起有 `certificate_sha256`，sing-box 配置里写了就会生效。应用不再另做一套开关。
 
 先不追：
 
-- 不把测试线从已验证的 **1.15.0-alpha.6**（内核 `a45ff2af` / `v1.15.0-chain.5`）直接快进到 **1.15.0-alpha.8**。alpha.7 是 MASQUE 和 HTTP 代理重写，alpha.8 只加了 DNS 服务器地址匹配。官方 1.15.0-alpha.5 在 Android 上有过 TUN 源地址变成局域网地址的报告（[SagerNet/sing-box#4543](https://github.com/SagerNet/sing-box/issues/4543)）。下一次合入官方提交之前，先用同一份双跳配置验证：落地 IP、入口超时换节点、QUIC 复位、DNS 仍是一跳、失败不直连。
+- 测试线已对齐官方 **1.15.0-alpha.10**（内核 `6a17a78d` / `v1.15.0-chain.6`）。Chain、urltest 失败换人、空闲组不测速、网卡回退都还在。官方 1.15.0-alpha.5 在 Android 上有过 TUN 源地址变成局域网地址的报告（[SagerNet/sing-box#4543](https://github.com/SagerNet/sing-box/issues/4543)），这份内核没有单独改那一处。
 - 稳定线仍是 1.14.0 的 1.0.57。1.14.2 只有修复，不为此把测试线拉回去。
 - 不为 urltest 做「成本选路」或负载均衡，等官方有字段再接。
 

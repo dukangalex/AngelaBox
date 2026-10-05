@@ -44,7 +44,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 更新检查 | 仅本仓库 GitHub Releases |
 | 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
 | 安装包 | 只发 Android：`AngelaBox-android.apk`。Windows 不在发行范围内 |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.95-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.96-beta** 测试版） |
 
 曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。Windows 版暂停，不因为改名而恢复打包。
 
@@ -54,11 +54,11 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 
 | 项目 | 值 |
 |------|-----|
-| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.6** |
+| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.10** |
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
-| 已同步基线 | 官方 **sing-box 1.15.0-alpha.6**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。修补：Windows 进程归属、自动重定向 DNS、WireGuard 域名握手、libbox 命令客户端取消） |
-| 内核型号 / tag | `v1.15.0-chain.5`（已打在 `chain-dev` 的 `a45ff2af`；设置 → 核心显示 `1.15.0-chain.5（官方 1.15.0-alpha.6）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.95-beta** 测试版） |
+| 已同步基线 | 官方 **sing-box 1.15.0-alpha.10**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。含 MASQUE 端点、HTTP 代理重写、证书 SHA-256 锁定、DNS 服务器地址规则） |
+| 内核型号 / tag | `v1.15.0-chain.6`（已打在 `chain-dev` 的 `6a17a78d`；设置 → 核心显示 `1.15.0-chain.6（官方 1.15.0-alpha.10）`） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.96-beta** 测试版） |
 
 ### 同步更新策略
 
@@ -66,7 +66,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 2. **内核：** `git fetch` 官方 `SagerNet/sing-box`，merge 进 `chain-dev`，只解决与 Chain outbound 相关的冲突。
 3. **App：** `git fetch` 官方 `SagerNet/sing-box-for-android`，merge 进本仓库 `dev`。冲突以 AngelaBox 为准（包名、组链、覆盖层、备份、更新检查、发版工作流）。
 4. **Fail Closed：** 链路失败必须报错并停止启动，不得静默落到 DIRECT。
-5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；稳定安装包钉 1.14.0，测试线已在 1.15，**不跟进 v1.14.1**。官方 v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器都是 Go 1.26.8；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26.8 gomobile 上验证）。当前测试内核对齐官方 **v1.15.0-alpha.6**。稳定安装包仍是 1.0.57（1.14.0）；1.0.62-beta 使用 1.15.0-alpha.6 测试内核。
+5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；稳定安装包钉 1.14.0，测试线已在 1.15，**不跟进 v1.14.1**。官方 v1.14.1 到 v1.15.0-alpha.10 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器是 Go 1.26.8；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26.8 gomobile 上验证）。当前测试内核对齐官方 **v1.15.0-alpha.10**。稳定安装包仍是 1.0.57（1.14.0）。
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 
