@@ -127,6 +127,7 @@ object ConfigQuicOverride {
             // official testingcf geosite/geoip URLs so APP routing still
             // matches the original tags. Chain landing is untouched.
             ConfigInboundCompat.applyKernelCompat(root)
+            ConfigInboundCompat.ensureCacheFile(root, Settings.selectedProfile.toString())
             ConfigNormalize.ensureClashModes(root)
             if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
                 applyOnDemand(root, Settings.onDemand)

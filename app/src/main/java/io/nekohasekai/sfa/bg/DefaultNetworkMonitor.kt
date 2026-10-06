@@ -1,10 +1,15 @@
 package io.nekohasekai.sfa.bg
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.sfa.Application
 import java.net.NetworkInterface
@@ -21,6 +26,8 @@ object DefaultNetworkMonitor {
     private var pendingRebind: Runnable? = null
     private var pendingWatch: Runnable? = null
     private var rebindToken = 0
+    private var lastInterfaceEventAt = 0L
+    private var wakeReceiver: BroadcastReceiver? = null
     @Volatile
     private var running = false
 
@@ -36,11 +43,13 @@ object DefaultNetworkMonitor {
             DefaultNetworkListener.get()
         }
         running = true
+        registerWake()
         scheduleWatch()
     }
 
     suspend fun stop() {
         running = false
+        unregisterWake()
         cancelPending()
         pendingWatch?.let { mainHandler.removeCallbacks(it) }
         pendingWatch = null
@@ -104,6 +113,7 @@ object DefaultNetworkMonitor {
     }
 
     private fun notifyIfChanged(name: String, index: Int, forceReset: Boolean) {
+        lastInterfaceEventAt = SystemClock.elapsedRealtime()
         val current = listener
         val same = name == lastName && index == lastIndex
         if (same && !forceReset) return
@@ -124,6 +134,43 @@ object DefaultNetworkMonitor {
         lastName = name
         lastIndex = index
         current?.updateDefaultInterface(name, index, false, false)
+    }
+
+    // Doze drops the default-network callback on some phones while the
+    // interface stays up, so the periodic watch does not rebind. After a long
+    // quiet period, unlocking the screen rebinds once. A normal unlock does
+    // not, or every wake would drop live connections.
+    private fun registerWake() {
+        if (wakeReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (!running || listener == null) return
+                val seen = lastInterfaceEventAt
+                if (seen == 0L) return
+                if (SystemClock.elapsedRealtime() - seen < WAKE_REBIND_AFTER_MS) return
+                val name = lastName
+                val index = lastIndex
+                if (name.isNullOrEmpty() || index == null) return
+                if (!interfaceUp(name)) {
+                    reconcileUnderlying()
+                    return
+                }
+                notifyIfChanged(name, index, true)
+            }
+        }
+        wakeReceiver = receiver
+        val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Application.application.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            Application.application.registerReceiver(receiver, filter)
+        }
+    }
+
+    private fun unregisterWake() {
+        val receiver = wakeReceiver ?: return
+        wakeReceiver = null
+        runCatching { Application.application.unregisterReceiver(receiver) }
     }
 
     private fun scheduleWatch() {
@@ -195,5 +242,6 @@ object DefaultNetworkMonitor {
     private const val RETRY_MS = 150L
     private const val REBIND_DELAY_MS = 200L
     private const val WATCH_MS = 30_000L
+    private const val WAKE_REBIND_AFTER_MS = 30 * 60 * 1000L
     private const val MAX_RETRIES = 8
 }

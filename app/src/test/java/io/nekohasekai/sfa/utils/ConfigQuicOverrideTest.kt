@@ -24,6 +24,47 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun cacheFileUsesOfficialDefaultsWhenMissing() {
+        val root = JSONObject()
+        assertTrue(ConfigInboundCompat.ensureCacheFile(root, "7"))
+        val cache = root.getJSONObject("experimental").getJSONObject("cache_file")
+        assertTrue(cache.getBoolean("enabled"))
+        assertEquals("profile-7", cache.getString("cache_id"))
+        assertTrue(cache.getBoolean("store_dns"))
+        assertTrue(cache.getBoolean("store_fakeip"))
+        assertEquals("1m", cache.getString("flush_interval"))
+        assertFalse(ConfigInboundCompat.ensureCacheFile(root, "7"))
+    }
+
+    @Test
+    fun cacheFileLeavesAnExplicitDisable() {
+        val root = JSONObject().put(
+            "experimental",
+            JSONObject().put("cache_file", JSONObject().put("enabled", false)),
+        )
+        assertFalse(ConfigInboundCompat.ensureCacheFile(root, "7"))
+        val cache = root.getJSONObject("experimental").getJSONObject("cache_file")
+        assertFalse(cache.getBoolean("enabled"))
+        assertFalse(cache.has("store_dns"))
+    }
+
+    @Test
+    fun cacheFileKeepsAUserFlushInterval() {
+        val root = JSONObject().put(
+            "experimental",
+            JSONObject().put(
+                "cache_file",
+                JSONObject().put("enabled", true).put("flush_interval", "5m").put("cache_id", "mine"),
+            ),
+        )
+        assertTrue(ConfigInboundCompat.ensureCacheFile(root, "7"))
+        val cache = root.getJSONObject("experimental").getJSONObject("cache_file")
+        assertEquals("5m", cache.getString("flush_interval"))
+        assertEquals("mine", cache.getString("cache_id"))
+        assertTrue(cache.getBoolean("store_dns"))
+    }
+
+    @Test
     fun dnsProtectOverwritesExisting() {
         val root = JSONObject()
             .put("dns", JSONObject().put("independent_cache", false))

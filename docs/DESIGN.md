@@ -51,6 +51,8 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 采纳：
 
 - 规则集用 sing-box 的 `.srs`，不把 mihomo 的 `GEOSITE`/`GEOIP` 文件原样塞进来。
+- 远程规则集用官方 `experimental.cache_file` 留在磁盘上，选择的节点、假 IP 和 DNS 结果一起留。`store_dns` 是 1.14 的写法，`flush_interval: 1m` 是 1.15 的写法，进程被杀掉也不会把这一分钟里的缓存丢掉。用户自己写了 `enabled: false` 就不动，也不写回订阅。
+- 有的手机休眠后默认网络回调不再来，网卡名字却没变，于是出现「过了一夜没有网，开关一下就好」。亮屏时如果超过半小时没有收到过网卡更新，就把这张还活着的网卡重新交给内核一次。平时解锁不打断连接。
 - 分流只有一个作者。Clash 用户要的地区组和功能组，用脚本写成真实的 `selector` / `urltest` 和会命中的规则。
 - 节点域名的解析走直连引导 DNS。远程 DNS 可以走代理，但只走一跳。
 - 1.15 的 TUN 自有栈、按需连接、Android 上需 root 的 `auto_redirect`。`auto_redirect` 默认关。

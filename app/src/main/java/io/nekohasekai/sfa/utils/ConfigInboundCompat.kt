@@ -39,6 +39,45 @@ object ConfigInboundCompat {
     }
 
     /**
+     * Official remote rule-sets are only kept on disk when
+     * `experimental.cache_file` is enabled, and a selector's choice is
+     * remembered the same way. `store_dns` is the 1.14 replacement for the
+     * removed reject-DNS cache. `flush_interval` is 1.15: without it a
+     * killed process drops the buffer and the next start downloads again.
+     * Missing fields only. An explicit `enabled: false` is left alone.
+     * Runtime overlay; do not write this back into the saved profile.
+     */
+    internal fun ensureCacheFile(root: JSONObject, cacheId: String): Boolean {
+        val experimental = root.optJSONObject("experimental")
+            ?: JSONObject().also { root.put("experimental", it) }
+        val cache = experimental.optJSONObject("cache_file")
+            ?: JSONObject().also { experimental.put("cache_file", it) }
+        if (cache.has("enabled") && !cache.optBoolean("enabled")) return false
+        var changed = false
+        if (!cache.optBoolean("enabled", false)) {
+            cache.put("enabled", true)
+            changed = true
+        }
+        if (cache.optString("cache_id").isBlank() && cacheId.isNotBlank()) {
+            cache.put("cache_id", "profile-$cacheId")
+            changed = true
+        }
+        if (!cache.has("store_dns")) {
+            cache.put("store_dns", true)
+            changed = true
+        }
+        if (!cache.has("store_fakeip")) {
+            cache.put("store_fakeip", true)
+            changed = true
+        }
+        if (cache.optString("flush_interval").isBlank()) {
+            cache.put("flush_interval", "1m")
+            changed = true
+        }
+        return changed
+    }
+
+    /**
      * Startup routing for a config this app generated from Clash or a share
      * link. A sing-box file is left alone: official clients do not insert
      * sniff, DNS hijack, or a fake-ip reject into a document that already
