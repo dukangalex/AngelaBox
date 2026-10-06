@@ -293,7 +293,7 @@ object ConfigQuicOverride {
     internal fun applyDnsProtect(root: JSONObject) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         dns.put("independent_cache", true)
-        if (!Settings.disableIpv6 && dns.optString("strategy").isBlank()) {
+        if (dns.optString("strategy").isBlank()) {
             dns.put("strategy", "prefer_ipv4")
         }
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }

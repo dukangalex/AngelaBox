@@ -64,7 +64,7 @@ object ChainRuntimeCompiler {
             add(landingMergedTag)
             if (sameProfile) add(req.landingTag)
         }
-        val entryHop = prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = sameProfile)
+        val entryHop = prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true)
         val chainTag = "$GENERATED_PREFIX${req.currentProfileId}-${req.landingProfileId}"
         removeOutbound(outs, chainTag)
         outs.put(JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
@@ -347,7 +347,7 @@ object ChainRuntimeCompiler {
         val visiting = mutableSetOf<String>()
         val rewritten = mutableMapOf<String, String>()
 
-        fun sanitize(currentTag: String, depth: Int, root: Boolean): String {
+        fun sanitize(currentTag: String, depth: Int): String {
             require(depth <= MAX_MERGE_DEPTH) { "链式入口分组嵌套过深：$currentTag" }
             require(currentTag !in visiting) { "链式入口分组存在循环：$currentTag" }
             rewritten[currentTag]?.let { return it }
@@ -368,11 +368,11 @@ object ChainRuntimeCompiler {
                 val child = find(outs, member) ?: error("分组 $currentTag 引用了不存在的 outbound：$member")
                 val childType = child.optString("type").trim()
                 if (childType in forbiddenTypes) continue
-                mapped.put(if (childType in groupTypes) sanitize(member, depth + 1, false) else member)
+                mapped.put(if (childType in groupTypes) sanitize(member, depth + 1) else member)
             }
             require(mapped.length() > 0) { "分组过滤 DIRECT/落地后没有可用代理：$currentTag。请另选入口或落地。" }
-            val newTag = if (root && inPlace) currentTag else "$tagPrefix$currentTag"
-            val clone = if (root && inPlace) original else JSONObject(original.toString()).put("tag", newTag)
+            val newTag = if (inPlace) currentTag else "$tagPrefix$currentTag"
+            val clone = if (inPlace) original else JSONObject(original.toString()).put("tag", newTag)
             clone.put("outbounds", mapped)
             if (clone.has("default")) {
                 val d = clone.optString("default").trim()
@@ -380,10 +380,10 @@ object ChainRuntimeCompiler {
                 else {
                     val dObj = find(outs, d)
                     if (dObj == null || dObj.optString("type") in forbiddenTypes) clone.remove("default")
-                    else clone.put("default", if (dObj.optString("type") in groupTypes) sanitize(d, depth + 1, false) else d)
+                    else clone.put("default", if (dObj.optString("type") in groupTypes) sanitize(d, depth + 1) else d)
                 }
             }
-            if (!(root && inPlace)) {
+            if (!inPlace) {
                 removeOutbound(outs, newTag)
                 outs.put(clone)
             }
@@ -391,7 +391,7 @@ object ChainRuntimeCompiler {
             visiting.remove(currentTag)
             return newTag
         }
-        return sanitize(tag, 0, true)
+        return sanitize(tag, 0)
     }
 
     private fun isForbiddenHop(outs: JSONArray, o: JSONObject, tag: String): Boolean {
