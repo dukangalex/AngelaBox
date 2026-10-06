@@ -1,11 +1,11 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 25
+ * overlay-revision: 26
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
  * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不绑定本机 mixed 端口。
- * 禁用 QUIC 时拒绝 UDP 443，用复位，不用 drop。排除国内 QUIC 时，国内域名的 UDP 443 先走直连。
+ * 禁用 QUIC 时拒绝 UDP 443，用复位，不用 drop。同时拒绝 HTTPS/SVCB 查询，避免油管 App 死守 HTTP/3。排除国内 QUIC 时，国内域名的 UDP 443 先走直连。
  * REJECT 用 socks 127.0.0.1:9，标签仍叫 REJECT。不要写 block 出站。
  * 叶节点去掉 detour / dialer-proxy。链式代理由应用组，不写在这份脚本里。
  */
@@ -716,7 +716,23 @@ function main(config) {
     addService({
       name: "YouTube",
       sets: [{ tag: "geosite-youtube", file: "geosite-youtube.srs", out: "YouTube" }],
-      domains: [{ domain_suffix: ["youtubei.googleapis.com", "youtube.googleapis.com"], outbound: "YouTube" }]
+      domains: [{
+        domain_suffix: [
+          "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com",
+          "youtubekids.com", "youtubei.googleapis.com", "youtube.googleapis.com",
+          "wide-youtube.l.google.com"
+        ],
+        outbound: "YouTube"
+      }],
+      extra: [{
+        package_name: [
+          "com.google.android.youtube",
+          "com.google.android.apps.youtube.music",
+          "app.revanced.android.youtube",
+          "com.vanced.android.youtube"
+        ],
+        outbound: "YouTube"
+      }]
     });
     addService({ name: "Google", sets: [{ tag: "geosite-google", file: "geosite-google.srs", out: "Google" }] });
     addService({
@@ -891,6 +907,7 @@ function main(config) {
   if (chinaDirect) {
     dnsRules.push({ rule_set: ["geosite-cn", "geosite-geolocation-cn"], server: "dns-cn" });
   }
+  dnsRules.push({ query_type: ["HTTPS", "SVCB"], action: "reject" });
   dnsRules.push({ query_type: ["A", "AAAA"], server: "dns-fakeip" });
   config.dns = {
     servers: dnsServers,

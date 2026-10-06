@@ -163,8 +163,8 @@ debug 与正式签名混过。卸载后装正式 `AngelaBox-android.apk`，以�
 **导入报 unknown transport type: rcode / legacy DNS fakeip / legacy inbound fields**  
 订阅仍用 1.11 写法。当前版本导入和启动时会自动迁移：`dns.fakeip` → `type: fakeip`，`rcode://` 与 `type: rcode` → DNS 规则 `action: predefined`，入站 `sniff` / `domain_strategy` → 路由动作，`type: dns` / `type: block` 出站 → `hijack-dns` / `reject`。请用当前发行版重新导入或直接启动（启动时也会迁移）。官方客户端同样会拒绝这些字段。
 
-**开启脚本后国内走香港 / YouTube、Gemini 打不开 / 日志里 fetch ECH config list 超时**  
-当前默认脚本：国内 IP/域名先直连。国外 A/AAAA 用 fake-ip，不必先等节点上的 DNS。ECH 查询改走直连，避免节点自己等自己。打开脚本页会自动换成最新默认脚本，然后重载。已经导入过的节点若曾丢掉 ECH，需要再更新一次订阅。
+**开启脚本后国内走香港 / YouTube App 打不开、网页可以 / 日志里 fetch ECH config list 超时**  
+当前默认脚本：国内 IP/域名先直连。国外 A/AAAA 用 fake-ip。YouTube App 会先查 HTTPS/SVCB 再走 HTTP/3，网页则会退回 TCP，所以只拒 UDP 443 时 App 会卡住。脚本现在拒绝这两类查询，App 改走 TCP。视频域名和 YouTube 包名直接进 YouTube 组。ECH 查询仍走直连，避免节点自己等自己。打开脚本页会自动换成最新默认脚本，然后重载。
 
 **启动报 outbound detour not found: proxy-select / 规则集下载失败**  
 脚本改写了分组名字，订阅里的规则集下载仍指向旧出站。当前版本会按官方 1.14 写入无 detour 的 `http_clients`，国内镜像直连下载。若仍失败，这次会先跳过脚本启动，**绑定还在**，修好后再开即可。

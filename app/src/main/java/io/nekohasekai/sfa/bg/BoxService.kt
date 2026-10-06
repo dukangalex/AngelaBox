@@ -50,8 +50,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -59,7 +57,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     companion object {
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000
         private const val START_BUDGET_MS = 45_000L
-        private const val RULE_SET_PROBE_MS = 4_000
         private const val TAG = "BoxService"
         private val stalledRuleSetProfiles = Collections.synchronizedSet(mutableSetOf<Long>())
 
@@ -289,7 +286,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return false
         }
         var droppedRuleSets = false
-        if (profileId in stalledRuleSetProfiles || shouldSkipRemoteRuleSets(content)) {
+        if (profileId in stalledRuleSetProfiles) {
             val dropped = ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true)
             if (dropped != content) {
                 content = dropped
@@ -554,51 +551,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             text.contains("network is unreachable", ignoreCase = true) ||
             text.contains("connection reset", ignoreCase = true) ||
             text.contains("i/o timeout", ignoreCase = true)
-    }
-
-    /**
-     * No on-disk rule-set cache yet, and the first remote set does not answer.
-     * Skip the download instead of leaving the power button spinning.
-     * A cache hit still goes through the kernel so a later start is fast.
-     */
-    private fun shouldSkipRemoteRuleSets(content: String): Boolean {
-        if (ruleSetCachePresent()) return false
-        val url = firstHttpsRuleSetUrl(content) ?: return false
-        return !ruleSetHostAnswers(url)
-    }
-
-    private fun ruleSetCachePresent(): Boolean {
-        val dir = Application.application.getExternalFilesDir(null) ?: return false
-        val file = File(dir, "cache.db")
-        return file.isFile && file.length() > 0L
-    }
-
-    private fun firstHttpsRuleSetUrl(content: String): String? {
-        val root = runCatching { org.json.JSONObject(content) }.getOrNull() ?: return null
-        val sets = root.optJSONObject("route")?.optJSONArray("rule_set") ?: return null
-        for (i in 0 until sets.length()) {
-            val item = sets.optJSONObject(i) ?: continue
-            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
-            if (url.startsWith("https://")) return url
-        }
-        return null
-    }
-
-    private fun ruleSetHostAnswers(url: String): Boolean {
-        return runCatching {
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = RULE_SET_PROBE_MS
-                readTimeout = RULE_SET_PROBE_MS
-                instanceFollowRedirects = true
-                requestMethod = "HEAD"
-            }
-            try {
-                conn.responseCode
-                true
-            } finally {
-                conn.disconnect()
-            }
-        }.getOrDefault(false)
     }
 
     private fun shouldRestartAsVpn(err: String?): Boolean {

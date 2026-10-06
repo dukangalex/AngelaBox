@@ -294,6 +294,10 @@ class ConfigScriptOverrideTest {
         assertTrue(dnsRuleText.contains("dns-fakeip"))
         assertTrue(dnsRuleText.contains("A"))
         assertTrue(ruleText.contains("youtubei.googleapis.com"))
+        assertTrue(ruleText.contains("googlevideo.com"))
+        assertTrue(ruleText.contains("com.google.android.youtube"))
+        assertTrue(dnsRuleText.contains("HTTPS"))
+        assertTrue(dnsRuleText.contains("SVCB"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
     }
 
