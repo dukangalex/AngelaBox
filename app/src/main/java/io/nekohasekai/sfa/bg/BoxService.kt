@@ -498,7 +498,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         while (true) {
             val left = deadline - SystemClock.elapsedRealtime()
             if (left <= 0L) break
-            if (worker.join(left.coerceAtMost(400L))) {
+            worker.join(left.coerceAtMost(400L))
+            if (!worker.isAlive) {
                 return holder[0] ?: Result.failure(
                     IllegalStateException("initialize rule-set: 启动没有返回"),
                 )
@@ -520,7 +521,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }, "kernel-cancel")
         closer.isDaemon = true
         closer.start()
-        if (!worker.join(8_000)) {
+        worker.join(8_000)
+        if (worker.isAlive) {
             runCatching { server.close() }
             worker.join(1_000)
         } else {
