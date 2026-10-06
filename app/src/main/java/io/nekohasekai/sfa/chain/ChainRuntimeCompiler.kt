@@ -46,10 +46,7 @@ object ChainRuntimeCompiler {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val routeFinal = route.optString("final").trim()
         val requested = req.entryTag?.trim().orEmpty()
-        val main = when {
-            requested.isNotEmpty() && find(outs, requested) != null -> requested
-            else -> resolveMainTag(outs, routeFinal) ?: error("无法识别当前配置的链式入口，请到「工具 → 链式代理」手动选择入口")
-        }
+        val main = resolveRequestedEntry(outs, requested, routeFinal)
 
         val sameProfile = req.landingProfileId == req.currentProfileId
         require(sameProfile || !req.landingContent.isNullOrBlank()) { "跨配置落地内容缺失，无法组链" }
@@ -94,6 +91,48 @@ object ChainRuntimeCompiler {
     fun isFinalLike(tag: String): Boolean {
         val t = tag.lowercase()
         return t.contains("漏网") || t.contains("final") || t.contains("剩余") || t.contains("unmatched") || t == "match"
+    }
+
+    /**
+     * Saved chain entries often keep a Clash emoji prefix. The default script
+     * writes the same group without that prefix. Match either name before
+     * falling back to the main group.
+     */
+    fun resolveRequestedEntry(outs: JSONArray, requested: String, routeFinal: String): String {
+        matchExistingTag(outs, requested)?.let { return it }
+        return resolveMainTag(outs, routeFinal)
+            ?: error("无法识别当前配置的链式入口，请到「工具 → 链式代理」手动选择入口")
+    }
+
+    fun savedEntryMatches(content: String, requested: String): String? {
+        val root = runCatching { JSONObject(content) }.getOrNull() ?: return null
+        val outs = root.optJSONArray("outbounds") ?: return null
+        return matchExistingTag(outs, requested)
+    }
+
+    private fun matchExistingTag(outs: JSONArray, requested: String): String? {
+        val exact = requested.trim()
+        if (exact.isNotEmpty() && find(outs, exact) != null) return exact
+        val bare = stripLeadingMarks(exact)
+        if (bare.isNotEmpty() && bare != exact && find(outs, bare) != null) return bare
+        return null
+    }
+
+    private fun stripLeadingMarks(tag: String): String {
+        var i = 0
+        while (i < tag.length) {
+            val ch = tag[i]
+            val type = Character.getType(ch)
+            val skip = ch.isWhitespace() ||
+                type == Character.OTHER_SYMBOL.toInt() ||
+                type == Character.SURROGATE.toInt() ||
+                type == Character.NON_SPACING_MARK.toInt() ||
+                type == Character.FORMAT.toInt() ||
+                type == Character.MODIFIER_SYMBOL.toInt()
+            if (!skip) break
+            i++
+        }
+        return tag.substring(i).trim()
     }
 
     fun resolveMainTag(outs: JSONArray, routeFinal: String): String? {

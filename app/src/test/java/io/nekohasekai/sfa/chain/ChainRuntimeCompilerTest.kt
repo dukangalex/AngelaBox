@@ -152,6 +152,35 @@ class ChainRuntimeCompilerTest {
     }
 
     @Test
+    fun emojiPrefixedEntryMatchesTheScriptGroup() {
+        val rootSrc = JSONObject(profile("节点选择"))
+        rootSrc.getJSONArray("outbounds").put(
+            JSONObject()
+                .put("type", "urltest")
+                .put("tag", "自动选择")
+                .put("outbounds", JSONArray().put("hk-1").put("jp-1")),
+        )
+        val content = rootSrc.toString()
+        val compiled = ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = content,
+                currentProfileId = 1L,
+                entryTag = "⚡ 自动选择",
+                landingProfileId = 1L,
+                landingTag = "jp-1",
+                landingContent = null,
+            ),
+        )
+        val root = JSONObject(compiled)
+        val chain = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.optString("type") == "chain" }
+        assertEquals("自动选择", chain.getJSONArray("outbounds").getString(0))
+        assertEquals("自动选择", ChainRuntimeCompiler.savedEntryMatches(content, "⚡ 自动选择"))
+        assertEquals("自动选择", ChainRuntimeCompiler.savedEntryMatches(content, "♻️ 自动选择"))
+    }
+
+    @Test
     fun pinTrafficRewritesProxyRoutesAndDnsDetour() {
         val src = JSONObject(profile("节点选择"))
         src.getJSONObject("route").put(

@@ -78,6 +78,22 @@ object ConfigInboundCompat {
     }
 
     /**
+     * A direct rule-set download has no read timeout in this kernel. A
+     * connect timeout at least stops a blackholed TCP handshake from sitting
+     * in Start() until the process is killed. Clients that already name a
+     * detour or a timeout are left alone. Runtime overlay only.
+     */
+    internal fun ensureDirectHttpTimeout(root: JSONObject) {
+        val clients = root.optJSONArray("http_clients") ?: return
+        for (i in 0 until clients.length()) {
+            val client = clients.optJSONObject(i) ?: continue
+            if (client.optString("detour").isNotBlank()) continue
+            if (client.optString("connect_timeout").isNotBlank()) continue
+            client.put("connect_timeout", "10s")
+        }
+    }
+
+    /**
      * Startup routing for a config this app generated from Clash or a share
      * link. A sing-box file is left alone: official clients do not insert
      * sniff, DNS hijack, or a fake-ip reject into a document that already

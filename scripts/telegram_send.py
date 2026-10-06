@@ -2,7 +2,7 @@
 """Send Telegram channel posts without curl -F.
 
 GitHub Actions masks the substring stored in TG_CHANNEL_ID. The channel is
-@AngelaNexus. Do not put the product name inside that secret or the mask
+@AngelaBox. Do not put the product name inside that secret or the mask
 corrupts log lines. Use stdlib multipart so the APK is always read from disk.
 
 sendMessage runs first so a large sendDocument timeout cannot swallow the

@@ -65,6 +65,24 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun directHttpClientGetsAConnectTimeout() {
+        val root = JSONObject().put(
+            "http_clients",
+            JSONArray().put(JSONObject().put("tag", "http-direct")),
+        )
+        ConfigInboundCompat.ensureDirectHttpTimeout(root)
+        assertEquals(
+            "10s",
+            root.getJSONArray("http_clients").getJSONObject(0).getString("connect_timeout"),
+        )
+        ConfigInboundCompat.ensureDirectHttpTimeout(root)
+        assertEquals(
+            "10s",
+            root.getJSONArray("http_clients").getJSONObject(0).getString("connect_timeout"),
+        )
+    }
+
+    @Test
     fun dnsProtectOverwritesExisting() {
         val root = JSONObject()
             .put("dns", JSONObject().put("independent_cache", false))

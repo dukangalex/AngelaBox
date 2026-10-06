@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
@@ -42,7 +43,6 @@ object ConfigQuicOverride {
         val profileId = Settings.selectedProfile
         val binding = ChainBindings.get(profileId)
         val savedEntry = binding?.entryTag?.trim().orEmpty()
-        val entryMissing = binding != null && savedEntry.isNotEmpty() && !outboundExists(out, savedEntry)
 
         try {
             var root = JSONObject(out)
@@ -55,6 +55,8 @@ object ConfigQuicOverride {
                 }
             }
             out = ConfigCompat.sanitize(root.toString())
+            val entryMissing = binding != null && savedEntry.isNotEmpty() &&
+                ChainRuntimeCompiler.savedEntryMatches(out, savedEntry) == null
             if (binding != null) {
                 try {
                     out = ConfigChainReapply.apply(out)
@@ -128,6 +130,7 @@ object ConfigQuicOverride {
             // matches the original tags. Chain landing is untouched.
             ConfigInboundCompat.applyKernelCompat(root)
             ConfigInboundCompat.ensureCacheFile(root, Settings.selectedProfile.toString())
+            ConfigInboundCompat.ensureDirectHttpTimeout(root)
             ConfigNormalize.ensureClashModes(root)
             if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
                 applyOnDemand(root, Settings.onDemand)
@@ -309,19 +312,6 @@ object ConfigQuicOverride {
         for (i in 0 until inbounds.length()) {
             val ib = inbounds.optJSONObject(i) ?: continue
             if (ib.optString("type") == "tun") ib.remove("inet6_address")
-        }
-    }
-
-    private fun outboundExists(content: String, tag: String): Boolean {
-        if (content.length > ConfigCompat.MAX_CONFIG_CHARS) return false
-        return try {
-            val outs = JSONObject(content).optJSONArray("outbounds") ?: return false
-            for (i in 0 until outs.length()) {
-                if (outs.optJSONObject(i)?.optString("tag") == tag) return true
-            }
-            false
-        } catch (_: Exception) {
-            false
         }
     }
 }

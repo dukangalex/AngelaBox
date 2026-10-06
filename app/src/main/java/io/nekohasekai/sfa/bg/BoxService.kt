@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -49,11 +50,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000
+        private const val START_BUDGET_MS = 45_000L
+        private const val RULE_SET_PROBE_MS = 4_000
         private const val TAG = "BoxService"
+        private val stalledRuleSetProfiles = Collections.synchronizedSet(mutableSetOf<Long>())
 
         fun start() {
             val intent =
@@ -81,6 +89,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
+    private val startAbort = AtomicBoolean(false)
+    @Volatile private var startInFlight = false
+
+    private class StartCancelled : IllegalStateException("已取消启动")
 
     private var receiverRegistered = false
     private val receiver =
@@ -149,6 +161,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             TunnelGate.setUp(true)
+            if (startAbort.get()) {
+                stopAndAlert(Alert.StartService, null, silent = true)
+                return
+            }
             status.postValue(Status.Started)
             notePrivateDns()
             withContext(Dispatchers.Main) {
@@ -156,7 +172,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             notification.start()
         } catch (e: Exception) {
-            stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
+            if (e is StartCancelled) {
+                stopAndAlert(Alert.StartService, null, silent = true)
+            } else {
+                stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
+            }
             return
         }
     }
@@ -262,13 +282,30 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean {
         val options = buildOverrideOptions()
         val scriptBound = OverlayScripts.isBound(profileId)
-        fun tryStart(content: String): Result<Unit> = runCatching {
-            commandServer.startOrReloadService(content, options)
-        }
 
         var content = ConfigQuicOverride.apply(rawContent)
-        var result = tryStart(content)
-        if (result.isSuccess) return true
+        if (startAbort.get()) {
+            stopAndAlert(Alert.StartService, null, silent = true)
+            return false
+        }
+        var droppedRuleSets = false
+        if (profileId in stalledRuleSetProfiles || shouldSkipRemoteRuleSets(content)) {
+            val dropped = ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true)
+            if (dropped != content) {
+                content = dropped
+                droppedRuleSets = true
+                stalledRuleSetProfiles.add(profileId)
+            }
+        }
+        var result = attempt(content, options)
+        if (result.isSuccess) {
+            if (droppedRuleSets) noteRuleSetsSkipped()
+            return true
+        }
+        if (result.exceptionOrNull() is StartCancelled) {
+            stopAndAlert(Alert.StartService, null, silent = true)
+            return false
+        }
         val firstErr = result.exceptionOrNull()?.message
         if (shouldRestartAsVpn(firstErr)) {
             Settings.serviceMode = ServiceMode.VPN
@@ -283,14 +320,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         if (ConfigDiagnose.looksLikeRpcDeath(err)) {
             restartCommandServer()
-            result = tryStart(content)
+            result = attempt(content, options)
             if (result.isSuccess) return true
             keep(result.exceptionOrNull()?.message)
         }
 
         if (ConfigDiagnose.looksLikeBadEch(firstErr) || ConfigDiagnose.looksLikeBadEch(err)) {
             restartCommandServer()
-            result = tryStart(ConfigQuicOverride.apply(rawContent, stripEch = true))
+            result = attempt(
+                ConfigQuicOverride.apply(
+                    rawContent,
+                    stripEch = true,
+                    dropAllRemoteRuleSets = droppedRuleSets,
+                ),
+                options,
+            )
             if (result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
@@ -311,7 +355,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             if (patched != content) {
                 restartCommandServer()
                 content = patched
-                result = tryStart(content)
+                result = attempt(content, options)
                 if (result.isSuccess) return true
                 keep(result.exceptionOrNull()?.message)
             }
@@ -319,17 +363,20 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         val ruleSetFail = ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
             ConfigDiagnose.looksLikeRuleSetFailure(err)
+        val stalled = isRuleSetStall(firstErr) || isRuleSetStall(err)
         var needles = ConfigDiagnose.ruleSetNeedles(firstErr)
-        if (needles.isEmpty() && ruleSetFail) {
+        if (needles.isEmpty() && ruleSetFail && !stalled) {
             needles = ConfigInboundCompat.remoteRuleSetTags(content)
         }
         var ruleSetRetried = false
         if (ruleSetFail) {
             ruleSetRetried = true
-            if (needles.isNotEmpty()) {
+            if (stalled) stalledRuleSetProfiles.add(profileId)
+            if (!stalled && needles.isNotEmpty()) {
                 restartCommandServer()
-                result = tryStart(
+                result = attempt(
                     ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
+                    options,
                 )
                 if (result.isSuccess) {
                     OverrideStatus.add(
@@ -344,17 +391,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 keep(result.exceptionOrNull()?.message)
             }
             restartCommandServer()
-            result = tryStart(
+            result = attempt(
                 ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true),
+                options,
             )
             if (result.isSuccess) {
-                OverrideStatus.add(
-                    OverrideNotice(
-                        title = "规则集已跳过",
-                        reason = "远程规则集下不下来，已跳过这些规则集后启动。",
-                        hint = "节点和分组还在，其余分流还在。没有改成直连。",
-                    ),
-                )
+                noteRuleSetsSkipped()
                 return true
             }
             keep(result.exceptionOrNull()?.message)
@@ -369,8 +411,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     rawContent,
                     skipScripts = true,
                     replaceRuleSetNeedles = needles,
+                    dropAllRemoteRuleSets = droppedRuleSets,
                 )
-                result = tryStart(recovered)
+                result = attempt(recovered, options)
                 if (result.isSuccess) {
                     OverrideStatus.add(
                         OverrideNotice(
@@ -397,8 +440,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         if (scriptBound && ConfigDiagnose.looksLikeScriptFault(err)) {
             restartCommandServer()
-            val rolled = ConfigQuicOverride.apply(rawContent, skipScripts = true)
-            result = tryStart(rolled)
+            val rolled = ConfigQuicOverride.apply(
+                rawContent,
+                skipScripts = true,
+                dropAllRemoteRuleSets = droppedRuleSets,
+            )
+            result = attempt(rolled, options)
             if (result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
@@ -426,6 +473,132 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         return false
     }
 
+    private suspend fun attempt(content: String, options: OverrideOptions): Result<Unit> {
+        val result = startWithinBudget(content, options)
+        if (result.exceptionOrNull() is StartCancelled) throw StartCancelled()
+        return result
+    }
+
+    /**
+     * Remote rule-set downloads have no read timeout. Run the kernel start
+     * off this thread so a blackholed fetch can be cancelled, and so a tap
+     * on the power button during the spin can give up instead of sticking
+     * in Starting forever (onStartCommand ignores a start that is not Stopped).
+     */
+    private fun startWithinBudget(content: String, options: OverrideOptions): Result<Unit> {
+        if (startAbort.get()) return Result.failure(StartCancelled())
+        val server = commandServer
+        val holder = arrayOfNulls<Result<Unit>>(1)
+        val worker = Thread({
+            holder[0] = runCatching { server.startOrReloadService(content, options) }
+        }, "kernel-start")
+        worker.isDaemon = true
+        worker.start()
+        val deadline = SystemClock.elapsedRealtime() + START_BUDGET_MS
+        while (true) {
+            val left = deadline - SystemClock.elapsedRealtime()
+            if (left <= 0L) break
+            if (worker.join(left.coerceAtMost(400L))) {
+                return holder[0] ?: Result.failure(
+                    IllegalStateException("initialize rule-set: 启动没有返回"),
+                )
+            }
+            if (startAbort.get()) {
+                abandonStart(server, worker)
+                return Result.failure(StartCancelled())
+            }
+        }
+        abandonStart(server, worker)
+        return Result.failure(
+            IllegalStateException("initialize rule-set: 远程规则集超过 45 秒还没下完"),
+        )
+    }
+
+    private fun abandonStart(server: CommandServer, worker: Thread) {
+        val closer = Thread({
+            runCatching { server.closeService() }
+        }, "kernel-cancel")
+        closer.isDaemon = true
+        closer.start()
+        if (!worker.join(8_000)) {
+            runCatching { server.close() }
+            worker.join(1_000)
+        } else {
+            closer.join(2_000)
+        }
+        if (::commandServer.isInitialized && commandServer === server) {
+            runCatching { commandServer.close() }
+            startCommandServer()
+        }
+    }
+
+    private fun noteRuleSetsSkipped() {
+        OverrideStatus.add(
+            OverrideNotice(
+                title = "规则集已跳过",
+                reason = "远程规则集下不下来，已跳过这些规则集后启动。",
+                hint = "节点和分组还在，其余分流还在。没有改成直连。",
+            ),
+        )
+    }
+
+    private fun isRuleSetStall(err: String?): Boolean {
+        val text = err.orEmpty()
+        if (text.contains("超过 45 秒")) return true
+        if (!ConfigDiagnose.looksLikeRuleSetFailure(text)) return false
+        return text.contains("timeout", ignoreCase = true) ||
+            text.contains("connection refused", ignoreCase = true) ||
+            text.contains("no such host", ignoreCase = true) ||
+            text.contains("network is unreachable", ignoreCase = true) ||
+            text.contains("connection reset", ignoreCase = true) ||
+            text.contains("i/o timeout", ignoreCase = true)
+    }
+
+    /**
+     * No on-disk rule-set cache yet, and the first remote set does not answer.
+     * Skip the download instead of leaving the power button spinning.
+     * A cache hit still goes through the kernel so a later start is fast.
+     */
+    private fun shouldSkipRemoteRuleSets(content: String): Boolean {
+        if (ruleSetCachePresent()) return false
+        val url = firstHttpsRuleSetUrl(content) ?: return false
+        return !ruleSetHostAnswers(url)
+    }
+
+    private fun ruleSetCachePresent(): Boolean {
+        val dir = Application.application.getExternalFilesDir(null) ?: return false
+        val file = File(dir, "cache.db")
+        return file.isFile && file.length() > 0L
+    }
+
+    private fun firstHttpsRuleSetUrl(content: String): String? {
+        val root = runCatching { org.json.JSONObject(content) }.getOrNull() ?: return null
+        val sets = root.optJSONObject("route")?.optJSONArray("rule_set") ?: return null
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            if (url.startsWith("https://")) return url
+        }
+        return null
+    }
+
+    private fun ruleSetHostAnswers(url: String): Boolean {
+        return runCatching {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = RULE_SET_PROBE_MS
+                readTimeout = RULE_SET_PROBE_MS
+                instanceFollowRedirects = true
+                requestMethod = "HEAD"
+            }
+            try {
+                conn.responseCode
+                true
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrDefault(false)
+    }
+
     private fun shouldRestartAsVpn(err: String?): Boolean {
         if (service is VPNService) return false
         if (err.isNullOrBlank()) return false
@@ -442,6 +615,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
+        if (status.value == Status.Starting) {
+            startAbort.set(true)
+            if (!startInFlight) {
+                Settings.startedByUser = false
+                status.value = Status.Stopped
+                service.stopSelf()
+            }
+            return
+        }
         if (status.value != Status.Started) return
         TunnelGate.setUp(false)
         status.value = Status.Stopping
@@ -479,7 +661,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+    private suspend fun stopAndAlert(type: Alert, message: String? = null, silent: Boolean = false) {
         Settings.startedByUser = false
         val pfd = fileDescriptor
         if (pfd != null) {
@@ -498,7 +680,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             notification.close()
             binder.broadcast { callback ->
-                callback.onServiceAlert(type.ordinal, message)
+                if (!silent) callback.onServiceAlert(type.ordinal, message)
             }
             TunnelGate.setUp(false)
             status.value = Status.Stopped
@@ -510,6 +692,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
         if (status.value != Status.Stopped) return Service.START_STICKY
+        startAbort.set(false)
+        startInFlight = true
         TunnelGate.setUp(false)
         status.value = Status.Starting
 
@@ -526,14 +710,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
 
         GlobalScope.launch(Dispatchers.IO) {
-            Settings.startedByUser = true
             try {
-                startCommandServer()
-            } catch (e: Exception) {
-                stopAndAlert(Alert.StartCommandServer, e.message)
-                return@launch
+                Settings.startedByUser = true
+                try {
+                    startCommandServer()
+                } catch (e: Exception) {
+                    stopAndAlert(Alert.StartCommandServer, e.message)
+                    return@launch
+                }
+                startService()
+            } finally {
+                startInFlight = false
             }
-            startService()
         }
         return Service.START_STICKY
     }

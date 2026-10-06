@@ -262,6 +262,8 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
             --tests io.nekohasekai.sfa.utils.ConfigIngestTest \
             --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
+            --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \

@@ -650,9 +650,9 @@ def main() -> int:
     guide = read("docs/USER_GUIDE.md")
     if "按分流" not in guide and "按当前分流" not in guide:
         errors.append("USER_GUIDE must say WebDAV follows split routing")
-    if "t.me/AngelaNexus" not in readme:
+    if "t.me/AngelaBox" not in readme:
         errors.append("README must link the Telegram channel")
-    if "t.me/AngelaNexus" not in read("docs/MAINTENANCE.md"):
+    if "t.me/AngelaBox" not in read("docs/MAINTENANCE.md"):
         errors.append("MAINTENANCE must link the Telegram channel")
     if "topology.destinations.joinToString" in path_card:
         errors.append("do not show unused destination caption on home")
@@ -764,7 +764,7 @@ def main() -> int:
         errors.append("docs/brand/AngelaBox-icon-1024.png missing")
     if not brand_og.is_file() or brand_og.stat().st_size < 1000:
         errors.append("docs/brand/AngelaBox-og.png missing (GitHub social preview)")
-    if "t.me/AngelaNexus" not in read("docs/MAINTENANCE.md"):
+    if "t.me/AngelaBox" not in read("docs/MAINTENANCE.md"):
         errors.append("MAINTENANCE must document the Telegram channel")
     if "TG_BOT_TOKEN" not in read("docs/MAINTENANCE.md"):
         errors.append("MAINTENANCE must document Telegram bot secrets")
