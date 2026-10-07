@@ -95,7 +95,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 2. 把该 bot 加进频道 **AngelaBox**，授予「发布消息」权限。
 3. 仓库 **Settings → Secrets and variables → Actions** 增加：
    - `TG_BOT_TOKEN`：BotFather 给出的 token
-   - `TG_CHANNEL_ID`：`@AngelaBox`（或频道的 `-100…` 数字 ID）。机器人必须是该频道管理员。
+   - 频道不走 Secret：`release-chainbox.yml` 与 `telegram.yml` 里写死 `TG_CHANNEL_ID: "@AngelaBox"`。机器人必须是该频道管理员，否则通知步骤报 403（发版本身不受影响）。
 
 未配置时发版仍成功，只是跳过频道通知。配好后也可在 Actions 里手动跑 **Telegram Release**（文件 `telegram.yml`）。
 
