@@ -1467,9 +1467,13 @@ object ConfigIngest {
     private fun parseHysteria2(body: String): JSONObject? = parseUserHostQuery(body, "hysteria2") { out, query, host ->
         out.put("password", body.substringBefore('@'))
         putQueryTls(out, query, host, defaultOn = true)
-        query["obfs-password"]?.let { pwd ->
-            out.put("obfs", JSONObject().put("type", "salamander").put("password", pwd))
+        val obfsPass = query["obfs-password"] ?: query["obfs_password"] ?: query["obfs_param"]
+        if (!obfsPass.isNullOrEmpty()) {
+            val obfsType = query["obfs"]?.takeIf { it.isNotEmpty() } ?: "salamander"
+            out.put("obfs", JSONObject().put("type", obfsType).put("password", obfsPass))
         }
+        intVal(query["upmbps"] ?: query["up"])?.let { out.put("up_mbps", it) }
+        intVal(query["downmbps"] ?: query["down"])?.let { out.put("down_mbps", it) }
         true
     }
 
@@ -1534,7 +1538,12 @@ object ConfigIngest {
         out.put("uuid", uuid)
         if (password.isNotEmpty()) out.put("password", password)
         putQueryTls(out, query, host, defaultOn = true)
-        query["congestion_control"]?.let { out.put("congestion_control", it) }
+        val tls = out.optJSONObject("tls")
+        if (tls != null && !tls.has("alpn")) {
+            tls.put("alpn", JSONArray().put("h3"))
+        }
+        val cc = query["congestion_control"] ?: query["cc"] ?: query["congestion"]
+        if (!cc.isNullOrEmpty()) out.put("congestion_control", cc)
         true
     }
 

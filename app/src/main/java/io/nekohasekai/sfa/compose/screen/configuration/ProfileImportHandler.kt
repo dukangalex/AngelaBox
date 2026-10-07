@@ -111,6 +111,20 @@ class ProfileImportHandler(private val context: Context) {
                 return@withContext QRCodeParseResult.Error("订阅仅允许 HTTPS")
             }
 
+            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                val adapted = io.nekohasekai.sfa.utils.ConfigIngest.adapt(data)
+                if (adapted.fatal == null) {
+                    val name = try {
+                        val root = JSONObject(adapted.content)
+                        val firstOut = root.optJSONArray("outbounds")?.optJSONObject(0)?.optString("tag")
+                        firstOut?.takeIf { it.isNotEmpty() } ?: "节点配置"
+                    } catch (_: Exception) {
+                        "节点配置"
+                    }
+                    return@withContext QRCodeParseResult.LocalProfile(name = name)
+                }
+            }
+
             val content = try {
                 Libbox.decodeProfileContent(data.toByteArray())
             } catch (e: Exception) {
@@ -142,6 +156,20 @@ class ProfileImportHandler(private val context: Context) {
                 importRemoteProfile(profileName, data)
             } else if (data.startsWith("http://", ignoreCase = true)) {
                 ImportResult.Error("订阅仅允许 HTTPS")
+            } else if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                val adapted = io.nekohasekai.sfa.utils.ConfigIngest.adapt(data)
+                if (adapted.fatal != null) {
+                    ImportResult.Error(adapted.fatal)
+                } else {
+                    val name = try {
+                        val root = JSONObject(adapted.content)
+                        val firstOut = root.optJSONArray("outbounds")?.optJSONObject(0)?.optString("tag")
+                        firstOut?.takeIf { it.isNotEmpty() } ?: "导入节点"
+                    } catch (_: Exception) {
+                        "导入节点"
+                    }
+                    importJsonConfiguration(adapted.content, name)
+                }
             } else {
                 val content = try {
                     Libbox.decodeProfileContent(data.toByteArray())
