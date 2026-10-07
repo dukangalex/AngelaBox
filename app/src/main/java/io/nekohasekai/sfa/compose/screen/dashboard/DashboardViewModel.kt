@@ -50,6 +50,7 @@ import org.json.JSONException
 import java.io.File
 import java.util.Collections
 import java.util.Date
+import java.util.concurrent.atomic.AtomicLong
 
 enum class CardGroup {
     ChainPath,
@@ -180,6 +181,7 @@ class DashboardViewModel :
     private val topologyLock = Any()
     private var lastTopologyPublishAt = 0L
     private var pendingTopology = false
+    private val loadSeq = AtomicLong()
 
     companion object {
         private const val TOPOLOGY_THROTTLE_MS = 1000L
@@ -246,16 +248,21 @@ class DashboardViewModel :
     }
 
     private fun loadProfiles() {
+        val seq = loadSeq.incrementAndGet()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val profiles = ProfileManager.list()
                 val selectedId = Settings.selectedProfile
                 val selected = profiles.find { it.id == selectedId }
                 val path = buildChainPath(profiles, selectedId, selected)
+                // Loads run concurrently on IO; an older one finishing last
+                // would put back a stale selection/profile list.
+                if (seq != loadSeq.get()) return@launch
                 plannedPath = path
                 val topology = buildTopology()
 
                 withContext(Dispatchers.Main) {
+                    if (seq != loadSeq.get()) return@withContext
                     updateState {
                         copy(
                             profiles = profiles,

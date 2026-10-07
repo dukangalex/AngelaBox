@@ -195,6 +195,7 @@ object BackupManager {
             deleteSidecars(dest)
             profilesDb.copyTo(dest, overwrite = true)
             deleteSidecars(dest)
+            pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
         }
         val stagedConfigs = File(staging, "configs")
         val live = File(context.filesDir, "configs").also { it.mkdirs() }
@@ -243,6 +244,41 @@ object BackupManager {
         if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
         if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
         staging.deleteRecursively()
+    }
+
+    /**
+     * A restored profiles.db carries absolute `typed.path` values. A tampered
+     * backup (the WebDAV server holds it) could point them at settings.db or
+     * any other app file, which subscription updates and the editor then
+     * overwrite. Keep only the file name and re-anchor it under configs/.
+     */
+    internal fun pinProfilePathsToConfigs(profilesDb: File, liveConfigs: File) {
+        if (!profilesDb.isFile) return
+        runCatching {
+            val root = liveConfigs.canonicalFile
+            val convertor = TypedProfile.Convertor()
+            SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                val fixes = mutableListOf<Pair<Long, ByteArray>>()
+                db.rawQuery("SELECT id, typed FROM profiles", null).use { c ->
+                    while (c.moveToNext()) {
+                        val id = c.getLong(0)
+                        val blob = c.getBlob(1) ?: continue
+                        val typed = runCatching { convertor.unmarshall(blob) }.getOrNull() ?: continue
+                        val current = runCatching { File(typed.path).canonicalFile }.getOrNull()
+                        if (current != null && current.parentFile == root) continue
+                        val name = File(typed.path).name
+                        val safe = if (name.isBlank() || name.contains("..")) "$id.json" else name
+                        typed.path = File(root, safe).path
+                        fixes += id to convertor.marshall(typed)
+                    }
+                }
+                fixes.forEach { (id, bytes) ->
+                    val cv = ContentValues()
+                    cv.put("typed", bytes)
+                    db.update("profiles", cv, "id = ?", arrayOf(id.toString()))
+                }
+            }
+        }
     }
 
     private fun restorePortableOverwrite(

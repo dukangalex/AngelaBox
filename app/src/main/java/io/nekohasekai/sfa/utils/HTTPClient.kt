@@ -511,10 +511,16 @@ private class PinnedSniSslSocketFactory(
     /** Protect before connect so a dead node cannot reset the direct retry. */
     private fun connectOutside(): Socket {
         val raw = Socket()
-        if (bypassTunnel) DirectDial.protect(raw)
-        raw.connect(java.net.InetSocketAddress(peer, port), HTTPClient.UPDATE_DIRECT_CONNECT_TIMEOUT_MS)
-        val ssl = delegate.createSocket(raw, hostname, port, true)
-        return pin(ssl)
+        try {
+            if (bypassTunnel) DirectDial.protect(raw)
+            raw.connect(java.net.InetSocketAddress(peer, port), HTTPClient.UPDATE_DIRECT_CONNECT_TIMEOUT_MS)
+            val ssl = delegate.createSocket(raw, hostname, port, true)
+            return pin(ssl)
+        } catch (e: Exception) {
+            // A failed dial or wrap must not leak the fd on every retry.
+            runCatching { raw.close() }
+            throw e
+        }
     }
 
     override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites

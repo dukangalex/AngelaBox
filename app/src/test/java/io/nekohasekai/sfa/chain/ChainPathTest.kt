@@ -676,4 +676,12 @@ class ChainPathTest {
         assertTrue(labels.contains("jp-tokyo-1"))
         assertTrue(labels.none { it.contains("自动选择") })
     }
+
+    @Test
+    fun shortenNodeNameKeepsEmojiWhole() {
+        val name = "a".repeat(14) + "\uD83C\uDDED\uD83C\uDDF0" + "-tail-node"
+        val short = TrafficFlowBuilder.shortenNodeName(name)
+        assertTrue(short.endsWith("…"))
+        assertFalse(short.dropLast(1).last().isHighSurrogate())
+    }
 }

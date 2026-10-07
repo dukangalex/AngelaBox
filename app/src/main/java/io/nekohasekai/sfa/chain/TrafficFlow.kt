@@ -383,9 +383,9 @@ object TrafficFlowBuilder {
         if (value.isEmpty() || value == "final" || value == "<final>") return "<final>"
         extractAssigned(value)?.let { extracted ->
             val name = stripRuleName(extracted)
-            if (name.isNotEmpty()) return name.take(18)
+            if (name.isNotEmpty()) return safeTake(name, 18)
         }
-        return stripRuleName(value).take(18).ifBlank { value.take(18) }
+        return safeTake(stripRuleName(value), 18).ifBlank { safeTake(value, 18) }
     }
 
     internal fun prettyHop(raw: String): String {
@@ -416,8 +416,8 @@ object TrafficFlowBuilder {
         val clipped = PROTO_TAIL.replaceFirst(s, "")
         if (clipped.length >= 2) s = clipped
         s = s.trim(' ', '-', '_', '[', ']')
-        if (s.length > maxChars) s = s.take(maxChars - 1) + "…"
-        return s.ifBlank { name.take(maxChars) }
+        if (s.length > maxChars) s = safeTake(s, maxChars - 1) + "…"
+        return s.ifBlank { safeTake(name, maxChars) }
     }
 
     internal fun prettyDest(raw: String): String {
@@ -425,7 +425,13 @@ object TrafficFlowBuilder {
         if (value.endsWith(":443") || value.endsWith(":80")) {
             value = value.substringBeforeLast(':')
         }
-        return if (value.length <= 22) value else value.take(19) + "…"
+        return if (value.length <= 22) value else safeTake(value, 19) + "…"
+    }
+
+    /** take(n) that never leaves half of an emoji surrogate pair behind. */
+    internal fun safeTake(value: String, n: Int): String {
+        val cut = value.take(n)
+        return if (cut.isNotEmpty() && cut.length < value.length && cut.last().isHighSurrogate()) cut.dropLast(1) else cut
     }
 
     internal fun isDirectTag(tag: String): Boolean {

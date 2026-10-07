@@ -101,9 +101,14 @@ class ServiceNotification(private val status: MutableLiveData<Status>, private v
 
     suspend fun start() {
         if (Settings.dynamicNotification && checkPermission()) {
-            commandClient.connect()
+            // A stop on the main thread can run close() before this point.
+            // Connecting or registering after that leaks the receiver and keeps
+            // posting the speed notification for a service that is gone.
             withContext(Dispatchers.Main) {
-                registerReceiver()
+                if (status.value == Status.Started && !receiverRegistered) {
+                    commandClient.connect()
+                    registerReceiver()
+                }
             }
         }
     }
@@ -120,6 +125,9 @@ class ServiceNotification(private val status: MutableLiveData<Status>, private v
     }
 
     override fun updateStatus(status: StatusMessage) {
+        // A status frame already in flight when close() ran would re-post an
+        // ongoing notification whose Stop button no longer does anything.
+        if (this.status.value != Status.Started) return
         val content =
             Libbox.formatBytes(status.uplink) + "/s ↑\t" + Libbox.formatBytes(status.downlink) + "/s ↓"
         Application.notificationManager.notify(
@@ -131,6 +139,7 @@ class ServiceNotification(private val status: MutableLiveData<Status>, private v
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_SCREEN_ON -> {
+                if (status.value != Status.Started) return
                 commandClient.connect()
             }
 

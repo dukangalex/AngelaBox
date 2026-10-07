@@ -245,6 +245,8 @@ object ChainRuntimeCompiler {
     }
 
     internal fun isBypassDirectRule(rule: JSONObject): Boolean {
+        // invert: true turns "China only" into "everything but China".
+        if (rule.optBoolean("invert", false)) return false
         val sets = textsOf(rule, "rule_set") + textsOf(rule, "geosite") + textsOf(rule, "geoip")
         if (sets.any { it.contains('!') }) return false
         val suffixes = textsOf(rule, "domain_suffix")
@@ -291,19 +293,29 @@ object ChainRuntimeCompiler {
         if (prefix != null && prefix !in 0..32) return false
         val a = b[0]
         val c = b[1]
-        return a == 10 || a == 127 || a == 0 ||
-            (a == 192 && c == 168) ||
-            (a == 172 && c in 16..31) ||
-            (a == 169 && c == 254)
+        // A short prefix widens the range past the private block (10.0.0.0/0).
+        val minPrefix = when {
+            a == 10 || a == 127 || a == 0 -> 8
+            a == 192 && c == 168 -> 16
+            a == 172 && c in 16..31 -> 12
+            a == 169 && c == 254 -> 16
+            else -> return false
+        }
+        return prefix == null || prefix >= minPrefix
     }
 
     private fun isPrivateIpv6Literal(ip: String, prefix: Int?): Boolean {
         val t = ip.lowercase()
         if (t.any { it !in '0'..'9' && it !in 'a'..'f' && it != ':' }) return false
         if (prefix != null && prefix !in 0..128) return false
-        if (t == "::1" || t == "::") return true
-        if (t.startsWith("fc") || t.startsWith("fd") || t.startsWith("fe80")) return true
-        return false
+        // A short prefix widens the range past the private block (::/0).
+        val minPrefix = when {
+            t == "::1" || t == "::" -> 128
+            t.startsWith("fc") || t.startsWith("fd") -> 7
+            t.startsWith("fe80") -> 10
+            else -> return false
+        }
+        return prefix == null || prefix >= minPrefix
     }
 
     internal fun isDirectLike(tag: String): Boolean {
@@ -346,11 +358,15 @@ object ChainRuntimeCompiler {
     private fun prepareGroupHop(outs: JSONArray, tag: String, extraExclude: Set<String>, tagPrefix: String, inPlace: Boolean = false): String {
         val visiting = mutableSetOf<String>()
         val rewritten = mutableMapOf<String, String>()
+        val emptied = mutableSetOf<String>()
 
-        fun sanitize(currentTag: String, depth: Int): String {
+        // Returns null when a nested group has nothing left after filtering;
+        // the parent drops it instead of failing the whole chain.
+        fun sanitize(currentTag: String, depth: Int): String? {
             require(depth <= MAX_MERGE_DEPTH) { "链式入口分组嵌套过深：$currentTag" }
             require(currentTag !in visiting) { "链式入口分组存在循环：$currentTag" }
             rewritten[currentTag]?.let { return it }
+            if (currentTag in emptied) return null
             val original = find(outs, currentTag) ?: error("链式入口引用不存在的 outbound：$currentTag")
             val type = original.optString("type").trim()
             require(type !in forbiddenTypes) { "不能使用 $type 作为链式跳板：$currentTag" }
@@ -368,7 +384,13 @@ object ChainRuntimeCompiler {
                 val child = find(outs, member) ?: error("分组 $currentTag 引用了不存在的 outbound：$member")
                 val childType = child.optString("type").trim()
                 if (childType in forbiddenTypes) continue
-                mapped.put(if (childType in groupTypes) sanitize(member, depth + 1) else member)
+                val hop = if (childType in groupTypes) sanitize(member, depth + 1) else member
+                if (hop != null) mapped.put(hop)
+            }
+            if (mapped.length() == 0 && depth > 0) {
+                visiting.remove(currentTag)
+                emptied.add(currentTag)
+                return null
             }
             require(mapped.length() > 0) { "分组过滤 DIRECT/落地后没有可用代理：$currentTag。请另选入口或落地。" }
             val newTag = if (inPlace) currentTag else "$tagPrefix$currentTag"
@@ -379,8 +401,17 @@ object ChainRuntimeCompiler {
                 if (d.isBlank() || d in forbiddenTags || d in extraExclude) clone.remove("default")
                 else {
                     val dObj = find(outs, d)
-                    if (dObj == null || dObj.optString("type") in forbiddenTypes) clone.remove("default")
-                    else clone.put("default", if (dObj.optString("type") in groupTypes) sanitize(d, depth + 1) else d)
+                    val dType = dObj?.optString("type")
+                    val dHop = when {
+                        dType == null || dType in forbiddenTypes -> null
+                        dType in groupTypes -> sanitize(d, depth + 1)
+                        else -> d
+                    }
+                    if (dHop == null || (0 until mapped.length()).none { mapped.optString(it) == dHop }) {
+                        clone.remove("default")
+                    } else {
+                        clone.put("default", dHop)
+                    }
                 }
             }
             if (!inPlace) {
@@ -391,7 +422,7 @@ object ChainRuntimeCompiler {
             visiting.remove(currentTag)
             return newTag
         }
-        return sanitize(tag, 0)
+        return sanitize(tag, 0) ?: error("分组过滤 DIRECT/落地后没有可用代理：$tag。请另选入口或落地。")
     }
 
     private fun isForbiddenHop(outs: JSONArray, o: JSONObject, tag: String): Boolean {
@@ -433,11 +464,15 @@ object ChainRuntimeCompiler {
     private fun mergeLandingGraph(dst: JSONArray, src: JSONArray, profileId: Long, rootTag: String): String {
         val visiting = mutableSetOf<String>()
         val merged = mutableMapOf<String, String>()
-        fun merge(tag: String, depth: Int = 0): String {
+        val emptied = mutableSetOf<String>()
+        // Returns null when a nested landing group has nothing left after
+        // filtering DIRECT/block; the parent drops it instead of failing.
+        fun merge(tag: String, depth: Int = 0): String? {
             require(tag.isNotBlank()) { "落地 outbound 为空" }
             require(depth <= MAX_MERGE_DEPTH) { "落地配置分组嵌套过深" }
             require(tag !in visiting) { "落地配置拓扑存在循环：$tag" }
             merged[tag]?.let { return it }
+            if (tag in emptied) return null
             visiting.add(tag)
             val original = find(src, tag) ?: error("落地配置引用不存在的 outbound：$tag")
             val type = original.optString("type")
@@ -456,20 +491,32 @@ object ChainRuntimeCompiler {
                     if (member in forbiddenTags) continue
                     val child = find(src, member) ?: error("落地分组引用不存在的 outbound：$member")
                     if (child.optString("type") in forbiddenTypes) continue
-                    mapped.put(merge(member, depth + 1))
+                    merge(member, depth + 1)?.let { mapped.put(it) }
+                }
+                if (mapped.length() == 0 && depth > 0) {
+                    merged.remove(tag)
+                    visiting.remove(tag)
+                    emptied.add(tag)
+                    return null
                 }
                 require(mapped.length() > 0) { "落地分组过滤后没有可用代理：$tag" }
                 clone.put("outbounds", mapped)
                 if (clone.has("default")) {
-                    val d = clone.optString("default")
-                    if (d.isNotBlank() && d !in forbiddenTags) clone.put("default", merge(d, depth + 1)) else clone.remove("default")
+                    val d = clone.optString("default").trim()
+                    val dObj = if (d.isBlank() || d in forbiddenTags) null else find(src, d)
+                    val dHop = if (dObj == null || dObj.optString("type") in forbiddenTypes) null else merge(d, depth + 1)
+                    if (dHop == null || (0 until mapped.length()).none { mapped.optString(it) == dHop }) {
+                        clone.remove("default")
+                    } else {
+                        clone.put("default", dHop)
+                    }
                 }
             }
             if (find(dst, newTag) == null) dst.put(clone)
             visiting.remove(tag)
             return newTag
         }
-        return merge(rootTag)
+        return merge(rootTag) ?: error("落地分组过滤后没有可用代理：$rootTag")
     }
 
     private val alwaysTlsTypes = setOf("hysteria", "hysteria2", "tuic", "anytls", "naive", "shadowtls")
@@ -537,8 +584,13 @@ object ChainRuntimeCompiler {
     private fun ensureLocalDns(root: JSONObject): String {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
-        servers.put(JSONObject().put("type", "local").put("tag", "local"))
-        return "local"
+        val taken = (0 until servers.length()).mapNotNull { servers.optJSONObject(it)?.optString("tag")?.trim() }.toSet()
+        // A proxied server may already own "local"; a duplicate tag fails startup.
+        var tag = "local"
+        var n = 2
+        while (tag in taken) tag = "local-${n++}"
+        servers.put(JSONObject().put("type", "local").put("tag", tag))
+        return tag
     }
 
     private fun resolverName(raw: Any?): String {

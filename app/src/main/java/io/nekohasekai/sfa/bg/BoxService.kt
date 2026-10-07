@@ -158,11 +158,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             TunnelGate.setUp(true)
-            if (startAbort.get()) {
+            // stopService() runs on the main thread and only aborts while the
+            // status is Starting. Check the abort and publish Started in the
+            // same main-thread step, or a stop tapped in between is lost.
+            val aborted = withContext(Dispatchers.Main) {
+                if (startAbort.get()) {
+                    true
+                } else {
+                    status.value = Status.Started
+                    false
+                }
+            }
+            if (aborted) {
                 stopAndAlert(Alert.StartService, null, silent = true)
                 return
             }
-            status.postValue(Status.Started)
             notePrivateDns()
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
@@ -572,9 +582,28 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (status.value == Status.Starting) {
             startAbort.set(true)
             if (!startInFlight) {
-                Settings.startedByUser = false
-                status.value = Status.Stopped
-                service.stopSelf()
+                // Starting with no start in flight means the kernel asked to stop
+                // (serviceStop). The command server, network monitor and receiver
+                // are still live, so tear them down instead of only stopSelf().
+                status.value = Status.Stopping
+                if (receiverRegistered) {
+                    service.unregisterReceiver(receiver)
+                    receiverRegistered = false
+                }
+                notification.close()
+                GlobalScope.launch(Dispatchers.IO) {
+                    DefaultNetworkMonitor.stop()
+                    if (::commandServer.isInitialized) {
+                        closeService()
+                        runCatching { commandServer.close() }
+                    }
+                    Settings.startedByUser = false
+                    withContext(Dispatchers.Main) {
+                        TunnelGate.setUp(false)
+                        status.value = Status.Stopped
+                        service.stopSelf()
+                    }
+                }
             }
             return
         }
@@ -645,6 +674,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
+        // Every start arrives through startForegroundService(). If the service
+        // stops before startForeground() (command server failure, or a start
+        // request landing while Starting/Stopping), Android crashes the app with
+        // "did not then call Service.startForeground()". Satisfy it right away.
+        runCatching {
+            notification.show(
+                lastProfileName,
+                if (status.value == Status.Started) R.string.status_started else R.string.status_starting,
+            )
+        }
         if (status.value != Status.Stopped) return Service.START_STICKY
         startAbort.set(false)
         startInFlight = true

@@ -961,7 +961,11 @@ class MainActivity :
                     }
 
                     is UiEvent.RequestReconnectService -> {
-                        restartServiceForApplyChange()
+                        // Only a running (or starting) service is restarted; a
+                        // profile switch/update while stopped must not start it.
+                        if (currentServiceStatus == Status.Started || currentServiceStatus == Status.Starting) {
+                            restartServiceForApplyChange()
+                        }
                         connection.reconnect()
                     }
 
@@ -1565,8 +1569,10 @@ class MainActivity :
     }
 
     private suspend fun applyServiceChangeNow(mode: UiEvent.ApplyServiceChange.Mode) {
-        if (currentServiceStatus == Status.Stopped) {
-            startService()
+        // A settings change only needs applying to a live service. Starting
+        // (or restarting a stopping) service here would turn the VPN on behind
+        // the user's back; the change is picked up on the next manual start.
+        if (currentServiceStatus == Status.Stopped || currentServiceStatus == Status.Stopping) {
             return
         }
         val modeChanged = withContext(Dispatchers.IO) { Settings.rebuildServiceMode() }

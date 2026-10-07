@@ -327,7 +327,9 @@ fun ChainBuilderScreen(
             if (result.isSuccess) {
                 exit = null
                 chainActive = false
-                notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                if (boundId == Settings.selectedProfile) {
+                    notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                }
                 snackbar.showSnackbar("已取消当前配置的链式代理")
             } else {
                 snackbar.showSnackbar("取消失败：${result.exceptionOrNull()?.message}")

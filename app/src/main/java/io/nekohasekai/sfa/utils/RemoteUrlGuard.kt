@@ -90,7 +90,7 @@ object RemoteUrlGuard {
 
         val host = normalizeHost(uri.host ?: throw IllegalArgumentException("URL 缺少主机"))
         require(host.isNotEmpty()) { "URL 缺少主机" }
-        require(host !in BLOCKED_HOSTS) { "禁止访问本地或元数据地址" }
+        require(host !in BLOCKED_HOSTS && !host.endsWith(".localhost")) { "禁止访问本地或元数据地址" }
 
         if (kind == Kind.UPDATE) {
             require(host in UPDATE_HOSTS) { "更新地址必须来自 GitHub" }
@@ -103,6 +103,9 @@ object RemoteUrlGuard {
             require(isAddressAllowed(addr, kind)) { "禁止访问本地、链路本地或云元数据地址" }
             return ValidatedEndpoint(raw, host, port, listOf(addr))
         }
+        // getaddrinfo/inet_aton turns these into an IP without DNS, so a
+        // placeholder or skipped lookup must not wave them through.
+        require(!isNumericHostForm(host)) { "非法 IP 地址" }
 
         val resolved = try {
             resolve(host)
@@ -213,9 +216,20 @@ object RemoteUrlGuard {
         }
     }
 
-    private fun isLiteralIp(host: String): Boolean {
+    internal fun isLiteralIp(host: String): Boolean {
+        // A hostname never contains ':'. IPv6 literals often contain hex
+        // letters (fd00::1, ::ffff:a9fe:a9fe) and must not fall through to DNS.
+        if (host.contains(':')) return true
         if (host.any { it.isLetter() }) return false
-        return host.contains('.') || host.contains(':')
+        return host.contains('.')
+    }
+
+    /** inet_aton forms with no real TLD: 2130706433, 0x7f000001, 0x7f.0.0.1, 0. */
+    internal fun isNumericHostForm(host: String): Boolean {
+        val last = host.substringAfterLast('.')
+        if (last.isEmpty()) return false
+        if (last.all { it in '0'..'9' }) return true
+        return last.startsWith("0x") && last.drop(2).all { it in '0'..'9' || it in 'a'..'f' }
     }
 
     private fun parseLiteral(host: String): InetAddress? = try {
