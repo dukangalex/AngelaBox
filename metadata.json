@@ -1,0 +1,6 @@
+{
+  "name": "AngelaBox - sing-box 现代化代理客户端与全协议聚合管理中心",
+  "description": "基于 sing-box 内核的现代化全协议代理客户端。支持原生解析导入 Mihomo (Clash)、V2Ray 订阅与配置文件，单/混合节点转换、配置聚合、路由策略编排及默认脚本审计优化。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
