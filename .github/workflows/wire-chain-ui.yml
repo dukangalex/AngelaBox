@@ -1,0 +1,22 @@
+name: Wire Chain UI
+
+# Manual diagnostic only. Source wiring is maintained in Git, not by a
+# privileged workflow that can push directly to dev.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Check wiring script is clean
+        run: |
+          set -e
+          python3 scripts/wire_chain_ui.py --check 2>/dev/null || python3 -m py_compile scripts/wire_chain_ui.py
+          echo "UI wiring check completed; no repository mutation is permitted."

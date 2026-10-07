@@ -1,0 +1,23 @@
+name: Fix ChainBox rebrand files
+
+# Kept as a manual diagnostic workflow only. It deliberately has no write
+# permission and never commits/pushes to dev. Rebranding belongs in source.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Verify ChainBox branding
+        run: |
+          set -e
+          grep -q 'applicationId = "io.chainbox.app"' app/build.gradle.kts
+          grep -q '<string name="app_name" translatable="false">ChainBox</string>' app/src/main/res/values/strings.xml
+          echo "ChainBox branding is present"

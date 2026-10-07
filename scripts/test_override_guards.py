@@ -1,0 +1,1394 @@
+#!/usr/bin/env python3
+"""Source guards for ChainBox overlay modules. Run from repo root."""
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(rel: str) -> str:
+    return (ROOT / rel).read_text(encoding="utf-8")
+
+
+def main() -> int:
+    errors: list[str] = []
+    normalize = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt")
+    if "fun apply(" not in normalize:
+        errors.append("ConfigNormalize.apply must rewrite kernel-illegal fields and keep nodes")
+    if "fun heal(" not in normalize:
+        errors.append("ConfigNormalize.heal must return Chinese notes for the dashboard prompt")
+    if "This is not China Direct" not in normalize:
+        errors.append("ConfigNormalize must not inject China Direct / ads / QUIC")
+    ingest = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigIngest.kt")
+    if "object ConfigIngest" not in ingest:
+        errors.append("ConfigIngest must convert Clash / V2Ray subscriptions on import")
+    if "Format.Clash" not in ingest or "ShareLinks" not in ingest:
+        errors.append("ConfigIngest must distinguish Clash YAML and share-link lists")
+    if 'geosite-cn' in ingest and "payload.equals(\"CN\"" not in ingest and "payload.equals(\"CN\", true)" not in ingest:
+        errors.append("ConfigIngest must not inject geosite-cn unless the source Clash rules used CN")
+    if "China Direct" not in ingest.split("object ConfigIngest", 1)[-1][:800]:
+        errors.append("ConfigIngest must document that it does not write China Direct")
+    if "ConfigIngest.adapt" not in normalize:
+        errors.append("heal must ingest Clash/URI before JSON rewrite")
+    compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
+    if "ConfigIngest.adapt" not in compat:
+        errors.append("sanitize must ingest Clash/URI so import and remote refresh work")
+    settings = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SettingsScreen.kt")
+    if "source_code" not in settings or "documentation" not in settings:
+        errors.append("settings must expose 文档 and 源代码")
+    if "SagerNet/sing-box" in settings:
+        errors.append("about links must point at AngelaBox, not official SagerNet")
+    traffic = read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt")
+    if "angela-direct" not in traffic:
+        errors.append("DIRECT graph lane must treat angela-direct as direct")
+    if 'return if (chained) emptyList()' in traffic or "return if (chained) emptyList()" in traffic:
+        errors.append("DIRECT samples must stay on the graph in chained mode")
+    if "if (chained && (hopTags.isEmpty() || hopTags.all { isDirectTag(it) }))" in traffic:
+        errors.append("chained mode must not drop DIRECT samples")
+    if '"http_client", "http-direct"' in ingest or '.put("http_client", "http-direct")' in ingest:
+        errors.append("ConfigIngest must not point rule-sets at missing http-direct outbound")
+    if "HealResult(content, ingested.notes)" in normalize:
+        errors.append("heal must keep ingested JSON when Clash/URI conversion succeeded")
+    if "webrtcRejectRules" not in normalize:
+        errors.append("WebRTC STUN reject helper missing")
+    if "STUN_UDP_PORTS" not in normalize or "domain_keyword" not in normalize:
+        errors.append("WebRTC overlay must cover extra STUN ports and stun./turn. hostnames")
+    if "cnDomainSuffixArray" not in normalize:
+        errors.append("CN domain helper missing")
+    if 'mark(ConfigInboundCompat.healDownloadClients' in normalize:
+        errors.append("healDownloadClients must not create a standing 已修正 banner on valid configs")
+    if 'mark(ConfigInboundCompat.ensureHijackDns' in normalize:
+        errors.append("ensureHijackDns must not create a standing 已修正 banner on valid configs")
+
+    override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "Settings.configNormalize" not in override:
+        errors.append("runtime overlay must run config normalize when the switch is on")
+    if "ConfigNormalize.heal" not in override:
+        errors.append("runtime overlay must call ConfigNormalize.heal")
+    if "配置已自动适配当前版本" in override:
+        errors.append("config normalize must not use the long first-start paragraph")
+    if 'reason = "启用中"' in override:
+        errors.append("config normalize must not show a permanent 启用中 banner")
+    if "healed.changed" not in override:
+        errors.append("config normalize banner must only appear when heal actually changed the config")
+    if 'reason = "已修正"' not in override:
+        errors.append("config normalize dashboard banner must say 已修正 when it rewrote the config")
+    if "脚本启用中" not in override:
+        errors.append("script overlay dashboard banner must say 脚本启用中")
+    if "脚本分流中" in override:
+        errors.append("script overlay dashboard banner must stay short")
+    if '${label}覆写' not in override:
+        errors.append("script overlay dashboard banner must use {name}覆写")
+    if "dropRuleSetNeedles" not in override and "replaceRuleSetNeedles" not in override:
+        errors.append("runtime overlay must replace 404 rule-sets passed from a failed start")
+    if "ChainBindings.get" not in override:
+        errors.append("runtime chain must look up the current profile binding")
+    if "applyOnDemand" not in override:
+        errors.append("runtime overlay must write 1.15 on_demand")
+    if 'KERNEL_UPSTREAM.startsWith("1.15")' not in override:
+        errors.append("on_demand must be gated to 1.15 kernels")
+    if "Settings.onDemand" not in override:
+        errors.append("on_demand overlay must follow Settings.onDemand")
+    if "!scriptOn) applyOnDemand" in override or "scriptOn) ConfigQuicOverride.applyOnDemand" in override:
+        errors.append("on_demand must not be gated by overlay scripts")
+
+    groups_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/GroupsCard.kt")
+    header = groups_card.split("private fun GroupHeader", 1)[-1]
+    if "selectedTag" not in header or "group.selected" not in header:
+        errors.append("GroupHeader must show the currently selected node for each strategy group")
+    if "text = selectedTag" not in header:
+        errors.append("GroupHeader must render the selected node name")
+
+    ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
+    if "配置规范化" not in ui_override:
+        errors.append("Profile override UI must expose 配置规范化")
+    if "configNormalize" not in ui_override:
+        errors.append("Profile override UI must bind Settings.configNormalize")
+    if "没有错误不提示" not in ui_override:
+        errors.append("config normalize UI must say it stays silent until a config error")
+    if "按需连接" not in ui_override:
+        errors.append("Profile override UI must expose 按需连接")
+    if "onDemand" not in ui_override:
+        errors.append("Profile override UI must bind Settings.onDemand")
+    if "热点" not in ui_override:
+        errors.append("auto_redirect copy must mention 1.15 hotspot forwarding")
+
+    compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
+    if "plugin_opts" not in compat or "objectToPluginOpts" not in compat:
+        errors.append("ConfigCompat must coerce Clash plugin_opts objects to strings")
+
+    chain = read("app/src/main/java/io/nekohasekai/sfa/chain/ChainRuntimeCompiler.kt")
+    if "fail_closed" in chain:
+        errors.append("Chain compiler must not emit fail_closed; kernel ChainOutboundOptions only has outbounds")
+    if "不可作为前置代理" in chain:
+        errors.append("Chain compiler must not fail closed just because a selector contains DIRECT")
+    if "fun resolveMainTag" not in chain:
+        errors.append("resolveMainTag should be reusable by the UI")
+    if "isFinalLike" not in chain:
+        errors.append("isFinalLike missing; 漏网之鱼 would be locked as entry again")
+    if "landing/exit" not in chain and "public IP" not in chain:
+        errors.append("chain compiler should document packet path: entry first, landing last")
+    if "if (sameProfile) add(req.landingTag)" not in chain:
+        errors.append("cross-profile landing tags must not be extraExcluded from the entry hop")
+    if "rewriteDnsDetours" in chain:
+        errors.append("compiler must not rewrite DNS detours onto the chain")
+    if "DNS detours stay" not in chain and "DNS detours are left" not in chain:
+        errors.append("compiler must leave DNS detours on the original outbound (one hop)")
+    if "inPlace = true" not in chain and "inPlace=true" not in chain:
+        errors.append("same-profile group hops must mutate in place to avoid double urltest")
+    if "跨配置落地内容缺失" not in chain:
+        errors.append("empty cross-profile landing content must fail closed")
+
+    bindings = read("app/src/main/java/io/nekohasekai/sfa/chain/ChainBindings.kt")
+    if "per-profile" not in bindings.lower() and "Per-profile" not in bindings:
+        errors.append("ChainBindings must document per-profile isolation")
+    if "chainBindingsJson" not in read("app/src/main/java/io/nekohasekai/sfa/database/Settings.kt"):
+        errors.append("Settings.chainBindingsJson missing")
+
+    reapply = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChainReapply.kt")
+    if "ChainBindings.get(currentProfileId)" not in reapply:
+        errors.append("runtime reapply must only chain the selected profile")
+    if "ConfigNormalize.healString" not in reapply and "ConfigNormalize.heal(" not in reapply:
+        errors.append("cross-profile chain landing must run config normalize")
+    if "lastLandingNotes" not in reapply:
+        errors.append("chain landing normalize must collect notes for the dashboard prompt")
+    if "链式落地已自动适配当前版本" in override:
+        errors.append("chain landing heal must stay silent unless start recovery prompts")
+
+    box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    if "已修正" not in box or 'title = "配置规范化"' not in box:
+        errors.append("normalize recovery must prompt only after a failed start")
+    if "配置已自动修正" in box:
+        errors.append("normalize recovery banner must stay short")
+    if "OverlayScripts.setBinding(profileId, emptyList())" in box:
+        errors.append("normalize recovery must not unbind scripts on that profile")
+    if "restartCommandServer" not in box:
+        errors.append("RPC EOF after a failed start must restart the command server")
+    if "preferKernelError" not in box:
+        errors.append("normalize recovery must keep the first kernel error instead of the retry EOF")
+    if "looksLikeScriptFault" not in box:
+        errors.append("normalize recovery must skip scripts only when the kernel error is a script fault")
+    picker = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt")
+    if "rule_providers" not in picker:
+        errors.append("profile picker overflow must include 提供者")
+    if "RuleProvidersScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):
+        errors.append("providers screen must be on the navigation graph")
+    providers = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/RuleProvidersScreen.kt")
+    if "suspend fun syncOne" not in providers:
+        errors.append("rule provider sync must call ProfileManager.get from a coroutine")
+    if "pretty(row.item.raw)" in providers or "fun viewJson" in providers:
+        errors.append("provider 查看 must list flattened entries, not the rule_set definition JSON")
+    if "proxy_providers_section" not in providers:
+        errors.append("providers page must show 代理提供者")
+    if "listEntries" not in providers:
+        errors.append("providers page must count flattened rule entries")
+    if "ViewPayload" not in providers:
+        errors.append("provider 查看 must open a numbered entry list")
+    if "ProviderViewKind.Config" not in providers:
+        errors.append("proxy 查看 must open the profile config file, not numbered leaf tags")
+    if '"${index + 1}  ${viewing.lines[index]}"' in providers:
+        errors.append("provider 查看 must keep gutter numbers out of the line text")
+    if "fun viewProxy(tag: String): ViewPayload" in providers:
+        errors.append("proxy 查看 must load pretty JSON asynchronously")
+    if "fetchSourceJson" in providers:
+        errors.append("rule 查看 must decompile .srs locally, not fetch 404 JSON siblings")
+    if "firstLoad" not in providers:
+        errors.append("providers reload must not blank the list on every refresh")
+    if "loading = true" in providers and "CircularProgressIndicator" not in providers:
+        errors.append("查看 must show a spinner while decoding")
+    ruleset = read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetProviders.kt")
+    if "SrsDecoder.listEntries" not in ruleset:
+        errors.append("listEntries must decompile .srs via SrsDecoder")
+    decoder = read("app/src/main/java/io/nekohasekai/sfa/utils/SrsDecoder.kt")
+    if "succinctKeys" not in decoder or "dumpMatcherKeys" not in decoder:
+        errors.append("SrsDecoder must dump domain / domain_suffix from the succinct matcher")
+    if "PREFIX" not in decoder or "countZeros" not in decoder:
+        errors.append("SrsDecoder must port the sing-box domain matcher walk")
+    if "dumpIpSet" not in decoder or "rangeToCidrs4" not in decoder:
+        errors.append("SrsDecoder must dump geoip CIDRs, not skip IP sets")
+    if "RuleProviderPageCache" not in providers:
+        errors.append("providers page must cache the first load so re-entry is instant")
+    if "LaunchedEffect(profileId) { viewModel.reload() }" in providers:
+        errors.append("providers page must not re-decode every time it is opened")
+    if "preferCache" not in providers:
+        errors.append("providers reload must reuse the cached snapshot")
+    if 'name="time_minutes_ago"' not in read("app/src/main/res/values-zh-rCN/strings.xml"):
+        errors.append("zh-rCN must translate relative minutes/hours/days")
+    nav = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt")
+    if "ProfilesScreen" not in nav or "ProfileRoutes.Profiles" not in nav:
+        errors.append("配置 chip must navigate to the full profiles page")
+    dest = read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/NavigationDestinations.kt")
+    if "Screen.Profiles" in dest or "profile/list" in dest:
+        errors.append("配置 must not be a bottom-nav item")
+    dashboard = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt")
+    if "Navigate(ProfileRoutes.Profiles)" not in dashboard:
+        errors.append("showProfilePickerSheet must jump to the full 配置 page")
+    http = read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt")
+    if "lastUserinfo" not in http or "subscription-userinfo" not in http:
+        errors.append("HTTPClient must capture subscription-userinfo for profile traffic")
+    if "fetchRemote" not in read("app/src/main/java/io/nekohasekai/sfa/utils/SubscriptionInfo.kt"):
+        errors.append("remote profile fetch must store subscription-userinfo")
+    if "flattenRules" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetProviders.kt"):
+        errors.append("rule-set view must flatten domain_suffix into Clash-style entries")
+    if "fun ensureClashModes" not in normalize:
+        errors.append("ConfigNormalize.ensureClashModes must inject Global/Direct without rewriting user routing")
+    if "ConfigNormalize.ensureClashModes" not in override:
+        errors.append("runtime overlay must inject clash modes after scripts so custom overlays still get Direct/Global")
+    wf = read(".github/workflows/release-windows-desktop.yml")
+    if "body.app-ready #splash" not in wf:
+        errors.append("Windows identity check must keep splash outside React #root")
+    diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
+    if "scriptsBound" not in diagnose:
+        errors.append("ConfigDiagnose must not blame scripts when the profile has none")
+    if "fun ruleSetNeedles" not in diagnose:
+        errors.append("ConfigDiagnose must extract 404 rule-set names for recovery")
+    if "仍缺关键规则就关掉脚本" in diagnose:
+        errors.append("404 diagnose must not always tell the user to close scripts")
+
+    ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
+    if 'picker == "entry"' not in ui:
+        errors.append("Chain builder must let the user pick the entry hop")
+    if "ChainBindings.put" not in ui:
+        errors.append("Chain builder must save a per-profile binding")
+    if "仅绑定当前" not in ui and "只绑定当前" not in ui:
+        errors.append("Chain builder UI must say the binding is current-profile only")
+    if "订阅更新" not in ui:
+        errors.append("Chain builder should tell users bindings survive subscription refresh")
+    for leak in ("Kitty", "MYCF", "edgetunne", "edgtgt", "longteng"):
+        if leak in ui:
+            errors.append(f"Chain builder UI must not hardcode airport name {leak}")
+    if "validation-only" not in ui and "仅用于提前校验" not in ui and "validation-only here" not in ui:
+        errors.append("save() must comment that apply() is validation-only")
+    if 'popBackStack("dashboard"' not in ui:
+        errors.append("saving a chain should return to the dashboard")
+    if "showOtherBound" not in ui or "otherBoundLines" not in ui:
+        errors.append("chain builder must let the user tap to see which other profiles are bound")
+    if "点此查看" not in ui and "点这里查看" not in ui:
+        errors.append("other-binding hint should be tappable")
+
+    locales = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/AppSettingsScreen.kt")
+    if "locales_config" not in locales:
+        errors.append("Language picker must read res/xml/locales_config.xml")
+
+    cn = read("app/src/main/res/values-zh-rCN/strings.xml")
+    for key in ("core", "service", "network_quality", "silent_install", "remote_control", "chain_builder"):
+        if f'name="{key}"' not in cn:
+            errors.append(f"zh-rCN missing {key}")
+
+    settings = read("app/src/main/java/io/nekohasekai/sfa/database/Settings.kt")
+    if "webrtcProtect" not in settings:
+        errors.append("Settings.webrtcProtect missing")
+    if 'WEBRTC_PROTECT) { false }' in settings or 'WEBRTC_PROTECT) {false}' in settings:
+        errors.append("WebRTC protect should default on so Chinese STUN cannot leak by default")
+    if "configNormalize" not in settings:
+        errors.append("Settings.configNormalize missing")
+    if 'CONFIG_NORMALIZE) { true }' not in settings and 'CONFIG_NORMALIZE) {true}' not in settings:
+        errors.append("configNormalize should default on")
+    if "chinaDefaultsRev < 2" not in settings:
+        errors.append("existing installs must one-shot enable configNormalize")
+    if "adsBlock" not in settings:
+        errors.append("Settings.adsBlock missing")
+    if "ADS_BLOCK" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.ADS_BLOCK missing")
+    if "echDns" in settings or "ECH_DNS" in settings:
+        errors.append("ECH overlay was removed; Settings.echDns must not return")
+    if "fun closeDatabase" not in settings:
+        errors.append("Settings.closeDatabase missing; restore would hit open WAL")
+    if "db?.close()" not in settings and "db = null" not in settings:
+        errors.append("Settings.closeDatabase must drop the Room instance so restore can reopen")
+    if "setQueryExecutor { GlobalScope.launch" in settings:
+        errors.append("Settings must not queue Room queries on GlobalScope after close")
+    if "restoreCompat" not in settings:
+        errors.append("Settings.restoreCompat missing")
+
+    profiles = read("app/src/main/java/io/nekohasekai/sfa/database/ProfileManager.kt")
+    if "db = null" not in profiles:
+        errors.append("ProfileManager.closeDatabase must drop the Room instance so restore can reopen")
+    if "setQueryExecutor { GlobalScope.launch" in profiles:
+        errors.append("ProfileManager must not queue Room queries on GlobalScope after close")
+
+    china = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChinaDirect.kt")
+    for needle in ("ip_is_private", "CHINA_DNS_IPS", "CHINA_DNS_DOMAINS", "LAN_DOMAIN_SUFFIXES", "cnDomainSuffixArray"):
+        if needle not in china:
+            errors.append(f"China direct overlay missing {needle}")
+    if "applyEchDns" in china or "ECH_DNS_TAG" in china or "unblockHttpsQueries" in china:
+        errors.append("ECH DNS overlay must stay removed from ConfigChinaDirect")
+    if "applyCnDns" in china or '.put("server", "223.5.5.5")' in china:
+        errors.append("China direct must not inject a DNS server (empty-direct detour crash)")
+    if '.put("detour", directTag)' in china or 'put("detour", direct' in china:
+        errors.append("China DNS must not set detour to empty direct (sing-box 1.12 rejects it)")
+    if "dropLegacyChinaDns" not in china:
+        errors.append("China direct must drop leftover chainbox-cn-dns from older overlays")
+    if "DIRECT_FALLBACK_TAG" not in china:
+        errors.append("findOrCreateDirect must not reuse a non-direct tag named direct")
+    if "stripBrokenDnsDetours" not in china:
+        errors.append("China direct should strip leftover empty-direct DNS detours")
+
+    compat = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigCompat.kt")
+    if "stripBrokenDnsDetours" not in compat:
+        errors.append("ConfigCompat must strip DNS detours to empty/missing direct")
+    if "isEmptyDirect" not in compat:
+        errors.append("ConfigCompat must detect empty direct outbounds")
+    if "migrateLegacyDns" not in compat:
+        errors.append("ConfigCompat must migrate dns.fakeip / legacy address servers")
+    if 'put("type", "fakeip")' not in compat:
+        errors.append("legacy fakeip object must become type=fakeip server")
+    if "migrateRcodeServers" not in compat:
+        errors.append("ConfigCompat must convert type:rcode DNS servers to rule actions")
+    if "unknown transport type: rcode" not in compat:
+        errors.append("ConfigCompat must document rcode transport removal")
+    if "MAX_CONFIG_CHARS" not in compat:
+        errors.append("ConfigCompat.sanitize must cap JSON size")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    overlay = compat + inbound
+    if "ConfigInboundCompat.apply" not in compat:
+        errors.append("ConfigCompat.sanitize must call ConfigInboundCompat.apply")
+    if "migrateLegacyInbounds" not in inbound:
+        errors.append("ConfigInboundCompat must migrate inbound sniff/domain_strategy to route actions")
+    if "rewriteGithubRawUrl" not in inbound or "testingcf.jsdelivr.net" not in inbound:
+        errors.append("ConfigInboundCompat must rewrite GitHub raw rule-set URLs to testingcf jsDelivr")
+    if "migrateSpecialOutbounds" not in inbound:
+        errors.append("ConfigInboundCompat must convert type:dns / type:block outbounds")
+    if "legacy inbound fields" not in overlay:
+        errors.append("compat overlay must document 1.13 inbound field removal")
+
+    override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "Settings.chinaDirect" not in override:
+        errors.append("ConfigQuicOverride must apply china direct")
+    if "echDns" in override or "applyEchDns" in override:
+        errors.append("ECH overlay must stay removed from ConfigQuicOverride")
+    if "applyLogLevel" not in override or '"info"' not in override:
+        errors.append("runtime overlay must force log.level=info")
+    if "applyOne" not in override:
+        errors.append("each overlay switch must apply in isolation so one failure cannot skip the rest")
+    if "entryMissing" not in override:
+        errors.append("subscription update should fall back when entry tag is gone")
+    if "independent_cache\", true)" not in override and "independent_cache\", true" not in override:
+        if 'dns.put("independent_cache", true)' not in override:
+            errors.append("DNS protect must force-overwrite independent_cache")
+    if "stripBrokenDnsDetours" not in override:
+        errors.append("runtime overlay must strip empty-direct DNS detours after other switches")
+    webrtc_call = override.find('applyOne(warnings, "防 WebRTC 泄露")')
+    china_call = override.find('applyOne(warnings, "中国直连")')
+    if webrtc_call < 0 or china_call < 0:
+        errors.append("WebRTC and China Direct overlays must both apply")
+    elif webrtc_call < china_call:
+        errors.append("WebRTC reject must apply after China Direct so STUN ports win over CN bypass")
+    installer = read("app/src/github/java/io/nekohasekai/sfa/vendor/SystemPackageInstaller.kt")
+    if "launchVisibleInstaller" not in installer:
+        errors.append("in-app update must show the system package installer UI")
+    if 'throw IllegalStateException("请先允许' in installer:
+        errors.append("unknown-app-sources prompt must not crash the UI thread")
+    if "Toast.makeText" not in installer:
+        errors.append("unknown-app-sources should toast instead of throwing")
+
+    ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
+    if "ConfigAdBlock.apply" not in override:
+        errors.append("ConfigQuicOverride must apply ad block")
+    if "广告拦截" not in ui_override:
+        errors.append("Profile override UI must expose 广告拦截")
+    if "中国直连" not in ui_override:
+        errors.append("Profile override UI must expose 中国直连")
+    if "ECH" in ui_override or "echDns" in ui_override:
+        errors.append("Profile override UI must not expose ECH")
+    if "强制" not in ui_override:
+        errors.append("Profile override UI should say overlays are forced")
+
+    compiler = read("app/src/main/java/io/nekohasekai/sfa/chain/ChainRuntimeCompiler.kt")
+    if "保存的入口" in compiler and "已不存在" in compiler:
+        errors.append("compiler must not fail closed when a saved entry tag disappeared after subscription update")
+    if "MAX_CONFIG_CHARS" not in compiler:
+        errors.append("compiler must cap JSON size before JSONObject(content)")
+    if "pinTrafficToChain" not in compiler:
+        errors.append("compiler must rewrite proxy routes so the entry cannot become the public exit")
+    if "ENTRY_PREFIX" not in compiler:
+        errors.append("compiler must keep generated entry hops from becoming the public exit")
+
+    dav = read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt")
+    if "pickNonVpnNetwork" in dav:
+        errors.append("WebDAV must follow split routing, not bypass VPN with pickNonVpnNetwork")
+    if "Proxy.NO_PROXY" in dav:
+        errors.append("WebDAV must not force Proxy.NO_PROXY; traffic should follow TUN/split routing")
+    if "绕过 VPN" in dav:
+        errors.append("WebDAV error copy must not say traffic bypasses the VPN")
+    if "HTTPClient.openPinned" not in dav:
+        errors.append("WebDAV must use HTTPClient.openPinned so DNS and TLS stay pinned")
+    if "url.openConnection()" in dav:
+        errors.append("WebDAV must not re-open URL connections after DNS check")
+    if "deleteSidecars" not in dav:
+        errors.append("restore must delete sqlite WAL/SHM sidecars")
+    if "isZipFile" not in dav:
+        errors.append("restore must reject non-zip downloads")
+    if "closeDatabase" not in dav:
+        errors.append("restore must close Room before overwriting db files")
+    if "classifyProbe" not in dav:
+        errors.append("WebDAV probe must classify 401 as auth failure, not success")
+    if "if (code == 401 || code == 403) return@runCatching true" in dav:
+        errors.append("WebDAV probe must not treat HTTP 401 as success")
+    if "authFailedMessage" not in dav:
+        errors.append("WebDAV 401 must produce a dedicated auth error")
+    if "compat: Boolean" not in dav:
+        errors.append("restore must support compatibility mode")
+    if "mergeProfilesFromBackup" not in dav:
+        errors.append("compat restore must merge profiles so backup data coexists with current data")
+    if "andSelect = false" not in dav:
+        errors.append("compat restore must not replace the currently selected profile")
+    if "keepUrl" in dav and "putSettingString(liveSettings, SettingsKey.WEBDAV_URL, keepUrl)" in dav:
+        errors.append("overwrite restore should take WebDAV URL from the backup, not keep the live URL")
+    main = read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt")
+    rec = main[main.find("RequestReconnectService") :]
+    if "restartServiceForApplyChange" not in rec[:500]:
+        errors.append("RequestReconnectService must stop/start the running service, not only rebind")
+    box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    reload = box[box.find("suspend fun serviceReload0") : box.find("fun getSystemProxyStatus")]
+    if "notification.show" not in reload:
+        errors.append("serviceReload must refresh the notification title to the new profile")
+    backup_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/BackupRestoreScreen.kt")
+    if "共存" not in backup_ui:
+        errors.append("compat restore copy must say backup data coexists with current data")
+    if "完全替换" not in backup_ui:
+        errors.append("overwrite restore copy must say backup fully replaces current data")
+    if 'listOf("PROPFIND"' in dav or '"PROPFIND", "OPTIONS"' in dav:
+        errors.append("WebDAV probe must not use PROPFIND; Android HttpURLConnection rejects it")
+    if "friendlyProbeDetail" not in dav:
+        errors.append("probe must hide ProtocolException / PROPFIND internals")
+    if "HEAD" not in dav:
+        errors.append("WebDAV probe should use HEAD/GET like the real backup path")
+
+    dash = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt")
+    if "if (currentState.isLoading) return" in dash:
+        errors.append("profile switch must not block on isLoading")
+    if "selectedProfileId = profileId" not in dash:
+        errors.append("profile switch must update UI immediately")
+    dash_sel = dash[dash.find("fun selectProfile") : dash.find("fun editProfile")]
+    if "RequestReconnectService" not in dash_sel:
+        errors.append("switching profile while running must restart the service")
+    if "serviceReload()" in dash_sel:
+        errors.append("profile switch must restart the service so the notification follows the new profile")
+
+    boot = read("app/src/main/java/io/nekohasekai/sfa/bg/BootReceiver.kt")
+    if "ACTION_MY_PACKAGE_REPLACED" not in boot or "launchApp" not in boot:
+        errors.append("update install must relaunch the app")
+
+    icon_bg = read("app/src/main/res/values/ic_launcher_background.xml")
+    if "#00000000" not in icon_bg:
+        errors.append("launcher background must be fully transparent #00000000")
+    if ">#FFFFFF<" in icon_bg or ">#ffffff<" in icon_bg:
+        errors.append("launcher background must not be an opaque white plate")
+    fg_png = ROOT / "app/src/main/res/drawable-nodpi/ic_launcher_foreground.png"
+    if not fg_png.is_file() or fg_png.stat().st_size < 1000:
+        errors.append("launcher foreground must be the supplied mark, not the old cube vector")
+    if (ROOT / "app/src/main/res/drawable/ic_launcher_foreground.xml").is_file():
+        errors.append("do not keep the cube vector beside the new launcher foreground")
+    adaptive = read("app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml")
+    if "ic_launcher_foreground" not in adaptive:
+        errors.append("adaptive icon must use the new foreground mark")
+
+    logs = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/log/LogModels.kt")
+    if "filterLogLevel: LogLevel = LogLevel.INFO" not in logs:
+        errors.append("log viewer default filter must be INFO")
+
+    leaks = []
+    for rel in (
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt",
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt",
+        "docs/USER_GUIDE.md",
+        "README.md",
+    ):
+        text = read(rel)
+        for leak in ("Kitty", "MYCF", "edgetunne", "longteng.de5"):
+            if leak in text:
+                leaks.append(f"{rel} contains private name {leak}")
+    errors.extend(leaks)
+
+    manifest = read("app/src/main/AndroidManifest.xml")
+    if 'android:icon="@drawable/ic_menu"' in manifest:
+        errors.append("QS tile must not use the upstream sing-box Z icon")
+    if 'android:icon="@drawable/ic_qs_brand"' not in manifest:
+        errors.append("QS tile should use the colored cube ic_qs_brand")
+    tile_chunk = manifest[manifest.find('android:name=".bg.TileService"') : manifest.find('android:name=".bg.TileService"') + 700]
+    if 'android:label="@string/app_name"' not in tile_chunk:
+        errors.append("QS tile service must label itself with app_name")
+    tile = read("app/src/main/java/io/nekohasekai/sfa/bg/TileService.kt")
+    if "R.string.app_name" not in tile:
+        errors.append("QS tile must set label to app_name at runtime so OEM caches refresh")
+    if "ic_qs_brand" not in tile:
+        errors.append("QS tile must set icon to ic_qs_brand at runtime")
+    if "createWithResource" not in tile:
+        errors.append("QS tile must push Icon.createWithResource so Samsung drops the cached Z")
+    notif = read("app/src/main/java/io/nekohasekai/sfa/bg/ServiceNotification.kt")
+    if 'setContentTitle("sing-box")' in notif or '?: "sing-box"' in notif:
+        errors.append("service notification must not title itself sing-box")
+    if "ic_qs_tile" not in notif:
+        errors.append("service notification small icon should be ic_qs_tile")
+    vpn = read("app/src/main/java/io/nekohasekai/sfa/bg/VPNService.kt")
+    if '.setSession("sing-box")' in vpn:
+        errors.append("VPN session name must match the app, not sing-box")
+    importer = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/ProfileImportHandler.kt",
+    )
+    if "ConfigCompat.sanitize" not in importer:
+        errors.append("JSON import must sanitize (legacy fakeip) before checkConfig")
+
+    readme = read("README.md")
+    if "1.15.0-alpha.10" not in readme:
+        errors.append("README must state the synced upstream kernel version (1.15.0-alpha.10)")
+    if "公开说明" not in readme:
+        errors.append("README must include the 2026-09-18 public security notice")
+    if "docs/WINDOWS.md" not in readme:
+        errors.append("README must link docs/WINDOWS.md")
+    if "同步更新策略" not in readme:
+        errors.append("README must include the kernel/app sync strategy section")
+    if "chain-dev" not in readme:
+        errors.append("README must name the kernel branch chain-dev")
+    if "外挂" in readme:
+        errors.append("README must stay professional; do not use 外挂")
+    if "不必为跟版而跟版" in readme:
+        errors.append("README must use formal sync-policy wording")
+    if "KERNEL_UPSTREAM" not in read("docs/MAINTENANCE.md") and "check_upstream_features" not in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must document the official feature check")
+    if "外挂" in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must stay professional; do not use 外挂")
+    if "3205" not in read("docs/USER_GUIDE.md"):
+        errors.append("USER_GUIDE must document official detour TLS limitation #3205")
+    if "DNS" not in read("docs/USER_GUIDE.md") or "一跳" not in read("docs/USER_GUIDE.md"):
+        errors.append("USER_GUIDE must say DNS stays one hop")
+    props = read("version.properties")
+    if "KERNEL_UPSTREAM=1.15.0-alpha.10" not in props:
+        errors.append("version.properties must record KERNEL_UPSTREAM")
+    if "KERNEL_BRANCH=chain-dev" not in props:
+        errors.append("version.properties must record KERNEL_BRANCH")
+    dash = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt")
+    if "ChainPath" not in dash:
+        errors.append("dashboard must expose a ChainPath card")
+    if "LiveTopology" not in dash:
+        errors.append("dashboard must expose live topology")
+    if "ConnectionType.Connections" not in dash:
+        errors.append("dashboard must subscribe to live connections for topology")
+    if "ConnectionType.Outbounds" not in dash:
+        errors.append("dashboard must subscribe to outbounds for latency")
+    if "updateOutbounds" not in dash:
+        errors.append("dashboard must apply outbound urltest delays")
+    if "testSelectedDelay" not in dash:
+        errors.append("dashboard must be able to urltest the selected node")
+    if "TrafficFlowBuilder" not in read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt"):
+        errors.append("live topology must build a radiating traffic flow")
+    path_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt")
+    if "LiveTopology" not in path_card:
+        errors.append("chain path card must render LiveTopology, not a static PPT")
+    if "TrafficSankey" not in path_card and "SankeyLayout" not in path_card:
+        errors.append("chain path card must render a live sankey topology")
+    if "phase" not in path_card:
+        errors.append("live topology must animate traffic flow")
+    if "node.w + 5f" not in path_card:
+        errors.append("sankey labels must sit beside thin bars, not inside wide pills")
+    if "0xFF22D3EE" not in path_card:
+        errors.append("sankey colors should follow the radiating source-rule-hop-dest palette")
+    if "0xFF64748B" not in path_card:
+        errors.append("DIRECT hops and ribbons must use a distinct slate color")
+    if "verticalScroll" not in path_card:
+        errors.append("sankey must scroll instead of crushing overlapping labels")
+    if "maxLines = 1" not in path_card and "maxLines = 2" not in path_card:
+        errors.append("sankey labels must not wrap into overlapping stacks")
+    if "headlineSmall" not in path_card and "displayMedium" not in path_card:
+        errors.append("path card should show live down/up rates like the home topology")
+    if "displayMedium" not in path_card:
+        errors.append("home path should use a large downlink number")
+    if "112.dp" in path_card:
+        errors.append("do not reserve a floating dest gutter; use equal columns")
+    flow = read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt")
+    if "prettyHop" not in flow:
+        errors.append("generated chain tags must be stripped before they become hop labels")
+    if "val direct: Boolean" not in flow:
+        errors.append("flow nodes/links must flag DIRECT traffic")
+    if "MAX_COLUMN" not in flow:
+        errors.append("live path must stay within four columns so labels fit")
+    if "BrandMark" in path_card:
+        errors.append("decorative cube must be a start/stop control, not BrandMark")
+    if "onToggleService" not in path_card:
+        errors.append("home icon must start/stop the service")
+    if "ic_launcher" not in path_card and "ic_qs_brand" not in path_card:
+        errors.append("home power control must use the AngelaBox icon")
+    if "painterResource(R.mipmap" in path_card or "R.mipmap.ic_launcher" in path_card:
+        errors.append("Compose must not load adaptive mipmap icons; that crashes on launch")
+    if "ic_launcher_foreground" not in path_card and "ic_qs_brand" not in path_card:
+        errors.append("home power control must use a vector drawable, not an adaptive icon")
+    if "PowerMark" not in path_card:
+        errors.append("home hero should include a power mark that toggles the service")
+    if "ModeChip" not in path_card:
+        errors.append("clash mode must stay reachable from the home chips")
+    if "onShowProfilePicker" not in path_card:
+        errors.append("profile picker must stay reachable from the home chips")
+    if "onUpdateCurrentProfile" not in path_card:
+        errors.append("home must expose 更新当前配置")
+    if "title_configuration" not in path_card:
+        errors.append("home must expose a 配置 button that opens all profiles")
+    if "chain_path_exit" not in path_card:
+        errors.append("chained node row must show 出口 together with 入口")
+    if "topology.chained && entryName.isNotBlank() && entryName != nodeName" in path_card:
+        errors.append("chained 入口 must stay visible even when the title matches 出口")
+    if "homeHidden" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"):
+        errors.append("home must hide the duplicate debug/mode/profile cards")
+    dash = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt")
+    if "localHomeCards" not in dash:
+        errors.append("local dashboard must only render the new path UI")
+    if "if (!isRemote)" not in dash and "if (!isRemote) {" not in dash:
+        errors.append("local home must force ChainPath even when dashboard_items hid it")
+    if "dashboard_items" in dash:
+        errors.append("local dashboard must not expose the official card picker")
+    if "systemProxyVisible" not in path_card:
+        errors.append("system proxy must stay reachable from the new home")
+    if "R.string.memory" not in path_card:
+        errors.append("debug memory/goroutines must stay visible on the new home")
+    if "shortenNodeName" not in flow:
+        errors.append("landing hop labels must be shortened for display")
+    if "chainedHopPair" not in flow:
+        errors.append("chained sankey must keep entry and landing as two hops")
+    if "FlyCat" in readme or "FlyCat" in read("docs/MAINTENANCE.md") or "FlyCat" in read("docs/USER_GUIDE.md"):
+        errors.append("docs must not mention FlyCat; this Sankey is original")
+    guide = read("docs/USER_GUIDE.md")
+    if "按分流" not in guide and "按当前分流" not in guide:
+        errors.append("USER_GUIDE must say WebDAV follows split routing")
+    if "t.me/AngelaBox" not in readme:
+        errors.append("README must link the Telegram channel")
+    if "t.me/AngelaBox" not in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must link the Telegram channel")
+    if "topology.destinations.joinToString" in path_card:
+        errors.append("do not show unused destination caption on home")
+    if "dukangalex/AngelaBox" not in readme:
+        errors.append("README must point at dukangalex/AngelaBox")
+    if "dukangalex/AngelaBox" not in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must point at dukangalex/AngelaBox")
+    if "defaultDisabledCards" not in dash and "localHomeCards" not in dash:
+        errors.append("dashboard should hide duplicate upload/download cards by default")
+    if "chartHeight = 18.dp" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/UploadTrafficCard.kt"):
+        errors.append("traffic cards should use a compact sparkline")
+    if "AngelaBox" not in read("app/src/main/res/values/strings.xml"):
+        errors.append("app_name must be AngelaBox")
+    downloader = read("app/src/github/java/io/nekohasekai/sfa/vendor/ApkDownloader.kt")
+    if "expectedSha256" not in downloader or "SHA-256" not in downloader:
+        errors.append("in-app update must verify APK SHA-256 when the release sidecar exists")
+    if "ApkSigningCerts.firstCertDer" not in downloader:
+        errors.append("in-app update must parse the APK Signing Block, not only PackageManager")
+    if "APK has no signing certificate" in downloader:
+        errors.append("in-app update must not show the English APK has no signing certificate error")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if "fun stripDeprecatedTunStack" not in inbound:
+        errors.append("ConfigInboundCompat must strip deprecated tun.stack for 1.15")
+    normalize = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt")
+    if "stripDeprecatedTunStack" not in normalize:
+        errors.append("config normalize must strip tun.stack")
+    if 'mark(ConfigInboundCompat.stripDeprecatedTunStack' in normalize:
+        errors.append("tun.stack strip must stay silent; do not show 已修正")
+    checker = read("app/src/github/java/io/nekohasekai/sfa/vendor/GitHubUpdateChecker.kt")
+    if "pickSha256" not in checker:
+        errors.append("GitHub update checker must fetch the APK SHA-256 asset")
+    if "dukangalex/AngelaBox/releases" not in checker:
+        errors.append("GitHub update checker must query dukangalex/AngelaBox")
+    workflow = read(".github/workflows/release-chainbox.yml")
+    if "check_upstream_features.py" not in workflow:
+        errors.append("release workflow must check official type constants")
+    if "AngelaBox-android.apk" not in workflow:
+        errors.append("release must publish AngelaBox-android.apk")
+    if "ChainBox-android.apk" in workflow:
+        errors.append("release must not publish ChainBox-android.apk; AngelaBox-android.apk only")
+    if "name: Build Windows CLI" in workflow or "Attach Windows CLI" in workflow:
+        errors.append("Android release must not build or attach Windows while Windows is paused")
+    if "windows-cli" in workflow:
+        errors.append("Android release must not include the windows-cli job")
+    if "io.nekohasekai.sfw" in workflow:
+        errors.append("release must not use official SFW appId")
+    if "KERNEL_COMMIT" not in workflow:
+        errors.append("release workflow must record the kernel commit SHA")
+    if "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151" not in workflow:
+        errors.append("release workflow must pin the CN=ChainBox certificate")
+    telegram = read(".github/workflows/telegram.yml")
+    if "TG_BOT_TOKEN" not in telegram:
+        errors.append("telegram.yml must notify Telegram after publish")
+    if "api.telegram.org" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must notify Telegram after publish")
+    if "sendDocument" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must upload the APK to Telegram")
+    if "telegram_announce.py" not in telegram:
+        errors.append("telegram.yml must build Telegram notes from telegram_announce.py")
+    if "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must send Telegram posts via telegram_send.py (curl -F hits secret masking)")
+    if "reply_markup" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("Telegram notify must include a download button")
+    if "disable_web_page_preview" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("Telegram notify must disable GitHub link preview so the channel shows notes+APK")
+    if "telegram-caption.txt" not in read("scripts/telegram_send.py") and "telegram-caption.txt" not in telegram:
+        errors.append("Telegram APK caption must come from telegram_announce.py")
+    if "filename=AngelaBox-android.apk" not in read("scripts/telegram_send.py") and '"AngelaBox-android.apk"' not in read("scripts/telegram_send.py"):
+        errors.append("Telegram sendDocument must set filename so the APK is installable")
+    send_py = read("scripts/telegram_send.py")
+    if "timeout=180" in send_py:
+        errors.append("Telegram upload timeout 180s is too short for a 40MB APK")
+    if "sendDocument runs first" in send_py or "changelog first" not in send_py.lower():
+        errors.append("telegram_send.py must post sendMessage before sendDocument so a timeout cannot hide the channel notes")
+    if "RETRIES" not in send_py:
+        errors.append("telegram_send.py must retry sendDocument after write timeout")
+    if "CHUNK" not in send_py:
+        errors.append("telegram_send.py must stream the APK in chunks instead of one ssl.sendall")
+    if "PYTHONUNBUFFERED" not in telegram:
+        errors.append("telegram.yml Telegram step must be unbuffered so upload progress is visible")
+    if "same-bytes alias" in workflow or "ChainBox-android.apk" in workflow:
+        errors.append("release notes must not mention a ChainBox APK alias")
+    if "TG_BOT_TOKEN" not in telegram or "TG_CHANNEL_ID" not in telegram:
+        errors.append("telegram.yml must use TG_BOT_TOKEN and TG_CHANNEL_ID")
+    if "sendDocument" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml should upload AngelaBox-android.apk")
+    if "configured=false" not in telegram:
+        errors.append("telegram.yml must skip when secrets are missing")
+    if "name: Telegram Release" not in telegram:
+        errors.append("telegram.yml must be named Telegram Release so it is findable in Actions")
+    if "telegram_announce.py" not in telegram:
+        errors.append("telegram.yml must use telegram_announce.py so notes and download button match")
+    if "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must send via telegram_send.py")
+    if "disable_web_page_preview" not in telegram and "telegram_send.py" not in telegram:
+        errors.append("telegram.yml must disable GitHub link preview")
+    if "timeout-minutes: 25" not in telegram and "timeout-minutes: 20" not in telegram:
+        errors.append("telegram.yml job timeout must cover APK upload retries")
+    if "PYTHONUNBUFFERED" not in telegram:
+        errors.append("telegram.yml must be unbuffered so upload progress is visible")
+    if "docs/brand/AngelaBox-icon-512.png" not in readme:
+        errors.append("README must show the cube icon on the repository homepage")
+    brand512 = ROOT / "docs/brand/AngelaBox-icon-512.png"
+    brand1024 = ROOT / "docs/brand/AngelaBox-icon-1024.png"
+    brand_og = ROOT / "docs/brand/AngelaBox-og.png"
+    if not brand512.is_file() or brand512.stat().st_size < 1000:
+        errors.append("docs/brand/AngelaBox-icon-512.png missing")
+    if not brand1024.is_file() or brand1024.stat().st_size < 1000:
+        errors.append("docs/brand/AngelaBox-icon-1024.png missing")
+    if not brand_og.is_file() or brand_og.stat().st_size < 1000:
+        errors.append("docs/brand/AngelaBox-og.png missing (GitHub social preview)")
+    if "t.me/AngelaBox" not in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must document the Telegram channel")
+    if "TG_BOT_TOKEN" not in read("docs/MAINTENANCE.md"):
+        errors.append("MAINTENANCE must document Telegram bot secrets")
+
+    live = read("app/src/main/java/io/nekohasekai/sfa/chain/ChainPath.kt")
+    if "leaves.size == 1" in live:
+        errors.append("single live-chain leaf must not be assigned as landing")
+    if "hop !in landingMembers" not in live:
+        errors.append("entry live hop must not be taken from the landing group")
+    if "hop !in entryMembers" not in live:
+        errors.append("landing live hop must not be taken from the entry group")
+    if "Role.Landing" not in path_card or "firstOrNull { it.role == ChainPathHop.Role.Landing }" not in path_card:
+        errors.append("header 出口 must prefer Role.Landing over an entry leaf")
+    if "real.size >= 2" not in flow:
+        errors.append("sankey must use logged chain hops when the sample has two or more")
+    if "THEME_MODE" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.THEME_MODE missing")
+    if "themeMode" not in settings:
+        errors.append("Settings.themeMode missing")
+    if "settings/theme" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):
+        errors.append("theme settings route missing")
+    theme_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ThemeSettingsScreen.kt")
+    if "Appearance.applyMode" not in theme_ui or "theme_pure_black" not in theme_ui:
+        errors.append("theme page must expose mode and pure black")
+    appearance = read("app/src/main/java/io/nekohasekai/sfa/compose/theme/Appearance.kt")
+    if "fun setMode" in appearance or "fun setSeed" in appearance or "fun setPureBlack" in appearance:
+        errors.append("Appearance apply* methods must not be named setMode/setSeed/setPureBlack (JVM setter clash)")
+    if "字体修复" in theme_ui or "深色图标" in theme_ui:
+        errors.append("theme page must not copy ROM-specific font/icon toggles")
+    if 'name="theme_settings"' not in cn:
+        errors.append("zh-rCN missing theme_settings")
+    if "HopOrb" not in ui or "LinkPulse" not in ui:
+        errors.append("chain builder should show circular entry / landing nodes, not stacked PPT cards")
+    if "HopPickCard" in ui:
+        errors.append("chain builder must not use the old full-width HopPickCard stack")
+    if "surfaceContainer" not in ui:
+        errors.append("chain builder polish should use surface cards")
+
+    if "looksLikeGroupTag" not in flow:
+        errors.append("sankey must expand group tags like 自动选择 to the selected leaf")
+    if "expandHopLabel" not in flow:
+        errors.append("logged hops that are group tags must expand to the live leaf")
+    if "findGroup" not in live:
+        errors.append("live topology must match group tags with leading emoji stripped")
+    if "looksLikeGroupTag" not in live:
+        errors.append("displayNonDirect must not keep a group tag as 出口")
+    if ".height(if (running) 200.dp" in path_card or ".height(if (running) 220.dp" in path_card:
+        errors.append("running sankey must size to requiredHeight, not a clipped 200.dp box")
+    if "requiredHeight" not in path_card:
+        errors.append("running sankey must use SankeyLayout.requiredHeight so 5+ rule nodes are fully visible")
+    if "480.dp" not in path_card:
+        errors.append("sankey must allow a tall requiredHeight so the path diagram is complete")
+    if "contentAlignment = Alignment.Center" not in path_card:
+        errors.append("sankey must be vertically centered in its slot")
+    if "覆写脚本" not in override:
+        errors.append("ConfigQuicOverride must apply overlay scripts")
+    if "ConfigScriptOverride.apply" not in override:
+        errors.append("runtime overlay must run user scripts")
+    script_idx = override.find("ConfigScriptOverride.apply")
+    chain_idx = override.find("ConfigChainReapply.apply")
+    if script_idx < 0 or chain_idx < 0 or chain_idx < script_idx:
+        errors.append("scripts must run on the entry profile before chain merge")
+    if override.count("ConfigChainReapply.apply") != 1:
+        errors.append("chain must be applied once after scripts, not before and after")
+    if "enabledFor" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("scripts must apply per selected profile via enabledFor")
+    if "fun enabledFor" not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
+        errors.append("OverlayScripts.enabledFor missing")
+    if "overlayScriptBindingsJson" not in settings:
+        errors.append("Settings.overlayScriptBindingsJson missing")
+    if "OVERLAY_SCRIPT_BINDINGS" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.OVERLAY_SCRIPT_BINDINGS missing")
+    if "ProfileScriptBinderCard" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/EditProfileScreen.kt"):
+        errors.append("edit profile must expose a script binder")
+    if "ProfileScriptBinderDialog" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt"):
+        errors.append("profile picker must let each profile choose scripts")
+    if "overlay_scripts_sync" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must offer URL sync")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if 'rule.put("override_destination"' in inbound or "override_destination\", true" in inbound:
+        errors.append("ConfigInboundCompat must not emit sniff override_destination (sing-box 1.14 rejects it)")
+    if "stripSniffOverrideDestination" not in inbound:
+        errors.append("leftover sniff override_destination must be stripped")
+    if "sniff_override_destination" in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("sample script must not set sniff_override_destination")
+    sample = read("app/src/main/assets/scripts/airport-region.js")
+    if "Clash Meta" in sample or "clash:" in sample or "由 Clash" in sample:
+        errors.append("default script must not mention third-party clients")
+    if "geoip-fastly" in sample or "geosite-apple-cn" in sample or "geosite-biliintl" in sample:
+        errors.append("default script must not inject rule-sets that 404 on testingcf jsDelivr")
+    if "geoip-private" in sample or "geoip-telegram" in sample:
+        errors.append("default script must not inject geoip files missing from sing-geoip rule-set")
+    if "geosite-geolocation-!cn" not in sample:
+        errors.append("default script must keep non-CN geolocation routing from the original sample")
+    if "geosite-spotify" not in sample or "geosite-steam" not in sample:
+        errors.append("default script must keep media/game rule-sets that exist on testingcf")
+    if "config.outbounds = cleaned" not in sample:
+        errors.append("default script must replace original groups, not merge a second set")
+    if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
+        errors.append("default script must not keep the original route strategy alongside the overlay")
+    if "overlay-revision: 26" not in sample:
+        errors.append("default script must stamp overlay-revision: 26 so stale copies refresh")
+    claude = sample.find('name: "ClaudeAI"')
+    ai = sample.find('name: "AI"')
+    if claude < 0 or ai < 0 or claude > ai:
+        errors.append("default script must declare ClaudeAI before AI")
+    if "geosite-anthropic" not in sample:
+        errors.append("ClaudeAI must use the official anthropic rule set")
+    overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
+    if 'SAMPLE_REVISION = "overlay-revision: 26"' not in overlay_kt:
+        errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
+    if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
+        errors.append("default script must not fake load-balance or failover groups")
+    if 'clash_mode: "Global"' not in sample or 'clash_mode: "Direct"' not in sample:
+        errors.append("default script must emit Global/Direct clash_mode so the dashboard chip has 规则/全局/直连")
+    if 'interval: "10m"' not in sample or 'idle_timeout: "30m"' not in sample:
+        errors.append("default script must use 10m urltest / 30m idle so unused groups stop probing")
+    if 'idle_timeout: "4h"' in sample:
+        errors.append("urltest idle_timeout 4h keeps probing unused groups and drains radio")
+    if "tcp_keep_alive" not in sample or "tcp_keep_alive_interval" not in sample:
+        errors.append("default script must set TCP keepalive on leaf outbounds for background NAT")
+    if "tcp_keep_alive = true" in sample:
+        errors.append("tcp_keep_alive must be a duration string, not a boolean")
+    if 'tcp_keep_alive = "60s"' not in sample:
+        errors.append("default script must set tcp_keep_alive to 60s")
+    if 'tag: "tun-in"' not in sample:
+        errors.append("default script must create tun-in so device traffic has an inbound")
+    if "17890" in sample:
+        errors.append("default script must not bind loopback mixed 17890")
+    if 'type: "https"' in sample:
+        errors.append("default script DNS must not use DoH")
+    if 'type: "tcp"' not in sample:
+        errors.append("dns-remote must be tcp inside the proxy so TCP-only nodes can resolve")
+    if 'type: "udp"' not in sample:
+        errors.append("dns-cn must stay udp direct")
+    if "inbound.mtu = 1500" not in sample:
+        errors.append("default script must force TUN mtu 1500 so Android does not use 9000")
+    geoip_cn_at = sample.find('useSet(sets, rules, "geoip-cn"')
+    geolocation_not_cn_at = sample.find('useSet(sets, rules, "geosite-geolocation-!cn"')
+    if geoip_cn_at < 0 or geolocation_not_cn_at < 0 or geoip_cn_at > geolocation_not_cn_at:
+        errors.append("default script must route geoip-cn DIRECT before geosite-geolocation-!cn")
+    if "remoteDns.detour" not in sample and "remoteDns.detour =" not in sample:
+        errors.append("dns-remote must detour through a proxy group so foreign DoH works in China")
+    if "find_process = false" not in sample:
+        errors.append("default script must disable find_process to avoid procfs spam on Android")
+    if "angela-direct" not in sample:
+        errors.append("default script must create a clean direct outbound when tag direct is not type=direct")
+    if '"hijack-dns"' not in sample:
+        errors.append("default script must hijack DNS before routing so system lookups are not dropped")
+    if "geosite-steam@cn" not in sample:
+        errors.append("default script must send geosite-steam@cn direct before the Steam group")
+    if "geosite-binance" not in sample or "geosite-paypal" not in sample or "geosite-category-cryptocurrency" not in sample:
+        errors.append("Crypto must use official geosite sets, not a handful of domain suffixes")
+    if "query_type: [64, 65]" in sample:
+        errors.append("default script must not reject HTTPS/SVCB DNS; that forces YouTube onto TCP and buffers")
+    if 'network: "udp", port: 443, action: "reject"' not in sample:
+        errors.append("disableQuic must reject UDP 443 so HTTP/3 falls back to TCP")
+    if re.search(r'port:\s*443[\s\S]{0,40}method:\s*"drop"', sample):
+        errors.append("UDP 443 reject must reset, not drop")
+    groups = read("docs/scripts/service-groups.js")
+    if re.search(r'port:\s*443[\s\S]{0,80}method:\s*"drop"', groups):
+        errors.append("service-groups.js UDP 443 reject must reset, not drop")
+    if "cnDns.detour = directTag" not in sample and "detour: directTag" not in sample:
+        errors.append("dns-cn must detour via direct so AliDNS does not go through the proxy")
+    if "gemini.google.com" not in sample or "generativelanguage.googleapis.com" not in sample:
+        errors.append("default script must keep Gemini domains on the AI group")
+    if "aistudio.google.com" not in sample or "claude.ai" not in sample:
+        errors.append("default script must keep AI Studio / Claude on the AI group and remote DNS")
+    if "漏网之鱼" not in sample:
+        errors.append("default script final group must be 漏网之鱼")
+    if 'selector("默认代理"' not in sample or 'urltest("自动选择"' not in sample:
+        errors.append("default script must use 默认代理 / 自动选择 group names")
+    if "selectMembers.push(directTag)" in sample:
+        errors.append("节点选择 must not expose DIRECT as a general member")
+    if 'name: "AdBlock"' not in sample or 'tag: "REJECT"' not in sample:
+        errors.append("AdBlock must keep a REJECT member")
+    if 'fixed: ["REJECT", "默认代理", "直连"]' not in sample:
+        errors.append("远控工具 must keep REJECT, 默认代理 and 直连")
+    if "delete item.detour" not in sample or "dialer-proxy" not in sample:
+        errors.append("default script must strip leaf detour / dialer-proxy so airport overlay is not chained")
+    if (ROOT / "app/src/main/assets/scripts/airport-tun.js").exists():
+        errors.append("in-app airport override asset must stay removed; the HiClash port is not bundled")
+    overlay_src = overlay_kt
+    if "withoutRetiredAirport" not in overlay_src:
+        errors.append("opening the script list must delete a stored airport override")
+    if "AIRPORT_ASSET" in overlay_src or "upsertAirport" in overlay_src or "SOURCE_AIRPORT" in overlay_src:
+        errors.append("script library must not bundle or refresh an airport override")
+    if "inbound.strict_route = !!strictRoute" not in sample:
+        errors.append("default script must clear strict_route when the switch is off")
+    if "overlay_scripts_import_airport" in read("app/src/main/res/values-zh-rCN/strings.xml"):
+        errors.append("zh-rCN must not offer an in-app airport override import")
+    if "换一个节点" in read("app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt"):
+        errors.append("subscription update must not tell the user to switch nodes")
+    if "dropAllRemoteRuleSets" not in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("rule-set download failure must skip remote sets and still start")
+    if "resolveOutsideTunnel" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
+        errors.append("direct retry must resolve outside the tunnel, not via fake-ip")
+    if "if (protect && !DirectDial.protect(socket)) return emptyList()" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
+        errors.append("tunnel DNS lookup must not send when protect fails")
+    if "allowPublicDnsFallback" not in read("app/src/main/java/io/nekohasekai/sfa/utils/RemoteUrlGuard.kt"):
+        errors.append("public DNS fallback must be gated while the tunnel is up")
+    if "BackupRejected" not in read("app/src/main/java/io/nekohasekai/sfa/utils/BackupManager.kt"):
+        errors.append("backup size and path limits must fail closed")
+    if "relay: 1, chain: 1" not in sample:
+        errors.append("default script must replace chain outbounds, not keep subscription chains")
+    if "mixed-port" in sample or "geox-url" in sample or "nameserver-policy" in sample:
+        errors.append("default script must not copy Clash mixed-port / geox-url / nameserver-policy keys")
+    if "com.google.android.apps.bard" not in sample:
+        errors.append("default script must route the Gemini Android package")
+    if "ensureHijackDns" not in inbound:
+        errors.append("startup must inject hijack-dns if the subscription omitted it")
+    if "barProfileMenu" in ui:
+        errors.append("chain builder top bar must not duplicate the in-card profile dropdown")
+    script_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt")
+    if "barMenu" in script_ui:
+        errors.append("script list top bar must not duplicate the in-card profile dropdown")
+    if "OverrideTopBar" not in ui:
+        errors.append("chain builder must use OverrideTopBar so it is not flush with the status bar")
+    if "ExposedDropdownMenuBox" not in script_ui:
+        errors.append("script list card must keep a profile dropdown")
+    if "PullToPopContainer" not in read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"):
+        errors.append("nested pages must support pull-to-go-back")
+    if "OpenLogs" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard running chip / sankey should open logs, not the chain page")
+    if "Icons.Outlined.Add" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard must not duplicate the add-profile + next to 配置")
+    if "applyChinaUserDefaultsIfNeeded" not in settings:
+        errors.append("existing installs must one-shot enable China-user defaults")
+    if "CHINA_DEFAULTS_REV" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.CHINA_DEFAULTS_REV missing")
+    if "DISABLE_QUIC) { true }" not in settings:
+        errors.append("disableQuic should default on for China HTTP3 leak protection")
+    if "STRICT_ROUTE) { false }" not in settings:
+        errors.append("strictRoute should default off so a network switch does not drop the tunnel")
+    if "chinaDefaultsRev < 3" not in settings:
+        errors.append("existing installs must turn strict_route off once")
+    if "DISABLE_IPV6) { true }" not in settings:
+        errors.append("disableIpv6 should default on to block IPv6 bypass")
+    if "EXCLUDE_CN_QUIC) { true }" not in settings:
+        errors.append("excludeCnQuic should default on so domestic QUIC still works")
+    banner = read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt")
+    if "surfaceContainerHigh" not in banner:
+        errors.append("script notice banner must not use a red error container for info")
+    if "脚本已接管分流" in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt"):
+        errors.append("script overlay notice must stay a calm info banner, not 脚本已接管分流")
+    if "override_address" in sample:
+        errors.append("default script must not emit removed direct override_address")
+    if 'type: "socks"' not in sample or "server_port: 9" not in sample:
+        errors.append("REJECT/REJECT-DROP must be local socks blackholes, not direct override")
+    if "healDirectDestinationOverride" not in inbound:
+        errors.append("startup must strip removed direct override fields so old scripts still start")
+    if '"override_address"' not in overlay_kt:
+        errors.append("stale sample detector must refresh copies that still emit override_address")
+    if "inherits catalog-enabled" in overlay_kt:
+        errors.append("unbound profiles must not inherit catalog scripts")
+    if "?: return emptyList()" not in overlay_kt:
+        errors.append("enabledFor must return empty when the profile has no binding")
+    if "bound ?: emptyList()" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
+        errors.append("profile script binder must not treat unbound as catalog-on")
+    if "继承列表里的默认开关" in read("docs/USER_GUIDE.md"):
+        errors.append("user guide must not say unbound profiles inherit catalog scripts")
+    if 'SAMPLE_NAME = "默认脚本"' not in read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt"):
+        errors.append("bundled script must be named 默认脚本")
+    if "dropMissingRemoteRuleSets" not in inbound and "healRemoteRuleSets" not in inbound:
+        errors.append("startup must heal remote rule-sets that 404")
+    if "replaceRemoteRuleSetsMatching" not in inbound:
+        errors.append("startup must replace the specific rule-set named in a kernel 404")
+    if "needle in blob" in inbound:
+        errors.append("rule-set matching must not substring-match URLs (that wipes github/google/1)")
+    ads_idx = override.find("ConfigAdBlock.apply")
+    drop_idx = max(
+        override.rfind("ConfigInboundCompat.apply"),
+        override.rfind("healRemoteRuleSets"),
+        override.rfind("replaceRemoteRuleSetsMatching"),
+        override.rfind("dropMissingRemoteRuleSets"),
+    )
+    if ads_idx < 0 or drop_idx < ads_idx:
+        errors.append("404 rule-sets must be healed after chain merge and later overlays")
+    settings_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SettingsScreen.kt")
+    if "OverrideTopBar" not in settings_ui:
+        errors.append("SettingsScreen must use OverrideTopBar so the title is not flush with the status bar")
+    backup_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/BackupRestoreScreen.kt")
+    if "OverrideTopBar" not in backup_ui:
+        errors.append("BackupRestoreScreen must use OverrideTopBar so the title is not flush with the status bar")
+    theme_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ThemeSettingsScreen.kt")
+    if "OverrideTopBar" not in theme_ui:
+        errors.append("ThemeSettingsScreen must use OverrideTopBar so the title is not flush with the status bar")
+    box = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    if "已跳过无效规则集" in box:
+        errors.append("recovery notice must replace invalid rule-sets, not skip them")
+    diagnose = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt")
+    if "应用会跳过这份无效规则集" in diagnose or "应用会跳过无效规则集" in diagnose:
+        errors.append("diagnose must say invalid rule-sets are replaced, not skipped")
+    if "isPlausibleRuleSetName" not in diagnose:
+        errors.append("rule-set needle extractor must reject digits and stopwords")
+    if "fun refreshStaleSample" not in overlay_kt or "fun sampleLooksStale" not in overlay_kt:
+        errors.append("stale bundled sample must be replaced in place on start")
+    if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("script apply must refresh a previously imported default script")
+    if "refreshStaleSample" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must refresh a stale default script so the editor is not the old copy")
+    if "ScriptEditorPane" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script editor must be a fullscreen page")
+    if "weight(1f)" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script editor code field must fill the screen")
+    theme = read("app/src/main/java/io/nekohasekai/sfa/compose/theme/Theme.kt")
+    if "onSurfaceVariant = Color(0xFFD6D6D6)" not in theme:
+        errors.append("dark/pure-black theme must use high-contrast onSurfaceVariant")
+    update_dlg = read("app/src/main/java/io/nekohasekai/sfa/compose/component/UpdateDialog.kt")
+    if "onSurfaceVariant" in update_dlg:
+        errors.append("update notes must use onSurface so dark theme caption stays readable")
+    if "syntaxHighlightColor" not in update_dlg or "syntaxHighlightTextColor" not in update_dlg:
+        errors.append("update markdown code chips must follow the theme, not LightGray")
+    if "fun userFacingReleaseNotes" not in update_dlg:
+        errors.append("in-app update notes must hide install/kernel dump from ordinary users")
+    sankey = read("app/src/main/java/io/nekohasekai/sfa/chain/TrafficFlow.kt")
+    if "val proxy = colNodes.filter { !it.direct }" not in sankey:
+        errors.append("sankey layout must put proxy nodes above DIRECT")
+    if "laneGap" not in sankey:
+        errors.append("sankey must separate DIRECT and proxy lanes")
+    path_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt")
+    if "PathEffect.dashPathEffect" not in path_card:
+        errors.append("path diagram must draw a lane divider between proxy and DIRECT")
+    if "Color(0xFF22D3EE)" not in path_card:
+        errors.append("proxy path must use a brighter tech palette")
+    if "color = MaterialTheme.colorScheme.onSurface" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
+    ):
+        errors.append("check-update prompt must use onSurface in dark theme")
+    zh_cn = read("app/src/main/res/values-zh-rCN/strings.xml")
+    zh_tw = read("app/src/main/res/values-zh-rTW/strings.xml")
+    if "示例脚本" in zh_cn or "机场地区分组" in zh_cn:
+        errors.append("zh-CN copy must not keep the old sample name")
+    if "示例匯入" in zh_tw:
+        errors.append("zh-TW empty-state must say 預設腳本, not 示例")
+    if "Clash 字段" in zh_cn or "Clash 欄位" in zh_tw:
+        errors.append("script catalog hint must not mention Clash keys")
+    if "个人资料" in zh_cn:
+        errors.append("zh-rCN must not machine-translate profile as 个人资料")
+    if "应用程序" in zh_cn:
+        errors.append("zh-rCN should say 应用, not 应用程序")
+    builder = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
+    if "所有非中国流量不可直连" not in builder:
+        errors.append("chain builder info must say non-China traffic cannot DIRECT")
+    if "链式与脚本可同时启用" not in builder:
+        errors.append("chain builder info must describe script and chain composition")
+    if "脚本生成的入口" not in builder:
+        errors.append("chain builder must state that scripts run on the entry profile")
+    if "port: \"3478:3480\"" in sample or "port: \"3478:3481\"" in sample or "port: \"5349:5355\"" in sample:
+        errors.append("STUN port ranges must use port_range, not port")
+    if "port_range: \"3478:3481\"" not in sample:
+        errors.append("default script must use sing-box port_range for STUN")
+    if "isAnnouncement" not in sample:
+        errors.append("default script must skip announcement/fake leaf nodes")
+    if "errorContainer" in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt") and "surfaceContainerHigh" not in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt") and "secondaryContainer" not in read("app/src/main/java/io/nekohasekai/sfa/compose/component/OverrideBanner.kt"):
+        errors.append("script takeover banner must not always use error red")
+    if "OpenConnections" not in read("app/src/main/java/io/nekohasekai/sfa/compose/base/UiEvent.kt"):
+        errors.append("dashboard chips need OpenConnections / OpenGroups events")
+    if "connectionsCount" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ChainPathCard.kt"):
+        errors.append("dashboard must embed connection/group/uptime chips")
+    if "isDashboardRoute" not in read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"):
+        errors.append("service status bar must hide on the dashboard once chips moved up")
+    if "ExposedDropdownMenuBox" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt"):
+        errors.append("chain builder must offer a profile dropdown")
+    if "ExposedDropdownMenuBox" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("script list must offer a profile dropdown to bind scripts")
+    if "注重隐私" not in read("README.md"):
+        errors.append("README must put privacy/security/perf/out-of-box on the front")
+    if "链路只绑定当前这一份配置。切换到其他配置时" in builder:
+        errors.append("chain builder on-page copy must move into the info dialog")
+    if "isBypassDirectRule" not in compiler:
+        errors.append("chain compiler must keep China/LAN DIRECT while pinning other DIRECT to chain")
+    if "isDirectLike" not in compiler:
+        errors.append("chain compiler must recognize DIRECT tags when pinning non-China traffic")
+    if "🛑 广告拦截" in sample or "REJECT-DROP" in sample:
+        errors.append("default script uses AdBlock and REJECT, not the old drop tags")
+    if 'name: "AdBlock"' not in sample:
+        errors.append("default script must expose AdBlock")
+    if 'fixed: ["REJECT", "默认代理", "直连"]' not in sample:
+        errors.append("远控工具 must default to REJECT with 默认代理 and 直连")
+    script_override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt")
+    if "ChainBindings.get(profileId) != null" in script_override:
+        errors.append("chain entry scripts must not be muted")
+    pipeline = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "script-produced entry graph" not in pipeline:
+        errors.append("script must run before chain compilation")
+    if "OverlayScripts.setBinding(boundId, emptyList())" in builder:
+        errors.append("saving a chain must preserve scripts on that profile")
+    if "ChainBindings.remove(profileId)" in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/profile/ProfileScriptBinder.kt"):
+        errors.append("enabling scripts must preserve the profile chain binding")
+    if "function main" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("script engine must require function main(config)")
+    if "initSafeStandardObjects" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("Rhino must use initSafeStandardObjects")
+    script_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt")
+    if "setClassShutter" not in script_kt:
+        errors.append("Rhino ClassShutter must be set via setClassShutter (the field is private)")
+    if "cx.classShutter" in script_kt or ".classShutter =" in script_kt:
+        errors.append("do not assign Context.classShutter; the field is private and fails release compile")
+    if "org.mozilla:rhino" not in read("app/build.gradle.kts"):
+        errors.append("app must depend on Mozilla Rhino to run overlay scripts")
+    if "tools/scripts" not in read("app/src/main/java/io/nekohasekai/sfa/compose/navigation/Navigation.kt"):
+        errors.append("scripts route missing")
+    tools = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ToolsScreen.kt")
+    if "overlay_scripts" not in tools:
+        errors.append("Tools must expose 脚本")
+    if "function main(config)" not in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("bundled sample must be a sing-box function main(config) script")
+    if "proxy-groups" in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("bundled sample must not emit Clash proxy-groups")
+    if "type: \"urltest\"" not in read("app/src/main/assets/scripts/airport-region.js") and 'type: "urltest"' not in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("bundled sample must create sing-box urltest outbounds")
+    if "load-balance" in read("app/src/main/assets/scripts/airport-region.js") and "GROUP_TYPES" not in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("bundled sample must not create Clash load-balance outbounds")
+    sample = read("app/src/main/assets/scripts/airport-region.js")
+    if '"type": "load-balance"' in sample or "type: \"load-balance\"" in sample:
+        errors.append("bundled sample must not create load-balance outbounds (sing-box has no such type)")
+    if "http_client: \"http-direct\"" not in sample and "http_client: 'http-direct'" not in sample:
+        errors.append("default script must pin remote rule-sets to a 1.14 http_client with no detour")
+    if "testingcf.jsdelivr.net" not in sample:
+        errors.append("bundled sample rule-set URLs must use testingcf jsDelivr")
+    if 'tag: "http-direct"' not in sample:
+        errors.append("default script must emit official http_clients for rule-set download")
+    if "default_http_client" not in sample:
+        errors.append("default script must set route.default_http_client")
+    if "interrupt_exist_connections: !!interrupt" in sample or "interrupt_exist_connections: true" in sample:
+        errors.append("urltest must not interrupt existing connections; that is the Clash-family disconnect")
+    if "interrupt_exist_connections: false" not in sample:
+        errors.append("urltest and selector must keep interrupt_exist_connections false")
+    if "makeUrltest(LB_NAME, leafTags" in sample:
+        errors.append("load-balance must urltest region groups, not every leaf node")
+    inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")
+    if "healDownloadClients" not in inbound or "healMissingOutboundRefs" not in inbound:
+        errors.append("startup must heal 1.14 http_clients and leftover outbound refs after scripts")
+    if "skipScripts" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt"):
+        errors.append("overlay apply must be able to skip scripts for rollback")
+    if "startOrReloadKernel" not in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("service start must retry without scripts when the overlay fails")
+    if "ConfigDiagnose" not in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("create-service errors must be explained in Chinese")
+    if "fun explain" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigDiagnose.kt"):
+        errors.append("ConfigDiagnose.explain missing")
+    if "andSelect = Settings.selectedProfile < 0L" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/NewProfileViewModel.kt"
+    ):
+        errors.append("creating a profile must not steal the current selection")
+    profiles = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilesScreen.kt")
+    if "profile_in_use" not in profiles:
+        errors.append("current profile card must show 使用中")
+    if "primaryContainer" not in profiles:
+        errors.append("selected profile must use primaryContainer so it is visible on dark theme")
+    if "surfaceContainerHigh" in profiles:
+        errors.append("selected vs unselected surfaceContainerHigh is invisible on dark theme")
+    monitor = read("app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkMonitor.kt")
+    if "Thread.sleep" in monitor:
+        errors.append("network interface monitor must not block the connectivity thread")
+    if "LOST_DEBOUNCE_MS" not in monitor or "notifyIfChanged" not in monitor:
+        errors.append("network monitor must debounce Lost and skip unchanged interfaces")
+    if "forceReset" not in monitor or "REBIND_DELAY_MS" not in monitor:
+        errors.append("same interface coming back after a drop must rebind, not no-op")
+    if "reconcileUnderlying" not in monitor or "interfaceUp" not in monitor:
+        errors.append("network monitor must rebind when the remembered interface is down")
+    listener = read("app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkListener.kt")
+    if "networkActor.send(NetworkMessage.Update(network))" in listener:
+        errors.append("capability flaps must not rebind the default interface")
+    notes = read("docs/RELEASE_NOTES.md")
+    if "Windows" in notes or "windows" in notes:
+        errors.append("published release notes must be Android-only")
+    release_body = read(".github/workflows/release-chainbox.yml")
+    if "Windows 图形端" in release_body or "Windows 命令行" in release_body:
+        errors.append("Android release body must not mention Windows")
+    if "andSelect = Settings.selectedProfile < 0L" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/ProfileImportHandler.kt"
+    ):
+        errors.append("importing a profile must not steal the current selection")
+    if "wellKnownChinaPackages" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
+    ):
+        errors.append("China app scanner must include a well-known bank/payment package list")
+    if "com.eg.android.AlipayGphone" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
+    ):
+        errors.append("China classifier must keep Alipay in the well-known list")
+    classifier = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyClassifier.kt"
+    )
+    if "isDevicePlumbing" not in classifier:
+        errors.append("per-app scan must skip OEM/AOSP plumbing")
+    if "NetworkUse" not in classifier:
+        errors.append("per-app scan must classify by network purpose")
+    if "if (system) return NetworkUse.SKIP" not in classifier:
+        errors.append("per-app scan must skip FLAG_SYSTEM unless the package is a well-known consumer app")
+    if "com.google.android.ext" not in classifier:
+        errors.append("per-app scan must skip Google system plumbing")
+    perapp = read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+    )
+    if "else !china" in perapp:
+        errors.append("overseas scan must not treat every non-China package as foreign")
+    if "scanForeignPackage" not in perapp:
+        errors.append("overseas scan must positively identify foreign apps")
+    if "sortItemsByDelay" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/model/Groups.kt"
+    ):
+        errors.append("urltest results must sort nodes by delay")
+    sample = read("app/src/main/assets/scripts/airport-region.js")
+    if "http://" in sample:
+        errors.append("default script must not use cleartext HTTP")
+    if "raw.githubusercontent.com" in sample:
+        errors.append("default script must not fetch GitHub raw rule-sets")
+    if "19302:19310" not in sample:
+        errors.append("default script STUN range must cover 19302-19310")
+    if "3478:3497" not in sample:
+        errors.append("default script STUN range must cover 3478-3497")
+    if 'on("chinaDirect")' not in sample or 'on("adsBlock")' not in sample:
+        errors.append("default script must honor overlay.chinaDirect / adsBlock switches")
+    if 'on("webrtcProtect")' not in sample or 'on("disableQuic")' not in sample:
+        errors.append("default script must honor overlay WebRTC / QUIC switches")
+    if 'on("disableIpv6")' not in sample or 'on("dnsProtect")' not in sample or 'on("strictRoute")' not in sample:
+        errors.append("default script must honor overlay IPv6 / DNS / strict switches")
+    if "2400:3200::1" not in sample or "2001:4860:4860::8888" not in sample:
+        errors.append("default script must include dual-stack IPv6 DNS hosts")
+    if "ipv4_only" not in sample or "prefer_ipv4" not in sample:
+        errors.append("default script must switch DNS strategy by overlay.disableIpv6")
+    if "fdfe:dcba:9876::1/126" in sample:
+        errors.append("default script must not assign TUN inet6_address; Android returns invalid argument")
+    if "var overlay =" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigScriptOverride.kt"):
+        errors.append("script engine must inject overlay switches as a JS global")
+    if "GET_ACTIVITIES" in perapp or "GET_SERVICES" in perapp:
+        errors.append("per-app scan must not load activities/services; that spikes memory")
+    if "MATCH_UNINSTALLED_PACKAGES" in perapp:
+        errors.append("per-app scan must not enumerate uninstalled packages")
+    if "forEachIndexed" not in perapp:
+        errors.append("per-app scan should walk packages sequentially instead of one coroutine each")
+    release_wf = read(".github/workflows/release-chainbox.yml")
+    if "telegram_send.py" not in release_wf:
+        errors.append("release workflow must notify Telegram itself; GITHUB_TOKEN cannot trigger on:release")
+    if "per_app_proxy_scan_foreign_apps" not in read(
+        "app/src/main/java/io/nekohasekai/sfa/compose/screen/profileoverride/PerAppProxyScreen.kt"
+    ):
+        errors.append("per-app proxy must offer an overseas-app scan")
+    if 'CHINA_DIRECT) { false }' in settings or 'DNS_PROTECT) { false }' in settings:
+        errors.append("China Direct and DNS protect must default on for Chinese users")
+    if 'ADS_BLOCK) { false }' in settings:
+        errors.append("ad block must default on for Chinese users")
+    if "logMaxLines = 200" not in read("app/src/main/java/io/nekohasekai/sfa/Application.kt"):
+        errors.append("kernel log buffer must stay small; do not cache thousands of lines")
+    if "configFile.copyTo" in read("app/src/main/java/io/nekohasekai/sfa/bg/CrashReportManager.kt"):
+        errors.append("crash reports must not copy the live config (contains nodes and secrets)")
+    if "Package: io.chainbox.app" in read("scripts/telegram_announce.py"):
+        errors.append("Telegram copy must not show Package: to ordinary users")
+    if "SHA256:" in read("scripts/telegram_announce.py") and "核对" not in read("scripts/telegram_announce.py"):
+        errors.append("Telegram SHA-256 line must explain it is a file checksum")
+    if "核对文件是否完整" not in read("scripts/telegram_announce.py"):
+        errors.append("Telegram SHA-256 must be explained in plain language")
+    if "overlayScriptsJson" not in settings:
+        errors.append("Settings.overlayScriptsJson missing")
+    if "OVERLAY_SCRIPTS" not in read("app/src/main/java/io/nekohasekai/sfa/constant/SettingsKey.kt"):
+        errors.append("SettingsKey.OVERLAY_SCRIPTS missing")
+    if 'name="overlay_scripts"' not in cn:
+        errors.append("zh-rCN missing overlay_scripts")
+    if 'name="overlay_scripts_sync"' not in cn:
+        errors.append("zh-rCN missing overlay_scripts_sync")
+    if 'name="overlay_scripts_profile_enable"' not in cn:
+        errors.append("zh-rCN missing overlay_scripts_profile_enable")
+    if 'name="title_new_profile">新建配置</string>' not in cn:
+        errors.append("zh-rCN title_new_profile must follow official 新建配置")
+    if 'name="profile_create">创建</string>' not in cn:
+        errors.append("zh-rCN profile_create must follow official 创建")
+    if 'name="profile_source_import">导入</string>' not in cn:
+        errors.append("zh-rCN profile_source_import must follow official 导入")
+    if 'name="basic_information">基本信息</string>' not in cn:
+        errors.append("zh-rCN basic_information must follow official 基本信息")
+    if 'name="add_profile">添加配置文件</string>' not in cn:
+        errors.append("zh-rCN add_profile must follow official 添加配置文件")
+    if "AddProfileSheet" not in dash:
+        errors.append("dashboard must show the official three-option add profile sheet")
+    groups_card = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/GroupsCard.kt")
+    if "UrlTestAction" not in groups_card or "rememberInfiniteTransition" not in groups_card:
+        errors.append("url test button must animate with progress instead of a static swap")
+    if "testingStartedAt" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/groups/GroupsViewModel.kt"):
+        errors.append("url test must track per-group start time so nodes can show progress")
+    quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
+    if "scriptOn" not in quic or "&& !scriptOn" not in quic:
+        errors.append("China Direct and ad block must not write when a script is already running")
+    if "Settings.webrtcProtect && !scriptOn" not in quic:
+        errors.append("WebRTC must not double-write when a script is already running")
+    if "Settings.dnsProtect && !scriptOn" not in quic:
+        errors.append("DNS protect must not double-write when a script is already running")
+    if "Settings.disableIpv6 && !scriptOn" not in quic:
+        errors.append("IPv6 overlay must not double-write when a script is already running")
+    if "applyStrictRoute(root, Settings.strictRoute)" not in quic:
+        errors.append("strict route must follow the switch both ways and must not double-write when a script is running")
+    if "fun applyQuic" not in quic or 'put("port", 443)' not in quic:
+        errors.append("disable QUIC must reject UDP 443 when no script is bound")
+    if 'put("method", "drop")' in quic.split("fun applyQuic", 1)[-1].split("fun applyStrictRoute", 1)[0]:
+        errors.append("UDP 443 reject must reset, not drop")
+    if "commandServer.pause()" in read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt"):
+        errors.append("doze must not pause the tunnel")
+    if "ensureSniff" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt"):
+        errors.append("startup must sniff when the subscription has no sniff rule")
+    if "prefer_ipv4" not in quic:
+        errors.append("DNS protect must set dual-stack prefer_ipv4")
+    if "2400:3200::1/128" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigChinaDirect.kt"):
+        errors.append("China Direct must include IPv6 public DNS")
+    if "cmbchina.com" not in read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigNormalize.kt"):
+        errors.append("China Direct domain list must include major banks")
+    if "ChainBox-android.apk" in read("scripts/telegram_announce.py"):
+        errors.append("Telegram copy must not mention ChainBox-android.apk")
+    if "Copy official SagerNet zh strings" not in read("scripts/sync_upstream_strings.py"):
+        errors.append("missing scripts/sync_upstream_strings.py")
+    if "ScriptListScreen" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ScriptListScreen.kt"):
+        errors.append("ScriptListScreen missing")
+    if "painterResource(R.mipmap" in path_card:
+        errors.append("Compose must not load adaptive mipmap icons")
+
+    if errors:
+        print("FAIL")
+        for e in errors:
+            print(" -", e)
+        return 1
+    print("override guards ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

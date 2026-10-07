@@ -1,0 +1,794 @@
+package io.nekohasekai.sfa.utils
+
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ConfigIngestTest {
+    @Test
+    fun clashYamlKeepsGeoipCnDirectAndDoesNotInjectExtraChinaRules() {
+        val yaml = """
+            proxies:
+              - name: "hk-1"
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: secret
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies:
+                  - hk-1
+                  - DIRECT
+            rules:
+              - GEOIP,CN,DIRECT
+              - DOMAIN-SUFFIX,google.com,PROXY
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        val root = JSONObject(result.content)
+        val outs = root.getJSONArray("outbounds")
+        val tags = (0 until outs.length()).map { outs.getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("hk-1"))
+        assertTrue(tags.contains("PROXY"))
+        assertTrue(tags.contains("direct"))
+        val route = root.getJSONObject("route")
+        assertEquals("PROXY", route.getString("final"))
+        val rules = route.getJSONArray("rules")
+        val text = rules.toString()
+        assertTrue(text.contains("geoip-cn"))
+        assertTrue(text.contains("google.com"))
+        assertFalse(text.contains("geosite-cn"))
+        assertFalse(text.contains("geolocation-cn"))
+        val hk = (0 until outs.length()).map { outs.getJSONObject(it) }
+            .first { it.getString("tag") == "hk-1" }
+        assertEquals("shadowsocks", hk.getString("type"))
+        assertEquals("1.2.3.4", hk.getString("server"))
+        assertEquals(443, hk.getInt("server_port"))
+    }
+
+    @Test
+    fun clashFlowStyleProxiesConvert() {
+        val yaml = """
+            proxies:
+              - {name: jp-1, type: vmess, server: jp.example.com, port: 443, uuid: 11111111-1111-1111-1111-111111111111, alterId: 0, cipher: auto, tls: true, network: ws, ws-opts: {path: /v, headers: {Host: jp.example.com}}}
+            proxy-groups:
+              - {name: PROXY, type: select, proxies: [jp-1]}
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val root = JSONObject(ConfigIngest.adapt(yaml).content)
+        val jp = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "jp-1" }
+        assertEquals("vmess", jp.getString("type"))
+        assertTrue(jp.getJSONObject("tls").getBoolean("enabled"))
+        assertEquals("ws", jp.getJSONObject("transport").getString("type"))
+        assertEquals("/v", jp.getJSONObject("transport").getString("path"))
+    }
+
+    @Test
+    fun shareLinkSsBecomesSelector() {
+        val ss = "ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388#home"
+        val result = ConfigIngest.adapt(ss)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val root = JSONObject(result.content)
+        val tags = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("home"))
+        assertTrue(tags.contains("节点选择"))
+        assertEquals("节点选择", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun singBoxJsonPassthroughKeepsUserFinal() {
+        val json = """{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}"""
+        val result = ConfigIngest.adapt(json)
+        assertEquals(ConfigIngest.Format.SingBox, result.format)
+        assertEquals("direct", JSONObject(result.content).getJSONObject("route").getString("final"))
+        assertTrue(result.notes.isEmpty())
+    }
+
+    @Test
+    fun healDoesNotThrowOnGarbage() {
+        assertEquals("not-json", ConfigNormalize.healString("not-json"))
+    }
+
+    @Test
+    fun sanitizeConvertsClashBeforeKernelCheck() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 10.0.0.1
+                port: 80
+                cipher: aes-256-gcm
+                password: x
+            rules:
+              - MATCH,n1
+        """.trimIndent()
+        val out = ConfigCompat.sanitize(yaml)
+        val root = JSONObject(out)
+        assertTrue(root.getJSONArray("outbounds").length() >= 1)
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+        assertTrue(out.contains("hijack-dns"))
+    }
+
+    @Test
+    fun healConvertsClashYamlToJson() {
+        val yaml = """
+            ---
+            proxies:
+              - name: n1
+                type: ss
+                server: 10.0.0.1
+                port: 80
+                cipher: aes-256-gcm
+                password: x
+            rules:
+              - GEOIP,CN,DIRECT
+              - MATCH,n1
+        """.trimIndent()
+        val healed = ConfigNormalize.heal(yaml)
+        val root = JSONObject(healed.content)
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+        val rules = root.getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(rules.contains("geoip-cn"))
+        assertFalse(healed.content.contains("\"http-direct\""))
+        assertTrue(healed.content.contains("angela-http-direct"))
+        assertFalse(rules.contains("geosite-cn"))
+    }
+
+    @Test
+    fun clashRejectMembersAreDroppedFromGroups() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 10.0.0.1
+                port: 80
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1, REJECT, DIRECT]
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val root = JSONObject(ConfigIngest.adapt(yaml).content)
+        val proxy = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "PROXY" }
+        val members = (0 until proxy.getJSONArray("outbounds").length())
+            .map { proxy.getJSONArray("outbounds").getString(it) }
+        assertTrue(members.contains("n1"))
+        assertTrue(members.contains("direct"))
+        assertFalse(members.contains("REJECT"))
+    }
+
+    @Test
+    fun v2rayNVmessJsonBecomesSelector() {
+        val json = """{"v":"2","ps":"home","add":"example.com","port":"443","id":"11111111-1111-1111-1111-111111111111","aid":"0","scy":"auto","net":"tcp","tls":"tls"}"""
+        val result = ConfigIngest.adapt(json)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("home"))
+    }
+
+    @Test
+    fun clashJsonWithDnsIsNotSingBoxPassthrough() {
+        val json = """
+            {"mixed-port":"7890","dns":{"enable":true},"proxies":[{"name":"n1","type":"ss","server":"1.1.1.1","port":80,"cipher":"aes-256-gcm","password":"x"}],"rules":["MATCH,n1"]}
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        val root = JSONObject(result.content)
+        assertFalse(root.has("mixed-port"))
+        assertFalse(root.has("proxies"))
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun clashEchOptsBecomeTlsEch() {
+        val yaml = """
+            proxies:
+              - name: e1
+                type: vless
+                server: ex.com
+                port: 443
+                uuid: 11111111-1111-1111-1111-111111111111
+                tls: true
+                ech-opts:
+                  enable: true
+                  config: AEn+DQ
+                  query-server-name: cloudflare-ech.com
+            rules:
+              - MATCH,e1
+        """.trimIndent()
+        val root = JSONObject(ConfigIngest.adapt(yaml).content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "e1" }
+        val ech = node.getJSONObject("tls").getJSONObject("ech")
+        assertTrue(ech.getBoolean("enabled"))
+        val pem = ech.getJSONArray("config").getString(0)
+        assertTrue(pem.contains("BEGIN ECH CONFIGS"))
+        assertTrue(pem.contains("END ECH CONFIGS"))
+        assertTrue(pem.contains("AEn+DQ") || pem.replace("\\s".toRegex(), "").contains("AEn+DQ"))
+        assertEquals("cloudflare-ech.com", ech.getString("query_server_name"))
+    }
+
+    @Test
+    fun httpupgradeIsMappedAndXhttpIsSkipped() {
+        val yaml = """
+            proxies:
+              - name: up
+                type: vless
+                server: up.example
+                port: 443
+                uuid: 11111111-1111-1111-1111-111111111111
+                network: httpupgrade
+                httpupgrade-opts:
+                  path: /up
+                  host: up.example
+              - name: bad
+                type: vless
+                server: bad.example
+                port: 443
+                uuid: 22222222-2222-2222-2222-222222222222
+                network: xhttp
+            rules:
+              - MATCH,up
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal == null)
+        assertTrue(result.notes.any { it.contains("xhttp") })
+        val root = JSONObject(result.content)
+        val tags = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("up"))
+        assertFalse(tags.contains("bad"))
+        val up = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "up" }
+        assertEquals("httpupgrade", up.getJSONObject("transport").getString("type"))
+        assertEquals("/up", up.getJSONObject("transport").getString("path"))
+        assertEquals("up.example", up.getJSONObject("transport").getString("host"))
+    }
+
+    @Test
+    fun allXhttpDoesNotBecomeDirect() {
+        val yaml = """
+            proxies:
+              - name: bad
+                type: vless
+                server: bad.example
+                port: 443
+                uuid: 22222222-2222-2222-2222-222222222222
+                network: xhttp
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty().contains("直连"))
+        assertTrue(result.fatal.orEmpty().contains("xhttp"))
+        try {
+            ConfigCompat.sanitize(yaml)
+            throw AssertionError("expected fail closed")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("直连"))
+        }
+    }
+
+    @Test
+    fun masqueClashJsonIsNotPassthrough() {
+        val json = """
+            {"mixed-port":"7890","proxies":[{"name":"wp","type":"masque","server":"a.example","port":443}]}
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertTrue(result.fatal.orEmpty().contains("MASQUE"))
+        assertFalse(result.content.trimStart().startsWith("p"))
+    }
+
+    @Test
+    fun stringKeepAliveAndXhttpLeafAreCoerced() {
+        val json = """
+            {"outbounds":[
+              {"type":"vless","tag":"bad","server":"a","server_port":1,"uuid":"11111111-1111-1111-1111-111111111111","transport":{"type":"xhttp"}},
+              {"type":"shadowsocks","tag":"ok","server":"1.1.1.1","server_port":1,"method":"aes-256-gcm","password":"x","tcp_keep_alive":"true"}
+            ]}
+        """.trimIndent()
+        val root = JSONObject(ConfigCompat.sanitize(json))
+        assertFalse(root.has("mixed-port"))
+        val tags = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertFalse(tags.contains("bad"))
+        val ok = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "ok" }
+        assertEquals("60s", ok.getString("tcp_keep_alive"))
+    }
+
+    @Test
+    fun clashProxiesPastTheOldHeaderWindowStillConvert() {
+        val pad = buildString {
+            append("port: 7890\n")
+            append("socks-port: 7891\n")
+            repeat(120) { append("# pad-$it ${"x".repeat(40)}\n") }
+        }
+        val yaml = pad + """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            rules:
+              - MATCH,n1
+        """.trimIndent()
+        assertTrue(yaml.indexOf("proxies:") > 4000)
+        val root = JSONObject(ConfigCompat.sanitize(yaml))
+        assertEquals("n1", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun plainTextIsRejectedInsteadOfReachingTheJsonDecoder() {
+        try {
+            ConfigCompat.sanitize("port: 1\n")
+            throw AssertionError("expected reject")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("直连"))
+            assertFalse(e.message.orEmpty().contains("invalid character"))
+        }
+    }
+
+    @Test
+    fun wireguardShareBecomesEndpoint() {
+        val line = "wireguard://qJPq9qRY3EeIxa1mwRiB0DmXBDWJR4rzsoBG%2BLDqxHk%3D@162.159.197.109:443?address=172.16.0.2%2F32&reserved=0%2C0%2C0&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1420#WG-CF-1"
+        val result = ConfigIngest.adapt(line)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        assertTrue(result.fatal == null)
+        val root = JSONObject(result.content)
+        val ep = root.getJSONArray("endpoints").getJSONObject(0)
+        assertEquals("wireguard", ep.getString("type"))
+        assertEquals("WG-CF-1", ep.getString("tag"))
+        assertEquals("qJPq9qRY3EeIxa1mwRiB0DmXBDWJR4rzsoBG+LDqxHk=", ep.getString("private_key"))
+        assertEquals("172.16.0.2/32", ep.getJSONArray("address").getString(0))
+        assertEquals(1420, ep.getInt("mtu"))
+        val peer = ep.getJSONArray("peers").getJSONObject(0)
+        assertEquals("162.159.197.109", peer.getString("address"))
+        assertEquals(443, peer.getInt("port"))
+        assertEquals("bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", peer.getString("public_key"))
+        assertEquals(0, peer.getJSONArray("reserved").getInt(0))
+        assertEquals(0, peer.getJSONArray("reserved").getInt(2))
+        assertEquals("节点选择", root.getJSONObject("route").getString("final"))
+        val select = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "节点选择" }
+        assertEquals("WG-CF-1", select.getJSONArray("outbounds").getString(0))
+        assertTrue(result.notes.any { it.contains("默认脚本") })
+    }
+
+    @Test
+    fun badEchWithoutQueryNameIsDropped() {
+        val json = """
+            {"outbounds":[{"type":"vless","tag":"n","server":"a","server_port":443,"uuid":"11111111-1111-1111-1111-111111111111","tls":{"enabled":true,"ech":{"enabled":true,"config":["!!!"]}}}]}
+        """.trimIndent()
+        val root = JSONObject(ConfigCompat.sanitize(json))
+        val tls = root.getJSONArray("outbounds").getJSONObject(0).getJSONObject("tls")
+        assertFalse(tls.has("ech"))
+    }
+
+    @Test
+    fun vlessEchDohKeepsQueryNameAndStripsEarlyData() {
+        val link = "vless://fcd091a3-f2c8-4339-876f-d632d311fa11@107.175.132.4:443?path=%2Fproxyip%3D216.36.110.48%3A443%3Fed%3D2560&security=tls&encryption=none&host=eight6978.longteng.de5.net&fp=chrome&ech=cloudflare-ech.com%2Bhttps%3A%2F%2Fdns.alidns.com%2Fdns-query&type=ws&sni=eight6978.longteng.de5.net#node"
+        val root = JSONObject(ConfigIngest.adapt(link).content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("type") == "vless" }
+        assertEquals("fcd091a3-f2c8-4339-876f-d632d311fa11", node.getString("uuid"))
+        val ech = node.getJSONObject("tls").getJSONObject("ech")
+        assertEquals("cloudflare-ech.com", ech.getString("query_server_name"))
+        assertFalse(ech.has("config"))
+        val ws = node.getJSONObject("transport")
+        assertEquals("/proxyip=216.36.110.48:443", ws.getString("path"))
+        assertEquals(2560, ws.getInt("max_early_data"))
+        assertEquals("Sec-WebSocket-Protocol", ws.getString("early_data_header_name"))
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        var doh = false
+        for (i in 0 until servers.length()) {
+            val server = servers.getJSONObject(i)
+            if (server.optString("server") == "dns.alidns.com" && server.optString("type") == "https") {
+                doh = true
+            }
+        }
+        assertTrue(doh)
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        val echDns = (0 until root.getJSONObject("dns").getJSONArray("servers").length())
+            .map { root.getJSONObject("dns").getJSONArray("servers").getJSONObject(it) }
+            .first { it.optString("tag").startsWith("ech-") }
+        assertEquals("direct", echDns.getString("detour"))
+        assertEquals("223.5.5.5", echDns.getString("server"))
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+        root.remove("dns")
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+    }
+
+    @Test
+    fun clashKeepsRuleSetPortLogicalAndPrivate() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              reject:
+                type: http
+                behavior: domain
+                url: https://example.com/reject.yaml
+                path: ./ruleset/reject.yaml
+            rules:
+              - RULE-SET,reject,REJECT
+              - DOMAIN,example.com,PROXY
+              - PORT,8443,PROXY
+              - AND,((DOMAIN-SUFFIX,youtube.com),(NETWORK,tcp)),PROXY
+              - GEOIP,private,DIRECT
+              - GEOIP,CN,DIRECT
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        val root = JSONObject(result.content)
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val text = rules.toString()
+        assertTrue(text.contains("geosite-category-ads-all"))
+        assertTrue(text.contains("example.com"))
+        assertTrue(text.contains("8443"))
+        assertTrue(text.contains("logical"))
+        assertTrue(text.contains("youtube.com"))
+        assertTrue(text.contains("ip_is_private"))
+        assertTrue(text.contains("geoip-cn"))
+        assertFalse(text.contains("geoip-private"))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+        val sets = root.getJSONObject("route").getJSONArray("rule_set").toString()
+        assertTrue(sets.contains("geosite-category-ads-all"))
+        assertTrue(sets.contains("geoip-cn"))
+        assertFalse(sets.contains("geoip-private"))
+    }
+
+    @Test
+    fun clashNestedGroupsKeepLaterMembersAndWildcard() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: 节点选择
+                type: select
+                proxies: [自动选择, DIRECT]
+              - name: 自动选择
+                type: url-test
+                proxies: [n1]
+            rule-providers:
+              google:
+                type: http
+                behavior: domain
+                url: https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/google.txt
+                path: ./google.yaml
+            rules:
+              - DOMAIN-WILDCARD,+ .example.com,节点选择
+              - RULE-SET,google,节点选择
+              - MATCH,节点选择
+        """.trimIndent().replace("+ .example.com", "+.example.com")
+        val root = JSONObject(ConfigIngest.adapt(yaml).content)
+        val select = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "节点选择" }
+        val members = select.getJSONArray("outbounds").toString()
+        assertTrue(members.contains("自动选择"))
+        assertTrue(members.contains("direct"))
+        val rules = root.getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(rules.contains("example.com"))
+        assertTrue(rules.contains("geosite-google"))
+        assertEquals("节点选择", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun clashAnyTlsBecomesSingBoxAnyTls() {
+        val yaml = """
+            proxies:
+              - name: us-any
+                type: anytls
+                server: us.example.com
+                port: 443
+                password: secret
+                sni: us.example.com
+                client-fingerprint: chrome
+                skip-cert-verify: true
+                idle-session-check-interval: 30
+                idle-session-timeout: 30
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies:
+                  - us-any
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        assertTrue(result.fatal == null)
+        val root = JSONObject(result.content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "us-any" }
+        assertEquals("anytls", node.getString("type"))
+        assertEquals("secret", node.getString("password"))
+        assertEquals("30s", node.getString("idle_session_check_interval"))
+        assertTrue(node.getJSONObject("tls").getBoolean("enabled"))
+        assertEquals("us.example.com", node.getJSONObject("tls").getString("server_name"))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun anyTlsShareLinkConverts() {
+        val link = "anytls://secret@us.example.com:443?sni=us.example.com&insecure=1#US"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val root = JSONObject(result.content)
+        val node = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "US" }
+        assertEquals("anytls", node.getString("type"))
+        assertEquals("secret", node.getString("password"))
+        assertTrue(node.getJSONObject("tls").getBoolean("enabled"))
+    }
+
+    @Test
+    fun unknownClashTypeIsNamed() {
+        val yaml = """
+            proxies:
+              - name: old
+                type: mieru
+                server: 1.2.3.4
+                port: 443
+                psk: secret
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty().contains("mieru"))
+        assertFalse(result.fatal.orEmpty().contains("这些协议"))
+    }
+
+    @Test
+    fun kernelShareLinksConvert() {
+        val ssh = ConfigIngest.adapt("ssh://root:secret@10.0.0.8:22#gate")
+        assertEquals(ConfigIngest.Format.ShareLinks, ssh.format)
+        val sshNode = outbound(ssh.content, "gate")
+        assertEquals("ssh", sshNode.getString("type"))
+        assertEquals("root", sshNode.getString("user"))
+        assertEquals(22, sshNode.getInt("server_port"))
+
+        val naive = ConfigIngest.adapt("naive+https://user:pass@edge.example:443?sni=edge.example#naive")
+        val naiveNode = outbound(naive.content, "naive")
+        assertEquals("naive", naiveNode.getString("type"))
+        assertEquals("user", naiveNode.getString("username"))
+        assertEquals("pass", naiveNode.getString("password"))
+        assertTrue(naiveNode.getJSONObject("tls").getBoolean("enabled"))
+
+        val snell = ConfigIngest.adapt("snell://psk@1.2.3.4:44046?version=4&obfs=tls&obfs-host=www.example.com#sn")
+        val snellNode = outbound(snell.content, "sn")
+        assertEquals("snell", snellNode.getString("type"))
+        assertEquals(4, snellNode.getInt("version"))
+        assertEquals("tls", snellNode.getString("obfs_mode"))
+
+        val shadow = ConfigIngest.adapt("shadowtls://pw@1.2.3.4:443?version=3&sni=www.example.com#st")
+        val shadowNode = outbound(shadow.content, "st")
+        assertEquals("shadowtls", shadowNode.getString("type"))
+        assertEquals(3, shadowNode.getInt("version"))
+        assertEquals("pw", shadowNode.getString("password"))
+    }
+
+    @Test
+    fun clashProxyProviderIsInlinedWhenFetched() {
+        val yaml = """
+            proxy-providers:
+              extra:
+                type: http
+                url: https://example.com/nodes.yaml
+            proxy-groups:
+              - name: PROXY
+                type: select
+                use:
+                  - extra
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val provider = """
+            proxies:
+              - name: us-ss
+                type: ss
+                server: 1.2.3.4
+                port: 8388
+                cipher: aes-256-gcm
+                password: secret
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { provider }
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "us-ss")
+        assertEquals("shadowsocks", node.getString("type"))
+        val root = JSONObject(result.content)
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
+
+    private fun outbound(content: String, tag: String): JSONObject {
+        val outs = JSONObject(content).getJSONArray("outbounds")
+        return (0 until outs.length()).map { outs.getJSONObject(it) }.first { it.getString("tag") == tag }
+    }
+
+    @Test
+    fun ssLinkWithPluginKeepsPort() {
+        val link = "ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388/?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com#home"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val node = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "home" }
+        assertEquals(8388, node.getInt("server_port"))
+        assertEquals("obfs-local", node.getString("plugin"))
+        assertTrue(node.getString("plugin_opts").contains("obfs=http"))
+    }
+
+    @Test
+    fun hysteriaShareLinkConverts() {
+        val link = "hysteria://example.com:443?auth=secret&peer=example.com&insecure=1&upmbps=50&downmbps=100&obfsParam=obfs-pass#HY"
+        val result = ConfigIngest.adapt(link)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
+        val node = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "HY" }
+        assertEquals("hysteria", node.getString("type"))
+        assertEquals("secret", node.getString("auth_str"))
+        assertEquals(50, node.getInt("up_mbps"))
+        assertEquals("obfs-pass", node.getString("obfs"))
+        assertTrue(node.getJSONObject("tls").getBoolean("insecure"))
+    }
+
+    @Test
+    fun ssrOnlyIsNamedRemoved() {
+        val result = ConfigIngest.adapt("ssr://YWVzLTI1Ni1jZmI6cGFzcw@example.com:8388#old")
+        assertTrue(result.fatal.orEmpty().contains("ssr"))
+    }
+
+    @Test
+    fun usableNodeSurvivesUnsupportedSibling() {
+        val text = """
+            ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388#good
+            ssr://YWVzLTI1Ni1jZmI6cGFzcw@example.com:8388#old
+        """.trimIndent()
+        val result = ConfigIngest.adapt(text)
+        assertTrue(result.fatal == null)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("good"))
+        assertFalse(tags.contains("old"))
+    }
+
+    @Test
+    fun clashKernelProtocolsAndObfsFieldsConvert() {
+        val yaml = """
+            proxies:
+              - name: hy
+                type: hysteria2
+                server: hy.example.com
+                port: 443
+                password: secret
+                ports: 20000-55000
+                obfs: salamander
+                obfs-password: obfs-pass
+                sni: hy.example.com
+                skip-cert-verify: 1
+                alpn:
+                  - h3
+              - name: obfs
+                type: ss
+                server: ss.example.com
+                port: 8388
+                cipher: aes-256-gcm
+                password: secret
+                plugin: obfs
+                plugin-opts:
+                  mode: http
+                  host: ss.example.com
+              - name: naive-1
+                type: naive
+                server: naive.example.com
+                port: 443
+                username: user
+                password: secret
+              - name: ssh-1
+                type: ssh
+                server: ssh.example.com
+                port: 22
+                username: user
+                password: secret
+              - name: st
+                type: shadowtls
+                server: st.example.com
+                port: 443
+                password: secret
+                version: 3
+                sni: st.example.com
+              - name: snell-1
+                type: snell
+                server: snell.example.com
+                port: 44046
+                psk: secret
+                version: 4
+                obfs-opts:
+                  mode: http
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [hy, obfs, naive-1, ssh-1, st, snell-1]
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val root = JSONObject(result.content)
+        val nodes = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .associateBy { it.getString("tag") }
+        val hy = nodes.getValue("hy")
+        assertEquals("hysteria2", hy.getString("type"))
+        assertFalse(hy.has("server_port"))
+        assertEquals("20000:55000", hy.getJSONArray("server_ports").getString(0))
+        assertEquals("obfs-pass", hy.getJSONObject("obfs").getString("password"))
+        assertTrue(hy.getJSONObject("tls").getBoolean("insecure"))
+        assertEquals("h3", hy.getJSONObject("tls").getJSONArray("alpn").getString(0))
+        assertTrue(nodes.getValue("obfs").getString("plugin_opts").contains("obfs=http"))
+        assertTrue(nodes.getValue("obfs").getString("plugin_opts").contains("obfs-host=ss.example.com"))
+        assertEquals("naive", nodes.getValue("naive-1").getString("type"))
+        assertEquals("ssh", nodes.getValue("ssh-1").getString("type"))
+        assertEquals("user", nodes.getValue("ssh-1").getString("user"))
+        assertEquals("shadowtls", nodes.getValue("st").getString("type"))
+        assertEquals(3, nodes.getValue("st").getInt("version"))
+        assertEquals("snell", nodes.getValue("snell-1").getString("type"))
+        assertEquals("http", nodes.getValue("snell-1").getString("obfs_mode"))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun singBoxCommentsAndTrailingCommasImport() {
+        val raw = """
+            // desktop export
+            {
+              "outbounds": [
+                {"type":"direct","tag":"a // b","server":"https://example.com",},
+              ],
+            }
+        """.trimIndent()
+        val result = ConfigIngest.adapt(raw)
+        assertEquals(ConfigIngest.Format.SingBox, result.format)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "a // b")
+        assertEquals("https://example.com", node.getString("server"))
+        JSONObject(result.content)
+    }
+}

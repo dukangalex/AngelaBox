@@ -1,0 +1,330 @@
+name: AngelaBox Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Release tag (e.g. v1.0.53)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout AngelaBox app
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+
+      - name: Security regression
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          python3 scripts/test_security_guards.py
+          python3 scripts/test_override_guards.py
+          python3 scripts/test_inbound_compat.py
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          VERSION_NAME=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2- | tr -d '\r')
+          VERSION_CODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2- | tr -d '\r')
+          test -n "$VERSION_NAME"
+          echo "$VERSION_CODE" | grep -Eq '^[1-9][0-9]*$'
+          test "${{ inputs.version_tag }}" = "v$VERSION_NAME"
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Record kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Stamp kernel version tag
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$KTAG" | grep -Eq '^v[0-9]'
+          git tag -f "$KTAG" HEAD
+          git describe --tags --abbrev=0
+          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+
+      - name: Verify official types in audited kernel
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          git clone --depth 1 --branch "v${UPSTREAM}" https://github.com/SagerNet/sing-box.git sing-box-official
+          python3 sing-box-for-android/scripts/check_upstream_features.py --official sing-box-official --fork sing-box
+
+      - name: Setup Java 17 and 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.25.5"
+
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          for bin in \
+            "$SDK/cmdline-tools/latest/bin" \
+            "$SDK/cmdline-tools/current/bin" \
+            "$SDK/cmdline-tools/16.0/bin" \
+            "$SDK/cmdline-tools/11.0/bin" \
+            "$SDK/tools/bin" \
+            "$SDK/platform-tools"
+          do
+            if [ -d "$bin" ]; then
+              echo "$bin" >> "$GITHUB_PATH"
+              export PATH="$bin:$PATH"
+            fi
+          done
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not on PATH; listing $SDK"
+            find "$SDK" -maxdepth 4 -name sdkmanager -type f || true
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          echo "Using Android SDK at $SDK"
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          test -d "${ANDROID_HOME}/ndk/28.0.13004108"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Test Chain kernel
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test $packages
+          sudo chown -R "$(id -u):$(id -g)" "$(go env GOPATH)" "$(go env GOCACHE)" "$(go env GOMODCACHE)"
+
+      - name: Install gomobile
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" version || true
+          "$(go env GOPATH)/bin/gomobile" init || true
+
+      - name: Build libbox AAR
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
+          export PATH="$(go env GOPATH)/bin:$JAVA_HOME/bin:$PATH"
+          export ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME
+          java --version
+          command -v gomobile
+          gomobile init || true
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          mkdir -p ../sing-box-for-android/app/libs
+          FOUND=$(find . .. -name 'libbox.aar' -type f 2>/dev/null | head -n1 || true)
+          if [ -z "$FOUND" ]; then
+            echo "libbox.aar not produced; falling back to gomobile bind"
+            TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0"
+            gomobile bind -v -o libbox.aar -target android/arm64 -androidapi 24 \
+              -javapkg=io.nekohasekai -libname=box -trimpath -tags "$TAGS" ./experimental/libbox
+            FOUND=libbox.aar
+          fi
+          cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox.aar
+          if [ -f libbox-legacy.aar ]; then
+            cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar
+          else
+            cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox-legacy.aar
+          fi
+          ls -lah ../sing-box-for-android/app/libs/
+          test -s ../sing-box-for-android/app/libs/libbox.aar
+
+      - name: Configure release signing
+        working-directory: sing-box-for-android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_BASE64"
+          STORE_PASS="${KEYSTORE_PASS:-$KEYSTORE_PASSWORD}"
+          ALIAS="${ALIAS_NAME:-$KEY_ALIAS}"
+          KEY_PASS="${ALIAS_PASS:-$KEY_PASSWORD}"
+          test -n "$STORE_PASS" && test -n "$ALIAS" && test -n "$KEY_PASS"
+          echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+          {
+            echo "KEYSTORE_PASS=$STORE_PASS"
+            echo "ALIAS_NAME=$ALIAS"
+            echo "ALIAS_PASS=$KEY_PASS"
+          } >> local.properties
+          CERT_SHA256=$(keytool -list -v -keystore app/release.keystore -storepass "$STORE_PASS" -alias "$ALIAS" -keypass "$KEY_PASS" | awk -F': ' '/^[[:space:]]*SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          echo "$CERT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+          test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
+          echo "RELEASE_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
+
+      - name: Unit tests before release
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          fi
+          chmod +x gradlew
+          ./gradlew :app:compileOtherDebugKotlin \
+            :app:testDebugUnitTest \
+            --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
+            --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
+            --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngestTest \
+            --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
+            --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
+            --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --no-daemon --stacktrace
+
+      - name: Assemble release APK
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleOtherRelease --no-daemon --stacktrace
+
+      - name: Verify release APK signing and checksum
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk -type f -name '*.apk' | grep -v debug | head -n1)"
+          test -n "$APK"
+          APKSIGNER="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          test -x "$APKSIGNER"
+          SIGNING_INFO=$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1)
+          printf '%s\n' "$SIGNING_INFO"
+          CERT_SHA256=$(printf '%s\n' "$SIGNING_INFO" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          echo "$CERT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+          test "$CERT_SHA256" = "$RELEASE_CERT_SHA256"
+          test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
+          "$APKSIGNER" verify "$APK"
+          python3 scripts/verify_apk_signature.py --require-release "$APK"
+          cp -f "$APK" AngelaBox-android.apk
+          sha256sum AngelaBox-android.apk > AngelaBox-android.apk.sha256
+          test -s AngelaBox-android.apk.sha256
+          sha256sum -c AngelaBox-android.apk.sha256
+          grep -q 'AngelaBox-android.apk' AngelaBox-android.apk.sha256
+
+      - name: Build GitHub release notes
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' version.properties | cut -d= -f2 | tr -d '\r')
+          KTAG=$(grep '^KERNEL_TAG=' version.properties | cut -d= -f2 | tr -d '\r')
+          KBRANCH=$(grep '^KERNEL_BRANCH=' version.properties | cut -d= -f2 | tr -d '\r')
+          GOV=$(grep '^GO_VERSION=' version.properties | cut -d= -f2 | tr -d '\r')
+          {
+            cat docs/RELEASE_NOTES.md
+            echo
+            echo "本版安装包：\`AngelaBox-android.apk\`（arm64）。"
+            echo
+            echo "Verify:"
+            echo
+            echo '```'
+            echo "sha256sum -c AngelaBox-android.apk.sha256"
+            echo '```'
+            echo
+            echo "- Product: AngelaBox"
+            echo "- Package: \`io.chainbox.app\`"
+            echo "- Kernel branch: \`$KBRANCH\`"
+            echo "- Kernel tag: \`$KTAG\`"
+            echo "- Kernel commit: \`$KERNEL_COMMIT\`"
+            echo "- Official baseline: SagerNet/sing-box \`v${UPSTREAM}\`"
+            echo "- Official type-constant check: \`pass\`"
+            echo "- Go: $GOV"
+          } > github-release-body.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ inputs.version_tag }}
+          name: AngelaBox ${{ inputs.version_tag }}
+          body_path: sing-box-for-android/github-release-body.md
+          files: |
+            sing-box-for-android/AngelaBox-android.apk
+            sing-box-for-android/AngelaBox-android.apk.sha256
+          draft: false
+          prerelease: ${{ contains(inputs.version_tag, 'beta') || contains(inputs.version_tag, 'alpha') }}
+          make_latest: ${{ !contains(inputs.version_tag, 'beta') && !contains(inputs.version_tag, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Telegram
+        if: success()
+        continue-on-error: true
+        working-directory: sing-box-for-android
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHANNEL_ID: "@AngelaNexus"
+          TAG: ${{ inputs.version_tag }}
+          RELEASE_URL: https://github.com/dukangalex/AngelaBox/releases/tag/${{ inputs.version_tag }}
+          APK_URL: https://github.com/dukangalex/AngelaBox/releases/download/${{ inputs.version_tag }}/AngelaBox-android.apk
+          APK_FILE: AngelaBox-android.apk
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          if [ -z "${TG_BOT_TOKEN:-}" ] || [ -z "${TG_CHANNEL_ID:-}" ]; then
+            echo "Telegram secrets not set; skip channel notify."
+            exit 0
+          fi
+          test -s AngelaBox-android.apk
+          test -s AngelaBox-android.apk.sha256
+          SHA256="$(awk '{print $1}' AngelaBox-android.apk.sha256)"
+          export SHA256
+          python3 scripts/telegram_announce.py
+          python3 scripts/telegram_send.py

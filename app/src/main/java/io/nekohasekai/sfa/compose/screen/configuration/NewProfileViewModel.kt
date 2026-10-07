@@ -1,0 +1,335 @@
+package io.nekohasekai.sfa.compose.screen.configuration
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.bg.UpdateProfileWork
+import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigIngest
+import io.nekohasekai.sfa.utils.HTTPClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Date
+
+data class NewProfileUiState(
+    val name: String = "",
+    val profileType: ProfileType = ProfileType.Local,
+    val profileSource: ProfileSource = ProfileSource.CreateNew,
+    val remoteUrl: String = "",
+    val autoUpdate: Boolean = true,
+    val autoUpdateInterval: Int = 60,
+    val importUri: Uri? = null,
+    val importFileName: String? = null,
+    val qrsData: ByteArray? = null,
+    val isLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val errorMessage: String? = null,
+    val isSuccess: Boolean = false,
+    val createdProfile: Profile? = null,
+    val importHint: String? = null,
+    val nameError: String? = null,
+    val remoteUrlError: String? = null,
+    val importError: String? = null,
+)
+
+enum class ProfileType {
+    Local,
+    Remote,
+}
+
+enum class ProfileSource {
+    CreateNew,
+    Import,
+}
+
+class NewProfileViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val MAX_IMPORT_BYTES = 8L * 1024L * 1024L
+    }
+
+    private val _uiState = MutableStateFlow(NewProfileUiState())
+    val uiState: StateFlow<NewProfileUiState> = _uiState.asStateFlow()
+
+    fun initializeFromQRImport(name: String?, url: String?) {
+        if (name != null && url != null) {
+            _uiState.update {
+                it.copy(
+                    name = name,
+                    profileType = ProfileType.Remote,
+                    remoteUrl = url,
+                )
+            }
+        }
+    }
+
+    fun initializeFromQRSImport(name: String?, qrsData: ByteArray) {
+        _uiState.update {
+            it.copy(
+                name = name ?: "",
+                profileType = ProfileType.Local,
+                profileSource = ProfileSource.Import,
+                qrsData = qrsData,
+            )
+        }
+    }
+
+    fun updateName(name: String) {
+        _uiState.update {
+            it.copy(
+                name = name,
+                nameError = if (name.isNotBlank()) null else it.nameError,
+            )
+        }
+    }
+
+    fun updateProfileType(type: ProfileType) {
+        _uiState.update { it.copy(profileType = type) }
+    }
+
+    fun updateProfileSource(source: ProfileSource) {
+        _uiState.update {
+            it.copy(
+                profileSource = source,
+                importError = null,
+            )
+        }
+    }
+
+    fun updateRemoteUrl(url: String) {
+        _uiState.update {
+            it.copy(
+                remoteUrl = url,
+                remoteUrlError = if (url.isNotBlank()) null else it.remoteUrlError,
+            )
+        }
+    }
+
+    fun updateAutoUpdate(enabled: Boolean) {
+        _uiState.update { it.copy(autoUpdate = enabled) }
+    }
+
+    fun updateAutoUpdateInterval(interval: String) {
+        val intValue = interval.toIntOrNull() ?: 60
+        _uiState.update { it.copy(autoUpdateInterval = intValue.coerceAtLeast(15)) }
+    }
+
+    fun setImportUri(uri: Uri, fileName: String?) {
+        _uiState.update {
+            it.copy(
+                importUri = uri,
+                importFileName = fileName,
+                importError = null,
+                name =
+                if (it.name.isEmpty()) {
+                    fileName?.substringBeforeLast(".") ?: "Imported Profile"
+                } else {
+                    it.name
+                },
+            )
+        }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun validateAndCreateProfile(): Boolean {
+        val state = _uiState.value
+        val context = getApplication<Application>()
+
+        _uiState.update {
+            it.copy(
+                nameError = null,
+                remoteUrlError = null,
+                importError = null,
+            )
+        }
+
+        var hasError = false
+
+        if (state.name.isBlank()) {
+            _uiState.update { it.copy(nameError = context.getString(R.string.profile_input_required)) }
+            hasError = true
+        }
+
+        when (state.profileType) {
+            ProfileType.Local -> {
+                if (state.profileSource == ProfileSource.Import && state.importUri == null && state.qrsData == null) {
+                    _uiState.update { it.copy(importError = context.getString(R.string.profile_input_required)) }
+                    hasError = true
+                }
+            }
+            ProfileType.Remote -> {
+                if (!state.remoteUrl.trim().startsWith("https://", ignoreCase = true)) {
+                    _uiState.update { it.copy(remoteUrlError = "订阅仅允许 HTTPS") }
+                    hasError = true
+                }
+            }
+        }
+
+        if (hasError) {
+            return false
+        }
+
+        createProfile()
+        return true
+    }
+
+    private fun createProfile() {
+        viewModelScope.launch {
+            val state = _uiState.value
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+
+            try {
+                val created =
+                    withContext(Dispatchers.IO) {
+                        when (state.profileType) {
+                            ProfileType.Local -> createLocalProfile(state)
+                            ProfileType.Remote -> createRemoteProfile(state)
+                        }
+                    }
+
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        isSuccess = true,
+                        createdProfile = created.profile,
+                        importHint = created.importHint,
+                    )
+                }
+            } catch (e: Exception) {
+                val message = if (state.profileType == ProfileType.Remote) {
+                    io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e)
+                } else {
+                    e.message ?: "Unknown error"
+                }
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = message,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun createLocalProfile(state: NewProfileUiState): CreatedProfile {
+        val context = getApplication<Application>()
+        val typedProfile =
+            TypedProfile().apply {
+                type = TypedProfile.Type.Local
+            }
+
+        val profile =
+            Profile(name = state.name, typed = typedProfile).apply {
+                userOrder = ProfileManager.nextOrder()
+            }
+
+        val fileID = ProfileManager.nextFileID()
+        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
+        val configFile = File(configDirectory, "$fileID.json")
+        typedProfile.path = configFile.path
+
+        val raw = when (state.profileSource) {
+            ProfileSource.CreateNew -> "{}"
+            ProfileSource.Import -> {
+                if (state.qrsData != null) {
+                    val content = Libbox.decodeProfileContent(state.qrsData)
+                    content.config
+                } else {
+                    state.importUri?.let { uri ->
+                        if (uri.scheme != "content") {
+                            throw Exception("Only content:// profile imports are supported")
+                        }
+                        readImportText(context, uri)
+                    } ?: "{}"
+                }
+            }
+        }
+        val configContent = ConfigCompat.sanitizeRemote(raw)
+
+        Libbox.checkConfig(configContent)
+        configFile.writeText(configContent)
+
+        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+
+        return CreatedProfile(profile, shareLinkHint(raw))
+    }
+
+    private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
+        val context = getApplication<Application>()
+        val remoteUrl = state.remoteUrl.trim()
+        io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(remoteUrl)
+
+        val typedProfile =
+            TypedProfile().apply {
+                type = TypedProfile.Type.Remote
+                remoteURL = remoteUrl
+                autoUpdate = state.autoUpdate
+                autoUpdateInterval = state.autoUpdateInterval
+                lastUpdated = Date()
+            }
+
+        val profile =
+            Profile(name = state.name, typed = typedProfile).apply {
+                userOrder = ProfileManager.nextOrder()
+            }
+
+        val fileID = ProfileManager.nextFileID()
+        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
+        val configFile = File(configDirectory, "$fileID.json")
+        typedProfile.path = configFile.path
+
+        HTTPClient().use { client ->
+            val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            val content = ConfigCompat.sanitizeRemote(raw)
+            Libbox.checkConfig(content)
+            configFile.writeText(content)
+            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            io.nekohasekai.sfa.utils.SubscriptionInfoStore.capture(client, profile.id, context)
+            if (state.autoUpdate) {
+                UpdateProfileWork.reconfigureUpdater()
+            }
+            return CreatedProfile(profile, shareLinkHint(raw))
+        }
+    }
+
+    private fun shareLinkHint(raw: String): String? {
+        val ingested = try {
+            ConfigIngest.adapt(raw)
+        } catch (_: Exception) {
+            return null
+        }
+        if (ingested.format != ConfigIngest.Format.ShareLinks || !ingested.fatal.isNullOrBlank()) {
+            return null
+        }
+        return "这份订阅是节点链接，里面没有分流规则。建议在这个配置上开启「默认脚本」，国内直连和国外代理才会分开。应用不会自动开启。"
+    }
+
+    private fun readImportText(context: Application, uri: Uri): String {
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: throw Exception("Unable to open imported profile")
+        return inputStream.use { input ->
+            io.nekohasekai.sfa.utils.ImportPathGuard.readLimited(input, MAX_IMPORT_BYTES)
+                .toString(Charsets.UTF_8)
+        }
+    }
+}
+
+private data class CreatedProfile(
+    val profile: Profile,
+    val importHint: String? = null,
+)

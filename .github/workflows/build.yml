@@ -1,0 +1,20 @@
+name: Legacy CI diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Not a publisher
+        run: |
+          echo "This workflow is diagnostic only and never publishes an APK."
+          test -f version.properties
+          grep -q '^KERNEL_COMMIT=' version.properties

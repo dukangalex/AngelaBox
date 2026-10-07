@@ -1,0 +1,271 @@
+name: ChainBox CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - chain-dev
+  push:
+    branches:
+      - dev
+      - chain-dev
+
+permissions:
+  contents: read
+
+jobs:
+  overlay-guards:
+    name: overlay source guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Run Python overlay tests
+        run: |
+          set -euo pipefail
+          python3 scripts/test_override_guards.py
+          python3 scripts/test_china_direct_overlay.py
+          python3 scripts/test_dns_migrate.py
+          python3 scripts/test_inbound_compat.py
+          python3 scripts/test_adblock_overlay.py
+          python3 scripts/test_security_guards.py
+          python3 scripts/test_apk_signing.py
+
+      - name: Read kernel pin
+        id: pin
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+
+      - name: Verify official types present in audited kernel
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' version.properties | cut -d= -f2 | tr -d '\r')
+          git clone --depth 1 --branch "v${UPSTREAM}" https://github.com/SagerNet/sing-box.git sing-box-official
+          python3 scripts/check_upstream_features.py --official sing-box-official --fork sing-box
+
+  kernel-test:
+    name: sing-box kernel tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: chainbox
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: chainbox
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.25.5"
+
+      - name: Test kernel
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test $packages
+
+  android-compile:
+    name: ChainBox Android compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+
+      - name: Stamp kernel version tag
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$KTAG" | grep -Eq '^v[0-9]'
+          git tag -f "$KTAG" HEAD
+          git describe --tags --abbrev=0
+          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+
+      - name: Setup Java 17 and 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.25.5"
+
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          for bin in \
+            "$SDK/cmdline-tools/latest/bin" \
+            "$SDK/cmdline-tools/current/bin" \
+            "$SDK/cmdline-tools/16.0/bin" \
+            "$SDK/cmdline-tools/11.0/bin" \
+            "$SDK/tools/bin" \
+            "$SDK/platform-tools"
+          do
+            if [ -d "$bin" ]; then
+              echo "$bin" >> "$GITHUB_PATH"
+              export PATH="$bin:$PATH"
+            fi
+          done
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not on PATH; listing $SDK"
+            find "$SDK" -maxdepth 4 -name sdkmanager -type f || true
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          echo "Using Android SDK at $SDK"
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          test -d "${ANDROID_HOME}/ndk/28.0.13004108"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" version
+          "$(go env GOPATH)/bin/gomobile" init || true
+
+      - name: Build libbox AAR
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
+          export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+          java --version
+          export ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64 -debug
+          mkdir -p ../sing-box-for-android/app/libs
+          FOUND=$(find . .. -name 'libbox.aar' -type f 2>/dev/null | head -n1 || true)
+          if [ -z "$FOUND" ]; then
+            echo "libbox.aar not produced; falling back to gomobile bind"
+            TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0"
+            gomobile bind -v -o libbox.aar -target android/arm64 -androidapi 24 \
+              -javapkg=io.nekohasekai -libname=box -trimpath -tags "$TAGS" ./experimental/libbox
+            FOUND=libbox.aar
+          fi
+          cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox.aar
+          if [ -f libbox-legacy.aar ]; then
+            cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar
+          else
+            cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox-legacy.aar
+          fi
+          ls -lah ../sing-box-for-android/app/libs/
+          test -s ../sing-box-for-android/app/libs/libbox.aar
+
+      - name: Compile ChainBox
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          fi
+          chmod +x gradlew
+          ./gradlew :app:compileOtherDebugKotlin \
+            :app:testDebugUnitTest \
+            --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
+            --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
+            --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngestTest \
+            --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
+            --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
+            --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --no-daemon --stacktrace

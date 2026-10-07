@@ -1,0 +1,317 @@
+package io.nekohasekai.sfa.utils
+
+import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.BuildConfig
+import io.nekohasekai.sfa.database.Settings
+import org.json.JSONArray
+import org.json.JSONObject
+
+class ChainApplyException(message: String) : IllegalStateException(message)
+
+object ConfigQuicOverride {
+
+    suspend fun apply(
+        content: String,
+        skipScripts: Boolean = false,
+        replaceRuleSetNeedles: Collection<String> = emptyList(),
+        dropRuleSetNeedles: Collection<String> = emptyList(),
+        dropAllRemoteRuleSets: Boolean = false,
+        stripEch: Boolean = false,
+    ): String {
+        OverrideStatus.clear()
+        val warnings = mutableListOf<OverrideNotice>()
+        // Pipeline (one set of rules at a time, no overlapping routing):
+        // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes.
+        //    Banner only if heal actually rewrote the config (已修正 + notes).
+        // 2. overlay script — if bound, it owns routing AND overlay-gated
+        //    features (China/ads/QUIC/WebRTC/DNS/IPv6/strict). Switches are
+        //    passed into the script as `overlay`; the App does not write a
+        //    second copy.
+        // 3. chain — if bound, compile the script-produced entry graph into
+        //    the native entry → landing path. Scripts and chain are intentionally
+        //    composable; a script never mutates the saved subscription.
+        // 4. China Direct / ads / QUIC / WebRTC / DNS / IPv6 / strict —
+        //    App writes these only when no script is bound
+        val healed = if (Settings.configNormalize) {
+            ConfigNormalize.heal(content)
+        } else {
+            ConfigNormalize.HealResult(ConfigCompat.sanitize(content), emptyList())
+        }
+        var out = healed.content
+
+        val profileId = Settings.selectedProfile
+        val binding = ChainBindings.get(profileId)
+        val savedEntry = binding?.entryTag?.trim().orEmpty()
+
+        try {
+            var root = JSONObject(out)
+            applyLogLevel(root)
+            val scripts = if (skipScripts) emptyList() else OverlayScripts.enabledFor(profileId)
+            val scriptOn = scripts.isNotEmpty()
+            if (!skipScripts) {
+                applyOne(warnings, "覆写脚本") {
+                    ConfigScriptOverride.apply(root, profileId)
+                }
+            }
+            out = ConfigCompat.sanitize(root.toString())
+            val entryMissing = binding != null && savedEntry.isNotEmpty() &&
+                ChainRuntimeCompiler.savedEntryMatches(out, savedEntry) == null
+            if (binding != null) {
+                try {
+                    out = ConfigChainReapply.apply(out)
+                    if (entryMissing) {
+                        warnings += OverrideNotice(
+                            title = "链式入口已随订阅更新",
+                            reason = "保存的入口「$savedEntry」在新订阅里不存在，已自动改用当前配置的主分组。落地绑定仍有效。",
+                            hint = "不必重新配链式。若入口不对，到「工具 → 链式代理」重选一次即可。",
+                        )
+                    }
+                } catch (e: Exception) {
+                    val notice = OverrideNotice(
+                        title = "链式代理未生效，已停止启动",
+                        reason = e.message ?: "无法串联出站",
+                        hint = "链路只绑定当前配置，订阅更新不会清掉绑定。请到「工具 → 链式代理」确认入口和落地。失败不会自动改走 DIRECT。",
+                        error = true,
+                    )
+                    OverrideStatus.set(warnings + notice)
+                    throw ChainApplyException(notice.reason)
+                }
+            }
+            root = JSONObject(out)
+            applyLogLevel(root)
+            if (scriptOn) {
+                val label = scripts.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+                    .joinToString("、").ifBlank { "脚本" }
+                warnings += OverrideNotice(
+                    title = "${label}覆写",
+                    reason = "脚本启用中",
+                    hint = "",
+                )
+            }
+            if (healed.changed) {
+                warnings += OverrideNotice(
+                    title = "配置规范化",
+                    reason = "已修正",
+                    hint = healed.notes.joinToString("；"),
+                )
+            }
+            // Missing TUN cannot capture traffic (0 connections) and strict
+            // route has nothing to write. Insert a standard TUN at runtime
+            // only — do not turn the default script on, and do not edit the
+            // subscription file.
+            ConfigInboundCompat.ensureAndroidTun(root)
+            // Script already honored overlay.* . Writing the same blocks
+            // here would be a second rule set and can break routing.
+            applyOne(warnings, "中国直连") {
+                if (Settings.chinaDirect && !scriptOn) ConfigChinaDirect.apply(root)
+            }
+            applyOne(warnings, "严格路由") {
+                if (!scriptOn) applyStrictRoute(root, Settings.strictRoute)
+            }
+            applyOne(warnings, "禁用 QUIC") {
+                if (Settings.disableQuic && !scriptOn) applyQuic(root)
+            }
+            applyOne(warnings, "DNS 防泄漏") {
+                if (Settings.dnsProtect && !scriptOn) applyDnsProtect(root)
+            }
+            applyOne(warnings, "禁用 IPv6") {
+                if (Settings.disableIpv6 && !scriptOn) applyDisableIpv6(root)
+            }
+            // WebRTC last so reject rules prepend in front of China Direct.
+            applyOne(warnings, "防 WebRTC 泄露") {
+                if (Settings.webrtcProtect && !scriptOn) applyWebrtc(root)
+            }
+            applyOne(warnings, "广告拦截") {
+                if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
+            }
+            // After scripts and chain merge: rewrite 404 remote rule-sets to
+            // official testingcf geosite/geoip URLs so APP routing still
+            // matches the original tags. Chain landing is untouched.
+            ConfigInboundCompat.applyKernelCompat(root)
+            ConfigInboundCompat.ensureCacheFile(root, Settings.selectedProfile.toString())
+            ConfigInboundCompat.ensureDirectHttpTimeout(root)
+            ConfigNormalize.ensureClashModes(root)
+            if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
+                applyOnDemand(root, Settings.onDemand)
+            }
+            ConfigCompat.stripBrokenDnsDetours(root)
+            if (stripEch) {
+                ConfigIngest.stripEch(root)
+            }
+            if (replaceRuleSetNeedles.isNotEmpty()) {
+                ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
+            }
+            if (dropAllRemoteRuleSets) {
+                ConfigInboundCompat.dropAllRemoteRuleSets(root)
+            } else if (dropRuleSetNeedles.isNotEmpty()) {
+                ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
+            }
+            out = root.toString()
+        } catch (e: ChainApplyException) {
+            throw e
+        } catch (e: Exception) {
+            warnings += OverrideNotice(
+                title = "网络增强开关部分未生效",
+                reason = e.message ?: "覆盖失败",
+                hint = "请检查配置是否含 TUN/路由段，或临时关闭对应开关。",
+                error = true,
+            )
+        }
+
+        OverrideStatus.set(warnings)
+        return out
+    }
+
+    private fun applyOne(warnings: MutableList<OverrideNotice>, title: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            warnings += OverrideNotice(
+                title = "$title 未完全生效",
+                reason = e.message ?: "覆盖失败",
+                hint = "该开关会强制覆盖运行时配置，不改订阅文件。其它已开启的开关仍会继续写入。",
+                error = true,
+            )
+        }
+    }
+
+    internal fun applyLogLevel(root: JSONObject) {
+        val log = root.optJSONObject("log") ?: JSONObject().also { root.put("log", it) }
+        log.put("level", "info")
+    }
+
+    private fun applyWebrtc(root: JSONObject) {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val merged = JSONArray()
+        val extra = ConfigNormalize.webrtcRejectRules()
+        for (i in 0 until extra.length()) merged.put(extra.get(i))
+        for (i in 0 until old.length()) merged.put(old.get(i))
+        route.put("rules", merged)
+    }
+
+    /**
+     * Mihomo REJECT, not REJECT-DROP. Default reject resets the flow so
+     * HTTP/3 clients fall back to TCP. method drop blackholes UDP 443 and
+     * looks like a hang. China UDP 443 is routed direct first when that
+     * switch is on and the China rule-sets exist.
+     */
+    internal fun applyQuic(root: JSONObject) {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val direct = firstDirectTag(root)
+        val sets = ruleSetTags(route)
+        val extra = JSONArray()
+        if (Settings.excludeCnQuic && direct != null) {
+            if ("geoip-cn" in sets) {
+                extra.put(
+                    JSONObject()
+                        .put("network", "udp")
+                        .put("port", 443)
+                        .put("rule_set", "geoip-cn")
+                        .put("outbound", direct),
+                )
+            }
+            val domains = JSONArray()
+            if ("geosite-cn" in sets) domains.put("geosite-cn")
+            if ("geosite-geolocation-cn" in sets) domains.put("geosite-geolocation-cn")
+            if (domains.length() > 0) {
+                extra.put(
+                    JSONObject()
+                        .put("network", "udp")
+                        .put("port", 443)
+                        .put("rule_set", domains)
+                        .put("outbound", direct),
+                )
+            }
+        }
+        extra.put(
+            JSONObject()
+                .put("network", "udp")
+                .put("port", 443)
+                .put("action", "reject"),
+        )
+        val merged = JSONArray()
+        for (i in 0 until extra.length()) merged.put(extra.get(i))
+        for (i in 0 until old.length()) merged.put(old.get(i))
+        route.put("rules", merged)
+    }
+
+    private fun firstDirectTag(root: JSONObject): String? {
+        val outs = root.optJSONArray("outbounds") ?: return null
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (!o.optString("type").equals("direct", true)) continue
+            val tag = o.optString("tag").trim()
+            if (tag.isNotEmpty()) return tag
+        }
+        return null
+    }
+
+    private fun ruleSetTags(route: JSONObject): Set<String> {
+        val sets = route.optJSONArray("rule_set") ?: return emptySet()
+        val tags = linkedSetOf<String>()
+        for (i in 0 until sets.length()) {
+            val tag = sets.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags += tag
+        }
+        return tags
+    }
+
+    internal fun applyStrictRoute(root: JSONObject, enabled: Boolean = true) {
+        val inbounds = root.optJSONArray("inbounds") ?: JSONArray().also { root.put("inbounds", it) }
+        var touched = false
+        for (i in 0 until inbounds.length()) {
+            val ib = inbounds.optJSONObject(i) ?: continue
+            if (ib.optString("type") != "tun") continue
+            ib.put("strict_route", enabled)
+            touched = true
+        }
+        if (!touched && enabled) {
+            throw IllegalStateException("当前配置没有 TUN 入站，严格路由无法写入")
+        }
+    }
+
+    private val onDemandTypes = setOf("wireguard", "tailscale", "openvpn", "openconnect")
+
+    /** 1.15 endpoint/outbound field. Not routing; not gated by overlay scripts. */
+    internal fun applyOnDemand(root: JSONObject, enabled: Boolean) {
+        fun walk(key: String) {
+            val arr = root.optJSONArray(key) ?: return
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                if (obj.optString("type") in onDemandTypes) {
+                    obj.put("on_demand", enabled)
+                }
+            }
+        }
+        walk("endpoints")
+        walk("outbounds")
+    }
+
+    internal fun applyDnsProtect(root: JSONObject) {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        dns.put("independent_cache", true)
+        if (dns.optString("strategy").isBlank()) {
+            dns.put("strategy", "prefer_ipv4")
+        }
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        route.put("auto_detect_interface", true)
+    }
+
+    internal fun applyDisableIpv6(root: JSONObject) {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        dns.put("strategy", "ipv4_only")
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val merged = JSONArray().put(JSONObject().put("ip_version", 6).put("action", "reject"))
+        for (i in 0 until old.length()) merged.put(old.get(i))
+        route.put("rules", merged)
+        val inbounds = root.optJSONArray("inbounds") ?: return
+        for (i in 0 until inbounds.length()) {
+            val ib = inbounds.optJSONObject(i) ?: continue
+            if (ib.optString("type") == "tun") ib.remove("inet6_address")
+        }
+    }
+}
