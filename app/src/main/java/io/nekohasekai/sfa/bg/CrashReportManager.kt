@@ -132,6 +132,9 @@ object CrashReportManager {
         val directories = crashReportsDir.listFiles { file -> file.isDirectory } ?: return emptyList()
         return directories.mapNotNull { dir ->
             val date = parseTimestamp(dir.name) ?: return@mapNotNull null
+            // README: crash reports carry no plaintext config. The kernel copies
+            // the running configuration into its report directory; drop it.
+            File(dir, CONFIG_FILE_NAME).delete()
             CrashReport(
                 id = dir.name,
                 date = date,

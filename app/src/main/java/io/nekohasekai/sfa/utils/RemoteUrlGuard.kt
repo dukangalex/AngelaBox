@@ -19,8 +19,11 @@ data class ValidatedEndpoint(
  *
  * All kinds require HTTPS. Loopback, RFC1918, ULA, CGNAT, link-local,
  * multicast, and cloud metadata are blocked. [Kind.UPDATE] is additionally
- * pinned to GitHub. DNS results must all be allowed (mixed public+private
- * is rejected). Callers that open a socket must use [ValidatedEndpoint.addresses]
+ * pinned to GitHub. Every address [validate] returns is allowed: a resolver
+ * passed in must return only allowed addresses (mixed public+private is
+ * rejected), while the default system resolver drops disallowed answers
+ * first (fake-ip 198.18/15, split-horizon LAN records) and keeps the public
+ * ones. Callers that open a socket must use [ValidatedEndpoint.addresses]
  * so the checked IP is the dialed IP.
  */
 object RemoteUrlGuard {

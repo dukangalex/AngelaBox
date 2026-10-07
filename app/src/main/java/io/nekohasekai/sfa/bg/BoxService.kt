@@ -80,7 +80,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
+    // Written from the kernel thread (openTun), read and closed on IO/Main.
+    @Volatile
     var fileDescriptor: ParcelFileDescriptor? = null
+
+    // kernel-start threads that were given up on. One can still be inside Go
+    // and reach openTun later; it must not replace the live tunnel then.
+    private val abandonedStartThreads: MutableSet<Thread> =
+        Collections.synchronizedSet(Collections.newSetFromMap(java.util.WeakHashMap()))
+
+    fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean =
+        thread in abandonedStartThreads
 
     private val status = MutableLiveData(Status.Stopped)
     private val binder = ServiceBinder(status)
@@ -523,6 +533,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun abandonStart(server: CommandServer, worker: Thread) {
+        abandonedStartThreads.add(worker)
         val closer = Thread({
             runCatching { server.closeService() }
         }, "kernel-cancel")

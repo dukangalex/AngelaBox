@@ -2,13 +2,17 @@ package io.nekohasekai.sfa.database
 
 import androidx.room.Room
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.utils.OverlayScripts
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Suppress("RedundantSuspendModifier")
 object ProfileManager {
-    private val callbacks = mutableListOf<() -> Unit>()
+    // Screens register on Main while writes iterate on IO; a plain list can throw
+    // ConcurrentModificationException.
+    private val callbacks = CopyOnWriteArrayList<() -> Unit>()
     private val dbLock = Any()
 
     @Volatile
@@ -27,6 +31,7 @@ object ProfileManager {
         synchronized(dbLock) {
             db?.takeIf { it.isOpen }?.let { return it }
             Application.application.getDatabasePath(Path.PROFILES_DATABASE_PATH).parentFile?.mkdirs()
+            DatabaseDowngradeGuard.backupIfNewer(Application.application, Path.PROFILES_DATABASE_PATH, ProfileDatabase.VERSION)
             val built = Room
                 .databaseBuilder(
                     Application.application,
@@ -83,6 +88,7 @@ object ProfileManager {
         try {
             runCatching { ChainBindings.removeProfile(profile.id) }
             runCatching { OverlayScripts.removeProfile(profile.id) }
+            runCatching { ProfileStableIds.remove(profile.id) }
             return database().profileDao().delete(profile)
         } finally {
             for (callback in callbacks.toList()) {
@@ -96,6 +102,7 @@ object ProfileManager {
             profiles.forEach { p ->
                 runCatching { ChainBindings.removeProfile(p.id) }
                 runCatching { OverlayScripts.removeProfile(p.id) }
+                runCatching { ProfileStableIds.remove(p.id) }
             }
             return database().profileDao().delete(profiles)
         } finally {

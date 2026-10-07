@@ -29,6 +29,7 @@ object Settings {
         synchronized(dbLock) {
             db?.takeIf { it.isOpen }?.let { return it }
             Application.application.getDatabasePath(Path.SETTINGS_DATABASE_PATH).parentFile?.mkdirs()
+            DatabaseDowngradeGuard.backupIfNewer(Application.application, Path.SETTINGS_DATABASE_PATH, KeyValueDatabase.VERSION)
             val built = Room.databaseBuilder(
                 Application.application,
                 KeyValueDatabase::class.java,

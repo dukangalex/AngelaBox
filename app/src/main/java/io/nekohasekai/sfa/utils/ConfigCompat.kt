@@ -72,7 +72,20 @@ object ConfigCompat {
         }
         if (ConfigIngest.normalizeEchConfigs(root)) changed = true
         if (stripBrokenDnsDetours(root)) changed = true
+        if (stripLogFileOutput(root)) changed = true
         return if (changed) root.toString() else ingested.content
+    }
+
+    /**
+     * README: logs are not written to disk. A `log.output` path makes the
+     * kernel append every log line to a file; drop it so logs stay in the
+     * in-memory buffer.
+     */
+    internal fun stripLogFileOutput(root: JSONObject): Boolean {
+        val log = root.optJSONObject("log") ?: return false
+        if (!log.has("output")) return false
+        log.remove("output")
+        return true
     }
 
     /** Import and subscription refresh. HTTPS proxy-providers are pulled here. */

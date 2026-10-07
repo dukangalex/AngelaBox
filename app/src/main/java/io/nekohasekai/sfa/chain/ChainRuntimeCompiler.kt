@@ -50,21 +50,41 @@ object ChainRuntimeCompiler {
 
         val sameProfile = req.landingProfileId == req.currentProfileId
         require(sameProfile || !req.landingContent.isNullOrBlank()) { "跨配置落地内容缺失，无法组链" }
+        // WireGuard/WARP are endpoints, not outbounds. The kernel's chain
+        // compiler only clones outbounds, so they can sit in the entry group
+        // (resolved at runtime by the outbound manager) but not on the landing.
+        val endpoints = endpointTags(root)
         val landingMergedTag = if (sameProfile) {
             require(req.landingTag != main) { "入口与落地不能是同一个 outbound" }
+            require(req.landingTag !in endpoints) { "WireGuard/WARP 等 endpoint 不能作为链式落地：${req.landingTag}" }
             find(outs, req.landingTag) ?: error("落地 outbound 不存在：${req.landingTag}")
-            prepareGroupHop(outs, req.landingTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true)
+            prepareGroupHop(outs, req.landingTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true, endpoints = endpoints)
         } else {
             val landingRoot = parseConfig(req.landingContent!!, "落地配置")
             val landingOuts = landingRoot.optJSONArray("outbounds") ?: error("落地配置没有 outbounds")
-            mergeLandingGraph(outs, landingOuts, req.landingProfileId, req.landingTag)
+            mergeLandingGraph(outs, landingOuts, req.landingProfileId, req.landingTag, endpointTags(landingRoot))
         }
 
         val entryExclude = buildSet {
             add(landingMergedTag)
             if (sameProfile) add(req.landingTag)
         }
-        val entryHop = prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true)
+        // Same profile: entry and landing groups often share nodes, so both
+        // hops could pick the same one (us-1 → us-1). Drop the landing's nodes
+        // from the entry group's own member list, only at the top level since
+        // nested groups are shared with rules. If that leaves the entry empty,
+        // fall back to the old behaviour. A failed attempt does not touch the
+        // root group, and nested rewrites are the same on the retry.
+        val landingLeaves = if (sameProfile) leafTags(outs, landingMergedTag) else emptySet()
+        val entryHop = runCatching {
+            require(landingLeaves.isNotEmpty())
+            prepareGroupHop(
+                outs, main, entryExclude, ENTRY_PREFIX, inPlace = true,
+                endpoints = endpoints, allowEndpoints = true, topLevelExclude = landingLeaves,
+            )
+        }.getOrElse {
+            prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true, endpoints = endpoints, allowEndpoints = true)
+        }
         val chainTag = "$GENERATED_PREFIX${req.currentProfileId}-${req.landingProfileId}"
         removeOutbound(outs, chainTag)
         outs.put(JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
@@ -355,7 +375,16 @@ object ChainRuntimeCompiler {
     private fun isGeneratedChainTag(tag: String): Boolean = tag == LEGACY_CHAIN_TAG || tag.startsWith(GENERATED_PREFIX)
 
     /** Recursively removes terminal/bypass members from selector/urltest graphs. */
-    private fun prepareGroupHop(outs: JSONArray, tag: String, extraExclude: Set<String>, tagPrefix: String, inPlace: Boolean = false): String {
+    private fun prepareGroupHop(
+        outs: JSONArray,
+        tag: String,
+        extraExclude: Set<String>,
+        tagPrefix: String,
+        inPlace: Boolean = false,
+        endpoints: Set<String> = emptySet(),
+        allowEndpoints: Boolean = false,
+        topLevelExclude: Set<String> = emptySet(),
+    ): String {
         val visiting = mutableSetOf<String>()
         val rewritten = mutableMapOf<String, String>()
         val emptied = mutableSetOf<String>()
@@ -367,6 +396,7 @@ object ChainRuntimeCompiler {
             require(currentTag !in visiting) { "链式入口分组存在循环：$currentTag" }
             rewritten[currentTag]?.let { return it }
             if (currentTag in emptied) return null
+            require(currentTag !in endpoints) { "WireGuard/WARP 等 endpoint 不能直接作为链式跳板，请把它放进分组：$currentTag" }
             val original = find(outs, currentTag) ?: error("链式入口引用不存在的 outbound：$currentTag")
             val type = original.optString("type").trim()
             require(type !in forbiddenTypes) { "不能使用 $type 作为链式跳板：$currentTag" }
@@ -381,6 +411,11 @@ object ChainRuntimeCompiler {
             for (i in 0 until members.length()) {
                 val member = members.optString(i).trim()
                 if (member.isEmpty() || member in forbiddenTags || member in extraExclude) continue
+                if (depth == 0 && member in topLevelExclude) continue
+                if (member in endpoints && find(outs, member) == null) {
+                    if (allowEndpoints) mapped.put(member)
+                    continue
+                }
                 val child = find(outs, member) ?: error("分组 $currentTag 引用了不存在的 outbound：$member")
                 val childType = child.optString("type").trim()
                 if (childType in forbiddenTypes) continue
@@ -398,11 +433,12 @@ object ChainRuntimeCompiler {
             clone.put("outbounds", mapped)
             if (clone.has("default")) {
                 val d = clone.optString("default").trim()
-                if (d.isBlank() || d in forbiddenTags || d in extraExclude) clone.remove("default")
+                if (d.isBlank() || d in forbiddenTags || d in extraExclude || (depth == 0 && d in topLevelExclude)) clone.remove("default")
                 else {
                     val dObj = find(outs, d)
                     val dType = dObj?.optString("type")
                     val dHop = when {
+                        dObj == null && allowEndpoints && d in endpoints -> d
                         dType == null || dType in forbiddenTypes -> null
                         dType in groupTypes -> sanitize(d, depth + 1)
                         else -> d
@@ -461,7 +497,7 @@ object ChainRuntimeCompiler {
         return out
     }
 
-    private fun mergeLandingGraph(dst: JSONArray, src: JSONArray, profileId: Long, rootTag: String): String {
+    private fun mergeLandingGraph(dst: JSONArray, src: JSONArray, profileId: Long, rootTag: String, endpoints: Set<String> = emptySet()): String {
         val visiting = mutableSetOf<String>()
         val merged = mutableMapOf<String, String>()
         val emptied = mutableSetOf<String>()
@@ -473,6 +509,7 @@ object ChainRuntimeCompiler {
             require(tag !in visiting) { "落地配置拓扑存在循环：$tag" }
             merged[tag]?.let { return it }
             if (tag in emptied) return null
+            require(tag !in endpoints || find(src, tag) != null) { "WireGuard/WARP 等 endpoint 不能作为链式落地：$tag" }
             visiting.add(tag)
             val original = find(src, tag) ?: error("落地配置引用不存在的 outbound：$tag")
             val type = original.optString("type")
@@ -489,6 +526,8 @@ object ChainRuntimeCompiler {
                 for (i in 0 until members.length()) {
                     val member = members.optString(i)
                     if (member in forbiddenTags) continue
+                    // Endpoint members cannot be cloned onto the landing hop.
+                    if (member in endpoints && find(src, member) == null) continue
                     val child = find(src, member) ?: error("落地分组引用不存在的 outbound：$member")
                     if (child.optString("type") in forbiddenTypes) continue
                     merge(member, depth + 1)?.let { mapped.put(it) }
@@ -604,6 +643,17 @@ object ChainRuntimeCompiler {
     private fun pointResolver(outbound: JSONObject, server: String) {
         val raw = outbound.opt("domain_resolver")
         if (raw is JSONObject) raw.put("server", server) else outbound.put("domain_resolver", server)
+    }
+
+    private fun endpointTags(root: JSONObject): Set<String> {
+        val eps = root.optJSONArray("endpoints") ?: return emptySet()
+        return (0 until eps.length()).mapNotNull { eps.optJSONObject(it)?.optString("tag")?.trim()?.takeIf(String::isNotEmpty) }.toSet()
+    }
+
+    private fun leafTags(outs: JSONArray, tag: String): Set<String> {
+        val leaves = ArrayList<JSONObject>()
+        collectLeafObjects(outs, tag, leaves, HashSet())
+        return leaves.mapNotNull { it.optString("tag").trim().takeIf(String::isNotEmpty) }.toSet()
     }
 
     private fun find(outs: JSONArray, tag: String): JSONObject? {

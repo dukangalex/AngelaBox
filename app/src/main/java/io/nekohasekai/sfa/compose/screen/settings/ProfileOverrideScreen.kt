@@ -70,7 +70,7 @@ fun ProfileOverrideScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var autoRedirect by remember { mutableStateOf(Settings.autoRedirect) }
     var onDemand by remember { mutableStateOf(Settings.onDemand) }

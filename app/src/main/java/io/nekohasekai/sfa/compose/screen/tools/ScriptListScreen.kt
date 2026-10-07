@@ -93,7 +93,7 @@ fun ScriptListScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     var scripts by remember {
         val sample = runCatching {
             context.assets.open(OverlayScripts.SAMPLE_ASSET).bufferedReader().use { it.readText() }

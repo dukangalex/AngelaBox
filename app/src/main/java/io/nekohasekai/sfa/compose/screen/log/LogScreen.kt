@@ -779,6 +779,8 @@ fun LogScreen(
                                         val uri = withContext(Dispatchers.IO) {
                                             val logsDir =
                                                 File(context.cacheDir, "logs").also { it.mkdirs() }
+                                            // Logs stay off disk: keep only the copy being shared.
+                                            logsDir.listFiles()?.forEach { it.delete() }
                                             val timestamp =
                                                 SimpleDateFormat(
                                                     "yyyyMMdd_HHmmss",

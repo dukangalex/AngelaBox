@@ -102,7 +102,7 @@ fun PrivilegeSettingsScreen(navController: NavController, serviceStatus: Status 
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     val systemHookStatus by HookStatusClient.status.collectAsState()
     var privilegeSettingsEnabled by remember { mutableStateOf(Settings.privilegeSettingsEnabled) }
 
