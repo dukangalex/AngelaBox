@@ -99,6 +99,11 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
+            // Node links, a base64 node list or a pasted Clash / JSON node: same detection as file import.
+            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                return@withContext QRCodeParseResult.LocalProfile(name = nodeProfileName(data))
+            }
+
             if (data.startsWith("https://", ignoreCase = true)) {
                 val profileName = extractProfileNameFromUrl(data)
                 return@withContext QRCodeParseResult.RemoteProfile(
@@ -135,6 +140,10 @@ class ProfileImportHandler(private val context: Context) {
                         context.getString(R.string.error_decode_profile, e.message),
                     )
                 }
+            }
+
+            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                return@withContext importJsonConfiguration(data, nodeProfileName(data))
             }
 
             if (data.startsWith("https://", ignoreCase = true)) {
@@ -285,6 +294,19 @@ class ProfileImportHandler(private val context: Context) {
             }
         }
         return filename
+    }
+
+    /** A single link names the profile after its `#fragment`; anything else is "Imported Profile". */
+    private fun nodeProfileName(data: String): String {
+        val lines = data.trim().lines().filter { it.isNotBlank() }
+        if (lines.size != 1) return "Imported Profile"
+        val fragment = lines[0].substringAfter('#', "").trim()
+        if (fragment.isEmpty()) return "Imported Profile"
+        return try {
+            java.net.URLDecoder.decode(fragment, "UTF-8")
+        } catch (_: Exception) {
+            fragment
+        }.ifBlank { "Imported Profile" }
     }
 
     private fun isJsonConfiguration(content: String): Boolean {
