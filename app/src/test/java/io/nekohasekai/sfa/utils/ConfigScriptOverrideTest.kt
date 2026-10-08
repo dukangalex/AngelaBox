@@ -347,4 +347,144 @@ class ConfigScriptOverrideTest {
         assertTrue(dnsText.contains("dns-fakeip"))
         assertEquals("dns-remote", out.getJSONObject("dns").optString("final"))
     }
+
+    private fun runSample(outbounds: JSONArray, endpoints: JSONArray? = null): JSONObject? {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return null
+        val input = JSONObject().put("outbounds", outbounds)
+        if (endpoints != null) input.put("endpoints", endpoints)
+        return JSONObject(ConfigScriptOverride.ScriptEngine.run(file.readText(), input.toString(), "sample"))
+    }
+
+    private fun byTag(out: JSONObject): Map<String, JSONObject> {
+        val all = mutableListOf<JSONObject>()
+        val outs = out.getJSONArray("outbounds")
+        for (i in 0 until outs.length()) all += outs.getJSONObject(i)
+        val eps = out.optJSONArray("endpoints")
+        if (eps != null) for (i in 0 until eps.length()) all += eps.getJSONObject(i)
+        val tags = all.map { it.optString("tag") }
+        assertEquals("duplicate tags: $tags", tags.size, tags.toSet().size)
+        return all.associateBy { it.optString("tag") }
+    }
+
+    private fun members(group: JSONObject?): List<String> {
+        val arr = group?.optJSONArray("outbounds") ?: return emptyList()
+        return (0 until arr.length()).map { arr.getString(it) }
+    }
+
+    private fun leaf(tag: String) = JSONObject().put("type", "vless").put("tag", tag).put("server", "a.example")
+
+    @Test
+    fun sampleFilesEachNodeIntoOneRegion() {
+        val names = listOf(
+            "HK01", "HK_01", "🇯🇵 东京 02", "US-LA", "罗马尼亚 01", "Romania-1", "马里兰 01",
+            "Mali 1", "SS-Node", "CF-01", "LA 01", "内蒙古 01", "Britain 01", "Abu Dhabi",
+        )
+        val outs = JSONArray()
+        names.forEach { outs.put(leaf(it)) }
+        outs.put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val out = runSample(outs) ?: return
+        val tags = byTag(out)
+        assertEquals(listOf("HK01", "HK_01", "🇭🇰 香港-自动选择"), members(tags["🇭🇰 香港"]))
+        assertEquals("🇭🇰 香港-自动选择", tags.getValue("🇭🇰 香港").optString("default"))
+        assertTrue(members(tags["🇯🇵 日本"]).contains("🇯🇵 东京 02"))
+        assertEquals(listOf("US-LA", "马里兰 01"), members(tags["🇺🇸 美国-自动选择"]))
+        assertEquals(listOf("罗马尼亚 01", "Romania-1"), members(tags["🇷🇴 罗马尼亚-自动选择"]))
+        assertEquals(listOf("Mali 1"), members(tags["🇲🇱 马里-自动选择"]))
+        assertEquals(listOf("Britain 01"), members(tags["🇬🇧 英国-自动选择"]))
+        assertEquals(listOf("Abu Dhabi"), members(tags["🇦🇪 阿联酋-自动选择"]))
+        assertEquals(
+            listOf("SS-Node", "CF-01", "LA 01", "内蒙古 01"),
+            members(tags["其他节点-自动选择"]),
+        )
+        listOf("🇸🇸 南苏丹", "🇨🇫 中非共和国", "🇱🇦 老挝", "🇴🇲 阿曼", "🇮🇹 意大利", "🇲🇳 蒙古").forEach {
+            assertFalse("$it should not exist", tags.containsKey(it))
+        }
+        // Every group member and rule outbound points at a real tag.
+        tags.values.forEach { ob ->
+            members(ob).forEach { m -> assertTrue("${ob.optString("tag")} -> $m", tags.containsKey(m)) }
+        }
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        for (i in 0 until rules.length()) {
+            val o = rules.getJSONObject(i).optString("outbound")
+            if (o.isNotEmpty()) assertTrue("rule -> $o", tags.containsKey(o))
+        }
+    }
+
+    @Test
+    fun sampleDropsInfoNodesAndSplitsRates() {
+        val outs = JSONArray()
+            .put(leaf("剩余流量：100G"))
+            .put(leaf("官网 example"))
+            .put(leaf("交流群 123"))
+            .put(leaf("香港 支持Netflix 更新"))
+            .put(leaf("0.2倍 香港"))
+            .put(leaf("10.5 日本"))
+            .put(leaf("日本 x2"))
+            .put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val out = runSample(outs) ?: return
+        val tags = byTag(out)
+        assertFalse(tags.containsKey("剩余流量：100G"))
+        assertFalse(tags.containsKey("官网 example"))
+        assertFalse(tags.containsKey("交流群 123"))
+        assertTrue(tags.containsKey("香港 支持Netflix 更新"))
+        assertEquals(listOf("0.2倍 香港"), members(tags["低倍率节点"]))
+        assertEquals(listOf("日本 x2"), members(tags["高倍率节点"]))
+    }
+
+    @Test
+    fun sampleRenamesDuplicateAndReservedTags() {
+        val outs = JSONArray()
+            .put(leaf("香港 01"))
+            .put(leaf("香港 01"))
+            .put(leaf("🇭🇰 香港"))
+            .put(leaf("默认代理"))
+            .put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val out = runSample(outs) ?: return
+        val tags = byTag(out)
+        assertTrue(tags.containsKey("香港 01 (2)"))
+        assertTrue(tags.containsKey("🇭🇰 香港 (2)"))
+        assertTrue(tags.containsKey("默认代理 (2)"))
+        assertEquals("selector", tags.getValue("默认代理").optString("type"))
+        assertEquals("selector", tags.getValue("🇭🇰 香港").optString("type"))
+    }
+
+    @Test
+    fun sampleUsesDomainResolverAndGroupsWireGuardEndpoints() {
+        val outs = JSONArray()
+            .put(leaf("香港 01").put("domain_strategy", "prefer_ipv4"))
+            .put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val eps = JSONArray()
+            .put(JSONObject().put("type", "wireguard").put("tag", "WG 日本 01"))
+            .put(JSONObject().put("type", "tailscale").put("tag", "ts"))
+        val out = runSample(outs, eps) ?: return
+        val tags = byTag(out)
+        val hk = tags.getValue("香港 01")
+        assertFalse(hk.has("domain_strategy"))
+        assertEquals("dns-cn", hk.getJSONObject("domain_resolver").getString("server"))
+        assertEquals("prefer_ipv4", hk.getJSONObject("domain_resolver").getString("strategy"))
+        val text = out.getJSONArray("outbounds").toString()
+        assertFalse(text.contains("domain_strategy"))
+        assertTrue(members(tags["🇯🇵 日本-自动选择"]).contains("WG 日本 01"))
+        assertFalse(members(tags["自动选择"]).contains("ts"))
+        assertEquals(2, out.getJSONArray("endpoints").length())
+        val dnsTags = out.getJSONObject("dns").getJSONArray("servers").let { s ->
+            (0 until s.length()).map { s.getJSONObject(it).optString("tag") }
+        }
+        assertTrue(dnsTags.contains("dns-cn"))
+    }
+
+    @Test
+    fun sampleHandlesTwelveHundredNodesQuickly() {
+        val pool = listOf("香港", "日本", "US", "SG", "🇹🇼", "Romania", "Node")
+        val outs = JSONArray()
+        for (i in 0 until 1200) outs.put(leaf("${pool[i % pool.size]} ${i % 40}"))
+        outs.put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val started = System.currentTimeMillis()
+        val out = runSample(outs) ?: return
+        val took = System.currentTimeMillis() - started
+        val tags = byTag(out)
+        assertEquals(1200, members(tags["手动选择"]).size)
+        assertTrue("took $took ms", took < 4_000)
+    }
 }
