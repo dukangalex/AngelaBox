@@ -650,7 +650,21 @@ object BackupManager {
     }
 
     private fun openWebDav(url: String, username: String, password: String): HttpsURLConnection {
-        val conn = HTTPClient.openPinned(requireHttps(url), RemoteUrlGuard.Kind.SUBSCRIPTION)
+        val checked = requireHttps(url)
+        // When the tunnel is up, system DNS answers fake-ip and direct DNS
+        // often fails: dial by name and let the tunnel resolve upstream (same
+        // policy as subscription updates: HTTPClient.Route.PROXY). TLS still
+        // verifies the hostname. Tunnel down keeps the pinned direct connection.
+        val conn = if (TunnelGate.up) {
+            HTTPClient.openNamed(
+                checked,
+                RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
+                RemoteUrlGuard.Kind.SUBSCRIPTION,
+                emptyMap(),
+            )
+        } else {
+            HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        }
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000
         conn.instanceFollowRedirects = false
@@ -714,7 +728,14 @@ object BackupManager {
     private fun requireHttps(url: String): String {
         val normalized = url.trim()
         require(normalized.startsWith("https://", ignoreCase = true)) { "WebDAV 必须使用 HTTPS" }
-        RemoteUrlGuard.requireAllowed(normalized, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        if (TunnelGate.up) {
+            // Tunnel DNS answers fake-ip: do not require a direct DNS answer
+            // here. The connection below dials by name and the tunnel resolves
+            // upstream (same policy as subscription imports: acceptSubscription).
+            RemoteUrlGuard.validateWithoutDns(normalized, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        } else {
+            RemoteUrlGuard.requireAllowed(normalized, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        }
         return normalized
     }
 
