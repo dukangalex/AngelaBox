@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.bg
 
+import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
@@ -39,6 +40,7 @@ data class CrashReportFile(
 }
 
 object CrashReportManager {
+    private const val TAG = "CrashReportManager"
     private const val METADATA_FILE_NAME = "metadata.json"
     private const val GO_LOG_FILE_NAME = "go.log"
     private const val JVM_LOG_FILE_NAME = "jvm.log"
@@ -90,7 +92,10 @@ object CrashReportManager {
                 }
             }
             File(workingDir, PENDING_JVM_METADATA_FILE_NAME).writeText(metadata.toString())
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            // Never crash while reporting a crash, but leave a trace so a broken
+            // report pipeline (full disk, permissions) can actually be diagnosed.
+            Log.e(TAG, "failed to write pending JVM crash report", e)
         }
     }
 
@@ -215,9 +220,23 @@ object CrashReportManager {
         if (!includeLog) {
             File(strippedDir, GO_LOG_FILE_NAME).delete()
             File(strippedDir, JVM_LOG_FILE_NAME).delete()
+        } else {
+            // Defense in depth: crash logs may echo config fragments, so redact
+            // credential-shaped material before the archive leaves the device.
+            redactLogFile(File(strippedDir, GO_LOG_FILE_NAME))
+            redactLogFile(File(strippedDir, JVM_LOG_FILE_NAME))
         }
         Libbox.createZipArchive(strippedDir.path, zipFile.path, useAgeEncryption)
         zipFile
+    }
+
+    private fun redactLogFile(file: File) {
+        if (!file.isFile) return
+        runCatching {
+            file.writeText(DebugInfoExporter.redactSecrets(file.readText()))
+        }.onFailure {
+            Log.e(TAG, "failed to redact ${file.name}", it)
+        }
     }
 
     private fun nextAvailableReportDir(date: Date): File {

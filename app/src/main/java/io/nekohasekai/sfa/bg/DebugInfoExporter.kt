@@ -24,11 +24,15 @@ object DebugInfoExporter {
     private val PROXY_URI = Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|tuic|socks5?)://\\S+")
     // Redacts credential-shaped assignments in logs and exported diagnostics.
     // Beyond the generic keys, this covers sing-box/VPN key material that
-    // appears in JSON configs: WireGuard private_key / pre_shared_key / psk
-    // and Hysteria2 auth_str. The key may be JSON-quoted ("private_key": "...")
-    // and the value may be a quoted string or an auth scheme ("Bearer <token>").
+    // appears in JSON configs: WireGuard private_key / pre_shared_key / psk,
+    // Hysteria/Hysteria2 auth_str and bare auth (mihomo 'auth' is base64 bytes,
+    // the same as sing-box 'auth'). The key may be JSON-quoted
+    // ("private_key": "...") and the value may be a quoted string or an auth
+    // scheme ("Bearer <token>"). Longer 'auth_str' is tried before bare 'auth'
+    // so both spellings redact; words like 'author' are untouched because no
+    // '=' or ':' follows the key.
     private val CREDENTIAL = Regex(
-        """(?i)(password|token|secret|authorization|cookie|uuid|api[-_]?key|private[-_]?key|pre[-_]?shared[-_]?key|psk|auth[-_]?str)["']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?(?:"[^"]*"|'[^']*'|\S+)""",
+        """(?i)(password|token|secret|authorization|cookie|uuid|api[-_]?key|private[-_]?key|pre[-_]?shared[-_]?key|psk|auth([-_]?str)?)["']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?(?:"[^"]*"|'[^']*'|\S+)""",
     )
 
     internal fun redactSecrets(text: String): String {

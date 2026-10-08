@@ -37,46 +37,41 @@ object BackupManager {
 
     fun createBackupFile(context: Context, dest: File): Result<File> = runCatching {
         dest.parentFile?.mkdirs()
-        val savedDavPass = Settings.webdavPassword
-        val savedToken = Settings.githubToken
-        Settings.webdavPassword = ""
-        Settings.githubToken = ""
-        try {
-            Thread.sleep(250)
-            checkpoint(context, Path.SETTINGS_DATABASE_PATH)
-            checkpoint(context, Path.PROFILES_DATABASE_PATH)
-            ZipOutputStream(BufferedOutputStream(FileOutputStream(dest))).use { zos ->
-                val profiles = runBlocking { ProfileManager.list() }
-                val archive = PortableCloudBackup.buildFromAndroid(
-                    profiles = profiles,
-                    selectedProfileId = Settings.selectedProfile,
-                )
-                putEntry(
-                    zos,
-                    MANIFEST,
-                    PortableCloudBackup.manifest(archive.writtenBy, archive.time).toString().toByteArray(),
-                )
-                copyMainDbOnly(zos, context, Path.SETTINGS_DATABASE_PATH)
-                copyProfilesDbRedacted(zos, context)
-                val configs = File(context.filesDir, "configs")
-                if (configs.isDirectory) {
-                    configs.listFiles()?.forEach { f ->
-                        if (f.isFile) putFile(zos, "configs/${f.name}", f)
-                    }
-                }
-                putEntry(
-                    zos,
-                    PortableCloudBackup.PROFILES,
-                    PortableCloudBackup.encodeProfiles(archive.selected, archive.profiles).toByteArray(),
-                )
-                putEntry(zos, PortableCloudBackup.SETTINGS, archive.settings.toString().toByteArray())
-                archive.configs.forEach { (name, bytes) ->
-                    putEntry(zos, name, bytes)
+        // Checkpoint first so the temp copies below observe the latest committed
+        // state. Credentials are blanked in the temp copies only: live Settings
+        // are never mutated, so a process killed mid-backup can no longer lose
+        // the user's WebDAV password / GitHub token (no sleep window, and no
+        // finally-restore that a kill could skip).
+        checkpoint(context, Path.SETTINGS_DATABASE_PATH)
+        checkpoint(context, Path.PROFILES_DATABASE_PATH)
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(dest))).use { zos ->
+            val profiles = runBlocking { ProfileManager.list() }
+            val archive = PortableCloudBackup.buildFromAndroid(
+                profiles = profiles,
+                selectedProfileId = Settings.selectedProfile,
+            )
+            putEntry(
+                zos,
+                MANIFEST,
+                PortableCloudBackup.manifest(archive.writtenBy, archive.time).toString().toByteArray(),
+            )
+            copySettingsDbRedacted(zos, context)
+            copyProfilesDbRedacted(zos, context)
+            val configs = File(context.filesDir, "configs")
+            if (configs.isDirectory) {
+                configs.listFiles()?.forEach { f ->
+                    if (f.isFile) putFile(zos, "configs/${f.name}", f)
                 }
             }
-        } finally {
-            Settings.webdavPassword = savedDavPass
-            Settings.githubToken = savedToken
+            putEntry(
+                zos,
+                PortableCloudBackup.PROFILES,
+                PortableCloudBackup.encodeProfiles(archive.selected, archive.profiles).toByteArray(),
+            )
+            putEntry(zos, PortableCloudBackup.SETTINGS, archive.settings.toString().toByteArray())
+            archive.configs.forEach { (name, bytes) ->
+                putEntry(zos, name, bytes)
+            }
         }
         dest
     }
@@ -668,6 +663,31 @@ object BackupManager {
         return conn
     }
 
+    /**
+     * Copies the settings DB with the WebDAV password and GitHub token blanked.
+     * The live Settings are never touched: a process killed mid-backup cannot
+     * lose the user's credentials. Mirrors [copyProfilesDbRedacted].
+     */
+    private fun copySettingsDbRedacted(zos: ZipOutputStream, context: Context) {
+        val main = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+        if (!main.isFile) return
+        val tmp = File(context.cacheDir, "settings-redacted.db")
+        try {
+            main.copyTo(tmp, overwrite = true)
+            SQLiteDatabase.openDatabase(tmp.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.execSQL(
+                    "DELETE FROM KeyValueEntity WHERE `key` IN (?, ?)",
+                    arrayOf<Any?>(SettingsKey.WEBDAV_PASSWORD, SettingsKey.GITHUB_TOKEN),
+                )
+                db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
+            }
+            putFile(zos, Path.SETTINGS_DATABASE_PATH, tmp)
+        } finally {
+            tmp.delete()
+            deleteSidecars(tmp)
+        }
+    }
+
     private fun copyProfilesDbRedacted(zos: ZipOutputStream, context: Context) {
         val main = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
         if (!main.isFile) return
@@ -725,11 +745,6 @@ object BackupManager {
                 db.insertWithOnConflict("KeyValueEntity", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
         }
-    }
-
-    private fun copyMainDbOnly(zos: ZipOutputStream, context: Context, dbName: String) {
-        val main = context.getDatabasePath(dbName)
-        if (main.isFile) putFile(zos, dbName, main)
     }
 
     private fun putFile(zos: ZipOutputStream, name: String, file: File) {

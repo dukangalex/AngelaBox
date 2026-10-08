@@ -35,4 +35,19 @@ class DebugInfoExporterTest {
         assertTrue(out.contains("normal_key=5"))
         assertTrue(out.contains("[redacted]"))
     }
+
+    @Test
+    fun redactsBareAuthKey() {
+        val raw = """
+            {"auth": "QUJDREVGR0g="}
+            auth: myhy1secret
+            author=not-a-secret
+        """.trimIndent()
+        val out = DebugInfoExporter.redactSecrets(raw)
+        assertFalse(out.contains("QUJDREVGR0g="))
+        assertFalse(out.contains("myhy1secret"))
+        // 'author' is not a credential key: no '=' or ':' follows 'auth'.
+        assertTrue(out.contains("author=not-a-secret"))
+        assertTrue(out.contains("[redacted]"))
+    }
 }

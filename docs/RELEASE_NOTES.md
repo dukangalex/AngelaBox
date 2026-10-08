@@ -1,4 +1,5 @@
-• **1.0.105：**
-1. **诊断导出密钥脱敏加固：** 崩溃/诊断信息导出（`DebugInfoExporter`）的密钥脱敏规则补齐 sing-box 与 VPN 密钥材料——WireGuard `private_key` / `pre_shared_key` / `psk`、Hysteria2 `auth_str`，此前 JSON 形态的这些字段会原文落入导出包；同时支持 JSON 引号键名（`"private_key": "…"`）与 `Authorization: Bearer <token>` 头的完整脱敏，不再只吞掉 `Bearer` 而留下 token。
-2. **构建加速：** `gradle.properties` 启用 Gradle 构建缓存（`org.gradle.caching=true`），增量构建复用任务产物输出。
-3. **代码清理：** 删除两处从未被引用的死常量——`BoxService.PROFILE_UPDATE_INTERVAL` 与 `HTTPClient.UPDATE_ATTEMPTS`（全仓库 grep 确认零引用），避免与现行订阅更新（WorkManager）/ 下载重试阶梯混淆。
+• **1.0.106：**
+1. **诊断导出脱敏补漏（中危修复）：** `DebugInfoExporter` 的密钥脱敏正则追加裸 `auth` 分支——此前 hysteria 出站的裸 `"auth"` 键（base64 密钥材料）会原文落入诊断导出包；现已覆盖，并新增单测。`author=` 等非密钥词不受影响。
+2. **崩溃/OOM 报告纵深防御：** `CrashReportManager` / `OOMReportManager` 在打包分享前对 go/jvm 日志文本复用 `redactSecrets` 脱敏；二进制堆转储保持原样（文本脱敏不适用）。
+3. **崩溃上报可观测性：** 写 pending JVM 崩溃报告失败时不再静默吞异常，改为 `Log.e` 留痕，便于排查磁盘满/权限问题。
+4. **备份凭据防丢：** 备份时不再先清空 live Settings 再 `sleep(250)` 等落盘（进程若在该窗口被杀会导致用户 WebDAV 密码 / GitHub token 丢失）；改为与 profiles 库相同的“redacted 临时库”模式——拷贝 settings 库到临时文件后在副本里删除凭据行，live Settings 全程不被触碰。

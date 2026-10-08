@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.bg
 
+import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ data class OOMReportFile(
 }
 
 object OOMReportManager {
+    private const val TAG = "OOMReportManager"
     private const val METADATA_FILE_NAME = "metadata.json"
     private const val CONFIG_FILE_NAME = "configuration.json"
     private const val GO_LOG_FILE_NAME = "go.log"
@@ -159,9 +161,23 @@ object OOMReportManager {
         }
         if (!includeLog) {
             File(strippedDir, GO_LOG_FILE_NAME).delete()
+        } else {
+            // Defense in depth: OOM logs may echo config fragments, so redact
+            // credential-shaped material before the archive leaves the device.
+            // (Binary heap profiles are left untouched: redaction is text-only.)
+            redactLogFile(File(strippedDir, GO_LOG_FILE_NAME))
         }
         Libbox.createZipArchive(strippedDir.path, zipFile.path, useAgeEncryption)
         zipFile
+    }
+
+    private fun redactLogFile(file: File) {
+        if (!file.isFile) return
+        runCatching {
+            file.writeText(DebugInfoExporter.redactSecrets(file.readText()))
+        }.onFailure {
+            Log.e(TAG, "failed to redact ${file.name}", it)
+        }
     }
 
     private fun parseTimestamp(name: String): Date? {
