@@ -341,11 +341,11 @@ fun ConnectionDetailsRoute(
         )
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.setVisible(true)
-    }
-
+    // Register and unregister in one effect: a LaunchedEffect can be cancelled
+    // before it runs, and then the unpaired setVisible(false) would leave the
+    // count off by one so the list never connects again.
     DisposableEffect(Unit) {
+        viewModel.setVisible(true)
         onDispose {
             viewModel.setVisible(false)
         }
@@ -382,11 +382,11 @@ fun ConnectionsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    LaunchedEffect(Unit) {
-        viewModel.setVisible(true)
-    }
-
+    // Register and unregister in one effect: a LaunchedEffect can be cancelled
+    // before it runs, and then the unpaired setVisible(false) would leave the
+    // count off by one so the list never connects again.
     DisposableEffect(Unit) {
+        viewModel.setVisible(true)
         onDispose {
             viewModel.setVisible(false)
         }

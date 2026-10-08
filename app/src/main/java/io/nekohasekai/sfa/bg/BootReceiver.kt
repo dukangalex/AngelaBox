@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.bg
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -20,16 +21,26 @@ class BootReceiver : BroadcastReceiver() {
         if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) {
             return
         }
+        // Keep the process alive until the start is handed off; without
+        // goAsync the system may kill it right after onReceive returns.
+        val pendingResult = goAsync()
         GlobalScope.launch(Dispatchers.IO) {
-            if (Settings.startedByUser) {
-                CrashReportManager.refresh()
-                if (CrashReportManager.unreadCount.value > 0) {
-                    Settings.startedByUser = false
-                    return@launch
+            try {
+                if (Settings.startedByUser) {
+                    CrashReportManager.refresh()
+                    if (CrashReportManager.unreadCount.value > 0) {
+                        Settings.startedByUser = false
+                        return@launch
+                    }
+                    withContext(Dispatchers.Main) {
+                        // A refused foreground start must not crash the app at boot.
+                        runCatching { BoxService.start() }.onFailure {
+                            Log.w("BootReceiver", "auto start failed", it)
+                        }
+                    }
                 }
-                withContext(Dispatchers.Main) {
-                    BoxService.start()
-                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }

@@ -84,10 +84,14 @@ class Application : Application() {
             if (Vendor.isPerAppProxyAvailable() &&
                 Settings.perAppProxyEnabled &&
                 Settings.perAppProxyManagedMode &&
-                Settings.perAppProxyManagedList.isEmpty()
+                Settings.perAppProxyManagedList.isEmpty() &&
+                !Settings.perAppProxyManagedScanned
             ) {
+                // Scan only once: an empty result is valid, and later installs
+                // are picked up by AppChangeReceiver instead of every cold start.
                 runCatching {
                     Settings.perAppProxyManagedList = PerAppProxyScanner.scanAllChinaApps()
+                    Settings.perAppProxyManagedScanned = true
                 }
             }
         }

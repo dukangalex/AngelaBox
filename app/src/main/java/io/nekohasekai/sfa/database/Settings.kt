@@ -109,6 +109,9 @@ object Settings {
     var perAppProxyList by dataStore.stringSet(SettingsKey.PER_APP_PROXY_LIST) { emptySet() }
     var perAppProxyManagedMode by dataStore.boolean(SettingsKey.PER_APP_PROXY_MANAGED_MODE) { true }
     var perAppProxyManagedList by dataStore.stringSet(SettingsKey.PER_APP_PROXY_MANAGED_LIST) { emptySet() }
+
+    // Set once a China-app scan has filled the managed list, even when it found nothing.
+    var perAppProxyManagedScanned by dataStore.boolean(SettingsKey.PER_APP_PROXY_MANAGED_SCANNED) { false }
     const val PACKAGE_QUERY_MODE_SHIZUKU = "SHIZUKU"
     const val PACKAGE_QUERY_MODE_ROOT = "ROOT"
     var perAppProxyPackageQueryMode by dataStore.string(SettingsKey.PER_APP_PROXY_PACKAGE_QUERY_MODE) { PACKAGE_QUERY_MODE_SHIZUKU }

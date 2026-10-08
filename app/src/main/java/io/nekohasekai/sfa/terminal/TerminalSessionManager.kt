@@ -14,6 +14,7 @@ data class ManagedSession(
 ) {
     // The session owns its command client (a dedicated connection in remote
     // control mode) and must disconnect it when the session ends.
+    @Volatile
     var commandClient: io.nekohasekai.libbox.CommandClient? = null
 
     val phase = MutableStateFlow(TerminalSessionPhase.CONNECTING)

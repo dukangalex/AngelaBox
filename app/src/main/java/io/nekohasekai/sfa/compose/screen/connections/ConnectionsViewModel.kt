@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -98,7 +99,7 @@ class ConnectionsViewModel :
     }
 
     fun setVisible(visible: Boolean) {
-        _visibleCount.value += if (visible) 1 else -1
+        _visibleCount.update { (it + if (visible) 1 else -1).coerceAtLeast(0) }
     }
 
     override fun onCleared() {
