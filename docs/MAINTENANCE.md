@@ -47,7 +47,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 - 对外产品名、README、About、Release、APK 文件名、仓库路径都是 AngelaBox。包名仍为 `io.chainbox.app`。
 - 只发布 `AngelaBox-android.apk`。曾用名 ChainBox 不再出安装包。
-- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secret：`TG_BOT_TOKEN`。频道固定为 `@AngelaBox`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
+- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secret：`TG_BOT_TOKEN`。频道默认 `@AngelaBox`，可用 Secret `TG_CHANNEL_ID` 覆盖。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
 - **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。
 - **Git 历史：** 当前树没有 `.jks` / `.keystore`。全量历史上 `7736e1e` **是** `dev` 与现存 tag 的祖先（浅克隆会误判）。已于 2026-09-18 公开说明：不改写历史、不轮换 CN=ChainBox、直链 200 是接受的残留。CI overlay-guards 用 `fetch-depth: 0` 扫工作树，防止再提交。`goodmen001/AngelaBox` 已独立（`fork: false`）。**不要为清历史反复改仓库可见性。**
@@ -95,7 +95,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 2. 把该 bot 加进频道 **AngelaBox**，授予「发布消息」权限。
 3. 仓库 **Settings → Secrets and variables → Actions** 增加：
    - `TG_BOT_TOKEN`：BotFather 给出的 token
-   - 频道不走 Secret：`release-chainbox.yml` 与 `telegram.yml` 里写死 `TG_CHANNEL_ID: "@AngelaBox"`。机器人必须是该频道管理员，否则通知步骤报 403（发版本身不受影响）。
+   - 频道：默认 `@AngelaBox`；设了仓库 Secret `TG_CHANNEL_ID` 时用它（不要设成 `@AngelaNexus`，那是别的项目的频道）。机器人必须是该频道管理员，否则通知步骤报 403（发版本身不受影响）。
 
 未配置时发版仍成功，只是跳过频道通知。配好后也可在 Actions 里手动跑 **Telegram Release**（文件 `telegram.yml`）。
 

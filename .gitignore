@@ -1,9 +1,16 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
 *.iml
 .gradle
 .kotlin/
 /local.properties
 /.idea/
-.DS_Store
 build/
 /captures
 .externalNativeBuild

@@ -44,7 +44,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 更新检查 | 仅本仓库 GitHub Releases |
 | 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
 | 安装包 | 只发 Android：`AngelaBox-android.apk`。Windows 不在发行范围内 |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.102-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.104-beta** 测试版） |
 
 曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。Windows 版暂停，不因为改名而恢复打包。
 
@@ -58,7 +58,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
 | 已同步基线 | 官方 **sing-box 1.15.0-alpha.10**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。含 MASQUE 端点、HTTP 代理重写、证书 SHA-256 锁定、DNS 服务器地址规则） |
 | 内核型号 / tag | `v1.15.0-chain.7`（已打在 `chain-dev` 的 `9c0a0c71`；设置 → 核心显示 `1.15.0-chain.7（官方 1.15.0-alpha.10）`） |
-| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.102-beta** 测试版） |
+| 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.104-beta** 测试版） |
 
 ### 同步更新策略
 

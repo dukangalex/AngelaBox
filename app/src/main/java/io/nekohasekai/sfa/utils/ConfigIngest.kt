@@ -2414,7 +2414,7 @@ object ConfigIngest {
         out.put("password", urlDecodeKeepPlus(user))
         putQueryTls(out, query, host, defaultOn = true)
         val obfsType = query["obfs"].orEmpty()
-        query["obfs-password"]?.takeIf { it.isNotEmpty() }?.let { pwd ->
+        (query["obfs-password"] ?: query["obfs_password"] ?: query["obfs_param"])?.takeIf { it.isNotEmpty() }?.let { pwd ->
             val type = if (obfsType.isEmpty() || obfsType.equals("none", true)) "salamander" else obfsType
             out.put("obfs", JSONObject().put("type", type).put("password", pwd))
         }
@@ -2498,10 +2498,12 @@ object ConfigIngest {
         out.put("uuid", uuid)
         if (password.isNotEmpty()) out.put("password", password)
         putQueryTls(out, query, host, defaultOn = true)
-        (query["congestion_control"] ?: query["congestion-control"])?.let { out.put("congestion_control", it) }
+        (query["congestion_control"] ?: query["congestion-control"] ?: query["cc"] ?: query["congestion"])
+            ?.takeIf { it.isNotEmpty() }?.let { out.put("congestion_control", it) }
         (query["udp_relay_mode"] ?: query["udp-relay-mode"])?.lowercase()
             ?.takeIf { it == "native" || it == "quic" }?.let { out.put("udp_relay_mode", it) }
         if (query["disable_sni"] == "1" || query["disable_sni"] == "true") out.optJSONObject("tls")?.remove("server_name")
+        out.optJSONObject("tls")?.let { tls -> if (!tls.has("alpn")) tls.put("alpn", JSONArray().put("h3")) }
         true
     }
 
