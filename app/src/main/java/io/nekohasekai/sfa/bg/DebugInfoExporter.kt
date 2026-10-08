@@ -22,7 +22,14 @@ object DebugInfoExporter {
     private const val BUFFER_SIZE = 128 * 1024
     private const val MAX_LOG_BYTES = 2L * 1024 * 1024
     private val PROXY_URI = Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|tuic|socks5?)://\\S+")
-    private val CREDENTIAL = Regex("(?i)(password|token|secret|authorization|cookie|uuid|api[-_]?key)\\s*[=:]\\s*\\S+")
+    // Redacts credential-shaped assignments in logs and exported diagnostics.
+    // Beyond the generic keys, this covers sing-box/VPN key material that
+    // appears in JSON configs: WireGuard private_key / pre_shared_key / psk
+    // and Hysteria2 auth_str. The key may be JSON-quoted ("private_key": "...")
+    // and the value may be a quoted string or an auth scheme ("Bearer <token>").
+    private val CREDENTIAL = Regex(
+        """(?i)(password|token|secret|authorization|cookie|uuid|api[-_]?key|private[-_]?key|pre[-_]?shared[-_]?key|psk|auth[-_]?str)["']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?(?:"[^"]*"|'[^']*'|\S+)""",
+    )
 
     internal fun redactSecrets(text: String): String {
         var out = PROXY_URI.replace(text, "$1://[redacted]")

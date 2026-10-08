@@ -55,7 +55,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
-        private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000
         private const val START_BUDGET_MS = 45_000L
         private const val TAG = "BoxService"
         // A 45 s rule-set stall skips remote rule-sets on the next start only within

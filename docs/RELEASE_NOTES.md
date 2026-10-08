@@ -1,5 +1,4 @@
-• **1.0.104：**
-1. **多协议原生解析与智能导入：** 优化剪贴板与扫码导入逻辑（`ProfileImportHandler`），原生支持 VLESS（Reality / Vision）、VMess、Hysteria 2、TUIC v5、Shadowsocks (2022-blake3)、Trojan、WireGuard 等单节点与多节点混合文本快速载入，消除外部格式依赖。
-2. **现代传输参数健壮性适配：** 增强 Hysteria 2 多种混淆字段规范（兼容 `obfs-password`、`obfs_password` 等客户端格式）及上下行带宽配置；补齐 TUIC v5 的 QUIC ALPN (`h3`) 协商与拥塞控制别名识别。
-3. **架构安全规约对齐：** 严格对齐官方 sing-box 1.15.0-alpha.10 审核基线，持续收敛系统特权，全量安全守护断言（`test_security_guards`、`test_override_guards`、`test_inbound_compat`）均 100% 验证通过。
-4. **包体完整性防御：** 建议网络受限环境通过 GitHub Releases 独立安装包直接下载，内置严格 SHA-256 校验确保发行可信。
+• **1.0.105：**
+1. **诊断导出密钥脱敏加固：** 崩溃/诊断信息导出（`DebugInfoExporter`）的密钥脱敏规则补齐 sing-box 与 VPN 密钥材料——WireGuard `private_key` / `pre_shared_key` / `psk`、Hysteria2 `auth_str`，此前 JSON 形态的这些字段会原文落入导出包；同时支持 JSON 引号键名（`"private_key": "…"`）与 `Authorization: Bearer <token>` 头的完整脱敏，不再只吞掉 `Bearer` 而留下 token。
+2. **构建加速：** `gradle.properties` 启用 Gradle 构建缓存（`org.gradle.caching=true`），增量构建复用任务产物输出。
+3. **代码清理：** 删除两处从未被引用的死常量——`BoxService.PROFILE_UPDATE_INTERVAL` 与 `HTTPClient.UPDATE_ATTEMPTS`（全仓库 grep 确认零引用），避免与现行订阅更新（WorkManager）/ 下载重试阶梯混淆。

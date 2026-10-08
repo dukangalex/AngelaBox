@@ -34,7 +34,6 @@ class HTTPClient : Closeable {
         const val UPDATE_DIRECT_CONNECT_TIMEOUT_MS = 6_000
         const val UPDATE_READ_TIMEOUT_MS = 60_000
         const val UPDATE_DIRECT_READ_TIMEOUT_MS = 12_000
-        const val UPDATE_ATTEMPTS = 2
 
         val userAgent by lazy {
             var userAgent = "SFA (sing-box "
