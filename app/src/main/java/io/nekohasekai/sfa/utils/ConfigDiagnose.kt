@@ -34,14 +34,14 @@ object ConfigDiagnose {
                 if (ruleSetRetried) {
                     "远程规则集下不下来，跳过之后仍然启动失败。节点和分组没有改成直连。$scriptHint"
                 } else {
-                    "远程规则集下载失败。应用会换成官方规则集后再启动；还不行就跳过这些规则集。$scriptHint"
+                    "远程规则集下载失败。应用会换成官方规则集后再启动。$scriptHint"
                 }
             }
             looksLike(text, "missing rule_set") || looksLike(text, "rule-set not found") -> {
                 if (ruleSetRetried) {
                     "路由引用了不存在的规则集，跳过之后仍然启动失败。节点和分组没有改成直连。$scriptHint"
                 } else {
-                    "路由引用了不存在的规则集。应用会换成官方规则集后再启动；还不行就跳过这些规则集。$scriptHint"
+                    "路由引用了不存在的规则集。应用会换成官方规则集后再启动。$scriptHint"
                 }
             }
             looksLike(text, "outbound not found") || looksLike(text, "unknown outbound") -> {
@@ -108,7 +108,7 @@ object ConfigDiagnose {
                 if (ruleSetRetried) {
                     "规则集文件跳过之后仍然不存在。节点和分组没有改成直连。$scriptHint"
                 } else {
-                    "规则集文件不存在（404）。应用会换成官方规则集后再启动；还不行就跳过这些规则集。$scriptHint"
+                    "规则集文件不存在（404）。应用会换成官方规则集后再启动。$scriptHint"
                 }
             }
             else -> text.take(400)

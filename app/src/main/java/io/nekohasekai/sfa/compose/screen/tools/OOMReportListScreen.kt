@@ -81,7 +81,7 @@ fun OOMReportListScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var oomKillerEnabled by remember { mutableStateOf(Settings.oomKillerEnabled) }
     var oomMemoryLimitMB by remember { mutableIntStateOf(Settings.oomMemoryLimitMB) }

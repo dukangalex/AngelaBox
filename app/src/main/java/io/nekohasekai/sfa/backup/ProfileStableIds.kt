@@ -10,6 +10,8 @@ import java.util.UUID
  * Android keeps numeric Room ids; Windows and the ZIP use UUIDs.
  */
 object ProfileStableIds {
+    // load-modify-save: concurrent backups/restores must not drop each other's ids.
+    @Synchronized
     fun ensure(profileId: Long): String {
         if (profileId < 0L) return UUID.randomUUID().toString()
         val map = load().toMutableMap()
@@ -20,11 +22,19 @@ object ProfileStableIds {
         return id
     }
 
+    @Synchronized
     fun put(profileId: Long, uuid: String) {
         if (profileId < 0L || uuid.isBlank()) return
         val map = load().toMutableMap()
         map[profileId] = uuid.trim()
         save(map)
+    }
+
+    /** A deleted profile must not keep its id, or a restore maps its UUID to a dead row. */
+    @Synchronized
+    fun remove(profileId: Long) {
+        val map = load().toMutableMap()
+        if (map.remove(profileId) != null) save(map)
     }
 
     fun localId(uuid: String): Long? {

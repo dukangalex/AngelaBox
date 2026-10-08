@@ -126,7 +126,7 @@ fun ChainBuilderScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     var currentProfileId by remember { mutableStateOf(-1L) }
     var currentProfileName by remember { mutableStateOf("") }
     var currentProfilePath by remember { mutableStateOf<String?>(null) }

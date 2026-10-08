@@ -176,7 +176,7 @@ fun AppSettingsScreen(
     var notificationEnabled by remember { mutableStateOf(true) }
     var dynamicNotification by remember { mutableStateOf(Settings.dynamicNotification) }
     var showDisableNotificationDialog by remember { mutableStateOf(false) }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var showLanguageDialog by remember { mutableStateOf(false) }
     val availableLocales = remember { getSupportedLocales(context) }

@@ -5,8 +5,12 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [KeyValueEntity::class],
-    version = 1,
+    version = KeyValueDatabase.VERSION,
 )
 abstract class KeyValueDatabase : RoomDatabase() {
     abstract fun keyValuePairDao(): KeyValueEntity.Dao
+
+    companion object {
+        const val VERSION = 1
+    }
 }

@@ -106,7 +106,7 @@ fun PrivilegeSettingsManageScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var sortMode by remember { mutableStateOf(SortMode.NAME) }
     var sortReverse by remember { mutableStateOf(false) }

@@ -471,7 +471,7 @@ fun RuleProvidersScreen(
     val ui by viewModel.ui.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     // This page edits any profile; only the one the service runs needs a reload.
     val notifyApply: (io.nekohasekai.sfa.compose.base.UiEvent.ApplyServiceChange.Mode) -> Unit = { mode ->
         if (profileId == io.nekohasekai.sfa.database.Settings.selectedProfile) {
