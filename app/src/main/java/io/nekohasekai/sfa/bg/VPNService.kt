@@ -65,6 +65,10 @@ class VPNService :
 
     override fun openTun(options: TunOptions): Int {
         if (prepare(this) != null) error("android: missing vpn permission")
+        // Go runs the synchronous start (and this callback) on the
+        // kernel-start thread. If that start was abandoned, opening a tunnel
+        // now would leak it or replace the one a retry already opened.
+        if (service.isAbandonedStartThread()) error("android: start was abandoned")
 
         val builder =
             Builder()

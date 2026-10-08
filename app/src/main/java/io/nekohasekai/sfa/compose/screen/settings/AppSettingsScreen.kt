@@ -176,7 +176,7 @@ fun AppSettingsScreen(
     var notificationEnabled by remember { mutableStateOf(true) }
     var dynamicNotification by remember { mutableStateOf(Settings.dynamicNotification) }
     var showDisableNotificationDialog by remember { mutableStateOf(false) }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var showLanguageDialog by remember { mutableStateOf(false) }
     val availableLocales = remember { getSupportedLocales(context) }
@@ -1372,10 +1372,16 @@ fun AppSettingsScreen(
                                     R.string.checking_update,
                                     Toast.LENGTH_SHORT,
                                 ).show()
-                                val outcome = withContext(Dispatchers.IO) {
-                                    runCatching { Vendor.checkUpdateAsync() }
+                                // finally: leaving the screen cancels this scope mid-check,
+                                // which would otherwise leave the global flag stuck true
+                                // and the check button disabled until the app restarts.
+                                val outcome = try {
+                                    withContext(Dispatchers.IO) {
+                                        runCatching { Vendor.checkUpdateAsync() }
+                                    }
+                                } finally {
+                                    UpdateState.isChecking.value = false
                                 }
-                                UpdateState.isChecking.value = false
                                 outcome.fold(
                                     onSuccess = { result ->
                                         UpdateState.setUpdate(result)

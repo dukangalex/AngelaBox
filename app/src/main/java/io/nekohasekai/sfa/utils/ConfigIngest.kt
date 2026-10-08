@@ -64,14 +64,94 @@ object ConfigIngest {
             convertShareLinks(payload)?.let { return it }
         }
         if (looksLikeClash(trimmed)) {
+            val (links, rest) = splitLinks(trimmed)
+            if (links.isNotEmpty()) {
+                // Links pasted next to a Clash file: keep both.
+                val tree = MiniYaml.parse(rest) as? Map<*, *>
+                if (tree != null) return convertClashTree(tree, fetch, links.mapNotNull { convertShareLine(it) })
+            }
             return convertClash(trimmed, fetch)
                 ?: unsupported("Clash 配置无法解析，没有改成直连。")
         }
         decodeClashPayload(trimmed)?.let { yaml ->
             convertClash(yaml, fetch)?.let { return it }
         }
+        convertFragments(trimmed)?.let { return it }
         convertShareLinks(trimmed)?.let { return it }
         return Result(content, emptyList(), Format.Unknown)
+    }
+
+    /** Share-link lines vs. everything else (YAML / JSON fragments, comments). */
+    private fun splitLinks(text: String): Pair<List<String>, String> {
+        val links = ArrayList<String>()
+        val rest = StringBuilder()
+        for (line in text.lines()) {
+            val found = shareLinesOf(line)
+            if (found.isNotEmpty()) links += found else rest.append(line).append('\n')
+        }
+        return links to rest.toString()
+    }
+
+    /**
+     * Pasted nodes without a full config: a bare Clash `proxies:` list, `- {name: …, type: …}`
+     * items, a single proxy mapping, sing-box / Xray outbound objects, each alone or mixed with
+     * share links. Returns null when there is no such fragment (plain links take the link path).
+     */
+    private fun convertFragments(text: String): Result? {
+        val (links, rest) = splitLinks(text)
+        if (rest.isBlank()) return null
+        val tree = try {
+            MiniYaml.parse(rest)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val clash = mutableListOf<Map<*, *>>()
+        val nodes = mutableListOf<JSONObject>()
+        var xraySkipped = 0
+        fun take(item: Any?) {
+            val map = item as? Map<*, *> ?: return
+            when {
+                map["proxies"] is List<*> -> asMapList(map["proxies"]).forEach { take(it) }
+                map["outbounds"] is List<*> -> (map["outbounds"] as List<*>).forEach { take(it) }
+                map["protocol"] != null && map["type"] == null -> {
+                    val node = try {
+                        convertXrayOutbound(JSONObject(jsonOf(map)))
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (node != null) nodes += node else if (str(map["protocol"]).lowercase() !in XRAY_NON_PROXY) xraySkipped++
+                }
+                map["type"] != null && (map.containsKey("server_port") || map.containsKey("peers") ||
+                    (map.containsKey("tag") && !map.containsKey("name"))) -> {
+                    val node = JSONObject(jsonOf(map))
+                    if (isBareOutbound(node)) nodes += node
+                }
+                map["type"] != null && map["name"] != null -> clash += map
+            }
+        }
+        when (tree) {
+            is List<*> -> tree.forEach { take(it) }
+            else -> take(tree)
+        }
+        if (clash.isEmpty() && nodes.isEmpty()) return null
+        val linkNodes = links.mapNotNull { convertShareLine(it) }
+        if (clash.isNotEmpty()) {
+            return convertClashTree(mapOf("proxies" to clash), null, linkNodes + nodes, Format.ShareLinks)
+        }
+        val notes = mutableListOf("已将节点转为 sing-box 配置", "节点链接没有分流。建议开启默认脚本，应用不会自动开启。")
+        val skipped = links.size - linkNodes.size + xraySkipped
+        if (skipped > 0) notes += "跳过 $skipped 个无法识别的节点"
+        return wrapNodes(linkNodes + nodes, notes, Format.ShareLinks)
+    }
+
+    /** YAML tree → JSON text, so pasted JSON / flow-map outbounds become JSONObjects. */
+    private fun jsonOf(value: Any?): String = toJson(value).toString()
+
+    private fun toJson(value: Any?): Any? = when (value) {
+        null -> JSONObject.NULL
+        is Map<*, *> -> JSONObject().also { obj -> value.forEach { (k, v) -> if (k != null) obj.put(k.toString(), toJson(v)) } }
+        is List<*> -> JSONArray().also { arr -> value.forEach { arr.put(toJson(it)) } }
+        else -> value
     }
 
     fun looksConvertible(content: String): Boolean {
@@ -83,9 +163,18 @@ object ConfigIngest {
             return true
         }
         if (looksLikeClash(trimmed)) return true
-        if (SHARE_LINE.containsMatchIn(trimmed)) return true
+        if (shareLinesOf(trimmed).isNotEmpty()) return true
+        if (looksLikeProxyFragment(trimmed)) return true
         if (decodeSharePayload(trimmed) != null) return true
         return decodeClashPayload(trimmed) != null
+    }
+
+    private val FRAGMENT_KEYS = Regex("(?m)^\\s*(?:-\\s*)?\\{?\\s*\"?(?:name|type|protocol)\"?\\s*:")
+
+    /** A pasted Clash proxy (`name:` / `type:`) or Xray outbound (`protocol`) without a full config. */
+    private fun looksLikeProxyFragment(text: String): Boolean {
+        if (!FRAGMENT_KEYS.containsMatchIn(text)) return false
+        return text.contains("server") || text.contains("protocol")
     }
 
     private fun openJsonDocument(raw: String): String {
@@ -102,20 +191,45 @@ object ConfigIngest {
                 val arr = JsonConfig.arrayOrNull(raw) ?: return null
                 if (arr.length() == 0) return null
                 val first = arr.optJSONObject(0) ?: return null
-                if (!first.has("type") && !first.has("tag")) return null
-                wrapLeaves(arr, "已将节点列表包成可启动配置")
+                if (first.has("protocol") && !first.has("type")) {
+                    convertXrayOutbounds(arr)
+                } else if (first.has("name") && first.has("type") && !first.has("tag")) {
+                    // Clash proxies as a JSON array.
+                    convertClashTree(mapOf("proxies" to jsonTree(arr)), fetch, format = Format.ShareLinks)
+                } else if (!first.has("type") && !first.has("tag")) {
+                    null
+                } else if (hasGroups(arr)) {
+                    wrapLeaves(arr, "已将节点列表包成可启动配置")
+                } else {
+                    wrapNodes(jsonObjects(arr), listOf("已将节点列表包成可启动配置"), Format.SingBox)
+                }
             } else {
                 val parsed = JsonConfig.objectOrNull(raw) ?: return null
+                val outs = parsed.optJSONArray("outbounds")
                 if (isClashDocument(parsed)) {
                     convertClashTree(jsonTree(parsed) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch)
+                } else if (outs != null && isXrayOutbounds(outs)) {
+                    convertXrayOutbounds(outs)
+                } else if (parsed.has("protocol") && (parsed.has("settings") || parsed.has("streamSettings"))) {
+                    convertXrayOutbounds(JSONArray().put(parsed))
+                } else if (isBareOutbound(parsed)) {
+                    wrapNodes(listOf(parsed), listOf("已将单个节点包成可启动配置"), Format.SingBox)
+                } else if (outs != null && isOutboundsOnly(parsed)) {
+                    wrapNodes(jsonObjects(outs), listOf("已将节点列表包成可启动配置"), Format.SingBox)
                 } else if (parsed.has("outbounds") || parsed.has("inbounds") || parsed.has("route") || parsed.has("dns") || parsed.has("endpoints")) {
-                    val stored = try {
+                    var stored = try {
                         JSONObject(raw)
                         raw
                     } catch (_: Exception) {
                         JsonConfig.standardize(raw)
                     }
-                    val notes = if (stored == raw) emptyList() else listOf("已按 sing-box 的读法去掉注释和行尾逗号")
+                    val notes = mutableListOf<String>()
+                    if (stored != raw) notes += "已按 sing-box 的读法去掉注释和行尾逗号"
+                    val tree = JSONObject(stored)
+                    if (migrateWireguardOutbounds(tree)) {
+                        stored = tree.toString()
+                        notes += "WireGuard 出站已改成 sing-box 1.13+ 的 endpoint"
+                    }
                     Result(stored, notes, Format.SingBox)
                 } else {
                     null
@@ -125,6 +239,291 @@ object ConfigIngest {
             null
         }
         return root
+    }
+
+    private fun jsonObjects(arr: JSONArray): List<JSONObject> =
+        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+
+    private val GROUP_TYPES = setOf("selector", "urltest")
+
+    private fun hasGroups(arr: JSONArray): Boolean =
+        jsonObjects(arr).any { it.optString("type").lowercase() in GROUP_TYPES }
+
+    /** `{"type":"vless","server":…}` pasted on its own. */
+    private fun isBareOutbound(obj: JSONObject): Boolean {
+        val type = obj.optString("type").lowercase()
+        if (type.isEmpty() || type in GROUP_TYPES || type == "direct" || type == "block" || type == "dns") return false
+        if (obj.has("outbounds") || obj.has("inbounds") || obj.has("route")) return false
+        // Clash proxies use `port` / `name`; sing-box uses `server_port` / `tag`.
+        return obj.has("server_port") || obj.has("peers") || (type == "wireguard" && obj.has("local_address"))
+    }
+
+    /** `{"outbounds":[nodes…]}` with no groups, routing, DNS or inbounds: wrap like a node list. */
+    private fun isOutboundsOnly(obj: JSONObject): Boolean {
+        val keys = obj.keys().asSequence().toSet()
+        if (!keys.all { it == "outbounds" || it == "log" || it == "endpoints" }) return false
+        val outs = obj.optJSONArray("outbounds") ?: return false
+        if (obj.has("endpoints")) return false
+        if (hasGroups(outs)) return false
+        return jsonObjects(outs).any { isBareOutbound(it) }
+    }
+
+    private fun isXrayOutbounds(outs: JSONArray): Boolean {
+        val items = jsonObjects(outs)
+        return items.isNotEmpty() && items.none { it.has("type") } && items.any { it.has("protocol") }
+    }
+
+    /** sing-box 1.13 removed the WireGuard outbound; move legacy ones to `endpoints`. */
+    internal fun migrateWireguardOutbounds(root: JSONObject): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        val keep = JSONArray()
+        val moved = mutableListOf<JSONObject>()
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i)
+            if (o != null && o.optString("type") == "wireguard" && isLegacyWireguard(o)) {
+                moved += legacyWireguardEndpoint(o)
+            } else {
+                keep.put(outs.get(i))
+            }
+        }
+        if (moved.isEmpty()) return false
+        root.put("outbounds", keep)
+        val endpoints = root.optJSONArray("endpoints") ?: JSONArray().also { root.put("endpoints", it) }
+        moved.forEach { endpoints.put(it) }
+        return true
+    }
+
+    private fun isLegacyWireguard(o: JSONObject): Boolean =
+        o.has("local_address") || o.has("server") || o.has("peer_public_key") || o.has("system_interface")
+
+    private val LEGACY_WG_KEYS = setOf(
+        "type", "tag", "server", "server_port", "local_address", "peer_public_key", "pre_shared_key",
+        "reserved", "peers", "system_interface", "interface_name", "gso", "network",
+    )
+
+    private fun legacyWireguardEndpoint(o: JSONObject): JSONObject {
+        val ep = JSONObject().put("type", "wireguard").put("tag", o.optString("tag"))
+        o.keys().forEach { key -> if (key !in LEGACY_WG_KEYS) ep.put(key, o.get(key)) }
+        o.opt("local_address")?.let { ep.put("address", if (it is JSONArray) it else JSONArray().put(it)) }
+        if (o.optBoolean("system_interface", false)) ep.put("system", true)
+        o.optString("interface_name").takeIf { it.isNotEmpty() }?.let { ep.put("name", it) }
+        val peers = JSONArray()
+        val legacyPeers = o.optJSONArray("peers")
+        if (legacyPeers != null && legacyPeers.length() > 0) {
+            for (i in 0 until legacyPeers.length()) {
+                val p = legacyPeers.optJSONObject(i) ?: continue
+                val peer = JSONObject()
+                    .put("address", p.optString("server"))
+                    .put("port", p.optInt("server_port"))
+                    .put("public_key", p.optString("public_key"))
+                    .put("allowed_ips", p.optJSONArray("allowed_ips") ?: JSONArray().put("0.0.0.0/0").put("::/0"))
+                p.optString("pre_shared_key").takeIf { it.isNotEmpty() }?.let { peer.put("pre_shared_key", it) }
+                p.opt("reserved")?.let { peer.put("reserved", it) }
+                peers.put(peer)
+            }
+        } else {
+            val peer = JSONObject()
+                .put("address", o.optString("server"))
+                .put("port", o.optInt("server_port"))
+                .put("public_key", o.optString("peer_public_key"))
+                .put("allowed_ips", JSONArray().put("0.0.0.0/0").put("::/0"))
+            o.optString("pre_shared_key").takeIf { it.isNotEmpty() }?.let { peer.put("pre_shared_key", it) }
+            o.opt("reserved")?.let { peer.put("reserved", it) }
+            peers.put(peer)
+        }
+        ep.put("peers", peers)
+        return ep
+    }
+
+    /** Xray / v2rayN JSON: a full config, an `outbounds` array or one outbound. Routing is not kept. */
+    private fun convertXrayOutbounds(outs: JSONArray): Result? {
+        val nodes = mutableListOf<JSONObject>()
+        var skipped = 0
+        for (o in jsonObjects(outs)) {
+            val protocol = o.optString("protocol").lowercase()
+            if (protocol in XRAY_NON_PROXY) continue
+            val node = try {
+                convertXrayOutbound(o)
+            } catch (_: Exception) {
+                null
+            }
+            if (node == null) skipped++ else nodes += node
+        }
+        if (nodes.isEmpty() && skipped == 0) return null
+        val notes = mutableListOf(
+            "已将 Xray / v2rayN 配置里的节点转为 sing-box",
+            "Xray 的路由没有转换。建议开启默认脚本，应用不会自动开启。",
+        )
+        if (skipped > 0) notes += "跳过 $skipped 个内核暂不支持的节点"
+        if (nodes.isEmpty()) {
+            val message = "没有可用节点（这些 Xray 出站当前内核还不支持）。没有改成直连。"
+            return Result("", listOf(message), Format.ShareLinks, message)
+        }
+        return wrapNodes(nodes, notes, Format.ShareLinks)
+    }
+
+    private val XRAY_NON_PROXY = setOf("freedom", "blackhole", "dns", "loopback", "direct", "block")
+
+    private fun convertXrayOutbound(o: JSONObject): JSONObject? {
+        val protocol = o.optString("protocol").lowercase()
+        val settings = o.optJSONObject("settings") ?: JSONObject()
+        val stream = o.optJSONObject("streamSettings") ?: JSONObject()
+        val target = settings.optJSONArray("vnext")?.optJSONObject(0)
+            ?: settings.optJSONArray("servers")?.optJSONObject(0)
+            ?: settings
+        val user = target.optJSONArray("users")?.optJSONObject(0) ?: target
+        val address = target.optString("address")
+        val port = target.optInt("port", 0)
+        if (protocol == "wireguard") return xrayWireguard(o, settings)
+        if (address.isEmpty() || port <= 0) return null
+        val out = JSONObject()
+            .put("tag", o.optString("tag").ifBlank { address })
+            .put("server", address)
+            .put("server_port", port)
+        when (protocol) {
+            "vmess" -> {
+                out.put("type", "vmess")
+                out.put("uuid", user.optString("id"))
+                out.put("security", user.optString("security").ifBlank { "auto" })
+                user.optInt("alterId", 0).takeIf { it > 0 }?.let { out.put("alter_id", it) }
+            }
+            "vless" -> {
+                val encryption = user.optString("encryption")
+                if (encryption.isNotEmpty() && !encryption.equals("none", true)) return null
+                out.put("type", "vless")
+                out.put("uuid", user.optString("id"))
+                val flow = vlessFlow(user.optString("flow")) ?: return null
+                if (flow.isNotEmpty()) out.put("flow", flow)
+            }
+            "trojan" -> {
+                out.put("type", "trojan")
+                out.put("password", target.optString("password"))
+            }
+            "shadowsocks" -> {
+                out.put("type", "shadowsocks")
+                out.put("method", target.optString("method"))
+                out.put("password", target.optString("password"))
+                if (target.optBoolean("uot", false)) out.put("udp_over_tcp", true)
+            }
+            "socks", "http" -> {
+                out.put("type", protocol)
+                user.optString("user").takeIf { it.isNotEmpty() }?.let { out.put("username", it) }
+                user.optString("pass").takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
+            }
+            else -> return null
+        }
+        if (protocol == "vmess" || protocol == "vless" || protocol == "trojan" || protocol == "http") {
+            val query = xrayStreamQuery(stream) ?: return null
+            if (protocol == "http" && query.containsKey("type") && query["type"] != "tcp") return null
+            putQueryTls(out, query, address, defaultOn = false)
+            if (query["security"] == "reality") putReality(out, query)
+            if (protocol != "http" && !putQueryTransport(out, query)) return null
+        }
+        val dialer = stream.optJSONObject("sockopt")?.optString("dialerProxy").orEmpty()
+            .ifEmpty { o.optJSONObject("proxySettings")?.optString("tag").orEmpty() }
+        if (dialer.isNotEmpty()) out.put("detour", dialer)
+        return out
+    }
+
+    /** Xray `streamSettings` → the share-link query keys the link parsers already understand. */
+    private fun xrayStreamQuery(stream: JSONObject): Map<String, String>? {
+        val q = LinkedHashMap<String, String>()
+        val network = stream.optString("network").lowercase().ifEmpty { "tcp" }
+        when (network) {
+            "tcp", "raw" -> {
+                val header = (stream.optJSONObject("tcpSettings") ?: stream.optJSONObject("rawSettings"))
+                    ?.optJSONObject("header")?.optString("type").orEmpty()
+                if (header.equals("http", true)) return null
+            }
+            "ws", "websocket" -> {
+                val ws = stream.optJSONObject("wsSettings") ?: JSONObject()
+                q["type"] = "ws"
+                ws.optString("path").takeIf { it.isNotEmpty() }?.let { q["path"] = it }
+                ws.optString("host").ifEmpty { ws.optJSONObject("headers")?.optString("Host").orEmpty() }
+                    .takeIf { it.isNotEmpty() }?.let { q["host"] = it }
+            }
+            "grpc", "gun" -> {
+                q["type"] = "grpc"
+                stream.optJSONObject("grpcSettings")?.optString("serviceName")
+                    ?.takeIf { it.isNotEmpty() }?.let { q["serviceName"] = it }
+            }
+            "http", "h2" -> {
+                val http = stream.optJSONObject("httpSettings") ?: JSONObject()
+                q["type"] = "http"
+                http.optString("path").takeIf { it.isNotEmpty() }?.let { q["path"] = it }
+                val hosts = http.optJSONArray("host")
+                if (hosts != null) {
+                    q["host"] = (0 until hosts.length()).map { hosts.optString(it) }.filter { it.isNotEmpty() }.joinToString(",")
+                }
+            }
+            "httpupgrade" -> {
+                val hu = stream.optJSONObject("httpupgradeSettings") ?: JSONObject()
+                q["type"] = "httpupgrade"
+                hu.optString("path").takeIf { it.isNotEmpty() }?.let { q["path"] = it }
+                hu.optString("host").takeIf { it.isNotEmpty() }?.let { q["host"] = it }
+            }
+            "quic" -> q["type"] = "quic"
+            else -> return null // kcp / xhttp / splithttp / domainsocket
+        }
+        when (stream.optString("security").lowercase()) {
+            "tls" -> {
+                val tls = stream.optJSONObject("tlsSettings") ?: JSONObject()
+                q["security"] = "tls"
+                tls.optString("serverName").takeIf { it.isNotEmpty() }?.let { q["sni"] = it }
+                if (tls.optBoolean("allowInsecure", false)) q["allowInsecure"] = "1"
+                tls.optString("fingerprint").takeIf { it.isNotEmpty() }?.let { q["fp"] = it }
+                val alpn = tls.optJSONArray("alpn")
+                if (alpn != null) q["alpn"] = (0 until alpn.length()).joinToString(",") { alpn.optString(it) }
+                val ech = tls.opt("echConfigList")
+                if (ech is String && ech.isNotBlank()) q["ech"] = ech
+            }
+            "reality" -> {
+                val reality = stream.optJSONObject("realitySettings") ?: JSONObject()
+                q["security"] = "reality"
+                reality.optString("serverName").takeIf { it.isNotEmpty() }?.let { q["sni"] = it }
+                reality.optString("fingerprint").takeIf { it.isNotEmpty() }?.let { q["fp"] = it }
+                q["pbk"] = reality.optString("publicKey").ifEmpty { reality.optString("password") }
+                q["sid"] = reality.optString("shortId")
+            }
+        }
+        return q
+    }
+
+    private fun putReality(out: JSONObject, query: Map<String, String>) {
+        val tls = out.optJSONObject("tls") ?: JSONObject().put("enabled", true).also { out.put("tls", it) }
+        tls.put(
+            "reality",
+            JSONObject()
+                .put("enabled", true)
+                .put("public_key", query["pbk"].orEmpty())
+                .put("short_id", query["sid"].orEmpty()),
+        )
+        ensureRealityUtls(tls)
+    }
+
+    private fun xrayWireguard(o: JSONObject, settings: JSONObject): JSONObject? {
+        val peer = settings.optJSONArray("peers")?.optJSONObject(0) ?: return null
+        val endpoint = peer.optString("endpoint")
+        val (host, portText) = splitHostPort(endpoint)
+        val addresses = settings.optJSONArray("address")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }
+            ?: listOfNotNull(settings.optString("address").takeIf { it.isNotEmpty() })
+        val reservedArr = settings.optJSONArray("reserved")
+        val reserved = if (reservedArr != null) (0 until reservedArr.length()).map { reservedArr.optInt(it) } else emptyList()
+        val ep = wireguardEndpoint(
+            tag = o.optString("tag").ifBlank { "WG-$host" },
+            privateKey = settings.optString("secretKey"),
+            peerPublic = peer.optString("publicKey"),
+            server = host,
+            port = portText.toIntOrNull() ?: return null,
+            addresses = addresses.filter { it.isNotEmpty() },
+            reserved = reserved,
+            mtu = settings.optInt("mtu", 0).takeIf { it > 0 },
+        ) ?: return null
+        val peerOut = ep.getJSONArray("peers").getJSONObject(0)
+        peer.optString("preSharedKey").takeIf { it.isNotEmpty() }?.let { peerOut.put("pre_shared_key", it) }
+        peer.optJSONArray("allowedIPs")?.takeIf { it.length() > 0 }?.let { peerOut.put("allowed_ips", it) }
+        peer.optInt("keepAlive", 0).takeIf { it > 0 }?.let { peerOut.put("persistent_keepalive_interval", it) }
+        return ep
     }
 
     private val CLASH_TOP = Regex("(?m)^\\s*(proxies|proxy-groups|proxy-providers)\\s*:")
@@ -157,9 +556,15 @@ object ConfigIngest {
         return convertClashTree(tree, fetch)
     }
 
-    private fun convertClashTree(tree: Map<*, *>, fetch: ((String) -> String)?): Result {
+    private fun convertClashTree(
+        tree: Map<*, *>,
+        fetch: ((String) -> String)?,
+        extraNodes: List<JSONObject> = emptyList(),
+        format: Format = Format.Clash,
+    ): Result {
         val proxies = asMapList(mapIgnoreCase(tree, "proxies")).toMutableList()
         val shareFromProviders = JSONArray()
+        extraNodes.forEach { shareFromProviders.put(it) }
         val providerMembers = LinkedHashMap<String, List<String>>()
         val providerNotes = mutableListOf<String>()
         pullProxyProviders(tree, fetch, proxies, shareFromProviders, providerMembers, providerNotes)
@@ -187,6 +592,8 @@ object ConfigIngest {
         val outbounds = JSONArray()
         val endpoints = JSONArray()
         val tags = LinkedHashSet<String>()
+        val leafTypes = LinkedHashMap<String, String>()
+        val helpers = mutableListOf<JSONObject>()
         val skips = SkipBag()
         var skipped = 0
         for (proxy in proxies) {
@@ -197,22 +604,37 @@ object ConfigIngest {
             }
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
+            leafTypes[tag] = str(proxy["type"]).lowercase()
             if (converted.optString("type") == "wireguard") {
                 endpoints.put(converted)
             } else {
                 outbounds.put(converted)
             }
+            takeChain(converted)?.let { helpers += it }
         }
         for (i in 0 until shareFromProviders.length()) {
             val converted = shareFromProviders.optJSONObject(i) ?: continue
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
+            leafTypes[tag] = converted.optString("type")
             if (converted.optString("type") == "wireguard") endpoints.put(converted) else outbounds.put(converted)
+            takeChain(converted)?.let { helpers += it }
         }
         if (tags.isEmpty()) {
             return unsupported(unsupportedNodeMessage(skips))
         }
         val leafTags = tags.toList()
+        // ss + shadow-tls: the helper outbound gets its tag only now that node tags are final.
+        for (helper in helpers) {
+            val owner = helper.optString("tag")
+            var tag = "$owner-shadowtls"
+            var n = 2
+            while (tag in tags) tag = "$owner-shadowtls-${n++}"
+            tags.add(tag)
+            helper.put("tag", tag)
+            findNode(outbounds, owner)?.put("detour", tag)
+            outbounds.put(helper)
+        }
         ensureDirect(outbounds, tags)
         val declared = LinkedHashSet(tags)
         declared.add("direct")
@@ -220,14 +642,39 @@ object ConfigIngest {
             val name = str(group["name"])
             if (name.isNotBlank()) declared.add(name)
         }
+        val providerTags = providerMembers.values.flatten().toSet()
+        val pool = GroupPool(
+            inline = leafTags.filter { it !in providerTags },
+            providers = providerMembers,
+            types = leafTypes,
+        )
         val groupTags = LinkedHashSet<String>()
+        val groupNodes = mutableListOf<JSONObject>()
         for (group in groups) {
-            val converted = convertClashGroup(group, declared, providerMembers) ?: continue
+            val converted = convertClashGroup(group, declared, pool) ?: continue
             val tag = converted.optString("tag")
             if (tag.isBlank() || !tags.add(tag)) continue
             groupTags.add(tag)
-            outbounds.put(converted)
+            groupNodes += converted
         }
+        pruneDanglingGroups(groupNodes, tags, groupTags)
+        if (groupNodes.isEmpty()) {
+            // A bare `proxies:` list (or nodes pasted on their own): give it a selector + auto test.
+            autoGroups(leafTags, tags).forEach { group ->
+                groupNodes += group
+                groupTags.add(group.optString("tag"))
+            }
+        } else if (extraNodes.isNotEmpty()) {
+            // Links pasted next to a full Clash file: offer them in the first selector.
+            val first = groupNodes.firstOrNull { it.optString("type") == "selector" }
+            val members = first?.optJSONArray("outbounds")
+            if (members != null) {
+                val have = (0 until members.length()).map { members.optString(it) }.toSet()
+                extraNodes.map { it.optString("tag") }.filter { it in tags && it !in have }.forEach { members.put(it) }
+            }
+        }
+        groupNodes.forEach { outbounds.put(it) }
+        dropDanglingDetours(outbounds, endpoints, tags)
         val mappedRules = JSONArray()
         val usedSets = LinkedHashMap<String, String?>()
         var finalTag = groupTags.firstOrNull() ?: leafTags.first()
@@ -246,6 +693,8 @@ object ConfigIngest {
                 if (!usedSets.containsKey(tag)) usedSets[tag] = url
             }
         }
+        // `MATCH,<dropped group>` or `MATCH,REJECT` is not an outbound; sing-box refuses a dangling final.
+        if (finalTag !in tags) finalTag = groupTags.firstOrNull() ?: leafTags.first()
         val root = JSONObject()
         root.put("outbounds", outbounds)
         if (endpoints.length() > 0) root.put("endpoints", endpoints)
@@ -263,13 +712,122 @@ object ConfigIngest {
             route.put("default_http_client", "angela-http-direct")
         }
         root.put("route", route)
-        notes += "已将 Clash 配置转为 sing-box，能识别的分流已保留"
+        if (format == Format.Clash) {
+            notes += "已将 Clash 配置转为 sing-box，能识别的分流已保留"
+        } else {
+            notes += "已将节点转为 sing-box 配置"
+            if (rules.isEmpty()) notes += "节点链接没有分流。建议开启默认脚本，应用不会自动开启。"
+        }
         notes += providerNotes
         if (skippedRules > 0) {
             notes += "有 $skippedRules 条分流暂时对不上 sing-box，已跳过，没有改成直连"
         }
         if (skipped > 0) notes += skipNote(skipped, skips)
-        return Result(root.toString(), notes, Format.Clash)
+        return Result(root.toString(), notes, format)
+    }
+
+    private class GroupPool(
+        val inline: List<String>,
+        val providers: Map<String, List<String>>,
+        val types: Map<String, String>,
+    )
+
+    /**
+     * Selector over every node, plus a url-test "自动选择" (the selector default) when there is
+     * more than one node. Used whenever the source has nodes but no groups.
+     */
+    private fun autoGroups(leaves: List<String>, tags: MutableSet<String>): List<JSONObject> {
+        val nodes = leaves.filter { it != "direct" }
+        if (nodes.isEmpty()) return emptyList()
+        val members = JSONArray()
+        nodes.forEach { members.put(it) }
+        val selector = JSONObject()
+            .put("type", "selector")
+            .put("tag", AUTO_SELECT)
+            .put("outbounds", members)
+            .put("interrupt_exist_connections", false)
+        tags.add(AUTO_SELECT)
+        if (nodes.size < 2 || AUTO_TEST in tags) return listOf(selector)
+        tags.add(AUTO_TEST)
+        val test = JSONObject()
+            .put("type", "urltest")
+            .put("tag", AUTO_TEST)
+            .put("outbounds", JSONArray(nodes))
+            .put("url", "https://www.gstatic.com/generate_204")
+            .put("interval", "5m")
+            .put("idle_timeout", "30m")
+            .put("interrupt_exist_connections", false)
+        members.put(AUTO_TEST)
+        selector.put("default", AUTO_TEST)
+        return listOf(selector, test)
+    }
+
+    private fun findNode(arr: JSONArray, tag: String): JSONObject? {
+        for (i in 0 until arr.length()) {
+            val node = arr.optJSONObject(i) ?: continue
+            if (node.optString("tag") == tag) return node
+        }
+        return null
+    }
+
+    /** mihomo `dialer-proxy` / Xray `dialerProxy` pointing at a node that was skipped would stop the kernel. */
+    private fun dropDanglingDetours(outbounds: JSONArray, endpoints: JSONArray, tags: Set<String>) {
+        for (arr in listOf(outbounds, endpoints)) {
+            for (i in 0 until arr.length()) {
+                val node = arr.optJSONObject(i) ?: continue
+                val detour = node.optString("detour")
+                if (detour.isNotEmpty() && detour !in tags && !detour.equals("direct", true)) node.remove("detour")
+            }
+        }
+    }
+
+    /** A node that needs a helper outbound (ss over shadow-tls) carries it here until tags are final. */
+    private fun attachChain(node: JSONObject, helper: JSONObject) {
+        node.put(CHAIN_KEY, helper)
+    }
+
+    private fun takeChain(node: JSONObject): JSONObject? {
+        val helper = node.optJSONObject(CHAIN_KEY) ?: return null
+        node.remove(CHAIN_KEY)
+        helper.put("tag", node.optString("tag"))
+        return helper
+    }
+
+    /**
+     * A group whose members were all skipped (or a `relay` group) is not emitted. Groups that
+     * still list it would make sing-box fail with "outbound not found", so drop those
+     * members, and drop groups that end up empty, until nothing changes.
+     */
+    private fun pruneDanglingGroups(
+        groups: MutableList<JSONObject>,
+        tags: MutableSet<String>,
+        groupTags: MutableSet<String>,
+    ) {
+        var changed = true
+        while (changed) {
+            changed = false
+            val iter = groups.iterator()
+            while (iter.hasNext()) {
+                val group = iter.next()
+                val members = group.optJSONArray("outbounds") ?: JSONArray()
+                val kept = JSONArray()
+                for (i in 0 until members.length()) {
+                    val member = members.optString(i)
+                    if (member in tags) kept.put(member)
+                }
+                if (kept.length() != members.length()) {
+                    group.put("outbounds", kept)
+                    changed = true
+                }
+                if (kept.length() == 0) {
+                    val tag = group.optString("tag")
+                    tags.remove(tag)
+                    groupTags.remove(tag)
+                    iter.remove()
+                    changed = true
+                }
+            }
+        }
     }
 
     private class SkipBag {
@@ -316,14 +874,20 @@ object ConfigIngest {
             skips.masque++
             return null
         }
+        if (type == "direct") return JSONObject().put("type", "direct").put("tag", name)
         val network = str(raw["network"]).lowercase()
         if (network == "xhttp" || network == "splithttp") {
             skips.xhttp++
             return null
         }
         val server = str(raw["server"])
-        val port = intVal(raw["port"]) ?: return null
-        if (server.isBlank()) return null
+        val hopping = type == "hysteria2" || type == "hy2" || type == "hysteria"
+        val port = intVal(raw["port"])
+            ?: (if (hopping) firstPort(str(raw["ports"] ?: raw["mport"])) else null)
+            ?: (if (type == "hysteria2" || type == "hy2") 443 else null)
+            ?: (if (type == "wireguard") 0 else null)
+            ?: return null
+        if (server.isBlank() && type != "wireguard") return null
         val out = JSONObject()
         out.put("tag", name)
         out.put("server", server)
@@ -333,53 +897,115 @@ object ConfigIngest {
                 out.put("type", "shadowsocks")
                 out.put("method", str(raw["cipher"]).ifBlank { "aes-256-gcm" })
                 out.put("password", str(raw["password"]))
-                val plugin = str(raw["plugin"])
-                if (plugin.isNotEmpty()) {
-                    out.put("plugin", plugin)
-                    val opts = raw["plugin-opts"] ?: raw["plugin_opts"]
-                    if (opts != null) out.put("plugin_opts", pluginOpts(plugin, opts))
+                val pluginRaw = str(raw["plugin"])
+                val opts = raw["plugin-opts"] ?: raw["plugin_opts"]
+                when (pluginRaw.lowercase(Locale.US)) {
+                    "" -> Unit
+                    "shadow-tls", "shadowtls" -> {
+                        val helper = shadowTlsHelper(asMap(opts), server, port, str(raw["client-fingerprint"] ?: raw["client_fingerprint"]))
+                        if (helper == null) {
+                            skips.other("shadow-tls")
+                            return null
+                        }
+                        attachChain(out, helper)
+                    }
+                    "obfs", "simple-obfs", "obfs-local", "v2ray-plugin" -> {
+                        val plugin = ssPluginName(pluginRaw)
+                        out.put("plugin", plugin)
+                        if (opts != null) out.put("plugin_opts", pluginOpts(plugin, opts))
+                    }
+                    else -> {
+                        // restls / kcptun / gost-plugin... are not in sing-box; skip only this node.
+                        skips.other("ss+${pluginRaw.lowercase(Locale.US)}")
+                        return null
+                    }
                 }
                 if (boolVal(raw["udp-over-tcp"] ?: raw["udp_over_tcp"]) == true) {
                     out.put("udp_over_tcp", true)
                 }
+                putSmux(out, raw)
             }
             "vmess" -> {
+                if (network == "http") {
+                    skips.other("tcp+http 伪装")
+                    return null
+                }
                 out.put("type", "vmess")
                 out.put("uuid", str(raw["uuid"]))
                 val security = str(raw["cipher"]).ifBlank { "auto" }
                 out.put("security", security)
                 intVal(raw["alterId"] ?: raw["alter-id"])?.let { out.put("alter_id", it) }
-                putTls(out, raw)
-                if (!putTransport(out, raw, skips)) return null
-            }
-            "vless" -> {
-                out.put("type", "vless")
-                out.put("uuid", str(raw["uuid"]))
-                str(raw["flow"]).takeIf { it.isNotEmpty() }?.let { out.put("flow", it) }
+                if (boolVal(raw["global-padding"] ?: raw["global_padding"]) == true) out.put("global_padding", true)
+                if (boolVal(raw["authenticated-length"] ?: raw["authenticated_length"]) == true) {
+                    out.put("authenticated_length", true)
+                }
                 str(raw["packet-encoding"] ?: raw["packet_encoding"]).takeIf { it.isNotEmpty() }
                     ?.let { out.put("packet_encoding", it) }
                 putTls(out, raw)
                 if (!putTransport(out, raw, skips)) return null
+                putSmux(out, raw)
+            }
+            "vless" -> {
+                if (network == "http") {
+                    skips.other("tcp+http 伪装")
+                    return null
+                }
+                val encryption = str(raw["encryption"])
+                if (encryption.isNotEmpty() && !encryption.equals("none", true)) {
+                    skips.other("vless encryption")
+                    return null
+                }
+                out.put("type", "vless")
+                out.put("uuid", str(raw["uuid"]))
+                val flow = vlessFlow(str(raw["flow"])) ?: run {
+                    skips.other("xtls ${str(raw["flow"])}")
+                    return null
+                }
+                if (flow.isNotEmpty()) out.put("flow", flow)
+                str(raw["packet-encoding"] ?: raw["packet_encoding"]).takeIf { it.isNotEmpty() }
+                    ?.let { out.put("packet_encoding", it) }
+                putTls(out, raw)
+                if (!putTransport(out, raw, skips)) return null
+                putSmux(out, raw)
             }
             "trojan" -> {
+                if (network == "http") {
+                    skips.other("tcp+http 伪装")
+                    return null
+                }
                 out.put("type", "trojan")
                 out.put("password", str(raw["password"]))
                 putTls(out, raw, defaultEnabled = true)
                 if (!putTransport(out, raw, skips)) return null
+                putSmux(out, raw)
             }
             "hysteria2", "hy2" -> {
                 out.put("type", "hysteria2")
                 out.put("password", str(raw["password"]).ifBlank { str(raw["auth"]) })
+                mbps(raw["up"] ?: raw["up-mbps"])?.let { out.put("up_mbps", it) }
+                mbps(raw["down"] ?: raw["down-mbps"])?.let { out.put("down_mbps", it) }
                 putTls(out, raw, defaultEnabled = true)
                 putHysteria2Obfs(out, raw)
                 putServerPorts(out, raw)
+                clashDuration(raw["hop-interval"] ?: raw["hop_interval"])?.let { out.put("hop_interval", it) }
             }
             "hysteria" -> {
+                val protocol = str(raw["protocol"] ?: raw["obfs-protocol"]).lowercase()
+                if (protocol.isNotEmpty() && protocol != "udp") {
+                    skips.other("hysteria $protocol")
+                    return null
+                }
                 out.put("type", "hysteria")
-                intVal(raw["up"] ?: raw["up-mbps"] ?: raw["up_mbps"])?.let { out.put("up_mbps", it) }
-                intVal(raw["down"] ?: raw["down-mbps"] ?: raw["down_mbps"])?.let { out.put("down_mbps", it) }
-                str(raw["auth-str"] ?: raw["auth_str"] ?: raw["auth"]).takeIf { it.isNotEmpty() }
-                    ?.let { out.put("auth_str", it) }
+                mbps(raw["up"] ?: raw["up-mbps"] ?: raw["up_mbps"])?.let { out.put("up_mbps", it) }
+                mbps(raw["down"] ?: raw["down-mbps"] ?: raw["down_mbps"])?.let { out.put("down_mbps", it) }
+                val authStr = str(raw["auth-str"] ?: raw["auth_str"])
+                val auth = str(raw["auth"])
+                when {
+                    authStr.isNotEmpty() -> out.put("auth_str", authStr)
+                    // mihomo `auth` is base64 bytes, the same as sing-box `auth`.
+                    auth.isNotEmpty() && decodeB64(auth) != null && auth.length % 4 == 0 -> out.put("auth", auth)
+                    auth.isNotEmpty() -> out.put("auth_str", auth)
+                }
                 val obfs = raw["obfs"]
                 if (asMap(obfs) == null) {
                     str(obfs).takeIf { it.isNotEmpty() && !it.equals("none", true) }
@@ -387,41 +1013,45 @@ object ConfigIngest {
                 }
                 putTls(out, raw, defaultEnabled = true)
                 putServerPorts(out, raw)
+                clashDuration(raw["hop-interval"] ?: raw["hop_interval"])?.let { out.put("hop_interval", it) }
             }
             "tuic", "tuic-v5" -> {
+                val uuid = str(raw["uuid"])
+                if (uuid.isEmpty()) {
+                    // TUIC v4 (`token:`) is not in sing-box, which speaks v5 only.
+                    skips.other("tuic v4")
+                    return null
+                }
                 out.put("type", "tuic")
-                str(raw["uuid"]).takeIf { it.isNotEmpty() }?.let { out.put("uuid", it) }
+                out.put("uuid", uuid)
                 out.put("password", str(raw["password"]))
-                str(raw["congestion-controller"] ?: raw["congestion_control"])
+                str(raw["congestion-controller"] ?: raw["congestion_control"] ?: raw["congestion-control"])
                     .takeIf { it.isNotEmpty() }?.let { out.put("congestion_control", it) }
+                str(raw["udp-relay-mode"] ?: raw["udp_relay_mode"]).lowercase()
+                    .takeIf { it == "native" || it == "quic" }?.let { out.put("udp_relay_mode", it) }
+                if (boolVal(raw["reduce-rtt"] ?: raw["reduce_rtt"]) == true) out.put("zero_rtt_handshake", true)
+                intVal(raw["heartbeat-interval"] ?: raw["heartbeat_interval"])
+                    ?.takeIf { it > 0 }?.let { out.put("heartbeat", "${it}ms") }
                 putTls(out, raw, defaultEnabled = true)
+                if (boolVal(raw["disable-sni"] ?: raw["disable_sni"]) == true) {
+                    out.optJSONObject("tls")?.remove("server_name")
+                }
             }
             "wireguard" -> {
-                val locals = mutableListOf<String>()
-                val local = raw["ip"] ?: raw["ipv6"] ?: raw["local-address"] ?: raw["local_address"]
-                when (local) {
-                    is List<*> -> local.forEach { value ->
-                        str(value).takeIf { it.isNotEmpty() }?.let { locals += it }
-                    }
-                    null -> Unit
-                    else -> str(local).takeIf { it.isNotEmpty() }?.let { locals += it }
+                if (raw["amnezia-wg-option"] != null || raw["amnezia_wg_option"] != null) {
+                    skips.other("AmneziaWG")
+                    return null
                 }
-                val reserved = when (val value = raw["reserved"]) {
-                    is List<*> -> value.mapNotNull { intVal(it) }
-                    else -> str(value).split(',').mapNotNull { it.trim().toIntOrNull() }
+                return clashWireguard(name, raw, server, port) ?: run {
+                    skips.other("wireguard")
+                    null
                 }
-                return wireguardEndpoint(
-                    tag = name,
-                    privateKey = str(raw["private-key"] ?: raw["private_key"]),
-                    peerPublic = str(raw["public-key"] ?: raw["public_key"]),
-                    server = server,
-                    port = port,
-                    addresses = locals,
-                    reserved = reserved,
-                    mtu = intVal(raw["mtu"]),
-                )
             }
             "socks", "socks5" -> {
+                if (boolVal(raw["tls"]) == true) {
+                    skips.other("socks5+tls")
+                    return null
+                }
                 out.put("type", "socks")
                 str(raw["username"]).takeIf { it.isNotEmpty() }?.let { out.put("username", it) }
                 str(raw["password"]).takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
@@ -430,6 +1060,12 @@ object ConfigIngest {
                 out.put("type", "http")
                 str(raw["username"]).takeIf { it.isNotEmpty() }?.let { out.put("username", it) }
                 str(raw["password"]).takeIf { it.isNotEmpty() }?.let { out.put("password", it) }
+                putTls(out, raw)
+                asMap(raw["headers"])?.let { headers ->
+                    val obj = JSONObject()
+                    headers.forEach { (k, v) -> if (k != null && v != null) obj.put(k.toString(), str(v)) }
+                    if (obj.length() > 0) out.put("headers", obj)
+                }
             }
             "anytls", "any-tls" -> {
                 out.put("type", "anytls")
@@ -462,6 +1098,8 @@ object ConfigIngest {
                 if (key.isNotEmpty()) out.put("private_key", key)
                 str(raw["private-key-passphrase"] ?: raw["private_key_passphrase"])
                     .takeIf { it.isNotEmpty() }?.let { out.put("private_key_passphrase", it) }
+                putStringList(out, "host_key", raw["host-key"] ?: raw["host_key"])
+                putStringList(out, "host_key_algorithms", raw["host-key-algorithms"] ?: raw["host_key_algorithms"])
             }
             "shadowtls" -> {
                 out.put("type", "shadowtls")
@@ -473,7 +1111,7 @@ object ConfigIngest {
                 val version = intVal(raw["version"]) ?: 4
                 val psk = str(raw["psk"])
                 if ((version != 4 && version != 6) || psk.isBlank()) {
-                    skips.other("snell")
+                    skips.other("snell v$version")
                     return null
                 }
                 out.put("type", "snell")
@@ -494,12 +1132,132 @@ object ConfigIngest {
                 return null
             }
             else -> {
+                // mieru / sudoku / trojan-go / juicity... have no sing-box outbound.
                 skips.other(type.ifBlank { "未知" })
                 return null
             }
         }
+        putClashDial(out, raw)
         return out
     }
+
+    /** mihomo dial options that have a direct sing-box equivalent. */
+    private fun putClashDial(out: JSONObject, raw: Map<*, *>) {
+        if (boolVal(raw["tfo"] ?: raw["fast-open"]) == true) out.put("tcp_fast_open", true)
+        if (boolVal(raw["mptcp"]) == true) out.put("tcp_multi_path", true)
+        val dialer = str(raw["dialer-proxy"] ?: raw["dialer_proxy"])
+        if (dialer.isNotEmpty()) out.put("detour", mapSpecialTag(dialer))
+    }
+
+    /** sing-box only knows `xtls-rprx-vision`; mihomo's `-udp443` variant is the same flow. null = unsupported (XTLS v1). */
+    private fun vlessFlow(raw: String): String? {
+        val flow = raw.trim()
+        if (flow.isEmpty() || flow.equals("none", true)) return ""
+        if (flow.startsWith("xtls-rprx-vision", ignoreCase = true)) return "xtls-rprx-vision"
+        return null
+    }
+
+    /** "100", 100, "100 Mbps", "1 Gbps" → whole Mbps for sing-box `up_mbps` / `down_mbps`. */
+    private fun mbps(raw: Any?): Int? {
+        if (raw is Number) return raw.toInt().takeIf { it > 0 }
+        val text = str(raw).lowercase(Locale.US).replace(" ", "")
+        if (text.isEmpty()) return null
+        val number = Regex("^([0-9]+(?:\\.[0-9]+)?)").find(text)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
+        val value = when {
+            text.contains("gbps") || text.endsWith("g") -> number * 1000
+            text.contains("kbps") || text.endsWith("k") -> number / 1000
+            else -> number
+        }
+        return value.toInt().takeIf { it > 0 }
+    }
+
+    /** mihomo `smux:` → sing-box `multiplex` (same sing-mux protocol). */
+    private fun putSmux(out: JSONObject, raw: Map<*, *>) {
+        val smux = asMap(raw["smux"]) ?: return
+        if (boolVal(smux["enabled"]) != true) return
+        val mux = JSONObject().put("enabled", true)
+        str(smux["protocol"]).lowercase().takeIf { it == "smux" || it == "yamux" || it == "h2mux" }
+            ?.let { mux.put("protocol", it) }
+        intVal(smux["max-connections"] ?: smux["max_connections"])?.let { mux.put("max_connections", it) }
+        intVal(smux["min-streams"] ?: smux["min_streams"])?.let { mux.put("min_streams", it) }
+        intVal(smux["max-streams"] ?: smux["max_streams"])?.let { mux.put("max_streams", it) }
+        if (boolVal(smux["padding"]) == true) mux.put("padding", true)
+        val brutal = asMap(smux["brutal-opts"] ?: smux["brutal_opts"])
+        if (brutal != null && boolVal(brutal["enabled"]) == true) {
+            val b = JSONObject().put("enabled", true)
+            mbps(brutal["up"])?.let { b.put("up_mbps", it) }
+            mbps(brutal["down"])?.let { b.put("down_mbps", it) }
+            mux.put("brutal", b)
+        }
+        out.put("multiplex", mux)
+    }
+
+    /**
+     * mihomo `plugin: shadow-tls` → a sing-box shadowtls outbound that the shadowsocks node
+     * dials through (`detour`), as in the sing-box ShadowTLS client example.
+     */
+    private fun shadowTlsHelper(opts: Map<*, *>?, server: String, port: Int, fingerprint: String): JSONObject? {
+        if (opts == null) return null
+        val host = str(opts["host"] ?: opts["sni"])
+        if (host.isEmpty()) return null
+        val version = intVal(opts["version"]) ?: 2
+        if (version !in 1..3) return null
+        val password = str(opts["password"])
+        if (version >= 2 && password.isEmpty()) return null
+        val tls = JSONObject().put("enabled", true).put("server_name", host)
+        tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", fingerprint.ifBlank { "chrome" }))
+        val helper = JSONObject()
+            .put("type", "shadowtls")
+            .put("server", server)
+            .put("server_port", port)
+            .put("version", version)
+            .put("tls", tls)
+        if (version >= 2) helper.put("password", password)
+        return helper
+    }
+
+    /** mihomo wireguard: flat (`server` / `public-key`) or `peers:` list; `ip` and `ipv6` both count. */
+    private fun clashWireguard(name: String, raw: Map<*, *>, server: String, port: Int): JSONObject? {
+        val locals = mutableListOf<String>()
+        for (key in listOf("ip", "ipv6", "local-address", "local_address", "address")) {
+            when (val value = raw[key]) {
+                is List<*> -> value.forEach { item -> str(item).takeIf { it.isNotEmpty() }?.let { locals += it } }
+                null -> Unit
+                else -> str(value).split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { locals += it }
+            }
+        }
+        val peer = asMapList(raw["peers"]).firstOrNull()
+        val source: Map<*, *> = peer ?: raw
+        val reserved = when (val value = source["reserved"] ?: raw["reserved"]) {
+            is List<*> -> value.mapNotNull { intVal(it) }
+            else -> str(value).split(',').mapNotNull { it.trim().toIntOrNull() }
+        }
+        val endpoint = wireguardEndpoint(
+            tag = name,
+            privateKey = str(raw["private-key"] ?: raw["private_key"]),
+            peerPublic = str(source["public-key"] ?: source["public_key"]),
+            server = str(source["server"]).ifBlank { server },
+            port = intVal(source["port"]) ?: port,
+            addresses = locals,
+            reserved = reserved,
+            mtu = intVal(raw["mtu"]),
+        ) ?: return null
+        val peerOut = endpoint.getJSONArray("peers").getJSONObject(0)
+        str(source["pre-shared-key"] ?: source["pre_shared_key"] ?: raw["pre-shared-key"])
+            .takeIf { it.isNotEmpty() }?.let { peerOut.put("pre_shared_key", it) }
+        val allowed = source["allowed-ips"] ?: source["allowed_ips"]
+        if (allowed is List<*> && allowed.isNotEmpty()) {
+            peerOut.put("allowed_ips", JSONArray(allowed.map { str(it) }.filter { it.isNotEmpty() }))
+        }
+        intVal(raw["persistent-keepalive"] ?: raw["persistent_keepalive"] ?: source["persistent-keepalive"])
+            ?.takeIf { it > 0 }?.let { peerOut.put("persistent_keepalive_interval", it) }
+        str(raw["dialer-proxy"] ?: raw["dialer_proxy"]).takeIf { it.isNotEmpty() }
+            ?.let { endpoint.put("detour", mapSpecialTag(it)) }
+        return endpoint
+    }
+
+    private fun firstPort(ports: String): Int? =
+        ports.split(',', '/').firstOrNull()?.trim()?.substringBefore('-')?.trim()?.toIntOrNull()
 
     private fun putTls(out: JSONObject, raw: Map<*, *>, defaultEnabled: Boolean = false) {
         val ech = asMap(raw["ech-opts"] ?: raw["ech_opts"])
@@ -529,6 +1287,7 @@ object ConfigIngest {
                     .put("public_key", pub)
                     .put("short_id", shortId),
             )
+            ensureRealityUtls(tls)
         }
         if (echOn && ech != null) {
             putEch(
@@ -767,11 +1526,18 @@ object ConfigIngest {
 
     /** Clash `ports: 20000-55000`. sing-box uses `server_ports` and rejects a leftover `server_port`. */
     private fun putServerPorts(out: JSONObject, raw: Map<*, *>) {
-        val ports = str(raw["ports"])
-        if (ports.isEmpty() || !ports.any { it == '-' || it == ':' || it == ',' }) return
+        val ports = str(raw["ports"] ?: raw["mport"])
+        putPortList(out, ports)
+    }
+
+    /** `443,20000-30000` (also `/` separated, as some panels write it) → sing-box `server_ports`. */
+    private fun putPortList(out: JSONObject, ports: String) {
+        if (ports.isEmpty() || !ports.any { it == '-' || it == ':' || it == ',' || it == '/' }) return
         val arr = JSONArray()
-        ports.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { part ->
-            arr.put(part.replace('-', ':'))
+        ports.split(',', '/').map { it.trim() }.filter { it.isNotEmpty() }.forEach { part ->
+            // sing-box ParsePorts rejects an entry without ':' ("bad port range: 443").
+            val range = part.replace('-', ':')
+            arr.put(if (':' in range) range else "$range:$range")
         }
         if (arr.length() == 0) return
         out.put("server_ports", arr)
@@ -791,8 +1557,12 @@ object ConfigIngest {
     private fun putTransport(out: JSONObject, raw: Map<*, *>, skips: SkipBag): Boolean {
         val network = str(raw["network"]).lowercase()
         if (network.isEmpty() || network == "tcp" || network == "raw") return true
+        val wsOpts = asMap(raw["ws-opts"] ?: raw["ws_opts"])
+        // mihomo: `network: ws` + `ws-opts.v2ray-http-upgrade: true` is HTTPUpgrade, not websocket.
+        val wsUpgrade = network == "ws" &&
+            boolVal(wsOpts?.get("v2ray-http-upgrade") ?: wsOpts?.get("v2ray_http_upgrade")) == true
         val type = when (network) {
-            "ws" -> "ws"
+            "ws" -> if (wsUpgrade) "httpupgrade" else "ws"
             "grpc" -> "grpc"
             "http", "h2" -> "http"
             "httpupgrade" -> "httpupgrade"
@@ -804,11 +1574,18 @@ object ConfigIngest {
         }
         val transport = JSONObject().put("type", type)
         when (type) {
-            "ws" -> fillWsLike(transport, asMap(raw["ws-opts"] ?: raw["ws_opts"]), raw["ws-path"], raw["ws-headers"])
+            "ws" -> fillWsLike(transport, wsOpts, raw["ws-path"], raw["ws-headers"])
             "httpupgrade" -> {
-                val opts = asMap(raw["httpupgrade-opts"] ?: raw["httpupgrade_opts"] ?: raw["http-opts"] ?: raw["http_opts"])
-                str(opts?.get("path") ?: raw["path"]).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
-                val host = str(opts?.get("host") ?: raw["host"])
+                val opts = if (wsUpgrade) {
+                    wsOpts
+                } else {
+                    asMap(raw["httpupgrade-opts"] ?: raw["httpupgrade_opts"] ?: raw["http-opts"] ?: raw["http_opts"])
+                }
+                str(opts?.get("path") ?: raw["path"]).takeIf { it.isNotEmpty() }?.let {
+                    transport.put("path", splitEarlyData(it).first)
+                }
+                val headers = asMap(opts?.get("headers"))
+                val host = str(opts?.get("host") ?: headers?.get("Host") ?: headers?.get("host") ?: raw["host"])
                 if (host.isNotEmpty()) transport.put("host", host)
             }
             "grpc" -> {
@@ -817,9 +1594,14 @@ object ConfigIngest {
                     .takeIf { it.isNotEmpty() }?.let { transport.put("service_name", it) }
             }
             "http" -> {
-                val opts = asMap(raw["h2-opts"] ?: raw["http-opts"] ?: raw["http_opts"])
-                str(opts?.get("path")).takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
-                val host = opts?.get("host")
+                val opts = asMap(raw["h2-opts"] ?: raw["h2_opts"] ?: raw["http-opts"] ?: raw["http_opts"])
+                // h2-opts.path is a string; http-opts.path is a list (`path: ['/']`).
+                val path = opts?.get("path")
+                str(if (path is List<*>) path.firstOrNull() else path)
+                    .takeIf { it.isNotEmpty() }?.let { transport.put("path", it) }
+                // h2-opts.host is a list; http-opts carries it as headers.Host (string or list).
+                val headers = asMap(opts?.get("headers"))
+                val host = opts?.get("host") ?: headers?.get("Host") ?: headers?.get("host")
                 when (host) {
                     is List<*> -> str(host.firstOrNull()).takeIf { it.isNotEmpty() }
                         ?.let { transport.put("host", JSONArray().put(it)) }
@@ -858,38 +1640,53 @@ object ConfigIngest {
         providerMembers: MutableMap<String, List<String>>,
         notes: MutableList<String>,
     ) {
-        if (fetch == null) return
         val sources = asMap(
             mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
         ) ?: return
         var pulled = 0
         for ((key, value) in sources) {
-            if (pulled >= 8) break
             val spec = asMap(value) ?: continue
             val name = key?.toString()?.trim().orEmpty()
             if (name.isEmpty()) continue
-            val url = str(spec["url"])
-            if (!url.startsWith("https://", ignoreCase = true)) {
-                notes += "节点源「$name」不是 HTTPS，没有拉取"
-                continue
+            val kind = str(spec["type"]).lowercase()
+            val (clashNodes, linkNodes) = if (kind == "inline") {
+                // mihomo `type: inline`: the nodes are in `payload`, nothing to download.
+                asMapList(spec["payload"]) to emptyList()
+            } else {
+                if (fetch == null) continue
+                if (pulled >= 8) break
+                val url = str(spec["url"])
+                if (!url.startsWith("https://", ignoreCase = true)) {
+                    notes += if (kind == "file" && url.isEmpty()) {
+                        "节点源「$name」是本机文件，导入时读不到"
+                    } else {
+                        "节点源「$name」不是 HTTPS，没有拉取"
+                    }
+                    continue
+                }
+                val body = try {
+                    fetch(url)
+                } catch (_: Exception) {
+                    notes += "节点源「$name」没拉下来"
+                    continue
+                }
+                pulled++
+                readProviderBody(body)
             }
-            val body = try {
-                fetch(url)
-            } catch (_: Exception) {
-                notes += "节点源「$name」没拉下来"
-                continue
-            }
-            pulled++
-            val (clashNodes, linkNodes) = readProviderBody(body)
+            val filters = clashFilters(spec["filter"])
+            val excludes = clashFilters(spec["exclude-filter"] ?: spec["exclude_filter"])
+            fun keep(tag: String): Boolean =
+                (filters.isEmpty() || filters.any { it.containsMatchIn(tag) }) && excludes.none { it.containsMatchIn(tag) }
             val tags = mutableListOf<String>()
             for (item in clashNodes) {
                 val tag = str(item["name"])
-                if (tag.isNotEmpty()) tags += tag
+                if (tag.isEmpty() || !keep(tag)) continue
+                tags += tag
                 proxies += item
             }
             for (node in linkNodes) {
                 val tag = node.optString("tag")
-                if (tag.isBlank()) continue
+                if (tag.isBlank() || !keep(tag)) continue
                 tags += tag
                 shareNodes.put(node)
             }
@@ -924,17 +1721,33 @@ object ConfigIngest {
     private fun convertClashGroup(
         raw: Map<*, *>,
         known: Set<String>,
-        providerMembers: Map<String, List<String>>,
+        pool: GroupPool,
     ): JSONObject? {
         val name = str(raw["name"]).ifBlank { return null }
         val type = str(raw["type"]).lowercase()
         val members = asStringList(raw["proxies"]).map { mapSpecialTag(it) }
             .filter { it.isNotEmpty() && (it in known || it == "direct") }
             .toMutableList()
-        for (used in asStringList(raw["use"])) {
-            for (tag in providerMembers[used].orEmpty()) {
-                if (tag !in members && (tag in known || tag == "direct")) members += tag
-            }
+        // mihomo: `use` / `include-all*` pull nodes in, then `filter` / `exclude-filter` / `exclude-type` narrow them.
+        val pulled = LinkedHashSet<String>()
+        for (used in asStringList(raw["use"])) pulled.addAll(pool.providers[used].orEmpty())
+        val includeAll = boolVal(raw["include-all"] ?: raw["include_all"]) == true
+        if (includeAll || boolVal(raw["include-all-providers"] ?: raw["include_all_providers"]) == true) {
+            pool.providers.values.forEach { pulled.addAll(it) }
+        }
+        if (includeAll || boolVal(raw["include-all-proxies"] ?: raw["include_all_proxies"]) == true) {
+            pulled.addAll(pool.inline)
+        }
+        val filters = clashFilters(raw["filter"])
+        val excludes = clashFilters(raw["exclude-filter"] ?: raw["exclude_filter"])
+        val excludeTypes = str(raw["exclude-type"] ?: raw["exclude_type"]).split('|')
+            .map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        for (tag in pulled) {
+            if (tag in members || !(tag in known || tag == "direct")) continue
+            if (filters.isNotEmpty() && filters.none { it.containsMatchIn(tag) }) continue
+            if (excludes.any { it.containsMatchIn(tag) }) continue
+            if (excludeTypes.isNotEmpty() && clashTypeName(pool.types[tag].orEmpty()) in excludeTypes) continue
+            members += tag
         }
         if (members.isEmpty()) return null
         val arr = JSONArray()
@@ -953,6 +1766,27 @@ object ConfigIngest {
             }
             else -> null
         }
+    }
+
+    /** mihomo filters are Go regexps; several may be joined with a backtick. A broken one matches nothing. */
+    private fun clashFilters(raw: Any?): List<Regex> {
+        val text = str(raw)
+        if (text.isEmpty()) return emptyList()
+        return text.split('`').map { it.trim() }.filter { it.isNotEmpty() }.mapNotNull {
+            try {
+                Regex(it)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    /** `exclude-type` uses mihomo names (Shadowsocks, Vmess, Hysteria2...); share-link nodes carry sing-box types. */
+    private fun clashTypeName(type: String): String = when (type.lowercase()) {
+        "ss", "shadowsocks" -> "shadowsocks"
+        "hy2", "hysteria2" -> "hysteria2"
+        "socks", "socks5" -> "socks5"
+        else -> type.lowercase()
     }
 
     private data class ClashRule(
@@ -1245,9 +2079,7 @@ object ConfigIngest {
     private fun convertShareLinks(text: String): Result? {
         val lines = expandShareText(text)
         if (lines.isEmpty()) return null
-        val outbounds = JSONArray()
-        val endpoints = JSONArray()
-        val tags = LinkedHashSet<String>()
+        val nodes = mutableListOf<JSONObject>()
         var skipped = 0
         for (line in lines) {
             val converted = convertShareLine(line)
@@ -1255,21 +2087,9 @@ object ConfigIngest {
                 skipped++
                 continue
             }
-            var tag = converted.optString("tag").ifBlank { "node-${tags.size + 1}" }
-            var n = 2
-            val base = tag
-            while (!tags.add(tag)) {
-                tag = "$base-$n"
-                n++
-            }
-            converted.put("tag", tag)
-            if (converted.optString("type") == "wireguard") {
-                endpoints.put(converted)
-            } else {
-                outbounds.put(converted)
-            }
+            nodes += converted
         }
-        if (tags.isEmpty()) {
+        if (nodes.isEmpty()) {
             val schemes = lines.map { it.substringBefore("://").lowercase() }.filter { it.isNotEmpty() }.distinct()
             val removed = schemes.filter { it == "ssr" }
             val rest = schemes.filter { it != "ssr" }
@@ -1280,26 +2100,80 @@ object ConfigIngest {
             val message = "没有可用节点（$named）。没有改成直连。"
             return Result("", listOf(message), Format.ShareLinks, message)
         }
-        ensureDirect(outbounds, tags)
-        val selector = JSONObject()
-            .put("type", "selector")
-            .put("tag", "节点选择")
-            .put("outbounds", JSONArray(tags.filter { it != "direct" }))
-            .put("interrupt_exist_connections", false)
-        outbounds.put(selector)
-        val root = JSONObject()
-            .put("outbounds", outbounds)
-            .put("route", JSONObject().put("final", "节点选择"))
-        if (endpoints.length() > 0) root.put("endpoints", endpoints)
         val notes = mutableListOf(
             "已将节点链接转为 sing-box 配置",
             "节点链接没有分流。建议开启默认脚本，应用不会自动开启。",
         )
         if (skipped > 0) notes += "跳过 $skipped 条无法识别的链接"
-        return Result(root.toString(), notes, Format.ShareLinks)
+        return wrapNodes(nodes, notes, Format.ShareLinks)
     }
 
-    private fun convertShareLine(line: String): JSONObject? {
+    /**
+     * Standalone nodes (links, Xray outbounds, bare sing-box outbounds) → a startable profile:
+     * unique tags, ss + shadow-tls helpers, WireGuard as endpoints, selector + url-test, final.
+     */
+    private fun wrapNodes(nodes: List<JSONObject>, notes: List<String>, format: Format): Result {
+        val outbounds = JSONArray()
+        val endpoints = JSONArray()
+        val tags = LinkedHashSet<String>()
+        val leaves = mutableListOf<String>()
+        val helpers = mutableListOf<Pair<JSONObject, JSONObject>>()
+        for (source in nodes) {
+            val converted = if (source.optString("type") == "wireguard" && isLegacyWireguard(source)) {
+                legacyWireguardEndpoint(source)
+            } else {
+                source
+            }
+            var tag = converted.optString("tag").ifBlank { "node-${tags.size + 1}" }
+            var n = 2
+            val base = tag
+            while (tag == AUTO_SELECT || tag == AUTO_TEST || !tags.add(tag)) {
+                tag = "$base-$n"
+                n++
+            }
+            converted.put("tag", tag)
+            val helper = takeChain(converted)
+            if (helper != null) helpers += converted to helper
+            val type = converted.optString("type")
+            if (type == "direct" || type == "block" || type == "dns" || type == "selector" || type == "urltest") {
+                tags.remove(tag)
+                continue
+            }
+            leaves += tag
+            if (type == "wireguard") endpoints.put(converted) else outbounds.put(converted)
+        }
+        if (leaves.isEmpty()) {
+            val message = "没有可用节点。没有改成直连。"
+            return Result("", listOf(message), format, message)
+        }
+        for ((node, helper) in helpers) {
+            val owner = node.optString("tag")
+            var tag = "$owner-shadowtls"
+            var n = 2
+            while (tag in tags) tag = "$owner-shadowtls-${n++}"
+            tags.add(tag)
+            helper.put("tag", tag)
+            node.put("detour", tag)
+            outbounds.put(helper)
+        }
+        ensureDirect(outbounds, tags)
+        autoGroups(leaves, tags).forEach { outbounds.put(it) }
+        dropDanglingDetours(outbounds, endpoints, tags)
+        val root = JSONObject()
+            .put("outbounds", outbounds)
+            .put("route", JSONObject().put("final", AUTO_SELECT))
+        if (endpoints.length() > 0) root.put("endpoints", endpoints)
+        return Result(root.toString(), notes, format)
+    }
+
+    /** One malformed link (e.g. vmess base64 that is not JSON) is skipped, not fatal for the whole list. */
+    private fun convertShareLine(line: String): JSONObject? = try {
+        convertShareLineUnchecked(line)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun convertShareLineUnchecked(line: String): JSONObject? {
         val raw = line.trim()
         val scheme = raw.substringBefore("://", "").lowercase()
         val body = raw.substringAfter("://", "")
@@ -1318,8 +2192,9 @@ object ConfigIngest {
             "shadowtls" -> parseShadowTls(body)
             "snell" -> parseSnell(body)
             "ssr" -> null
-            "socks", "socks5" -> parseUserHost(body, "socks")
-            "http", "https" -> if (scheme == "http") parseUserHost(body, "http") else null
+            "socks", "socks5", "socks5h" -> parseUserHost(body, "socks")
+            "socks4", "socks4a" -> parseUserHost(body, "socks")?.put("version", scheme.removePrefix("socks"))
+            "http", "https" -> parseHttpProxy(body, scheme == "https")
             "wireguard", "wg" -> parseWireGuard(body)
             else -> null
         }
@@ -1338,9 +2213,17 @@ object ConfigIngest {
             if ('@' in inner) inner else "$inner@placeholder"
         }
         val userHost = if ('@' in decoded) decoded else return null
-        val user = userHost.substringBefore('@')
-        val hostPort = userHost.substringAfter('@').substringBefore('?').trimEnd('/')
-        val methodPass = decodeB64(user)?.toString(Charsets.UTF_8) ?: user
+        // Legacy base64 `method:pass@host:port` may carry a raw '@' in the password; the host never does.
+        val user = userHost.substringBeforeLast('@')
+        val hostPort = userHost.substringAfterLast('@').substringBefore('?').trimEnd('/')
+        // SIP002: userinfo is base64url(method:password) or percent-encoded `method:password`
+        // (required for 2022-blake3 keys, e.g. `...:abc%3D`). Either may arrive percent-encoded.
+        val userText = if ('@' in bare) urlDecodeKeepPlus(user) else user
+        val methodPass = if (':' in userText) {
+            userText
+        } else {
+            decodeB64(userText)?.toString(Charsets.UTF_8)?.takeIf { ':' in it } ?: userText
+        }
         val method = methodPass.substringBefore(':')
         val password = methodPass.substringAfter(':', "")
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
@@ -1355,11 +2238,32 @@ object ConfigIngest {
             .put("password", password)
         val plugin = query["plugin"].orEmpty()
         if (plugin.isNotEmpty()) {
-            val name = plugin.substringBefore(';')
+            val rawName = plugin.substringBefore(';').trim()
             val opts = plugin.substringAfter(';', "")
-            if (name.isNotEmpty()) out.put("plugin", name)
-            if (opts.isNotEmpty()) out.put("plugin_opts", opts)
+            when (rawName.lowercase(Locale.US)) {
+                "obfs", "simple-obfs", "obfs-local", "v2ray-plugin" -> {
+                    out.put("plugin", ssPluginName(rawName))
+                    if (opts.isNotEmpty()) out.put("plugin_opts", opts)
+                }
+                "shadow-tls", "shadowtls" -> {
+                    val map = opts.split(';').filter { '=' in it }
+                        .associate { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+                    val helper = shadowTlsHelper(map, host, port, query["fp"].orEmpty()) ?: return null
+                    attachChain(out, helper)
+                }
+                "" -> Unit
+                // kcptun / restls / gost-plugin have no sing-box equivalent.
+                else -> return null
+            }
+        } else if (!query["obfs"].isNullOrEmpty() && !query["obfs"].equals("none", true)) {
+            // Shadowrocket: `?obfs=http&obfsParam=host` (also `obfs-host`).
+            val mode = query["obfs"].orEmpty()
+            if (mode != "http" && mode != "tls") return null
+            val obfsHost = query["obfsParam"] ?: query["obfs-host"] ?: query["obfs_host"]
+            out.put("plugin", "obfs-local")
+            out.put("plugin_opts", if (obfsHost.isNullOrEmpty()) "obfs=$mode" else "obfs=$mode;obfs-host=$obfsHost")
         }
+        if (query["uot"] == "1" || query["udp-over-tcp"] == "true") out.put("udp_over_tcp", true)
         return out
     }
 
@@ -1378,12 +2282,19 @@ object ConfigIngest {
         val tlsOn = obj.optString("tls").equals("tls", true)
         if (tlsOn) {
             val tls = JSONObject().put("enabled", true)
-            val sni = obj.optString("sni").ifBlank { obj.optString("host") }
+            val sni = obj.optString("sni").ifBlank { obj.optString("host").substringBefore(',') }
             if (sni.isNotEmpty()) tls.put("server_name", sni)
+            val insecure = obj.optString("allowInsecure").ifBlank { obj.optString("insecure") }
+            if (insecure == "1" || insecure.equals("true", true)) tls.put("insecure", true)
+            putAlpn(tls, obj.optString("alpn"))
+            obj.optString("fp").takeIf { it.isNotBlank() }
+                ?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
             out.put("tls", tls)
         }
         val net = obj.optString("net").lowercase()
         if (net == "xhttp" || net == "splithttp") return null
+        // v2rayN `net: tcp, type: http` is V2Ray's HTTP header obfuscation; sing-box has no such transport.
+        if ((net.isEmpty() || net == "tcp" || net == "raw") && obj.optString("type").equals("http", true)) return null
         if (net.isNotEmpty() && net != "tcp") {
             val mapped = when (net) {
                 "ws" -> "ws"
@@ -1395,20 +2306,26 @@ object ConfigIngest {
             }
             val transport = JSONObject().put("type", mapped)
             obj.optString("path").takeIf { it.isNotEmpty() }?.let {
-                if (mapped == "grpc") transport.put("service_name", it) else applyWsPath(transport, it)
+                if (mapped == "grpc") {
+                    transport.put("service_name", it)
+                } else if (mapped != "quic") {
+                    applyWsPath(transport, it)
+                }
             }
-            obj.optString("host").takeIf { it.isNotEmpty() }
-                ?.let { transport.put("headers", JSONObject().put("Host", it)) }
+            obj.optString("host").takeIf { it.isNotEmpty() }?.let { putTransportHost(transport, it) }
             out.put("transport", transport)
         }
         return out
     }
 
     private fun parseVless(body: String): JSONObject? = parseUserHostQuery(body, "vless") { out, query, host ->
-        out.put("uuid", query["id"] ?: out.optString("uuid"))
-        val uuid = body.substringBefore('@')
+        val uuid = urlDecode(body.substringBefore('@'))
         out.put("uuid", uuid)
-        query["flow"]?.let { out.put("flow", it) }
+        val encryption = query["encryption"].orEmpty()
+        // Xray's post-quantum VLESS encryption is not in sing-box.
+        if (encryption.isNotEmpty() && !encryption.equals("none", true)) return@parseUserHostQuery false
+        val flow = vlessFlow(query["flow"].orEmpty()) ?: return@parseUserHostQuery false
+        if (flow.isNotEmpty()) out.put("flow", flow)
         query["packetEncoding"]?.let { out.put("packet_encoding", it) }
         putQueryTls(out, query, host, defaultOn = query["security"].equals("tls", true) || query["security"].equals("reality", true))
         if (!putQueryTransport(out, query)) return@parseUserHostQuery false
@@ -1421,15 +2338,23 @@ object ConfigIngest {
                     .put("public_key", query["pbk"].orEmpty())
                     .put("short_id", query["sid"].orEmpty()),
             )
-            query["fp"]?.let { fp ->
+            query["fp"]?.takeIf { it.isNotBlank() }?.let { fp ->
                 tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", fp))
             }
+            ensureRealityUtls(tls)
         }
         true
     }
 
+    /** sing-box: "uTLS is required by reality client". Xray / mihomo default to chrome when fp is empty. */
+    private fun ensureRealityUtls(tls: JSONObject) {
+        val utls = tls.optJSONObject("utls")
+        if (utls != null && utls.optBoolean("enabled", false)) return
+        tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", "chrome"))
+    }
+
     private fun parseTrojan(body: String): JSONObject? = parseUserHostQuery(body, "trojan") { out, query, host ->
-        out.put("password", body.substringBefore('@'))
+        out.put("password", urlDecodeKeepPlus(body.substringBefore('@')))
         putQueryTls(out, query, host, defaultOn = true)
         putQueryTransport(out, query)
     }
@@ -1438,7 +2363,7 @@ object ConfigIngest {
         val (main, fragment) = splitFragment(body)
         val query = parseQuery(main.substringAfter('?', ""))
         val beforeQuery = main.substringBefore('?')
-        val hostPort = if ('@' in beforeQuery) beforeQuery.substringAfter('@') else beforeQuery
+        val hostPort = (if ('@' in beforeQuery) beforeQuery.substringAfter('@') else beforeQuery).substringBefore('/')
         val user = if ('@' in beforeQuery) urlDecode(beforeQuery.substringBefore('@')) else ""
         if (hostPort.isEmpty() || ':' !in hostPort) return null
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
@@ -1464,17 +2389,52 @@ object ConfigIngest {
         return out
     }
 
-    private fun parseHysteria2(body: String): JSONObject? = parseUserHostQuery(body, "hysteria2") { out, query, host ->
-        out.put("password", body.substringBefore('@'))
+    /**
+     * `hysteria2://auth@host:443,20000-30000/?sni=…` — the URI spec allows a port list (port
+     * hopping) and a missing port (443). v2rayN writes the range as `mport=`.
+     */
+    private fun parseHysteria2(body: String): JSONObject? {
+        val (main, fragment) = splitFragment(body)
+        val at = main.lastIndexOf('@', main.indexOf('?').takeIf { it >= 0 } ?: main.length)
+        val user = if (at >= 0) main.substring(0, at) else ""
+        val rest = main.substring(at + 1)
+        val authority = rest.substringBefore('?').substringBefore('/')
+        val query = parseQuery(rest.substringAfter('?', ""))
+        val (host, portText) = splitHostPort(authority)
+        if (host.isEmpty()) return null
+        val out = JSONObject()
+            .put("type", "hysteria2")
+            .put("tag", urlDecode(fragment).ifBlank { host })
+            .put("server", host)
+        val ports = portText.ifEmpty { "443" }
+        val single = ports.toIntOrNull()
+        out.put("server_port", single ?: firstPort(ports) ?: return null)
+        if (single == null) putPortList(out, ports)
+        query["mport"]?.takeIf { it.isNotBlank() }?.let { putPortList(out, it) }
+        out.put("password", urlDecodeKeepPlus(user))
         putQueryTls(out, query, host, defaultOn = true)
-        val obfsPass = query["obfs-password"] ?: query["obfs_password"] ?: query["obfs_param"]
-        if (!obfsPass.isNullOrEmpty()) {
-            val obfsType = query["obfs"]?.takeIf { it.isNotEmpty() } ?: "salamander"
-            out.put("obfs", JSONObject().put("type", obfsType).put("password", obfsPass))
+        val obfsType = query["obfs"].orEmpty()
+        (query["obfs-password"] ?: query["obfs_password"] ?: query["obfs_param"])?.takeIf { it.isNotEmpty() }?.let { pwd ->
+            val type = if (obfsType.isEmpty() || obfsType.equals("none", true)) "salamander" else obfsType
+            out.put("obfs", JSONObject().put("type", type).put("password", pwd))
         }
-        intVal(query["upmbps"] ?: query["up"])?.let { out.put("up_mbps", it) }
-        intVal(query["downmbps"] ?: query["down"])?.let { out.put("down_mbps", it) }
-        true
+        mbps(query["upmbps"] ?: query["up"])?.let { out.put("up_mbps", it) }
+        mbps(query["downmbps"] ?: query["down"])?.let { out.put("down_mbps", it) }
+        return out
+    }
+
+    /** `host:port`, `[v6]:port`, `host` (no port) and `host:443,2000-3000` → host and port text. */
+    private fun splitHostPort(authority: String): Pair<String, String> {
+        val text = authority.trim()
+        if (text.startsWith("[")) {
+            val close = text.indexOf(']')
+            if (close < 0) return "" to ""
+            return text.substring(1, close) to text.substring(close + 1).removePrefix(":")
+        }
+        val colons = text.count { it == ':' }
+        if (colons == 0) return text to ""
+        if (colons > 1 && text.substringAfterLast(':').any { !it.isDigit() && it != ',' && it != '-' }) return text to ""
+        return text.substringBeforeLast(':') to text.substringAfterLast(':')
     }
 
     private fun parseAnyTls(body: String): JSONObject? = parseUserHostQuery(body, "anytls") { out, query, host ->
@@ -1533,24 +2493,24 @@ object ConfigIngest {
 
     private fun parseTuic(body: String): JSONObject? = parseUserHostQuery(body, "tuic") { out, query, host ->
         val user = body.substringBefore('@')
-        val uuid = user.substringBefore(':')
-        val password = user.substringAfter(':', "")
+        val uuid = urlDecodeKeepPlus(user.substringBefore(':'))
+        val password = urlDecodeKeepPlus(user.substringAfter(':', ""))
         out.put("uuid", uuid)
         if (password.isNotEmpty()) out.put("password", password)
         putQueryTls(out, query, host, defaultOn = true)
-        val tls = out.optJSONObject("tls")
-        if (tls != null && !tls.has("alpn")) {
-            tls.put("alpn", JSONArray().put("h3"))
-        }
-        val cc = query["congestion_control"] ?: query["cc"] ?: query["congestion"]
-        if (!cc.isNullOrEmpty()) out.put("congestion_control", cc)
+        (query["congestion_control"] ?: query["congestion-control"] ?: query["cc"] ?: query["congestion"])
+            ?.takeIf { it.isNotEmpty() }?.let { out.put("congestion_control", it) }
+        (query["udp_relay_mode"] ?: query["udp-relay-mode"])?.lowercase()
+            ?.takeIf { it == "native" || it == "quic" }?.let { out.put("udp_relay_mode", it) }
+        if (query["disable_sni"] == "1" || query["disable_sni"] == "true") out.optJSONObject("tls")?.remove("server_name")
+        out.optJSONObject("tls")?.let { tls -> if (!tls.has("alpn")) tls.put("alpn", JSONArray().put("h3")) }
         true
     }
 
     private fun parseUserHost(body: String, type: String): JSONObject? {
         val (main, fragment) = splitFragment(body)
         val userHost = main
-        val hostPort = userHost.substringAfter('@', userHost)
+        val hostPort = userHost.substringAfter('@', userHost).substringBefore('?').substringBefore('/')
         val userPass = if ('@' in userHost) userHost.substringBefore('@') else ""
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
         val port = intVal(hostPort.substringAfterLast(':')) ?: return null
@@ -1560,9 +2520,32 @@ object ConfigIngest {
             .put("server", host)
             .put("server_port", port)
         if (userPass.isNotEmpty()) {
-            out.put("username", urlDecode(userPass.substringBefore(':')))
-            out.put("password", urlDecode(userPass.substringAfter(':', "")))
+            // v2rayN writes `socks://base64(user:pass)@host:port`.
+            val plain = urlDecodeKeepPlus(userPass)
+            val pair = if (':' in plain) {
+                plain
+            } else {
+                decodeB64(plain)?.toString(Charsets.UTF_8)?.takeIf { ':' in it && it.all { c -> c >= ' ' } } ?: plain
+            }
+            out.put("username", urlDecode(pair.substringBefore(':')))
+            val password = pair.substringAfter(':', "")
+            if (password.isNotEmpty()) out.put("password", urlDecode(password))
         }
+        return out
+    }
+
+    /**
+     * `http(s)://user:pass@host:port#name` proxy links. A URL with a path or query is a
+     * subscription address, not a node, so it is not read as one.
+     */
+    private fun parseHttpProxy(body: String, tls: Boolean): JSONObject? {
+        val (main, _) = splitFragment(body)
+        val afterUser = main.substringAfterLast('@')
+        val path = afterUser.substringAfter('/', "")
+        if (path.isNotEmpty() || '?' in afterUser) return null
+        if (splitHostPort(afterUser.trimEnd('/')).second.toIntOrNull() == null) return null
+        val out = parseUserHost(body, "http") ?: return null
+        if (tls) out.put("tls", JSONObject().put("enabled", true).put("server_name", out.optString("server")))
         return out
     }
 
@@ -1574,7 +2557,8 @@ object ConfigIngest {
         val (main, fragment) = splitFragment(body)
         val hostPortQuery = main.substringAfter('@', "")
         if (hostPortQuery.isEmpty()) return null
-        val hostPort = hostPortQuery.substringBefore('?')
+        // `host:443/?sni=...` (Hysteria2 URI spec, sing-box / Hiddify exports): drop the path.
+        val hostPort = hostPortQuery.substringBefore('?').substringBefore('/')
         val query = parseQuery(hostPortQuery.substringAfter('?', ""))
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
         val port = intVal(hostPort.substringAfterLast(':')) ?: return null
@@ -1594,8 +2578,14 @@ object ConfigIngest {
         val tls = JSONObject().put("enabled", true)
         val sni = query["sni"] ?: query["host"] ?: host
         if (sni.isNotEmpty()) tls.put("server_name", sni)
-        if (query["allowInsecure"] == "1" || query["insecure"] == "1") tls.put("insecure", true)
-        query["fp"]?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
+        if (query["allowInsecure"] == "1" || query["insecure"] == "1" ||
+            query["allowInsecure"].equals("true", true) || query["insecure"].equals("true", true)
+        ) {
+            tls.put("insecure", true)
+        }
+        query["fp"]?.takeIf { it.isNotBlank() && !it.equals("none", true) }
+            ?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
+        putAlpn(tls, query["alpn"].orEmpty())
         val ech = query["ech"]?.trim().orEmpty()
         if (ech.isNotEmpty() && ech != "0" && !ech.equals("false", true)) {
             val share = parseEchShare(ech)
@@ -1611,9 +2601,18 @@ object ConfigIngest {
         out.put("tls", tls)
     }
 
+    private fun putAlpn(tls: JSONObject, raw: String) {
+        val arr = JSONArray()
+        raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { arr.put(it) }
+        if (arr.length() > 0) tls.put("alpn", arr)
+    }
+
     private fun putQueryTransport(out: JSONObject, query: Map<String, String>): Boolean {
         val rawType = (query["type"] ?: query["network"]).orEmpty().lowercase()
-        if (rawType.isEmpty() || rawType == "tcp" || rawType == "raw") return true
+        if (rawType.isEmpty() || rawType == "tcp" || rawType == "raw") {
+            // `headerType=http` is V2Ray's HTTP header obfuscation; sing-box cannot speak it.
+            return !query["headerType"].equals("http", true)
+        }
         val type = when (rawType) {
             "ws" -> "ws"
             "grpc" -> "grpc"
@@ -1624,18 +2623,41 @@ object ConfigIngest {
         }
         val transport = JSONObject().put("type", type)
         (query["path"] ?: query["serviceName"])?.let { value ->
-            if (type == "grpc") transport.put("service_name", value) else applyWsPath(transport, value)
+            if (type == "grpc") {
+                transport.put("service_name", value)
+            } else if (type != "quic") {
+                applyWsPath(transport, value)
+            }
         }
-        query["host"]?.let { transport.put("headers", JSONObject().put("Host", it)) }
+        query["host"]?.let { putTransportHost(transport, it) }
         out.put("transport", transport)
         return true
+    }
+
+    /**
+     * sing-box rejects unknown fields: grpc / quic have no `headers`.
+     * http / httpupgrade take the Host from `host`; a `Host` header is ignored there.
+     */
+    private fun putTransportHost(transport: JSONObject, rawHost: String) {
+        val host = rawHost.trim()
+        if (host.isEmpty()) return
+        when (transport.optString("type")) {
+            "ws" -> transport.put("headers", JSONObject().put("Host", host))
+            "httpupgrade" -> transport.put("host", host)
+            "http" -> {
+                val hosts = JSONArray()
+                host.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { hosts.put(it) }
+                if (hosts.length() > 0) transport.put("host", hosts)
+            }
+        }
     }
 
     private fun applyWsPath(transport: JSONObject, rawPath: String) {
         val split = splitEarlyData(rawPath)
         transport.put("path", split.first)
         val ed = split.second
-        if (ed != null && ed > 0) {
+        // Only the websocket transport has early-data fields; others reject them.
+        if (ed != null && ed > 0 && transport.optString("type") == "ws") {
             transport.put("max_early_data", ed)
             if (!transport.has("early_data_header_name")) {
                 transport.put("early_data_header_name", "Sec-WebSocket-Protocol")
@@ -1686,7 +2708,7 @@ object ConfigIngest {
                     .put("type", "https")
                     .put("tag", tag)
                     .put("server", host)
-                    .put("domain_resolver", "local")
+                    .put("domain_resolver", ensureLocalDns(servers))
                 if (uri.port > 0 && uri.port != 443) server.put("server_port", uri.port)
                 val path = uri.rawPath?.takeIf { it.isNotEmpty() && it != "/" && it != "/dns-query" }
                 if (path != null) server.put("path", path)
@@ -1839,6 +2861,21 @@ object ConfigIngest {
         return true
     }
 
+    /**
+     * The DoH server for ECH names its host, which has to be resolved by something that does
+     * not need the proxy: a `local` DNS server. Reuse one, or add `{type: local, tag: local}`.
+     */
+    private fun ensureLocalDns(servers: JSONArray): String {
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val tag = server.optString("tag").trim()
+            if (tag.isNotEmpty() && server.optString("type").equals("local", true)) return tag
+        }
+        if (dnsServerHas(servers, "local")) return "local"
+        servers.put(JSONObject().put("type", "local").put("tag", "local"))
+        return "local"
+    }
+
     private fun dnsServerHas(servers: JSONArray, tag: String): Boolean {
         for (i in 0 until servers.length()) {
             if (servers.optJSONObject(i)?.optString("tag") == tag) return true
@@ -1924,7 +2961,10 @@ object ConfigIngest {
     ): JSONObject? {
         if (privateKey.isBlank() || peerPublic.isBlank() || server.isBlank() || port <= 0) return null
         val locals = JSONArray()
-        (addresses.ifEmpty { listOf("172.16.0.2/32") }).forEach { locals.put(it) }
+        // sing-box wants prefixes; mihomo / Xray often write a bare address.
+        (addresses.ifEmpty { listOf("172.16.0.2/32") }).forEach { address ->
+            locals.put(if ('/' in address) address else if (':' in address) "$address/128" else "$address/32")
+        }
         val peer = JSONObject()
             .put("address", server)
             .put("port", port)
@@ -1984,6 +3024,15 @@ object ConfigIngest {
         }
     }
 
+    /** sing-box registers only `obfs-local` and `v2ray-plugin`. Clash writes `obfs`, SIP002 links `simple-obfs`. */
+    private fun ssPluginName(name: String): String {
+        val trimmed = name.trim()
+        return when (trimmed.lowercase(Locale.US)) {
+            "obfs", "simple-obfs" -> "obfs-local"
+            else -> trimmed
+        }
+    }
+
     private fun pluginOpts(plugin: String, raw: Any?): String {
         val map = raw as? Map<*, *> ?: return raw?.toString().orEmpty()
         val obj = JSONObject()
@@ -1994,10 +3043,35 @@ object ConfigIngest {
     }
 
     private fun expandShareText(text: String): List<String> {
-        val direct = text.lineSequence().map { it.trim() }.filter { SHARE_LINE.containsMatchIn(it) }.toList()
+        val direct = shareLinesOf(text)
         if (direct.isNotEmpty()) return direct
         val decoded = decodeSharePayload(text) ?: return emptyList()
-        return decoded.lineSequence().map { it.trim() }.filter { SHARE_LINE.containsMatchIn(it) }.toList()
+        return shareLinesOf(decoded)
+    }
+
+    /**
+     * Links one per line, or several on a line separated by spaces / commas. A YAML list item
+     * (`- vless://…`) or a quoted link counts too; comments and other text are ignored.
+     */
+    /** `https://host/path?token=…` is a subscription address, not an HTTP proxy node. */
+    private fun isSubscriptionUrl(link: String): Boolean {
+        val scheme = link.substringBefore("://").lowercase(Locale.US)
+        if (scheme != "http" && scheme != "https") return false
+        return parseHttpProxy(link.substringAfter("://"), scheme == "https") == null
+    }
+
+    private fun shareLinesOf(text: String): List<String> {
+        val out = ArrayList<String>()
+        for (rawLine in text.lineSequence()) {
+            var line = rawLine.trim()
+            if (line.startsWith("- ")) line = line.substring(2).trim()
+            line = line.trim('"', '\'', '`').trim()
+            if (!SHARE_LINE.containsMatchIn(line)) continue
+            line.split(SHARE_SPLIT).map { it.trim().trimEnd(',', ';') }
+                .filter { SHARE_LINE.containsMatchIn(it) && !isSubscriptionUrl(it) }
+                .forEach { out += it }
+        }
+        return out
     }
 
     private fun decodeSharePayload(text: String): String? {
@@ -2137,44 +3211,253 @@ object ConfigIngest {
         else -> value
     }
 
-    private val SHARE_LINE = Regex("(?i)^(ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks5?|http|wireguard|wg|ssh|naive(?:\\+https|\\+quic)?|shadowtls|snell)://")
+    private const val SHARE_SCHEMES = "ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks[45]?a?|https?|wireguard|wg|ssh|naive(?:\\+https|\\+quic)?|shadowtls|snell"
+    private val SHARE_LINE = Regex("(?i)^($SHARE_SCHEMES)://")
+    /** A second link on the same line, after whitespace or a comma. */
+    private val SHARE_SPLIT = Regex("(?i)(?:\\s+|\\s*,\\s*)(?=(?:$SHARE_SCHEMES)://)")
+    private const val CHAIN_KEY = "__angela_chain"
+    private const val AUTO_SELECT = "节点选择"
+    private const val AUTO_TEST = "自动选择"
     private val ECH_PEM = Regex("-----BEGIN ECH CONFIGS-----([\\s\\S]*?)-----END ECH CONFIGS-----")
     private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 }
 
+/**
+ * Small YAML reader for Clash / mihomo files. Not a full YAML parser, but it covers what real
+ * subscriptions use: block and compact sequences, flow maps / lists (also across lines),
+ * block scalars (`|` / `>` with chomping), anchors, aliases and `<<` merge keys.
+ * Scalars follow YAML 1.2 / mihomo: only `true` / `false` are booleans, so a node named `NO`
+ * or a password `yes` stays text.
+ */
 internal object MiniYaml {
+    private val anchors = ThreadLocal.withInitial { HashMap<String, Any?>() }
+
     fun parse(text: String): Any? {
         val lines = tokenize(text)
         if (lines.isEmpty()) return null
-        val index = intArrayOf(0)
-        return parseNode(lines, index, 0)
+        anchors.get().clear()
+        return try {
+            val index = intArrayOf(0)
+            parseNode(lines, index, 0)
+        } finally {
+            anchors.get().clear()
+        }
     }
 
     private data class YLine(val indent: Int, val raw: String)
 
+    /** Lines are trimmed, so an item whose value sits on the next lines (`-` alone) has no trailing space. */
+    private fun isItem(raw: String): Boolean = raw == "-" || raw.startsWith("- ")
+
+    private fun isFlowStart(value: String): Boolean = value.startsWith("{") || value.startsWith("[")
+
+    /** `key: |-`, `- >`, `key: |2+` → the text before the indicator, the style and the chomping. */
+    private val BLOCK_HEADER = Regex("^(.*?)([|>])([1-9]?)([+-]?)([1-9]?)$")
+
     private fun tokenize(text: String): List<YLine> {
         val out = ArrayList<YLine>()
-        text.lineSequence().forEach { original ->
+        val source = text.lines()
+        var i = 0
+        while (i < source.size) {
+            val original = source[i]
+            i++
             val noComment = stripComment(original)
-            if (noComment.isBlank()) return@forEach
+            if (noComment.isBlank()) continue
             var indent = 0
             while (indent < noComment.length && noComment[indent] == ' ') indent++
-            val content = noComment.trim()
-            if (content.isEmpty() || content == "---" || content == "...") return@forEach
+            var content = noComment.trim()
+            if (content.isEmpty() || content == "---" || content == "...") continue
+            val block = blockHeader(content)
+            if (block != null) {
+                val (prefix, style, chomp) = block
+                val explicit = BLOCK_HEADER.find(content)?.let { m ->
+                    (m.groupValues[3] + m.groupValues[5]).toIntOrNull()
+                }
+                val body = ArrayList<String>()
+                while (i < source.size) {
+                    val next = source[i].replace("\t", "  ")
+                    if (next.isNotBlank()) {
+                        var ni = 0
+                        while (ni < next.length && next[ni] == ' ') ni++
+                        if (ni <= indent) break
+                    }
+                    body += next
+                    i++
+                }
+                val value = foldBlock(body, style, chomp, explicit?.let { indent + it })
+                out += YLine(indent, prefix + quote(value))
+                continue
+            }
+            val valueStart = flowValueStart(content)
+            if (valueStart >= 0 && flowDepth(content.substring(valueStart)) > 0) {
+                val joined = StringBuilder(content)
+                while (i < source.size && flowDepth(joined.substring(valueStart)) > 0) {
+                    val more = stripComment(source[i]).trim()
+                    i++
+                    if (more.isEmpty()) continue
+                    joined.append(' ').append(more)
+                }
+                content = joined.toString()
+            }
             out += YLine(indent, content)
         }
         return out
     }
 
+    /** Header of a block scalar: (text before the indicator, '|' or '>', chomping '+', '-' or ""). */
+    private fun blockHeader(content: String): Triple<String, Char, String>? {
+        val m = BLOCK_HEADER.find(content) ?: return null
+        val prefix = m.groupValues[1]
+        if (m.groupValues[3].isNotEmpty() && m.groupValues[5].isNotEmpty()) return null
+        val ok = prefix.isEmpty() ||
+            prefix == "- " ||
+            (prefix.endsWith(": ") && pairColon(prefix.trimEnd()) == prefix.trimEnd().length - 1) ||
+            (prefix.endsWith(" ") && prefix.trimEnd().let { it.endsWith(":") || it == "-" || it.startsWith("&") || it.contains(" &") })
+        if (!ok) return null
+        return Triple(prefix, m.groupValues[2][0], m.groupValues[4])
+    }
+
+    private fun foldBlock(body: List<String>, style: Char, chomp: String, fixedIndent: Int?): String {
+        val indent = fixedIndent ?: body.firstOrNull { it.isNotBlank() }?.let { line ->
+            var n = 0
+            while (n < line.length && line[n] == ' ') n++
+            n
+        } ?: 0
+        val lines = body.map { if (it.length >= indent) it.substring(indent) else it.trim() }
+        var end = lines.size
+        while (end > 0 && lines[end - 1].isBlank()) end--
+        val content = lines.subList(0, end)
+        val trailingBlank = lines.size - end
+        val text = if (style == '|') {
+            content.joinToString("\n")
+        } else {
+            val sb = StringBuilder()
+            var prevText = false
+            for ((n, line) in content.withIndex()) {
+                val moreIndented = line.startsWith(" ")
+                when {
+                    line.isEmpty() -> {
+                        sb.append('\n')
+                        prevText = false
+                    }
+                    n == 0 -> {
+                        sb.append(line)
+                        prevText = !moreIndented
+                    }
+                    prevText && !moreIndented -> {
+                        sb.append(' ').append(line)
+                    }
+                    else -> {
+                        if (sb.isNotEmpty() && sb.last() != '\n') sb.append('\n')
+                        sb.append(line)
+                        prevText = !moreIndented
+                    }
+                }
+            }
+            sb.toString()
+        }
+        if (content.isEmpty()) return ""
+        return when (chomp) {
+            "-" -> text
+            "+" -> text + "\n" + "\n".repeat(trailingBlank)
+            else -> text + "\n"
+        }
+    }
+
+    /** Double-quoted YAML scalar, read back by [parseScalar]. */
+    private fun quote(value: String): String {
+        val sb = StringBuilder("\"")
+        for (c in value) {
+            when (c) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> sb.append(c)
+            }
+        }
+        return sb.append('"').toString()
+    }
+
+    /** Where a flow value (`{` / `[`) starts on this line, or -1. */
+    private fun flowValueStart(content: String): Int {
+        if (isFlowStart(content)) return 0
+        if (isItem(content)) {
+            val rest = content.substring(1).trimStart()
+            val at = content.length - rest.length
+            if (isFlowStart(rest)) return at
+            val colon = pairColon(rest)
+            if (colon < 0) return -1
+            val value = rest.substring(colon + 1).trimStart()
+            return if (isFlowStart(value)) content.length - value.length else -1
+        }
+        val colon = pairColon(content)
+        if (colon < 0) return -1
+        val value = content.substring(colon + 1).trimStart()
+        return if (isFlowStart(value)) content.length - value.length else -1
+    }
+
+    private fun flowDepth(text: String): Int {
+        var depth = 0
+        var inSingle = false
+        var inDouble = false
+        var escaped = false
+        for ((i, c) in text.withIndex()) {
+            if (inDouble) {
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inDouble = false
+                }
+                continue
+            }
+            if (inSingle) {
+                if (c == '\'') inSingle = false
+                continue
+            }
+            when {
+                c == '"' && quoteOpens(text, i) -> inDouble = true
+                c == '\'' && quoteOpens(text, i) -> inSingle = true
+                c == '{' || c == '[' -> depth++
+                c == '}' || c == ']' -> depth--
+            }
+        }
+        return depth
+    }
+
+    /** A quote starts a quoted scalar only where a value starts (`it's` in a plain value is text). */
+    private fun quoteOpens(text: String, at: Int): Boolean {
+        var j = at - 1
+        while (j >= 0 && text[j] == ' ') j--
+        if (j < 0) return true
+        return text[j] in ":-[{,?&!" || (text[j] == '*')
+    }
+
     private fun stripComment(line: String): String {
         var inSingle = false
         var inDouble = false
+        var escaped = false
         for (i in line.indices) {
             val c = line[i]
+            if (inDouble) {
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inDouble = false
+                }
+                continue
+            }
+            if (inSingle) {
+                if (c == '\'') inSingle = false
+                continue
+            }
             when {
-                c == '\'' && !inDouble -> inSingle = !inSingle
-                c == '"' && !inSingle -> inDouble = !inDouble
-                c == '#' && !inSingle && !inDouble -> return line.substring(0, i).replace("\t", "  ")
+                c == '\'' && quoteOpens(line, i) -> inSingle = true
+                c == '"' && quoteOpens(line, i) -> inDouble = true
+                // YAML: '#' starts a comment only at line start or after whitespace (`password: a#b` is a value).
+                c == '#' && (i == 0 || line[i - 1].isWhitespace()) ->
+                    return line.substring(0, i).replace("\t", "  ")
             }
         }
         return line.replace("\t", "  ")
@@ -2184,7 +3467,15 @@ internal object MiniYaml {
         if (index[0] >= lines.size) return null
         val line = lines[index[0]]
         if (line.indent < minIndent) return null
-        return if (line.raw.startsWith("- ")) {
+        if (isFlowStart(line.raw) && flowDepth(line.raw) == 0 && pairColon(line.raw) < 0) {
+            index[0]++
+            return parseFlow(line.raw)
+        }
+        if (line.raw.startsWith("&") || line.raw.startsWith("*")) {
+            index[0]++
+            return parseScalarOrChild(line.raw, lines, index, line.indent)
+        }
+        return if (isItem(line.raw)) {
             parseList(lines, index, line.indent)
         } else {
             parseMap(lines, index, line.indent)
@@ -2197,20 +3488,37 @@ internal object MiniYaml {
             val line = lines[index[0]]
             if (line.indent < indent) break
             if (line.indent > indent) break
-            if (!line.raw.startsWith("- ")) break
-            val rest = line.raw.substring(2).trim()
+            if (!isItem(line.raw)) break
+            var rest = if (line.raw == "-") "" else line.raw.substring(2).trim()
             index[0]++
-            when {
-                rest.isEmpty() -> list += parseNode(lines, index, indent + 1)
-                rest.startsWith("{") || rest.startsWith("[") -> list += parseFlow(rest)
-                ':' in rest && !rest.startsWith("{") -> {
+            var anchor: String? = null
+            if (rest.startsWith("&")) {
+                anchor = rest.substring(1).substringBefore(' ')
+                rest = rest.substring(1 + anchor.length).trim()
+            }
+            // Items of a `- ` line sit at the dash indent plus two.
+            val itemIndent = indent + 2
+            val value: Any? = when {
+                rest.isEmpty() -> parseNode(lines, index, indent + 1)
+                rest.startsWith("*") -> alias(rest)
+                isFlowStart(rest) && pairColon(rest) < 0 -> parseFlow(rest)
+                isItem(rest) -> {
+                    // `- - a` nested sequence on one line: rare, keep the inner item text.
+                    listOf(parseScalar(rest.substring(1).trim()))
+                }
+                pairColon(rest) >= 0 -> {
                     val map = LinkedHashMap<String, Any?>()
                     val (k, v) = splitPair(rest)
-                    map[k] = parseScalarOrChild(v, lines, index, indent + 2)
+                    val next = lines.getOrNull(index[0])
+                    map[k] = if (v.isEmpty() && next != null && next.indent == itemIndent && isItem(next.raw)) {
+                        parseList(lines, index, itemIndent)
+                    } else {
+                        parseScalarOrChild(v, lines, index, itemIndent + 1)
+                    }
                     while (index[0] < lines.size) {
                         val child = lines[index[0]]
                         if (child.indent <= indent) break
-                        if (child.raw.startsWith("- ")) {
+                        if (isItem(child.raw)) {
                             val existing = map.values.lastOrNull()
                             if (existing is MutableList<*>) {
                                 @Suppress("UNCHECKED_CAST")
@@ -2222,13 +3530,20 @@ internal object MiniYaml {
                         } else {
                             val (ck, cv) = splitPair(child.raw)
                             index[0]++
-                            map[ck] = parseScalarOrChild(cv, lines, index, child.indent + 1)
+                            val after = lines.getOrNull(index[0])
+                            map[ck] = if (cv.isEmpty() && after != null && after.indent == child.indent && isItem(after.raw)) {
+                                parseList(lines, index, child.indent)
+                            } else {
+                                parseScalarOrChild(cv, lines, index, child.indent + 1)
+                            }
                         }
                     }
-                    list += map
+                    applyMerge(map)
                 }
-                else -> list += parseScalar(rest)
+                else -> parseScalar(rest)
             }
+            if (anchor != null) anchors.get()[anchor] = value
+            list += value
         }
         return list
     }
@@ -2238,13 +3553,41 @@ internal object MiniYaml {
         while (index[0] < lines.size) {
             val line = lines[index[0]]
             if (line.indent < indent) break
-            if (line.raw.startsWith("- ")) break
+            if (isItem(line.raw)) break
             if (line.indent > indent) break
             val (k, v) = splitPair(line.raw)
             index[0]++
-            map[k] = parseScalarOrChild(v, lines, index, indent + 1)
+            val next = lines.getOrNull(index[0])
+            map[k] = if (v.isEmpty() && next != null && next.indent == indent && isItem(next.raw)) {
+                // Compact sequence (yaml.v2 / PyYAML default): `proxies:` then `- name: a` at the same indent.
+                parseList(lines, index, indent)
+            } else {
+                parseScalarOrChild(v, lines, index, indent + 1)
+            }
+        }
+        return applyMerge(map)
+    }
+
+    /** `<<: *base` / `<<: [*a, *b]`: keys written in the map win over merged ones. */
+    private fun applyMerge(map: LinkedHashMap<String, Any?>): LinkedHashMap<String, Any?> {
+        if (!map.containsKey("<<")) return map
+        val sources = when (val merge = map.remove("<<")) {
+            is Map<*, *> -> listOf(merge)
+            is List<*> -> merge.filterIsInstance<Map<*, *>>()
+            else -> emptyList()
+        }
+        for (source in sources) {
+            for ((k, v) in source) {
+                val key = k?.toString() ?: continue
+                if (!map.containsKey(key)) map[key] = v
+            }
         }
         return map
+    }
+
+    private fun alias(raw: String): Any? {
+        val name = raw.trim().removePrefix("*").substringBefore(' ').trim()
+        return anchors.get()[name]
     }
 
     private fun parseScalarOrChild(
@@ -2253,37 +3596,139 @@ internal object MiniYaml {
         index: IntArray,
         childIndent: Int,
     ): Any? {
-        if (value.isNotEmpty()) {
-            return if (value.startsWith("{") || value.startsWith("[")) parseFlow(value) else parseScalar(value)
+        var v = value
+        var anchor: String? = null
+        if (v.startsWith("&")) {
+            anchor = v.substring(1).substringBefore(' ')
+            v = v.substring(1 + anchor.length).trim()
         }
-        if (index[0] >= lines.size) return emptyMap<String, Any?>()
-        val next = lines[index[0]]
-        return if (next.indent >= childIndent) parseNode(lines, index, next.indent) else emptyMap<String, Any?>()
+        val result: Any? = when {
+            v.startsWith("*") -> alias(v)
+            v.isNotEmpty() -> if (isFlowStart(v)) parseFlow(v) else parseScalar(v)
+            index[0] >= lines.size -> emptyMap<String, Any?>()
+            else -> {
+                val next = lines[index[0]]
+                if (next.indent >= childIndent) parseNode(lines, index, next.indent) else emptyMap<String, Any?>()
+            }
+        }
+        if (anchor != null) anchors.get()[anchor] = result
+        return result
     }
 
     private fun splitPair(raw: String): Pair<String, String> {
-        val idx = raw.indexOf(':')
+        val idx = pairColon(raw).takeIf { it >= 0 } ?: raw.indexOf(':')
         if (idx < 0) return raw.trim() to ""
-        val key = raw.substring(0, idx).trim().trim('"', '\'')
+        val key = unquoteKey(raw.substring(0, idx).trim())
         val value = raw.substring(idx + 1).trim()
         return key to value
     }
 
+    private fun unquoteKey(key: String): String {
+        if (key.length >= 2 && key.first() == '"' && key.last() == '"') return unescapeDouble(key.substring(1, key.length - 1))
+        if (key.length >= 2 && key.first() == '\'' && key.last() == '\'') return key.substring(1, key.length - 1).replace("''", "'")
+        return key
+    }
+
+    /**
+     * Index of the key/value ':' — one followed by whitespace or end of text, outside quotes,
+     * or right after a quoted key (`"name":x`). `IP-CIDR6,2001:db8::/32,DIRECT` and
+     * `server: 2001:db8::1` keep their inner colons. -1 when the text is a plain scalar.
+     */
+    private fun pairColon(raw: String): Int {
+        var inSingle = false
+        var inDouble = false
+        var escaped = false
+        var depth = 0
+        for (i in raw.indices) {
+            val c = raw[i]
+            if (inDouble) {
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inDouble = false
+                }
+                continue
+            }
+            if (inSingle) {
+                if (c == '\'') inSingle = false
+                continue
+            }
+            when {
+                c == '\'' && quoteOpens(raw, i) -> inSingle = true
+                c == '"' && quoteOpens(raw, i) -> inDouble = true
+                (c == '{' || c == '[') && i == 0 -> return -1
+                c == ':' && depth == 0 -> {
+                    if (i == raw.lastIndex || raw[i + 1].isWhitespace()) return i
+                    if (i > 1 && (raw[i - 1] == '"' || raw[i - 1] == '\'')) return i
+                }
+            }
+        }
+        return -1
+    }
+
     private fun parseScalar(raw: String): Any? {
         val v = raw.trim()
-        if (v == "|" || v == ">") return ""
-        if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'"))) {
-            return v.substring(1, v.length - 1)
+        if (v.length >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+            return unescapeDouble(v.substring(1, v.length - 1))
         }
-        when (v.lowercase()) {
-            "true", "yes", "on" -> return true
-            "false", "no", "off" -> return false
-            "null", "~", "" -> return null
+        if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) {
+            return v.substring(1, v.length - 1).replace("''", "'")
         }
-        v.toIntOrNull()?.let { return it }
-        v.toLongOrNull()?.let { return it }
-        v.toDoubleOrNull()?.let { return it }
+        if (v.startsWith("!!str ")) return v.removePrefix("!!str ").trim().trim('"', '\'')
+        // YAML 1.2 core schema (mihomo uses yaml.v3): yes / no / on / off are strings.
+        when (v) {
+            "true", "True", "TRUE" -> return true
+            "false", "False", "FALSE" -> return false
+            "null", "Null", "NULL", "~", "" -> return null
+        }
+        // Only canonical numbers: `short-id: 0123`, `password: 1e5` or `name: 1.10` must stay text.
+        v.toIntOrNull()?.let { if (it.toString() == v) return it }
+        v.toLongOrNull()?.let { if (it.toString() == v) return it }
+        v.toDoubleOrNull()?.let { if (it.toString() == v) return it }
         return v
+    }
+
+    private fun unescapeDouble(body: String): String {
+        if ('\\' !in body) return body
+        val sb = StringBuilder()
+        var i = 0
+        while (i < body.length) {
+            val c = body[i]
+            if (c != '\\' || i == body.lastIndex) {
+                sb.append(c)
+                i++
+                continue
+            }
+            val e = body[i + 1]
+            i += 2
+            when (e) {
+                'n' -> sb.append('\n')
+                't' -> sb.append('\t')
+                'r' -> sb.append('\r')
+                '0' -> sb.append('\u0000')
+                '"' -> sb.append('"')
+                '\\' -> sb.append('\\')
+                '/' -> sb.append('/')
+                ' ' -> sb.append(' ')
+                'x', 'u', 'U' -> {
+                    val len = when (e) {
+                        'x' -> 2
+                        'u' -> 4
+                        else -> 8
+                    }
+                    val hex = body.substring(i, minOf(body.length, i + len))
+                    val code = hex.toIntOrNull(16)
+                    if (code != null && hex.length == len) {
+                        sb.appendCodePoint(code)
+                        i += len
+                    } else {
+                        sb.append('\\').append(e)
+                    }
+                }
+                else -> sb.append('\\').append(e)
+            }
+        }
+        return sb.toString()
     }
 
     private fun parseFlow(raw: String): Any? {
@@ -2291,26 +3736,87 @@ internal object MiniYaml {
         return when {
             s.startsWith("{") -> parseFlowMap(s)
             s.startsWith("[") -> parseFlowList(s)
-            else -> parseScalar(s)
+            else -> flowScalar(s)
         }
+    }
+
+    private fun flowScalar(raw: String): Any? {
+        val p = raw.trim()
+        var v = p
+        var anchor: String? = null
+        if (v.startsWith("&")) {
+            anchor = v.substring(1).substringBefore(' ')
+            v = v.substring(1 + anchor.length).trim()
+        }
+        val result = when {
+            v.startsWith("*") -> alias(v)
+            isFlowStart(v) -> parseFlow(v)
+            else -> parseScalar(v)
+        }
+        if (anchor != null) anchors.get()[anchor] = result
+        return result
+    }
+
+    private fun closeFlow(raw: String, open: Char, close: Char): String {
+        var s = raw.trim()
+        if (s.startsWith(open)) s = s.substring(1)
+        s = s.trimEnd()
+        if (s.endsWith(close)) s = s.substring(0, s.length - 1)
+        return s.trim()
     }
 
     private fun parseFlowMap(raw: String): Map<String, Any?> {
-        val inner = raw.trim().removePrefix("{").removeSuffix("}").trim()
+        val inner = closeFlow(raw, '{', '}')
         val map = LinkedHashMap<String, Any?>()
         splitFlow(inner).forEach { part ->
-            val (k, v) = splitPair(part)
-            map[k] = if (v.startsWith("{") || v.startsWith("[")) parseFlow(v) else parseScalar(v)
+            if (part.isBlank()) return@forEach
+            val colon = flowPairColon(part)
+            if (colon < 0) {
+                map[unquoteKey(part.trim())] = null
+            } else {
+                map[unquoteKey(part.substring(0, colon).trim())] = flowScalar(part.substring(colon + 1))
+            }
         }
-        return map
+        return applyMerge(map)
+    }
+
+    /** In flow context `{a: b}` and JSON-ish `{"a":"b"}` both appear. */
+    private fun flowPairColon(part: String): Int {
+        val colon = pairColon(part)
+        if (colon >= 0) return colon
+        val t = part.trimStart()
+        if (t.startsWith("\"") || t.startsWith("'")) {
+            val q = t[0]
+            var i = 1
+            while (i < t.length) {
+                if (t[i] == '\\' && q == '"') {
+                    i += 2
+                    continue
+                }
+                if (t[i] == q) break
+                i++
+            }
+            val after = i + 1
+            val offset = part.length - t.length
+            if (after < t.length && t.substring(after).trimStart().startsWith(":")) {
+                return offset + after + (t.substring(after).length - t.substring(after).trimStart().length)
+            }
+        }
+        return -1
     }
 
     private fun parseFlowList(raw: String): List<Any?> {
-        val inner = raw.trim().removePrefix("[").removeSuffix("]").trim()
+        val inner = closeFlow(raw, '[', ']')
         if (inner.isEmpty()) return emptyList()
-        return splitFlow(inner).map { part ->
+        return splitFlow(inner).filter { it.isNotBlank() }.map { part ->
             val p = part.trim()
-            if (p.startsWith("{") || p.startsWith("[")) parseFlow(p) else parseScalar(p)
+            if (!isFlowStart(p) && !p.startsWith("\"") && !p.startsWith("'") && pairColon(p) >= 0) {
+                // `[a: 1]` single-pair map inside a flow list.
+                val (k, v) = splitPair(p)
+                mapOf(k to flowScalar(v))
+            } else {
+                flowScalar(p)
+            }
         }
     }
 
@@ -2320,19 +3826,40 @@ internal object MiniYaml {
         var depth = 0
         var inSingle = false
         var inDouble = false
-        for (c in raw) {
+        var escaped = false
+        for ((i, c) in raw.withIndex()) {
+            if (inDouble) {
+                buf.append(c)
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inDouble = false
+                }
+                continue
+            }
+            if (inSingle) {
+                buf.append(c)
+                if (c == '\'') inSingle = false
+                continue
+            }
             when {
-                c == '\'' && !inDouble -> inSingle = !inSingle
-                c == '"' && !inSingle -> inDouble = !inDouble
-                !inSingle && !inDouble && (c == '{' || c == '[') -> {
+                c == '\'' && quoteOpens(raw, i) -> {
+                    inSingle = true
+                    buf.append(c)
+                }
+                c == '"' && quoteOpens(raw, i) -> {
+                    inDouble = true
+                    buf.append(c)
+                }
+                c == '{' || c == '[' -> {
                     depth++
                     buf.append(c)
                 }
-                !inSingle && !inDouble && (c == '}' || c == ']') -> {
+                c == '}' || c == ']' -> {
                     depth--
                     buf.append(c)
                 }
-                !inSingle && !inDouble && c == ',' && depth == 0 -> {
+                c == ',' && depth == 0 -> {
                     out += buf.toString().trim()
                     buf.clear()
                 }

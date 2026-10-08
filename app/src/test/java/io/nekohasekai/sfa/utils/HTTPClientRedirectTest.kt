@@ -215,4 +215,14 @@ class HTTPClientRedirectTest {
         assertFalse(text.contains("Failed to update"))
         assertTrue(text.contains("更新"))
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun byNameRedirectToHexMappedLoopbackRejected() {
+        HTTPClient.nextUrl(
+            "https://example.com/sub.yaml",
+            "https://[::ffff:7f00:1]/secret",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            resolveDns = false,
+        )
+    }
 }

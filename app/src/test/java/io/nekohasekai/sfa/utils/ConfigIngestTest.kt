@@ -791,4 +791,155 @@ class ConfigIngestTest {
         assertEquals("https://example.com", node.getString("server"))
         JSONObject(result.content)
     }
+
+    @Test
+    fun shareLinkGrpcHostDoesNotWriteHeaders() {
+        val link = "vless://11111111-1111-1111-1111-111111111111@g.example.com:443?security=tls&type=grpc&serviceName=svc&host=cdn.example.com#g"
+        val transport = outbound(ConfigIngest.adapt(link).content, "g").getJSONObject("transport")
+        assertEquals("grpc", transport.getString("type"))
+        assertEquals("svc", transport.getString("service_name"))
+        assertFalse(transport.has("headers"))
+    }
+
+    @Test
+    fun shareLinkHttpUpgradeHostUsesHostField() {
+        val link = "vless://11111111-1111-1111-1111-111111111111@u.example.com:443?security=tls&type=httpupgrade&path=%2Fup%3Fed%3D2048&host=cdn.example.com#u"
+        val transport = outbound(ConfigIngest.adapt(link).content, "u").getJSONObject("transport")
+        assertEquals("httpupgrade", transport.getString("type"))
+        assertEquals("cdn.example.com", transport.getString("host"))
+        assertEquals("/up", transport.getString("path"))
+        assertFalse(transport.has("headers"))
+        assertFalse(transport.has("max_early_data"))
+    }
+
+    @Test
+    fun realityLinkWithoutFingerprintGetsUtls() {
+        val link = "vless://11111111-1111-1111-1111-111111111111@r.example.com:443?security=reality&sni=www.apple.com&pbk=abc&sid=01&flow=xtls-rprx-vision#r"
+        val tls = outbound(ConfigIngest.adapt(link).content, "r").getJSONObject("tls")
+        assertTrue(tls.getJSONObject("reality").getBoolean("enabled"))
+        assertTrue(tls.getJSONObject("utls").getBoolean("enabled"))
+        assertEquals("chrome", tls.getJSONObject("utls").getString("fingerprint"))
+    }
+
+    @Test
+    fun shareLinksWithSlashBeforeQueryAndEncodedPasswords() {
+        val text = listOf(
+            "hysteria2://p%40ss%2Bw@hy.example.com:8443/?sni=hy.example.com&insecure=1#hy",
+            "trojan://pa%23ss@[2001:db8::1]:443/?sni=t.example.com#t",
+            "ss://2022-blake3-aes-128-gcm:YWJjZGVmZ2hpamtsbW5vcA%3D%3D@ss.example.com:8388#s22",
+        ).joinToString("\n")
+        val content = ConfigIngest.adapt(text).content
+        val hy = outbound(content, "hy")
+        assertEquals(8443, hy.getInt("server_port"))
+        assertEquals("p@ss+w", hy.getString("password"))
+        val trojan = outbound(content, "t")
+        assertEquals("2001:db8::1", trojan.getString("server"))
+        assertEquals("pa#ss", trojan.getString("password"))
+        val ss = outbound(content, "s22")
+        assertEquals("2022-blake3-aes-128-gcm", ss.getString("method"))
+        assertEquals("YWJjZGVmZ2hpamtsbW5vcA==", ss.getString("password"))
+    }
+
+    @Test
+    fun malformedVmessLineDoesNotDropTheOthers() {
+        val bad = "vmess://" + java.util.Base64.getEncoder().encodeToString("not json".toByteArray())
+        val text = "$bad\nss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388#home"
+        val result = ConfigIngest.adapt(text)
+        assertTrue(result.fatal == null)
+        assertEquals("shadowsocks", outbound(result.content, "home").getString("type"))
+    }
+
+    @Test
+    fun clashYamlEdgeCasesKeepValues() {
+        val yaml = """
+            proxies:
+            - name: a
+              type: ss
+              server: 1.2.3.4
+              port: 443
+              cipher: aes-256-gcm
+              password: ab#12 # trailing comment
+              plugin: obfs
+              plugin-opts:
+                mode: http
+            - name: r
+              type: vless
+              server: r.example.com
+              port: 443
+              uuid: 11111111-1111-1111-1111-111111111111
+              servername: www.apple.com
+              reality-opts:
+                public-key: abc
+                short-id: 0123
+            - name: hy
+              type: hysteria2
+              server: hy.example.com
+              port: 443
+              password: secret
+              ports: 443,20000-30000
+            - name: up
+              type: vless
+              server: up.example.com
+              port: 443
+              uuid: 11111111-1111-1111-1111-111111111111
+              tls: true
+              network: ws
+              ws-opts:
+                path: /up
+                headers:
+                  Host: cdn.example.com
+                v2ray-http-upgrade: true
+            proxy-groups:
+            - name: PROXY
+              type: select
+              proxies: [a, r, hy, up]
+            rules:
+            - IP-CIDR6,2001:b28:f23d::/48,PROXY,no-resolve
+            - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val a = outbound(result.content, "a")
+        assertEquals("ab#12", a.getString("password"))
+        assertEquals("obfs-local", a.getString("plugin"))
+        val tls = outbound(result.content, "r").getJSONObject("tls")
+        assertEquals("0123", tls.getJSONObject("reality").getString("short_id"))
+        assertEquals("chrome", tls.getJSONObject("utls").getString("fingerprint"))
+        val ports = outbound(result.content, "hy").getJSONArray("server_ports")
+        assertEquals("443:443", ports.getString(0))
+        assertEquals("20000:30000", ports.getString(1))
+        val up = outbound(result.content, "up").getJSONObject("transport")
+        assertEquals("httpupgrade", up.getString("type"))
+        assertEquals("cdn.example.com", up.getString("host"))
+        assertEquals("/up", up.getString("path"))
+        val rules = JSONObject(result.content).getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(rules.contains("2001:b28:f23d::/48"))
+    }
+
+    @Test
+    fun clashGroupPointingAtDroppedGroupIsPruned() {
+        val yaml = """
+            proxies:
+              - {name: n1, type: ss, server: 1.2.3.4, port: 443, cipher: aes-256-gcm, password: x}
+            proxy-groups:
+              - {name: CHAIN, type: relay, proxies: [n1]}
+              - {name: PROXY, type: select, proxies: [CHAIN, n1]}
+              - {name: ONLY-CHAIN, type: select, proxies: [CHAIN]}
+            rules:
+              - DOMAIN,a.example.com,ONLY-CHAIN
+              - MATCH,CHAIN
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val root = JSONObject(result.content)
+        val outs = root.getJSONArray("outbounds")
+        val tags = (0 until outs.length()).map { outs.getJSONObject(it).getString("tag") }
+        assertFalse(tags.contains("CHAIN"))
+        assertFalse(tags.contains("ONLY-CHAIN"))
+        val proxy = outbound(result.content, "PROXY")
+        assertEquals(1, proxy.getJSONArray("outbounds").length())
+        assertEquals("n1", proxy.getJSONArray("outbounds").getString(0))
+        assertEquals("PROXY", root.getJSONObject("route").getString("final"))
+        assertFalse(root.getJSONObject("route").optJSONArray("rules")?.toString().orEmpty().contains("ONLY-CHAIN"))
+    }
 }

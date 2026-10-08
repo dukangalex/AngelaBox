@@ -47,7 +47,7 @@ Telegram 频道：[https://t.me/AngelaBox](https://t.me/AngelaBox)
 
 - 对外产品名、README、About、Release、APK 文件名、仓库路径都是 AngelaBox。包名仍为 `io.chainbox.app`。
 - 只发布 `AngelaBox-android.apk`。曾用名 ChainBox 不再出安装包。
-- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secret：`TG_BOT_TOKEN`。频道固定为 `@AngelaBox`。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
+- 发版工作流是 **AngelaBox Release**（文件 `release-chainbox.yml`）。发布成功后 `telegram.yml` 向 [t.me/AngelaBox](https://t.me/AngelaBox) 发说明并上传 APK。需仓库 Secret：`TG_BOT_TOKEN`。频道默认 `@AngelaBox`，可用 Secret `TG_CHANNEL_ID` 覆盖。`build-chainbox.yml` 已删除，不要恢复成第二个发版入口。
 - App 更新只查 `https://api.github.com/repos/dukangalex/AngelaBox/releases`，只下载 `AngelaBox-android.apk`，必须带 SHA-256，并校验 CN=ChainBox 发行证书。
 - **不要轮换当前发行私钥。** 1.0.x 全部由 CN=ChainBox（SHA-256 `e7041217…4151`）签署，这把钥匙从未进过 git。轮换会让所有 1.0.x 用户无法覆盖安装。2020 年泄露的 SagerNet JKS（CN 猫羽 世界）从未签过 1.0.x。
 - **Git 历史：** 当前树没有 `.jks` / `.keystore`。全量历史上 `7736e1e` **是** `dev` 与现存 tag 的祖先（浅克隆会误判）。已于 2026-09-18 公开说明：不改写历史、不轮换 CN=ChainBox、直链 200 是接受的残留。CI overlay-guards 用 `fetch-depth: 0` 扫工作树，防止再提交。`goodmen001/AngelaBox` 已独立（`fork: false`）。**不要为清历史反复改仓库可见性。**
@@ -95,7 +95,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 2. 把该 bot 加进频道 **AngelaBox**，授予「发布消息」权限。
 3. 仓库 **Settings → Secrets and variables → Actions** 增加：
    - `TG_BOT_TOKEN`：BotFather 给出的 token
-   - `TG_CHANNEL_ID`：`@AngelaBox`（或频道的 `-100…` 数字 ID）。机器人必须是该频道管理员。
+   - 频道：默认 `@AngelaBox`；设了仓库 Secret `TG_CHANNEL_ID` 时用它（不要设成 `@AngelaNexus`，那是别的项目的频道）。机器人必须是该频道管理员，否则通知步骤报 403（发版本身不受影响）。
 
 未配置时发版仍成功，只是跳过频道通知。配好后也可在 Actions 里手动跑 **Telegram Release**（文件 `telegram.yml`）。
 
@@ -123,7 +123,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 26`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 27`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

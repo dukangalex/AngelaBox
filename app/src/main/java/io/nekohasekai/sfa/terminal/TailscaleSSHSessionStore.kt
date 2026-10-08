@@ -138,11 +138,20 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
                     },
                 )
                 managed.terminalSession.transport = TailscaleSSHTransport(sshSession)
+                // The tab may have been closed while connecting; removeSession saw
+                // no client then, so close the late connection here.
+                if (isRemoved(managed)) {
+                    runCatching { sshSession.close() }
+                    disconnectClient(managed)
+                }
             } catch (e: Exception) {
                 finishSession(managed, -1, null, e.message ?: "SSH connection failed")
+                if (isRemoved(managed)) disconnectClient(managed)
             }
         }
     }
+
+    private fun isRemoved(managed: ManagedSession): Boolean = _state.value.sessions.none { it.id == managed.id }
 
     private fun finishSession(managed: ManagedSession, exitCode: Int, signal: String?, errorMessage: String?) {
         managed.exitSignal = signal

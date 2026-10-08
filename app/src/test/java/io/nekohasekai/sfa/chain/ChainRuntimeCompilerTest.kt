@@ -536,4 +536,94 @@ class ChainRuntimeCompilerTest {
         assertEquals("dns-local", resolver("jp-1"))
         assertEquals("dns-remote", resolver("idle"))
     }
+
+    @Test
+    fun crossProfileLandingDefaultDirectIsDropped() {
+        val landing = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(node("us-1"))
+                    .put(JSONObject().put("type", "direct").put("tag", "DIRECT"))
+                    .put(JSONObject().put("type", "selector").put("tag", "only-direct").put("outbounds", JSONArray().put("DIRECT")))
+                    .put(
+                        JSONObject()
+                            .put("type", "selector")
+                            .put("tag", "落地")
+                            .put("outbounds", JSONArray().put("DIRECT").put("only-direct").put("us-1"))
+                            .put("default", "DIRECT"),
+                    ),
+            )
+            .toString()
+        val compiled = ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = profile("节点选择"),
+                currentProfileId = 1L,
+                entryTag = "节点选择",
+                landingProfileId = 2L,
+                landingTag = "落地",
+                landingContent = landing,
+            ),
+        )
+        val outs = JSONObject(compiled).getJSONArray("outbounds")
+        val group = (0 until outs.length()).map { outs.getJSONObject(it) }
+            .first { it.optString("tag") == "chainbox-landing-2-落地" }
+        val members = group.getJSONArray("outbounds")
+        assertEquals(1, members.length())
+        assertEquals("chainbox-landing-2-us-1", members.getString(0))
+        assertFalse(group.has("default"))
+    }
+
+    @Test
+    fun nestedGroupEmptiedByLandingIsDroppedNotFatal() {
+        val content = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(node("hk-1"))
+                    .put(node("us-1"))
+                    .put(JSONObject().put("type", "selector").put("tag", "美国").put("outbounds", JSONArray().put("us-1")))
+                    .put(
+                        JSONObject()
+                            .put("type", "selector")
+                            .put("tag", "节点选择")
+                            .put("outbounds", JSONArray().put("美国").put("hk-1"))
+                            .put("default", "美国"),
+                    ),
+            )
+            .put("route", JSONObject().put("final", "节点选择"))
+            .toString()
+        val compiled = ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = content,
+                currentProfileId = 1L,
+                entryTag = "节点选择",
+                landingProfileId = 1L,
+                landingTag = "us-1",
+                landingContent = null,
+            ),
+        )
+        val outs = JSONObject(compiled).getJSONArray("outbounds")
+        val entry = (0 until outs.length()).map { outs.getJSONObject(it) }
+            .first { it.optString("tag") == "节点选择" }
+        val members = entry.getJSONArray("outbounds")
+        assertEquals(1, members.length())
+        assertEquals("hk-1", members.getString(0))
+        assertFalse(entry.has("default"))
+    }
+
+    @Test
+    fun broadOrInvertedDirectRuleIsNotBypass() {
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("10.0.0.0/0"))
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("192.168.0.0/8"))
+        assertFalse(ChainRuntimeCompiler.isPrivateCidr("::/0"))
+        assertTrue(ChainRuntimeCompiler.isPrivateCidr("172.16.0.0/12"))
+        assertTrue(ChainRuntimeCompiler.isPrivateCidr("fc00::/7"))
+        assertTrue(ChainRuntimeCompiler.isPrivateCidr("::1/128"))
+        val inverted = JSONObject()
+            .put("rule_set", JSONArray().put("geoip-cn"))
+            .put("invert", true)
+            .put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(inverted))
+    }
 }

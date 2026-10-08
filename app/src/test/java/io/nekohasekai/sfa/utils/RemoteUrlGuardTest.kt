@@ -230,4 +230,53 @@ class RemoteUrlGuardTest {
         assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SCRIPT))
         assertFalse(RemoteUrlGuard.isAddressAllowed(addr, RemoteUrlGuard.Kind.SUBSCRIPTION))
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun publicHttpsRejectsHexUniqueLocalIpv6() {
+        RemoteUrlGuard.requireHttpsPublic("https://[fd00::1]/geoip-cn.srs")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun hexMappedMetadataIpv6RejectedEvenWithPublicResolver() {
+        RemoteUrlGuard.requireAllowed(
+            "https://[::ffff:a9fe:a9fe]/latest/meta-data",
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            publicResolve,
+        )
+    }
+
+    @Test
+    fun linkLocalIpv6RejectedWhileTunnelIsUp() {
+        TunnelGate.setUp(true)
+        try {
+            RemoteUrlGuard.acceptSubscription("https://[fe80::1]/sub.yaml")
+            throw AssertionError("link-local IPv6 must stay rejected")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().isNotBlank())
+        } finally {
+            TunnelGate.setUp(false)
+        }
+    }
+
+    @Test
+    fun publicHexIpv6LiteralAllowed() {
+        RemoteUrlGuard.requireHttpsPublic("https://[2606:4700:4700::1111]/geoip-cn.srs")
+    }
+
+    @Test
+    fun inetAtonHostFormsRejected() {
+        for (url in listOf(
+            "https://2130706433/secret",
+            "https://0x7f000001/secret",
+            "https://0x7f.0.0.1/secret",
+            "https://0/secret",
+            "https://foo.localhost/secret",
+        )) {
+            assertFalse(url, RemoteUrlGuard.isPublicHttpsUrl(url))
+        }
+        assertTrue(RemoteUrlGuard.isNumericHostForm("2130706433"))
+        assertFalse(RemoteUrlGuard.isNumericHostForm("example.com"))
+        assertTrue(RemoteUrlGuard.isLiteralIp("fd00::1"))
+        assertFalse(RemoteUrlGuard.isLiteralIp("example.com"))
+    }
 }

@@ -126,7 +126,7 @@ fun ChainBuilderScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     var currentProfileId by remember { mutableStateOf(-1L) }
     var currentProfileName by remember { mutableStateOf("") }
     var currentProfilePath by remember { mutableStateOf<String?>(null) }
@@ -327,7 +327,9 @@ fun ChainBuilderScreen(
             if (result.isSuccess) {
                 exit = null
                 chainActive = false
-                notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                if (boundId == Settings.selectedProfile) {
+                    notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                }
                 snackbar.showSnackbar("已取消当前配置的链式代理")
             } else {
                 snackbar.showSnackbar("取消失败：${result.exceptionOrNull()?.message}")

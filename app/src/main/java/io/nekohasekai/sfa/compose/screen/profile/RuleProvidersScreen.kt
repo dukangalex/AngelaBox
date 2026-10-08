@@ -471,7 +471,13 @@ fun RuleProvidersScreen(
     val ui by viewModel.ui.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val notifyApply = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
+    // This page edits any profile; only the one the service runs needs a reload.
+    val notifyApply: (io.nekohasekai.sfa.compose.base.UiEvent.ApplyServiceChange.Mode) -> Unit = { mode ->
+        if (profileId == io.nekohasekai.sfa.database.Settings.selectedProfile) {
+            notifyApplyChange(mode)
+        }
+    }
     var viewPayload by remember { mutableStateOf<ViewPayload?>(null) }
     var uploadTag by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->

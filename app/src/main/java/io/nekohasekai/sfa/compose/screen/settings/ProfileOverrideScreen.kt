@@ -56,6 +56,7 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Settings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,7 +71,7 @@ fun ProfileOverrideScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var autoRedirect by remember { mutableStateOf(Settings.autoRedirect) }
     var onDemand by remember { mutableStateOf(Settings.onDemand) }
@@ -97,12 +98,24 @@ fun ProfileOverrideScreen(
     fun scanAndSaveManagedList(shouldNotify: Boolean = false) {
         isScanning = true
         scope.launch {
-            val chinaApps = PerAppProxyScanner.scanAllChinaApps()
-            withContext(Dispatchers.IO) {
-                Settings.perAppProxyManagedList = chinaApps
-            }
-            isScanning = false
-            if (shouldNotify) {
+            // A failed package query (root/Shizuku gone) must not crash the app.
+            val scanned =
+                try {
+                    val chinaApps = PerAppProxyScanner.scanAllChinaApps()
+                    withContext(Dispatchers.IO) {
+                        Settings.perAppProxyManagedList = chinaApps
+                        Settings.perAppProxyManagedScanned = true
+                    }
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Toast.makeText(context, e.message ?: e.toString(), Toast.LENGTH_SHORT).show()
+                    false
+                } finally {
+                    isScanning = false
+                }
+            if (scanned && shouldNotify) {
                 withContext(Dispatchers.Main) { reload() }
             }
         }
@@ -271,11 +284,14 @@ fun ProfileOverrideScreen(
                                         managedModeEnabled = checked
                                         scope.launch(Dispatchers.IO) {
                                             Settings.perAppProxyManagedMode = checked
-                                        }
-                                        if (checked) {
-                                            scanAndSaveManagedList(shouldNotify = true)
-                                        } else {
-                                            reload()
+                                            // Reload only after the new mode is stored.
+                                            withContext(Dispatchers.Main) {
+                                                if (checked) {
+                                                    scanAndSaveManagedList(shouldNotify = true)
+                                                } else {
+                                                    reload()
+                                                }
+                                            }
                                         }
                                     },
                                 )

@@ -380,12 +380,19 @@ class QRScanViewModel(application: Application) : AndroidViewModel(application) 
     private fun processQRCode(value: String): Boolean {
         try {
             val uri = Uri.parse(value)
-            if (uri.scheme != "sing-box" || uri.host != "import-remote-profile") {
+            val remoteProfile = uri.scheme == "sing-box" && uri.host == "import-remote-profile"
+            // Node links (vless://, ss://, hy2://…), base64 node lists and HTTPS subscriptions are
+            // handed to ProfileImportHandler, which routes them through ConfigIngest like file import.
+            val importable = !remoteProfile && (
+                value.startsWith("https://", ignoreCase = true) ||
+                    io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(value)
+                )
+            if (!remoteProfile && !importable) {
                 _uiState.update { it.copy(errorMessage = "Not a valid sing-box remote profile URI") }
                 imageAnalysis?.setAnalyzer(analysisExecutor, imageAnalyzer!!)
                 return false
             }
-            Libbox.parseRemoteProfileImportLink(uri.toString())
+            if (remoteProfile) Libbox.parseRemoteProfileImportLink(uri.toString())
             _uiState.update { it.copy(result = QRScanResult.RemoteProfile(uri)) }
             return true
         } catch (e: Exception) {

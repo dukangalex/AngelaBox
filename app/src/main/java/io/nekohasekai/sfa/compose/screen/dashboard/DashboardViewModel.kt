@@ -35,6 +35,7 @@ import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +51,7 @@ import org.json.JSONException
 import java.io.File
 import java.util.Collections
 import java.util.Date
+import java.util.concurrent.atomic.AtomicLong
 
 enum class CardGroup {
     ChainPath,
@@ -180,9 +182,11 @@ class DashboardViewModel :
     private val topologyLock = Any()
     private var lastTopologyPublishAt = 0L
     private var pendingTopology = false
+    private val loadSeq = AtomicLong()
 
     companion object {
         private const val TOPOLOGY_THROTTLE_MS = 1000L
+        private const val PERSIST_ORDER_DELAY_MS = 400L
     }
 
     private data class LiveSnap(
@@ -238,6 +242,11 @@ class DashboardViewModel :
     override fun onCleared() {
         super.onCleared()
         ProfileManager.unregisterCallback(::onProfilesChanged)
+        // A drag that ended just before the screen closed has not been saved yet.
+        pendingOrder?.let { order ->
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) { persistOrder(order) }
+        }
         commandClient.disconnect()
     }
 
@@ -246,16 +255,21 @@ class DashboardViewModel :
     }
 
     private fun loadProfiles() {
+        val seq = loadSeq.incrementAndGet()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val profiles = ProfileManager.list()
                 val selectedId = Settings.selectedProfile
                 val selected = profiles.find { it.id == selectedId }
                 val path = buildChainPath(profiles, selectedId, selected)
+                // Loads run concurrently on IO; an older one finishing last
+                // would put back a stale selection/profile list.
+                if (seq != loadSeq.get()) return@launch
                 plannedPath = path
                 val topology = buildTopology()
 
                 withContext(Dispatchers.Main) {
+                    if (seq != loadSeq.get()) return@withContext
                     updateState {
                         copy(
                             profiles = profiles,
@@ -510,13 +524,28 @@ class DashboardViewModel :
         // Update UI immediately
         updateState { copy(profiles = currentProfiles) }
 
-        // Update user order in database
-        viewModelScope.launch(Dispatchers.IO) {
-            currentProfiles.forEachIndexed { index, profile ->
-                profile.userOrder = index.toLong()
-            }
-            ProfileManager.update(currentProfiles)
+        // Persist once the drag settles. Each drag step used to write (and
+        // fire profile callbacks that reload the list) mid-drag, so an
+        // intermediate order could be saved or flash on screen.
+        persistOrderJob?.cancel()
+        pendingOrder = currentProfiles
+        persistOrderJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(PERSIST_ORDER_DELAY_MS)
+            persistOrder(currentProfiles)
         }
+    }
+
+    private var persistOrderJob: Job? = null
+
+    @Volatile
+    private var pendingOrder: List<Profile>? = null
+
+    private suspend fun persistOrder(profiles: List<Profile>) {
+        if (pendingOrder === profiles) pendingOrder = null
+        profiles.forEachIndexed { index, profile ->
+            profile.userOrder = index.toLong()
+        }
+        ProfileManager.update(profiles)
     }
 
     fun showAddProfileSheet() {

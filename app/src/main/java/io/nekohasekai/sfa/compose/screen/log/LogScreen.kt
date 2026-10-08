@@ -104,6 +104,10 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -559,24 +563,33 @@ fun LogScreen(
                 rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.CreateDocument("text/plain"),
                     onResult = { uri ->
-                        uri?.let {
-                            try {
-                                context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                                    val logsText = resolvedViewModel.getAllLogsText()
-                                    outputStream.write(logsText.toByteArray())
-                                    outputStream.flush()
+                        if (uri != null) {
+                            val logsText = resolvedViewModel.getAllLogsText()
+                            coroutineScope.launch {
+                                try {
+                                    // Content-provider writes can be slow (cloud
+                                    // providers); keep them off the main thread.
+                                    withContext(Dispatchers.IO) {
+                                        val output = checkNotNull(context.contentResolver.openOutputStream(uri))
+                                        output.use {
+                                            it.write(logsText.toByteArray())
+                                            it.flush()
+                                        }
+                                    }
                                     Toast.makeText(
                                         context,
                                         context.getString(R.string.success_logs_saved),
                                         Toast.LENGTH_SHORT,
                                     ).show()
+                                } catch (exception: CancellationException) {
+                                    throw exception
+                                } catch (exception: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.failed_save_logs, exception.message),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                 }
-                            } catch (e: Exception) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.failed_save_logs, e.message),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
                             }
                         }
                     },
@@ -761,41 +774,47 @@ fun LogScreen(
                         onClick = {
                             val logsText = resolvedViewModel.getAllLogsText()
                             if (logsText.isNotEmpty()) {
-                                try {
-                                    val logsDir =
-                                        File(context.cacheDir, "logs").also { it.mkdirs() }
-                                    val timestamp =
-                                        SimpleDateFormat(
-                                            "yyyyMMdd_HHmmss",
-                                            Locale.getDefault(),
-                                        ).format(Date())
-                                    val logFile = File(logsDir, "${saveFilePrefix}_$timestamp.txt")
-                                    logFile.writeText(logsText)
-
-                                    val uri =
-                                        FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.cache",
-                                            logFile,
-                                        )
-                                    val shareIntent =
-                                        Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                coroutineScope.launch {
+                                    try {
+                                        val uri = withContext(Dispatchers.IO) {
+                                            val logsDir =
+                                                File(context.cacheDir, "logs").also { it.mkdirs() }
+                                            // Logs stay off disk: keep only the copy being shared.
+                                            logsDir.listFiles()?.forEach { it.delete() }
+                                            val timestamp =
+                                                SimpleDateFormat(
+                                                    "yyyyMMdd_HHmmss",
+                                                    Locale.getDefault(),
+                                                ).format(Date())
+                                            val logFile = File(logsDir, "${saveFilePrefix}_$timestamp.txt")
+                                            logFile.writeText(logsText)
+                                            FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.cache",
+                                                logFile,
+                                            )
                                         }
-                                    context.startActivity(
-                                        Intent.createChooser(
-                                            shareIntent,
-                                            context.getString(R.string.intent_share_logs),
-                                        ),
-                                    )
-                                } catch (e: Exception) {
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.failed_share_logs, e.message),
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                        val shareIntent =
+                                            Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_STREAM, uri)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                shareIntent,
+                                                context.getString(R.string.intent_share_logs),
+                                            ),
+                                        )
+                                    } catch (exception: CancellationException) {
+                                        throw exception
+                                    } catch (exception: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.failed_share_logs, exception.message),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
                                 }
                             } else {
                                 Toast.makeText(

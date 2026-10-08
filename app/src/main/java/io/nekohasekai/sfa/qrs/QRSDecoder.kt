@@ -6,6 +6,7 @@ import java.util.zip.Inflater
 
 class QRSDecoder {
     private var codec: LubyCodec? = null
+    private var sliceSize = 0
     private var state: LubyCodec.DecodingState? = null
     private val processedHashes = mutableSetOf<Int>()
 
@@ -70,8 +71,12 @@ class QRSDecoder {
 
         if (codec == null) {
             codec = LubyCodec(sliceSize = block.data.size)
+            sliceSize = block.data.size
             state = codec!!.createDecodingState(block)
         }
+        // A frame from another encoding (other slice size or block count) with
+        // the same checksum cannot be mixed in; its indices could overrun.
+        if (block.data.size != sliceSize || block.totalBlocks != state!!.totalBlocks) return null
 
         val currentState = state!!
         val complete = codec!!.processBlock(currentState, block)
@@ -125,6 +130,7 @@ class QRSDecoder {
     @Synchronized
     fun reset() {
         codec = null
+        sliceSize = 0
         state = null
         processedHashes.clear()
     }
@@ -141,7 +147,8 @@ class QRSDecoder {
         val degree = payload.readIntLE(offset)
         offset += 4
 
-        if (degree <= 0 || payload.size < 4 + 4 * degree + 12) return null
+        // Divide instead of multiply: 4 * degree overflows for a huge degree.
+        if (degree <= 0 || degree > (payload.size - 16) / 4) return null
 
         val indices = IntArray(degree) {
             val idx = payload.readIntLE(offset)
@@ -162,6 +169,13 @@ class QRSDecoder {
 
         val data = payload.copyOfRange(offset, payload.size)
 
+        // Frames come from any QR code the camera sees. Reject values that would
+        // index out of range or allocate absurd buffers instead of crashing.
+        if (data.isEmpty() || totalBlocks <= 0 || totalBlocks > MAX_BLOCKS) return null
+        if (compressedSize < 0 || compressedSize.toLong() > totalBlocks.toLong() * data.size) return null
+        if (indices.any { it < 0 || it >= totalBlocks }) return null
+        if (indices.distinct().size != indices.size) return null
+
         return LubyCodec.EncodedBlock(degree, indices, totalBlocks, compressedSize, checksum, data)
     }
 
@@ -172,10 +186,19 @@ class QRSDecoder {
 
         while (!inflater.finished()) {
             val count = inflater.inflate(decompressBuffer)
-            if (count == 0 && inflater.needsInput()) break
+            if (count == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
             outputBuffer.write(decompressBuffer, 0, count)
+            // A profile is small; stop a deflate bomb before it exhausts memory.
+            if (outputBuffer.size() > MAX_DECOMPRESSED_SIZE) {
+                throw IllegalStateException("decompressed data too large")
+            }
         }
 
         return outputBuffer.toByteArray()
+    }
+
+    private companion object {
+        const val MAX_BLOCKS = 100000
+        const val MAX_DECOMPRESSED_SIZE = 32 * 1024 * 1024
     }
 }

@@ -575,4 +575,15 @@ class ConfigCompatTest {
         }
         return false
     }
+
+    @Test
+    fun logFileOutputIsDropped() {
+        val out = org.json.JSONObject(
+            ConfigCompat.sanitize(
+                """{"log":{"level":"debug","output":"box.log"},"outbounds":[{"type":"direct","tag":"direct"}]}""",
+            ),
+        )
+        org.junit.Assert.assertFalse(out.getJSONObject("log").has("output"))
+        org.junit.Assert.assertEquals("debug", out.getJSONObject("log").getString("level"))
+    }
 }

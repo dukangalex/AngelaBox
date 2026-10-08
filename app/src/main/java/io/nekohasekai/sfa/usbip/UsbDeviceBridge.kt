@@ -13,6 +13,7 @@ import io.nekohasekai.libbox.USBURBResponse
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class UsbDeviceBridge private constructor(
     val deviceId: String,
@@ -92,8 +93,17 @@ class UsbDeviceBridge private constructor(
     fun submit(request: USBURBRequest) {
         if (closed) return
         val endpointNumber = request.endpoint and 0x0f
-        executors.getOrPut(endpointNumber) { Executors.newSingleThreadExecutor() }
-            .execute { execute(request, endpointNumber) }
+        val executor = executors.getOrPut(endpointNumber) { Executors.newSingleThreadExecutor() }
+        // close() can run between the check above and here: do not leak a new
+        // executor thread, and do not throw into the libbox callback thread.
+        if (closed) {
+            executor.shutdownNow()
+            return
+        }
+        try {
+            executor.execute { execute(request, endpointNumber) }
+        } catch (_: RejectedExecutionException) {
+        }
     }
 
     private fun execute(request: USBURBRequest, endpointNumber: Int) {

@@ -99,6 +99,11 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
+            // Node links, a base64 node list or a pasted Clash / JSON node: same detection as file import.
+            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                return@withContext QRCodeParseResult.LocalProfile(name = nodeProfileName(data))
+            }
+
             if (data.startsWith("https://", ignoreCase = true)) {
                 val profileName = extractProfileNameFromUrl(data)
                 return@withContext QRCodeParseResult.RemoteProfile(
@@ -109,20 +114,6 @@ class ProfileImportHandler(private val context: Context) {
             }
             if (data.startsWith("http://", ignoreCase = true)) {
                 return@withContext QRCodeParseResult.Error("订阅仅允许 HTTPS")
-            }
-
-            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
-                val adapted = io.nekohasekai.sfa.utils.ConfigIngest.adapt(data)
-                if (adapted.fatal == null) {
-                    val name = try {
-                        val root = JSONObject(adapted.content)
-                        val firstOut = root.optJSONArray("outbounds")?.optJSONObject(0)?.optString("tag")
-                        firstOut?.takeIf { it.isNotEmpty() } ?: "节点配置"
-                    } catch (_: Exception) {
-                        "节点配置"
-                    }
-                    return@withContext QRCodeParseResult.LocalProfile(name = name)
-                }
             }
 
             val content = try {
@@ -151,25 +142,15 @@ class ProfileImportHandler(private val context: Context) {
                 }
             }
 
+            if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
+                return@withContext importJsonConfiguration(data, nodeProfileName(data))
+            }
+
             if (data.startsWith("https://", ignoreCase = true)) {
                 val profileName = extractProfileNameFromUrl(data)
                 importRemoteProfile(profileName, data)
             } else if (data.startsWith("http://", ignoreCase = true)) {
                 ImportResult.Error("订阅仅允许 HTTPS")
-            } else if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
-                val adapted = io.nekohasekai.sfa.utils.ConfigIngest.adapt(data)
-                if (adapted.fatal != null) {
-                    ImportResult.Error(adapted.fatal)
-                } else {
-                    val name = try {
-                        val root = JSONObject(adapted.content)
-                        val firstOut = root.optJSONArray("outbounds")?.optJSONObject(0)?.optString("tag")
-                        firstOut?.takeIf { it.isNotEmpty() } ?: "导入节点"
-                    } catch (_: Exception) {
-                        "导入节点"
-                    }
-                    importJsonConfiguration(adapted.content, name)
-                }
             } else {
                 val content = try {
                     Libbox.decodeProfileContent(data.toByteArray())
@@ -313,6 +294,19 @@ class ProfileImportHandler(private val context: Context) {
             }
         }
         return filename
+    }
+
+    /** A single link names the profile after its `#fragment`; anything else is "Imported Profile". */
+    private fun nodeProfileName(data: String): String {
+        val lines = data.trim().lines().filter { it.isNotBlank() }
+        if (lines.size != 1) return "Imported Profile"
+        val fragment = lines[0].substringAfter('#', "").trim()
+        if (fragment.isEmpty()) return "Imported Profile"
+        return try {
+            java.net.URLDecoder.decode(fragment, "UTF-8")
+        } catch (_: Exception) {
+            fragment
+        }.ifBlank { "Imported Profile" }
     }
 
     private fun isJsonConfiguration(content: String): Boolean {

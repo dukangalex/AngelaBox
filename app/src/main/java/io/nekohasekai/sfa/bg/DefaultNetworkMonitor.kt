@@ -16,7 +16,9 @@ import java.net.NetworkInterface
 
 object DefaultNetworkMonitor {
 
+    @Volatile
     var defaultNetwork: Network? = null
+    @Volatile
     private var listener: InterfaceUpdateListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastName: String? = null
@@ -43,16 +45,25 @@ object DefaultNetworkMonitor {
             DefaultNetworkListener.get()
         }
         running = true
-        registerWake()
-        scheduleWatch()
+        // The handler state below is only touched on the main thread; start()
+        // and stop() are called from Dispatchers.IO. Posting keeps their order.
+        mainHandler.post {
+            if (!running) return@post
+            registerWake()
+            pendingWatch?.let { mainHandler.removeCallbacks(it) }
+            pendingWatch = null
+            scheduleWatch()
+        }
     }
 
     suspend fun stop() {
         running = false
-        unregisterWake()
-        cancelPending()
-        pendingWatch?.let { mainHandler.removeCallbacks(it) }
-        pendingWatch = null
+        mainHandler.post {
+            unregisterWake()
+            cancelPending()
+            pendingWatch?.let { mainHandler.removeCallbacks(it) }
+            pendingWatch = null
+        }
         DefaultNetworkListener.stop(this)
     }
 
@@ -66,6 +77,17 @@ object DefaultNetworkMonitor {
 
     fun setListener(listener: InterfaceUpdateListener?) {
         this.listener = listener
+        // Called on a kernel thread. Resetting lastName/lastIndex there races
+        // the main-thread notify path, which can leave a new kernel instance
+        // without its first default-interface update. Reset on main instead.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { resetAndNotify() }
+            return
+        }
+        resetAndNotify()
+    }
+
+    private fun resetAndNotify() {
         lastName = null
         lastIndex = null
         checkDefaultInterfaceUpdate(defaultNetwork, false)

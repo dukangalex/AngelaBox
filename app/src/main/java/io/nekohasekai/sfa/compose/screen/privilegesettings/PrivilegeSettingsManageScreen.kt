@@ -69,10 +69,16 @@ import io.nekohasekai.sfa.vendor.PackageQueryManager
 import io.nekohasekai.sfa.vendor.PrivilegedAccessRequiredException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private data class LoadResult(val packages: List<PackageCache>, val selectedUids: Set<Int>)
+private data class LoadResult(
+    val packages: List<PackageCache>,
+    val selectedUids: Set<Int>,
+    val unlistedSelected: Set<String>,
+)
 
 private const val VPN_SERVICE_PERMISSION = "android.permission.BIND_VPN_SERVICE"
 
@@ -106,7 +112,7 @@ fun PrivilegeSettingsManageScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var sortMode by remember { mutableStateOf(SortMode.NAME) }
     var sortReverse by remember { mutableStateOf(false) }
@@ -124,6 +130,11 @@ fun PrivilegeSettingsManageScreen(
     var searchQuery by remember { mutableStateOf("") }
     var riskyWarningMessage by remember { mutableStateOf<String?>(null) }
     var syncErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Saved packages that are not in the queried list (other users, hidden
+    // apps). Keep them so a save does not drop them.
+    var unlistedSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val saveLock = remember { Mutex() }
 
     fun getRiskCategory(packageCache: PackageCache): RiskCategory {
         val permissions = packageCache.info.requestedPermissions ?: emptyArray()
@@ -143,9 +154,8 @@ fun PrivilegeSettingsManageScreen(
         }
     }
 
-    fun buildPackageList(newUids: Set<Int>): Set<String> = newUids.mapNotNull { uid ->
-        packages.find { it.uid == uid }?.packageName
-    }.toSet()
+    fun buildPackageList(newUids: Set<Int>): Set<String> =
+        packages.filter { it.uid in newUids }.mapTo(HashSet(unlistedSelected)) { it.packageName }
 
     fun updateCurrentPackages(filterQuery: String) {
         currentPackages =
@@ -175,12 +185,20 @@ fun PrivilegeSettingsManageScreen(
         currentPackages = displayPackages
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun saveSelectedApplications(newUids: Set<Int>) {
+        // Before the list loads, an empty package list would wipe the saved set.
+        if (isLoading) return
         coroutineScope.launch {
+            // Writes are serialized and always store the newest selection, so
+            // quick toggles cannot land out of order and lose a change.
             val failure =
-                withContext(Dispatchers.IO) {
-                    Settings.privilegeSettingsList = buildPackageList(newUids)
-                    PrivilegeSettingsClient.sync()
+                saveLock.withLock {
+                    val list = buildPackageList(selectedUids)
+                    withContext(Dispatchers.IO) {
+                        Settings.privilegeSettingsList = list
+                        PrivilegeSettingsClient.sync()
+                    }
                 }
             if (failure != null) {
                 syncErrorMessage = failure.message ?: failure.toString()
@@ -292,7 +310,8 @@ fun PrivilegeSettingsManageScreen(
                                 null
                             }
                         }.toSet()
-                    LoadResult(packageCaches, selectedUidSet)
+                    val listedNames = packageCaches.mapTo(HashSet()) { it.packageName }
+                    LoadResult(packageCaches, selectedUidSet, selectedPackageNames - listedNames)
                 } catch (_: PrivilegedAccessRequiredException) {
                     null
                 }
@@ -308,6 +327,7 @@ fun PrivilegeSettingsManageScreen(
         }
         packages = loadResult.packages
         selectedUids = loadResult.selectedUids
+        unlistedSelected = loadResult.unlistedSelected
         applyFilter()
         updateCurrentPackages(searchQuery)
         isLoading = false

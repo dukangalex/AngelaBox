@@ -865,8 +865,8 @@ def main() -> int:
         errors.append("default script must replace original groups, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 26" not in sample:
-        errors.append("default script must stamp overlay-revision: 26 so stale copies refresh")
+    if "overlay-revision: 27" not in sample:
+        errors.append("default script must stamp overlay-revision: 27 so stale copies refresh")
     claude = sample.find('name: "ClaudeAI"')
     ai = sample.find('name: "AI"')
     if claude < 0 or ai < 0 or claude > ai:
@@ -874,7 +874,7 @@ def main() -> int:
     if "geosite-anthropic" not in sample:
         errors.append("ClaudeAI must use the official anthropic rule set")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 26"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 27"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
         errors.append("default script must not fake load-balance or failover groups")

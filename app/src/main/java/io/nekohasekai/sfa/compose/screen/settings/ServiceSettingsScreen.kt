@@ -95,7 +95,7 @@ fun ServiceSettingsScreen(
     var isBatteryOptimizationIgnored by remember { mutableStateOf(false) }
     var allowBypass by remember { mutableStateOf(Settings.allowBypass) }
     var systemProxyEnabled by remember { mutableStateOf(Settings.systemProxyEnabled) }
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
     val requestBatteryOptimizationLauncher =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),

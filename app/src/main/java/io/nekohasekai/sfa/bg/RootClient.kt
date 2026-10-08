@@ -69,7 +69,9 @@ object RootClient {
                         service = svc
                         connection = this
                         _serviceConnected.value = true
-                        continuation.resume(svc)
+                        // libsu reconnects after the root process restarts and
+                        // fires this again; a second resume would crash.
+                        if (continuation.isActive) continuation.resume(svc)
                     }
 
                     override fun onServiceDisconnected(name: ComponentName?) {
@@ -94,13 +96,13 @@ object RootClient {
                             val shell = Shell.getShell()
                             if (shell.isRoot) {
                                 shell.execTask(task)
-                            } else {
+                            } else if (continuation.isActive) {
                                 continuation.resumeWithException(
                                     IOException("permission denied"),
                                 )
                             }
                         } catch (e: Exception) {
-                            continuation.resumeWithException(e)
+                            if (continuation.isActive) continuation.resumeWithException(e)
                         }
                     }
                 }

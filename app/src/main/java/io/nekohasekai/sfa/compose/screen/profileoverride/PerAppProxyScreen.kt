@@ -91,9 +91,16 @@ import io.nekohasekai.sfa.vendor.PackageQueryManager
 import io.nekohasekai.sfa.vendor.PrivilegedAccessRequiredException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-private data class LoadResult(val proxyMode: Int, val packages: List<PackageCache>, val selectedUids: Set<Int>)
+private data class LoadResult(
+    val proxyMode: Int,
+    val packages: List<PackageCache>,
+    val selectedUids: Set<Int>,
+    val unlistedSelected: Set<String>,
+)
 
 private data class ScanProgress(val current: Int, val max: Int)
 
@@ -113,7 +120,7 @@ fun PerAppProxyScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var proxyMode by remember { mutableStateOf(Settings.perAppProxyMode) }
     var sortMode by remember { mutableStateOf(SortMode.NAME) }
@@ -134,9 +141,13 @@ fun PerAppProxyScreen(
     var scanProgress by remember { mutableStateOf<ScanProgress?>(null) }
     var scanResult by remember { mutableStateOf<ScanResult?>(null) }
 
-    fun buildPackageList(newUids: Set<Int>): Set<String> = newUids.mapNotNull { uid ->
-        packages.find { it.uid == uid }?.packageName
-    }.toSet()
+    // Saved packages that are not in the queried list (other users, hidden or
+    // currently uninstalled apps). Keep them so a save does not drop them.
+    var unlistedSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val saveLock = remember { Mutex() }
+
+    fun buildPackageList(newUids: Set<Int>): Set<String> =
+        packages.filter { it.uid in newUids }.mapTo(HashSet(unlistedSelected)) { it.packageName }
 
     fun updateCurrentPackages(filterQuery: String) {
         currentPackages =
@@ -166,10 +177,18 @@ fun PerAppProxyScreen(
         currentPackages = displayPackages
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun saveSelectedApplications(newUids: Set<Int>) {
+        // Before the list loads, an empty package list would wipe the saved set.
+        if (isLoading) return
         coroutineScope.launch {
-            withContext(Dispatchers.IO) {
-                Settings.perAppProxyList = buildPackageList(newUids)
+            // Writes are serialized and always store the newest selection, so
+            // quick toggles cannot land out of order and lose a change.
+            saveLock.withLock {
+                val list = buildPackageList(selectedUids)
+                withContext(Dispatchers.IO) {
+                    Settings.perAppProxyList = list
+                }
             }
             notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
         }
@@ -272,7 +291,8 @@ fun PerAppProxyScreen(
                                 null
                             }
                         }.toSet()
-                    LoadResult(mode, packageCaches, selectedUidSet)
+                    val listedNames = packageCaches.mapTo(HashSet()) { it.packageName }
+                    LoadResult(mode, packageCaches, selectedUidSet, selectedPackageNames - listedNames)
                 } catch (_: PrivilegedAccessRequiredException) {
                     null
                 }
@@ -289,6 +309,7 @@ fun PerAppProxyScreen(
         proxyMode = loadResult.proxyMode
         packages = loadResult.packages
         selectedUids = loadResult.selectedUids
+        unlistedSelected = loadResult.unlistedSelected
         applyFilter()
         updateCurrentPackages(searchQuery)
         isLoading = false

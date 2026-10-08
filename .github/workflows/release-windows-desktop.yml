@@ -23,6 +23,7 @@ jobs:
   paused:
     name: Windows desktop paused
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Refuse to build
         run: echo "Windows builds are paused. Existing packages are incomplete and unmaintained. See docs/WINDOWS.md"
@@ -179,17 +180,17 @@ jobs:
           cache: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@94ec8bc822f50f94d0e68501cff2eb388c550726 # 1.88.0
         with:
           targets: ${{ matrix.rust_target }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           package_json_file: desktop/package.json
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: desktop/package.json
           cache: pnpm

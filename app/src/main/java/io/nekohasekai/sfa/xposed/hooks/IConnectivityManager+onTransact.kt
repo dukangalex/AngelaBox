@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageInfo
 import android.os.Binder
 import android.os.Parcel
+import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.bg.PackageEntry
@@ -49,61 +50,80 @@ class HookIConnectivityManagerOnTransact(private val classLoader: ClassLoader, p
                         return
                     }
                     if (!isCallerAllowed()) {
-                        reply!!.writeException(SecurityException("unauthorized"))
+                        // A one-way call has no reply; reply!! here would let any
+                        // app disable this hook.
+                        reply?.writeException(SecurityException("unauthorized"))
                         param.result = true
                         return
                     }
-                    if (code == HookStatusKeys.TRANSACTION_STATUS) {
-                        val status = HookStatusStore.snapshot()
-                        reply!!.writeNoException()
-                        reply.writeInt(if (status.active) 1 else 0)
-                        reply.writeLong(status.lastPatchedAt)
-                        reply.writeInt(status.version)
-                        reply.writeInt(status.systemPid)
-                        param.result = true
-                        return
-                    }
-                    if (code == HookStatusKeys.TRANSACTION_GET_ERRORS) {
-                        val hasWarnings = HookErrorStore.hasWarnings()
-                        val entries = HookErrorStore.snapshot()
-                        reply!!.writeNoException()
-                        reply.writeInt(if (hasWarnings) 1 else 0)
-                        ParceledListSlice(entries).writeToParcel(reply, 0)
-                        param.result = true
-                        return
-                    }
-                    if (code == HookStatusKeys.TRANSACTION_GET_INSTALLED_PACKAGES) {
-                        val flags = data.readLong()
-                        val userId = data.readInt()
-                        val packages = getInstalledPackages(flags, userId)
-                        reply!!.writeNoException()
-                        ParceledListSlice(packages).writeToParcel(reply, 0)
-                        param.result = true
-                        return
-                    }
-                    val enabled = data.readInt() != 0
-                    val slice = ParceledListSlice.CREATOR.createFromParcel(data, PackageEntry::class.java.classLoader)
-                    val packages = HashSet<String>()
-                    for (entry in slice.list) {
-                        if (entry is PackageEntry) {
-                            packages.add(entry.packageName)
+                    // Handle our own transactions without letting an error escape:
+                    // SafeMethodHook would disable the whole hook until reboot (for
+                    // example when the app dies while a large list is being read).
+                    try {
+                        handle(code, data, reply, param)
+                    } catch (e: Throwable) {
+                        HookErrorStore.e(SOURCE, "IConnectivityManager transact $code failed", e)
+                        if (reply != null) {
+                            reply.setDataSize(0)
+                            reply.setDataPosition(0)
+                            reply.writeException(IllegalStateException(e.toString()))
                         }
+                        param.result = true
                     }
-                    var renameEnabled = false
-                    var prefix = "en"
-                    if (data.dataAvail() >= 4) {
-                        renameEnabled = data.readInt() != 0
-                        if (data.dataAvail() > 0) {
-                            prefix = data.readString() ?: "en"
-                        }
-                    }
-                    PrivilegeSettingsStore.update(enabled, packages, renameEnabled, prefix)
-                    reply!!.writeNoException()
-                    param.result = true
                 }
             },
         )
         HookErrorStore.i(SOURCE, "Hooked IConnectivityManager.onTransact")
+    }
+
+    private fun handle(code: Int, data: Parcel, reply: Parcel?, param: XC_MethodHook.MethodHookParam) {
+        if (code == HookStatusKeys.TRANSACTION_STATUS) {
+            val status = HookStatusStore.snapshot()
+            reply!!.writeNoException()
+            reply.writeInt(if (status.active) 1 else 0)
+            reply.writeLong(status.lastPatchedAt)
+            reply.writeInt(status.version)
+            reply.writeInt(status.systemPid)
+            param.result = true
+            return
+        }
+        if (code == HookStatusKeys.TRANSACTION_GET_ERRORS) {
+            val hasWarnings = HookErrorStore.hasWarnings()
+            val entries = HookErrorStore.snapshot()
+            reply!!.writeNoException()
+            reply.writeInt(if (hasWarnings) 1 else 0)
+            ParceledListSlice(entries).writeToParcel(reply, 0)
+            param.result = true
+            return
+        }
+        if (code == HookStatusKeys.TRANSACTION_GET_INSTALLED_PACKAGES) {
+            val flags = data.readLong()
+            val userId = data.readInt()
+            val packages = getInstalledPackages(flags, userId)
+            reply!!.writeNoException()
+            ParceledListSlice(packages).writeToParcel(reply, 0)
+            param.result = true
+            return
+        }
+        val enabled = data.readInt() != 0
+        val slice = ParceledListSlice.CREATOR.createFromParcel(data, PackageEntry::class.java.classLoader)
+        val packages = HashSet<String>()
+        for (entry in slice.list) {
+            if (entry is PackageEntry) {
+                packages.add(entry.packageName)
+            }
+        }
+        var renameEnabled = false
+        var prefix = "en"
+        if (data.dataAvail() >= 4) {
+            renameEnabled = data.readInt() != 0
+            if (data.dataAvail() > 0) {
+                prefix = data.readString() ?: "en"
+            }
+        }
+        PrivilegeSettingsStore.update(enabled, packages, renameEnabled, prefix)
+        reply!!.writeNoException()
+        param.result = true
     }
 
     private fun isCallerAllowed(): Boolean {

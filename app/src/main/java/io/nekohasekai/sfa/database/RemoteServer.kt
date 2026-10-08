@@ -26,10 +26,11 @@ class RemoteServer(
 
     companion object {
         private val schemePrefix = Regex("^https?://", RegexOption.IGNORE_CASE)
-        private val httpPrefix = Regex("^http://", RegexOption.IGNORE_CASE)
 
-        // The stored form: scheme-less for https default; keep explicit https.
-        fun normalizeURL(urlString: String): String = urlString.trim().trimEnd('/').replaceFirst(httpPrefix, "")
+        // The stored form keeps an explicit scheme. Stripping http:// turned an
+        // allowed loopback http://127.0.0.1:9090 into a scheme-less value that
+        // connectURL then dialled over https. Scheme-less still means https.
+        fun normalizeURL(urlString: String): String = urlString.trim().trimEnd('/')
 
         // The form passed to libbox: a scheme is required. Default HTTPS.
         fun connectURL(urlString: String): String {

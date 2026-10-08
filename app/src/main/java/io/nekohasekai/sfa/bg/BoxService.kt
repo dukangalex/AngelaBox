@@ -58,7 +58,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000
         private const val START_BUDGET_MS = 45_000L
         private const val TAG = "BoxService"
-        private val stalledRuleSetProfiles = Collections.synchronizedSet(mutableSetOf<Long>())
+        // A 45 s rule-set stall skips remote rule-sets on the next start only within
+        // 10 min and on the same default network; a start that keeps them clears it.
+        private val ruleSetStalls = RuleSetStallMemory(clock = SystemClock::elapsedRealtime)
+
+        private fun defaultNetworkKey(): String? = DefaultNetworkMonitor.defaultNetwork?.toString()
 
         fun start() {
             val intent =
@@ -80,7 +84,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
+    // Written from the kernel thread (openTun), read and closed on IO/Main.
+    @Volatile
     var fileDescriptor: ParcelFileDescriptor? = null
+
+    // kernel-start threads that were given up on. One can still be inside Go
+    // and reach openTun later; it must not replace the live tunnel then.
+    private val abandonedStartThreads: MutableSet<Thread> =
+        Collections.synchronizedSet(Collections.newSetFromMap(java.util.WeakHashMap()))
+
+    fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean =
+        thread in abandonedStartThreads
 
     private val status = MutableLiveData(Status.Stopped)
     private val binder = ServiceBinder(status)
@@ -158,11 +172,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             TunnelGate.setUp(true)
-            if (startAbort.get()) {
+            // stopService() runs on the main thread and only aborts while the
+            // status is Starting. Check the abort and publish Started in the
+            // same main-thread step, or a stop tapped in between is lost.
+            val aborted = withContext(Dispatchers.Main) {
+                if (startAbort.get()) {
+                    true
+                } else {
+                    status.value = Status.Started
+                    false
+                }
+            }
+            if (aborted) {
                 stopAndAlert(Alert.StartService, null, silent = true)
                 return
             }
-            status.postValue(Status.Started)
             notePrivateDns()
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
@@ -286,18 +310,25 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return false
         }
         var droppedRuleSets = false
-        if (profileId in stalledRuleSetProfiles) {
+        if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey())) {
             val dropped = ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true)
             if (dropped != content) {
                 content = dropped
                 droppedRuleSets = true
-                stalledRuleSetProfiles.add(profileId)
             }
         }
+
+        // Every successful start goes through here. Starting with the remote
+        // rule-sets kept proves they load again, so the stall is forgotten.
+        fun started(keptRuleSets: Boolean): Boolean {
+            if (keptRuleSets) ruleSetStalls.clear(profileId)
+            return true
+        }
+
         var result = attempt(content, options)
         if (result.isSuccess) {
             if (droppedRuleSets) noteRuleSetsSkipped()
-            return true
+            return started(!droppedRuleSets)
         }
         if (result.exceptionOrNull() is StartCancelled) {
             stopAndAlert(Alert.StartService, null, silent = true)
@@ -318,7 +349,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (ConfigDiagnose.looksLikeRpcDeath(err)) {
             restartCommandServer()
             result = attempt(content, options)
-            if (result.isSuccess) return true
+            if (result.isSuccess) return started(!droppedRuleSets)
             keep(result.exceptionOrNull()?.message)
         }
 
@@ -340,7 +371,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         hint = "节点还在，没有改成直连。",
                     ),
                 )
-                return true
+                return started(!droppedRuleSets)
             }
             keep(result.exceptionOrNull()?.message)
         }
@@ -353,7 +384,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 restartCommandServer()
                 content = patched
                 result = attempt(content, options)
-                if (result.isSuccess) return true
+                if (result.isSuccess) return started(!droppedRuleSets)
                 keep(result.exceptionOrNull()?.message)
             }
         }
@@ -368,7 +399,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         var ruleSetRetried = false
         if (ruleSetFail) {
             ruleSetRetried = true
-            if (stalled) stalledRuleSetProfiles.add(profileId)
+            if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey())
             if (!stalled && needles.isNotEmpty()) {
                 restartCommandServer()
                 result = attempt(
@@ -383,7 +414,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                             hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
                         ),
                     )
-                    return true
+                    return started(true)
                 }
                 keep(result.exceptionOrNull()?.message)
             }
@@ -394,7 +425,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             if (result.isSuccess) {
                 noteRuleSetsSkipped()
-                return true
+                return started(false)
             }
             keep(result.exceptionOrNull()?.message)
         }
@@ -420,7 +451,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                             error = true,
                         ),
                     )
-                    return true
+                    return started(!droppedRuleSets)
                 }
                 keep(result.exceptionOrNull()?.message)
             }
@@ -452,7 +483,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         error = true,
                     ),
                 )
-                return true
+                return started(!droppedRuleSets)
             }
             stopAndAlert(
                 Alert.CreateService,
@@ -513,6 +544,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun abandonStart(server: CommandServer, worker: Thread) {
+        abandonedStartThreads.add(worker)
         val closer = Thread({
             runCatching { server.closeService() }
         }, "kernel-cancel")
@@ -572,9 +604,28 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (status.value == Status.Starting) {
             startAbort.set(true)
             if (!startInFlight) {
-                Settings.startedByUser = false
-                status.value = Status.Stopped
-                service.stopSelf()
+                // Starting with no start in flight means the kernel asked to stop
+                // (serviceStop). The command server, network monitor and receiver
+                // are still live, so tear them down instead of only stopSelf().
+                status.value = Status.Stopping
+                if (receiverRegistered) {
+                    service.unregisterReceiver(receiver)
+                    receiverRegistered = false
+                }
+                notification.close()
+                GlobalScope.launch(Dispatchers.IO) {
+                    DefaultNetworkMonitor.stop()
+                    if (::commandServer.isInitialized) {
+                        closeService()
+                        runCatching { commandServer.close() }
+                    }
+                    Settings.startedByUser = false
+                    withContext(Dispatchers.Main) {
+                        TunnelGate.setUp(false)
+                        status.value = Status.Stopped
+                        service.stopSelf()
+                    }
+                }
             }
             return
         }
@@ -645,6 +696,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
+        // Every start arrives through startForegroundService(). If the service
+        // stops before startForeground() (command server failure, or a start
+        // request landing while Starting/Stopping), Android crashes the app with
+        // "did not then call Service.startForeground()". Satisfy it right away.
+        runCatching {
+            notification.show(
+                lastProfileName,
+                if (status.value == Status.Started) R.string.status_started else R.string.status_starting,
+            )
+        }
         if (status.value != Status.Stopped) return Service.START_STICKY
         startAbort.set(false)
         startInFlight = true

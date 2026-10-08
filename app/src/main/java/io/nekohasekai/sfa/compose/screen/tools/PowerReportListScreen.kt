@@ -70,7 +70,7 @@ fun PowerReportListScreen(
     var isLoading by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var powerReportEnabled by remember { mutableStateOf(Settings.powerReportEnabled) }
 
