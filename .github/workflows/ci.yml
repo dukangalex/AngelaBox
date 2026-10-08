@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   overlay-guards:
     name: overlay source guards
@@ -101,6 +105,7 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: "1.25.5"
+          cache-dependency-path: sing-box/go.sum
 
       - name: Test kernel
         working-directory: sing-box
@@ -159,11 +164,17 @@ jobs:
           java-version: |
             17
             21
+          cache: gradle
+          cache-dependency-path: |
+            sing-box-for-android/**/*.gradle*
+            sing-box-for-android/**/gradle-wrapper.properties
+            sing-box-for-android/gradle/libs.versions.toml
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: "1.25.5"
+          cache-dependency-path: sing-box/go.sum
 
       - name: Use preinstalled Android SDK
         run: |
