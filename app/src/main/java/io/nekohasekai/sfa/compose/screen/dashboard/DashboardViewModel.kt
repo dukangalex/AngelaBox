@@ -113,6 +113,8 @@ data class DashboardUiState(
     val systemProxySwitching: Boolean = false,
     // 订阅健康横幅（过期 / 流量耗尽或将尽 / 连续更新失败）
     val healthIssues: List<SubscriptionUpdateHealth.HealthIssue> = emptyList(),
+    // 首次启动三步引导（配置列表为空且未关闭过）
+    val showOnboardingGuide: Boolean = false,
     // Card visibility settings
     val visibleCards: Set<CardGroup> =
         setOf(
@@ -281,6 +283,8 @@ class DashboardViewModel :
                             selectedProfileName = selected?.name,
                             chainPath = path,
                             topology = topology,
+                            showOnboardingGuide = profiles.isEmpty() &&
+                                !Settings.onboardingGuideDismissed,
                         )
                     }
                 }
@@ -575,6 +579,16 @@ class DashboardViewModel :
 
     fun hideAddProfileSheet() {
         updateState { copy(showAddProfileSheet = false) }
+    }
+
+    /** 关闭首次启动引导卡片，不再展示。 */
+    fun dismissOnboardingGuide() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { Settings.onboardingGuideDismissed = true }
+            withContext(Dispatchers.Main) {
+                updateState { copy(showOnboardingGuide = false) }
+            }
+        }
     }
 
     fun showProfilePickerSheet() {
