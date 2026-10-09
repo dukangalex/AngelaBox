@@ -55,39 +55,37 @@ object NetworkCheckup {
         val verdictDetail: String = "",
     )
 
-    companion object {
-        private const val TUNNEL_PROBE_URL = "https://www.gstatic.com/generate_204"
-        private const val PROBE_TIMEOUT_MS = 8000
-        private const val CHECK_TIMEOUT_MS = 12_000L
-        private const val LATENCY_WAIT_MS = 12_000L
-        private const val LATENCY_ACCEPT_STALE_MS = 4_000L
-        private const val SLOW_LATENCY_MS = 1500
+    private const val TUNNEL_PROBE_URL = "https://www.gstatic.com/generate_204"
+    private const val PROBE_TIMEOUT_MS = 8000
+    private const val CHECK_TIMEOUT_MS = 12_000L
+    private const val LATENCY_WAIT_MS = 12_000L
+    private const val LATENCY_ACCEPT_STALE_MS = 4_000L
+    private const val SLOW_LATENCY_MS = 1500
 
-        /**
-         * 纯函数：按优先级从四项结果推导一句话结论的种类。
-         * 纯 JVM，可单测。
-         */
-        fun decideVerdict(
-            hasNetwork: Boolean,
-            tunnelUp: Boolean,
-            items: List<Item>,
-        ): VerdictKind {
-            if (!hasNetwork) return VerdictKind.NO_NETWORK
-            if (!tunnelUp) return VerdictKind.SERVICE_STOPPED
-            val byId = items.associateBy { it.id }
-            val sub = byId[ItemId.SUBSCRIPTION]
-            if (sub != null && (sub.code == "expired" || sub.code == "quota_exhausted")) {
-                return VerdictKind.SUBSCRIPTION_BAD
-            }
-            val tun = byId[ItemId.TUNNEL]
-            if (tun != null && tun.status == ItemStatus.FAIL) return VerdictKind.TUNNEL_BROKEN
-            val dns = byId[ItemId.DNS]
-            if (dns != null && dns.status == ItemStatus.FAIL) return VerdictKind.DNS_HIJACKED
-            val lat = byId[ItemId.LATENCY]
-            if (lat != null && lat.code == "slow") return VerdictKind.NODE_SLOW
-            if (sub != null && sub.status == ItemStatus.WARN) return VerdictKind.SUBSCRIPTION_UNHEALTHY
-            return VerdictKind.ALL_OK
+    /**
+     * 纯函数：按优先级从四项结果推导一句话结论的种类。
+     * 纯 JVM，可单测。
+     */
+    fun decideVerdict(
+        hasNetwork: Boolean,
+        tunnelUp: Boolean,
+        items: List<Item>,
+    ): VerdictKind {
+        if (!hasNetwork) return VerdictKind.NO_NETWORK
+        if (!tunnelUp) return VerdictKind.SERVICE_STOPPED
+        val byId = items.associateBy { it.id }
+        val sub = byId[ItemId.SUBSCRIPTION]
+        if (sub != null && (sub.code == "expired" || sub.code == "quota_exhausted")) {
+            return VerdictKind.SUBSCRIPTION_BAD
         }
+        val tun = byId[ItemId.TUNNEL]
+        if (tun != null && tun.status == ItemStatus.FAIL) return VerdictKind.TUNNEL_BROKEN
+        val dns = byId[ItemId.DNS]
+        if (dns != null && dns.status == ItemStatus.FAIL) return VerdictKind.DNS_HIJACKED
+        val lat = byId[ItemId.LATENCY]
+        if (lat != null && lat.code == "slow") return VerdictKind.NODE_SLOW
+        if (sub != null && sub.status == ItemStatus.WARN) return VerdictKind.SUBSCRIPTION_UNHEALTHY
+        return VerdictKind.ALL_OK
     }
 
     /**
