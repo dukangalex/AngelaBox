@@ -470,6 +470,7 @@ class MainActivity :
                 alertType = alertType,
                 message = message,
                 onDismiss = { currentAlert = null },
+                onAddProfile = { openNewProfile(NewProfileArgs()) },
             )
         }
 
@@ -1615,7 +1616,12 @@ class MainActivity :
     }
 
     @Composable
-    private fun ServiceAlertDialog(alertType: Alert, message: String?, onDismiss: () -> Unit) {
+    private fun ServiceAlertDialog(
+        alertType: Alert,
+        message: String?,
+        onDismiss: () -> Unit,
+        onAddProfile: (() -> Unit)? = null,
+    ) {
         val title =
             when (alertType) {
                 Alert.RequestNotificationPermission -> stringResource(R.string.notification_permission_title)
@@ -1642,6 +1648,19 @@ class MainActivity :
             confirmButton = {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                // 空配置：直接给出去添加配置的入口，不让用户对着"空配置"二字发呆
+                if (alertType == Alert.EmptyConfiguration && onAddProfile != null) {
+                    TextButton(
+                        onClick = {
+                            onDismiss()
+                            onAddProfile()
+                        },
+                    ) {
+                        Text(stringResource(R.string.empty_configuration_go_add))
+                    }
                 }
             },
         )
