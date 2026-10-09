@@ -3,17 +3,17 @@ package io.nekohasekai.sfa.bg
 import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 data class OOMReport(
     val id: String,
@@ -54,6 +54,8 @@ object OOMReportManager {
     val reports: StateFlow<List<OOMReport>> = _reports
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount
+    private val _storageBytes = MutableStateFlow(0L)
+    val storageBytes: StateFlow<Long> = _storageBytes
 
     fun install(workingDir: File) {
         this.workingDir = workingDir
@@ -63,13 +65,19 @@ object OOMReportManager {
         val reports = scanReports()
         _reports.value = reports
         _unreadCount.value = reports.count { !it.isRead }
+        _storageBytes.value = ReportRetention.totalBytes(File(workingDir, OOM_REPORTS_DIR_NAME))
     }
 
     private fun scanReports(): List<OOMReport> {
         val reportsDir = File(workingDir, OOM_REPORTS_DIR_NAME)
         if (!reportsDir.isDirectory) return emptyList()
         val directories = reportsDir.listFiles { file -> file.isDirectory } ?: return emptyList()
-        return directories.mapNotNull { dir ->
+        // B2 retention: keep newest 10 / 30 days, prune the rest before listing.
+        val newestFirst = directories.sortedByDescending { parseTimestamp(it.name)?.time ?: it.lastModified() }
+        ReportRetention.prune(newestFirst)
+        // prune() deletes directories in place; skip the deleted ones so the
+        // list never contains phantom entries pointing at missing directories.
+        return newestFirst.filter { it.isDirectory }.mapNotNull { dir ->
             val date = parseTimestamp(dir.name) ?: return@mapNotNull null
             // README: crash reports carry no plaintext config. The kernel copies
             // the running configuration into its report directory; drop it.

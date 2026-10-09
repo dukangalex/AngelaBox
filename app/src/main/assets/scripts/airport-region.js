@@ -1,11 +1,12 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 27
+ * overlay-revision: 28
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
  * 手机流量走 TUN（172.19.0.1/30，MTU 1500），不绑定本机 mixed 端口。
  * 禁用 QUIC 时拒绝 UDP 443，用复位，不用 drop。同时拒绝 HTTPS/SVCB 查询，避免油管 App 死守 HTTP/3。排除国内 QUIC 时，国内域名的 UDP 443 先走直连。
+ * 非中国流量绝不走直连：海外服务组（FCM/Microsoft/Apple/Steam/Emby/PikPak/Spotify/EHentai）不再提供直连成员，FCM 默认改走默认代理；国内、私有地址仍走直连。
  * REJECT 用 socks 127.0.0.1:9，标签仍叫 REJECT。不要写 block 出站。
  * 叶节点去掉 detour / dialer-proxy。链式代理由应用组，不写在这份脚本里。
  */
@@ -800,12 +801,12 @@ function main(config) {
     useSet(sets, rules, "geosite-geolocation-cn", "geosite-geolocation-cn.srs", false, "直连");
     useSet(sets, rules, "geosite-cn", "geosite-cn.srs", false, "直连");
     useSet(sets, rules, "geosite-category-games@cn", "geosite-category-games@cn.srs", false, "直连");
-    useSet(sets, rules, "geosite-epicgames", "geosite-epicgames.srs", false, "直连");
+    useSet(sets, rules, "geosite-epicgames@cn", "geosite-epicgames@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-nvidia@cn", "geosite-nvidia@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-apple@cn", "geosite-apple@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-microsoft@cn", "geosite-microsoft@cn.srs", false, "直连");
     useSet(sets, rules, "geosite-steam@cn", "geosite-steam@cn.srs", false, "直连");
-    rules.push({ domain: ["fsend.cn", "international-gfe.download.nvidia.com"], outbound: "直连" });
+    rules.push({ domain: ["fsend.cn"], outbound: "直连" });
   }
   if (webrtcProtect) {
     rules.push({ network: "udp", port_range: "3478:3481", action: "reject" });
@@ -886,8 +887,7 @@ function main(config) {
     }
     addService({
       name: "FCM",
-      direct: true,
-      def: "直连",
+      def: "默认代理",
       domains: [{ domain_suffix: ["mtalk.google.com", "android.googleapis.com"], outbound: "FCM" }]
     });
     addService({
@@ -928,15 +928,14 @@ function main(config) {
     });
     addService({
       name: "Microsoft",
-      direct: true,
       sets: [
         { tag: "geosite-github", file: "geosite-github.srs", out: "默认代理" },
         { tag: "geosite-microsoft", file: "geosite-microsoft.srs", out: "Microsoft" }
       ]
     });
-    addService({ name: "Apple", direct: true, sets: [{ tag: "geosite-apple", file: "geosite-apple.srs", out: "Apple" }] });
+    addService({ name: "Apple", sets: [{ tag: "geosite-apple", file: "geosite-apple.srs", out: "Apple" }] });
     addService({ name: "Telegram", sets: [{ tag: "geosite-telegram", file: "geosite-telegram.srs", out: "Telegram" }] });
-    addService({ name: "Steam", direct: true, sets: [{ tag: "geosite-steam", file: "geosite-steam.srs", out: "Steam" }] });
+    addService({ name: "Steam", sets: [{ tag: "geosite-steam", file: "geosite-steam.srs", out: "Steam" }] });
     addService({ name: "TikTok", def: "🇯🇵 日本", sets: [{ tag: "geosite-tiktok", file: "geosite-tiktok.srs", out: "TikTok" }] });
     addService({ name: "Twitter", sets: [{ tag: "geosite-twitter", file: "geosite-twitter.srs", out: "Twitter" }] });
     addService({
@@ -959,7 +958,6 @@ function main(config) {
     addService({ name: "Netflix", sets: [{ tag: "geosite-netflix", file: "geosite-netflix.srs", out: "Netflix" }] });
     addService({
       name: "Emby",
-      direct: true,
       domains: [
         { domain_suffix: ["mb3admin.com", "nubebelle.com", "emby.media"], outbound: "Emby" },
         { domain_keyword: ["emby"], outbound: "Emby" }
@@ -967,10 +965,9 @@ function main(config) {
     });
     addService({
       name: "PikPak",
-      direct: true,
       domains: [{ domain_suffix: ["mypikpak.com", "pikpak.com"], outbound: "PikPak" }]
     });
-    addService({ name: "Spotify", direct: true, sets: [{ tag: "geosite-spotify", file: "geosite-spotify.srs", out: "Spotify" }] });
+    addService({ name: "Spotify", sets: [{ tag: "geosite-spotify", file: "geosite-spotify.srs", out: "Spotify" }] });
     addService({
       name: "Crypto",
       def: "🇯🇵 日本",
@@ -986,7 +983,6 @@ function main(config) {
     });
     addService({
       name: "EHentai",
-      direct: true,
       def: "🇺🇸 美国",
       domains: [{ domain_suffix: ["e-hentai.org", "exhentai.org", "ehgt.org"], outbound: "EHentai" }]
     });
