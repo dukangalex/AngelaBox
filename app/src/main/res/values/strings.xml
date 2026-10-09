@@ -32,6 +32,8 @@
     <string name="previous">Previous</string>
     <string name="next">Next</string>
     <string name="update">Update</string>
+    <string name="app_updated_title">AngelaBox 已更新</string>
+    <string name="app_updated_text">已更新到 %1$s，点击打开</string>
     <string name="read_more">Read More</string>
     <string name="no_thanks">No, thanks</string>
     <string name="options">Options</string>
