@@ -187,6 +187,9 @@ object LiveTopologyBuilder {
         val useful = liveChain.map { ChainRuntimeCompiler.displayHopTag(it) }
             .map { it.trim() }
             .filter { it.isNotEmpty() && !TrafficFlowBuilder.isDirectTag(it) }
+            // 生成式标记（如 chainbox-entry-XXX）经 displayHopTag 还原成组名；
+            // 它们不是真实节点，留在这里会让入口/落点选择器误命中组名而非实际 live 节点。
+            .filter { findGroup(it, groups) == null }
             .distinct()
         val destTitle = destinations.firstOrNull().orEmpty()
         if (path.chained) {

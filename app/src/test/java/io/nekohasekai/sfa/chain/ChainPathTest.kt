@@ -392,7 +392,7 @@ class ChainPathTest {
     }
 
     @Test
-    fun chainedSkipsDirectOverlayHops() {
+    fun chainedDirectSampleStaysOnDirectLane() {
         val path = ChainPathBuilder.build(
             profileName = "UOT",
             defaultOutboundTag = "节点选择",
@@ -419,15 +419,19 @@ class ChainPathTest {
             path = path,
             chained = true,
         )
-        assertTrue(nodes.none { it.label == "DIRECT" })
+        // 1.0.73 起：chained 下 DIRECT 样本保留在独立车道（MAX_COLUMN），不再丢弃，
+        // 但也不得挤进 entry → landing 中间列。
+        val direct = nodes.firstOrNull { it.label == "DIRECT" }
+        assertTrue(direct != null && direct.direct)
+        assertEquals(TrafficFlowBuilder.MAX_COLUMN, direct!!.column)
         assertTrue(nodes.any { it.label == "hk-1" })
         assertTrue(nodes.any { it.label == "us-9" })
         assertTrue(nodes.any { it.label == "google" })
-        assertTrue(nodes.none { it.label == "cn" && nodes.any { n -> n.label == "DIRECT" } })
+        assertTrue(nodes.any { it.label == "cn" })
     }
 
     @Test
-    fun chainedDirectOnlyFallsBackToSavedHops() {
+    fun chainedDirectOnlyStaysOnDirectLane() {
         val path = ChainPathBuilder.build(
             profileName = "UOT",
             defaultOutboundTag = "节点选择",
@@ -447,9 +451,10 @@ class ChainPathTest {
             path = path,
             chained = true,
         )
-        assertTrue(nodes.none { it.label == "DIRECT" })
-        assertTrue(nodes.any { it.label == "节点选择" })
-        assertTrue(nodes.any { it.label == "zgo" })
+        // 1.0.73 起：chained 下纯 DIRECT 流量也保留在独立车道，不再回退到计划 hops。
+        val direct = nodes.firstOrNull { it.label == "DIRECT" }
+        assertTrue(direct != null && direct.direct)
+        assertEquals(TrafficFlowBuilder.MAX_COLUMN, direct!!.column)
     }
 
     @Test

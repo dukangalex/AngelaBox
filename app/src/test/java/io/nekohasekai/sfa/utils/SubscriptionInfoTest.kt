@@ -1,12 +1,32 @@
 package io.nekohasekai.sfa.utils
 
+import java.util.TimeZone
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class SubscriptionInfoTest {
+
+    private lateinit var savedTimeZone: TimeZone
+
+    /**
+     * expireLabel() 按系统默认时区格式化日期；测试把时区固定为 America/Los_Angeles，
+     * 否则在 CI（UTC）等环境下 "2099-12-30" 会变成 "2099-12-31"。
+     */
+    @Before
+    fun pinTimeZone() {
+        savedTimeZone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+    }
+
+    @After
+    fun restoreTimeZone() {
+        TimeZone.setDefault(savedTimeZone)
+    }
 
     @Test
     fun parseClashUserinfoHeader() {
