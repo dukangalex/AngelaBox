@@ -38,6 +38,7 @@ jobs:
           python3 scripts/test_adblock_overlay.py
           python3 scripts/test_security_guards.py
           python3 scripts/test_apk_signing.py
+          python3 scripts/test_unit_test_whitelist.py
 
       - name: Read kernel pin
         id: pin
@@ -279,4 +280,20 @@ jobs:
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \
             --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
+            --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
+            --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
+            --tests io.nekohasekai.sfa.chain.ChainPathTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerBacklogTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerNestedGroupTest \
+            --tests io.nekohasekai.sfa.compose.NestedRegionAutoSelectTest \
+            --tests io.nekohasekai.sfa.utils.ApkSigningCertsTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDiagnoseTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDomainResolverTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngestFormatsTest \
+            --tests io.nekohasekai.sfa.utils.ConfigNormalizeTest \
+            --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
+            --tests io.nekohasekai.sfa.utils.SubscriptionInfoTest \
             --no-daemon --stacktrace
