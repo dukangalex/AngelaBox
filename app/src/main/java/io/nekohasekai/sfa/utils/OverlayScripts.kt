@@ -1,9 +1,9 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.database.Settings
+import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 data class OverlayScript(
     val id: String,
@@ -30,7 +30,7 @@ object OverlayScripts {
     const val MAX_CODE_CHARS = 256_000
     const val SAMPLE_ASSET = "scripts/airport-region.js"
     const val SAMPLE_NAME = "默认脚本"
-    const val SAMPLE_REVISION = "overlay-revision: 27"
+    const val SAMPLE_REVISION = "overlay-revision: 28"
     const val SOURCE_CODE = "code"
     const val SOURCE_URL = "url"
     const val SOURCE_FILE = "file"

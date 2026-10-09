@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.compose.screen.tools
 
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,17 +50,18 @@ import androidx.navigation.NavController
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.PowerReportManager
+import io.nekohasekai.sfa.bg.ReportRetention
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Settings
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormat
-import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +73,8 @@ fun PowerReportListScreen(
     var isLoading by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val storageBytes by PowerReportManager.storageBytes.collectAsState()
+    val context = LocalContext.current
     val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var powerReportEnabled by remember { mutableStateOf(Settings.powerReportEnabled) }
@@ -192,6 +197,18 @@ fun PowerReportListScreen(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 8.dp),
+                )
+                Text(
+                    text = stringResource(
+                        R.string.report_storage_summary,
+                        reports.size,
+                        Formatter.formatShortFileSize(context, storageBytes),
+                        ReportRetention.KEEP_LATEST,
+                        ReportRetention.MAX_AGE_DAYS,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 32.dp),
                 )
                 if (reports.isEmpty()) {
                     Card(
