@@ -1,12 +1,12 @@
 package io.nekohasekai.sfa.utils
 
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 class ConfigScriptOverrideTest {
 
@@ -472,6 +472,38 @@ class ConfigScriptOverrideTest {
             (0 until s.length()).map { s.getJSONObject(it).optString("tag") }
         }
         assertTrue(dnsTags.contains("dns-cn"))
+    }
+
+    @Test
+    fun sampleForeignServicesNeverOfferDirect() {
+        val outs = JSONArray()
+            .put(leaf("香港 01"))
+            .put(JSONObject().put("type", "direct").put("tag", "direct"))
+        val out = runSample(outs) ?: return
+        val tags = byTag(out)
+        val foreign = listOf("FCM", "Microsoft", "Apple", "Steam", "Emby", "PikPak", "Spotify", "EHentai")
+        foreign.forEach { name ->
+            val group = tags[name]
+            assertTrue("$name group exists", group != null)
+            val ms = members(group)
+            assertFalse("$name offers 直连: $ms", ms.contains("直连"))
+            ms.forEach { m -> assertTrue("$name -> $m", tags.containsKey(m)) }
+        }
+        assertEquals("默认代理", tags.getValue("FCM").optString("default"))
+        // 国内与私有仍可直连：远控工具保留直连成员，私网规则仍在。
+        assertTrue(members(tags["远控工具"]).contains("直连"))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        for (i in 0 until rules.length()) {
+            val r = rules.getJSONObject(i)
+            val o = r.optString("outbound")
+            if (o == "直连" || o == "direct") {
+                val s = r.toString()
+                val allowed = s.contains("clash_mode") || s.contains("ip_is_private") ||
+                    s.contains("@cn") || s.contains("geosite-cn") || s.contains("geolocation-cn") ||
+                    s.contains("geoip-cn") || s.contains("geosite-private") || s.contains("fsend.cn")
+                assertTrue("non-CN traffic must never go direct: $s", allowed)
+            }
+        }
     }
 
     @Test

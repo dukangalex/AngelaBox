@@ -632,6 +632,7 @@
     <string name="crash_report_go_log">Go Crash Log</string>
     <string name="crash_report_jvm_log">JVM Crash Log</string>
     <string name="crash_report_description">You will receive a report when a crash occurs.</string>
+    <string name="report_storage_summary">%1$d reports · %2$s · auto-keeps the latest %3$d / %4$d days</string>
 
     <!-- OOM Report -->
     <string name="oom_report">OOM Report</string>
@@ -860,6 +861,43 @@
     <string name="subscription_health_update_failed_title">Subscription keeps failing to update: %1$s</string>
     <string name="subscription_health_update_failed_detail">Failed %1$d times in a row (%2$s). Check whether the subscription link is still valid.</string>
     <string name="subscription_health_update_failed_detail_simple">Failed %1$d times in a row. Check whether the subscription link is still valid.</string>
+
+    <!-- Network checkup -->
+    <string name="network_checkup_title">Network checkup</string>
+    <string name="network_checkup_desc">Check TUN connectivity, DNS, node latency and subscription health in one tap.</string>
+    <string name="network_checkup_run">Run checkup</string>
+    <string name="network_checkup_rerun">Re-run</string>
+    <string name="network_checkup_dismiss">Dismiss</string>
+    <string name="network_checkup_running">Checking: %1$s</string>
+    <string name="checkup_item_tunnel">TUN connectivity</string>
+    <string name="checkup_item_dns">DNS</string>
+    <string name="checkup_item_latency">Node latency</string>
+    <string name="checkup_item_subscription">Subscription</string>
+    <string name="checkup_tunnel_ok">TUN is working</string>
+    <string name="checkup_tunnel_not_started">Service not started, skipped</string>
+    <string name="checkup_tunnel_timeout">Probe timed out</string>
+    <string name="checkup_tunnel_dns_failure">DNS resolution failed</string>
+    <string name="checkup_tunnel_http_error">Probe returned HTTP %1$d</string>
+    <string name="checkup_tunnel_io_error">Network error</string>
+    <string name="checkup_dns_ok">No DNS hijacking detected</string>
+    <string name="checkup_dns_error">DNS query failed</string>
+    <string name="checkup_dns_hijacked_tunnel">DNS answers look hijacked (tunnel DNS)</string>
+    <string name="checkup_dns_hijacked_system">System DNS looks hijacked</string>
+    <string name="checkup_dns_hijacked_local">Local network DNS looks hijacked</string>
+    <string name="checkup_latency_ok">Current node: %1$d ms</string>
+    <string name="checkup_latency_slow">Current node: %1$d ms, on the slow side</string>
+    <string name="checkup_latency_no_data">Could not measure latency</string>
+    <string name="checkup_latency_not_started">Service not started, skipped</string>
+    <string name="checkup_subscription_ok">Subscription is healthy</string>
+    <string name="checkup_subscription_more">(+%1$d more)</string>
+    <string name="checkup_verdict_all_ok">All good: tunnel, DNS, node and subscription are fine.</string>
+    <string name="checkup_verdict_no_network">No network: check Wi-Fi / mobile data first.</string>
+    <string name="checkup_verdict_service_stopped">Service is not running: start it first; tunnel checks were skipped.</string>
+    <string name="checkup_verdict_subscription_bad">Subscription problem: %1$s</string>
+    <string name="checkup_verdict_tunnel_broken">Node unreachable: try another node, or the node server may be down.</string>
+    <string name="checkup_verdict_dns_hijacked">Node is fine — your local network\'s DNS looks hijacked. Try another DNS (e.g. 223.5.5.5) or another network.</string>
+    <string name="checkup_verdict_node_slow">Node latency is high (%1$s ms): switch to a faster node.</string>
+    <string name="checkup_verdict_subscription_unhealthy">Subscription needs attention: %1$s</string>
     <string name="empty_configuration_go_add">Add configuration</string>
     <string name="onboarding_guide_title">Get started in 3 steps</string>
     <string name="onboarding_guide_step1">Import a subscription: scan a QR code, paste a link, or import from clipboard.</string>
