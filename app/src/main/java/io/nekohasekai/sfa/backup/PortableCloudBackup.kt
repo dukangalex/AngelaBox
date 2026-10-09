@@ -9,6 +9,7 @@ import io.nekohasekai.sfa.utils.OverlayScripts
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URI
 
 /**
  * Cross-platform cloud backup codec (`angelabox-cloud/1`).
@@ -21,6 +22,26 @@ object PortableCloudBackup {
     const val MANIFEST = "manifest.json"
     const val PROFILES = "profiles.json"
     const val SETTINGS = "settings.json"
+
+    /**
+     * Marker suffix for a redacted subscription URL. Subscription URLs often
+     * carry the token in path/query, and the portable archive is designed to
+     * be stored on third-party WebDAV servers, so only scheme+host is kept.
+     * Restore treats a redacted URL as "please re-enter the subscription URL".
+     */
+    const val REDACTED_URL_SUFFIX = "/[redacted]"
+
+    fun redactRemoteUrl(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return ""
+        return try {
+            val uri = URI(trimmed)
+            val host = uri.host
+            if (host.isNullOrEmpty()) "[redacted]" else "${uri.scheme}://$host$REDACTED_URL_SUFFIX"
+        } catch (_: Exception) {
+            "[redacted]"
+        }
+    }
 
     data class PortableProfile(
         val id: String,
@@ -91,7 +112,10 @@ object PortableCloudBackup {
                 id = uuid,
                 name = profile.name,
                 type = if (profile.typed.type == TypedProfile.Type.Remote) "remote" else "local",
-                remoteUrl = profile.typed.remoteURL,
+                // Subscription URLs often embed the token: keep only scheme+host
+                // so the portable archive (meant for third-party servers) carries
+                // no credential material. Restore asks the user to re-enter it.
+                remoteUrl = redactRemoteUrl(profile.typed.remoteURL),
                 autoUpdate = profile.typed.autoUpdate,
                 autoUpdateIntervalMinutes = profile.typed.autoUpdateInterval,
                 lastUpdated = profile.typed.lastUpdated.time,

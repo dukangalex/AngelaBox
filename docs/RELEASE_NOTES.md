@@ -1,3 +1,9 @@
+• **1.0.108：**
+1. **发版 pre-flight 门禁：** `version_tag` 格式校验 + tag/release 已存在则直接失败——发版工具对已存在 tag 是静默覆盖同名附件，不报错；现在重跑/误触发会在构建前就停住。
+2. **发版链路重试：** NDK/SDK 安装、`git clone` 官方内核、`go install gomobile` 全部加 3 次退避重试，消除已知的网络抖动失败点。
+3. **备份外泄链加固：** PowerReport 分享补上 go 日志脱敏（与 Crash/OOM 对齐）；可移植备份的订阅 URL 只保留 scheme+host，token 不再进备份，恢复时提示重填；profiles/settings 脱敏库执行 `VACUUM`，清空闲页中可取证恢复的凭据残留；profiles 库序列化 blob 中的订阅 URL 一并清空。
+4. **小修：** `writeDebugMessage` 空安全（`orEmpty()`）；覆盖安装更新后不再自动弹到前台，改为"已更新到 x.y.z"通知，点按才进应用。
+
 • **1.0.107：**
 1. **版本号递增：** 功能内容与 1.0.106 完全相同（诊断脱敏加固、崩溃日志脱敏、备份凭据防丢、云备份隧道感知）；`versionCode` 提升至 10701，已安装 1.0.106 的设备可直接覆盖升级安装。
 
