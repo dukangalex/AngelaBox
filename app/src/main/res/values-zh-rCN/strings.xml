@@ -752,4 +752,19 @@
     <string name="overlay_scripts_profile_empty">还没有脚本。请到「工具 → 脚本」导入。</string>
     <string name="overlay_scripts_bound_on">已在此配置开启</string>
     <string name="overlay_scripts_bound_off">此配置未开启</string>
+    <string name="subscription_health_expired_title">订阅已过期：%1$s</string>
+    <string name="subscription_health_expired_detail">到期日 %1$s，请续费后手动更新一次。</string>
+    <string name="subscription_health_quota_exhausted_title">订阅流量已用完：%1$s</string>
+    <string name="subscription_health_quota_low_title">订阅流量即将用完：%1$s</string>
+    <string name="subscription_health_quota_used">已用 %1$s / 共 %2$s</string>
+    <string name="subscription_health_update_failed_title">订阅连续更新失败：%1$s</string>
+    <string name="subscription_health_update_failed_detail">已连续失败 %1$d 次（%2$s），请检查订阅链接是否仍然有效。</string>
+    <string name="subscription_health_update_failed_detail_simple">已连续失败 %1$d 次，请检查订阅链接是否仍然有效。</string>
+    <string name="empty_configuration_go_add">去添加配置</string>
+    <string name="onboarding_guide_title">三步开始使用</string>
+    <string name="onboarding_guide_step1">导入订阅：扫码、粘贴链接，或从剪贴板导入。</string>
+    <string name="onboarding_guide_step2">把它设为当前配置。</string>
+    <string name="onboarding_guide_step3">点启动，即可上网。</string>
+    <string name="onboarding_guide_action_import">去导入</string>
+    <string name="onboarding_guide_action_later">稍后</string>
 </resources>

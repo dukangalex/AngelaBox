@@ -852,4 +852,19 @@
     <string name="overlay_scripts_profile_empty">No scripts yet. Import some from Tools → Scripts.</string>
     <string name="overlay_scripts_bound_on">On for this profile</string>
     <string name="overlay_scripts_bound_off">Off for this profile</string>
+    <string name="subscription_health_expired_title">Subscription expired: %1$s</string>
+    <string name="subscription_health_expired_detail">Expired on %1$s. Renew it, then update manually once.</string>
+    <string name="subscription_health_quota_exhausted_title">Subscription quota used up: %1$s</string>
+    <string name="subscription_health_quota_low_title">Subscription quota almost used up: %1$s</string>
+    <string name="subscription_health_quota_used">Used %1$s of %2$s</string>
+    <string name="subscription_health_update_failed_title">Subscription keeps failing to update: %1$s</string>
+    <string name="subscription_health_update_failed_detail">Failed %1$d times in a row (%2$s). Check whether the subscription link is still valid.</string>
+    <string name="subscription_health_update_failed_detail_simple">Failed %1$d times in a row. Check whether the subscription link is still valid.</string>
+    <string name="empty_configuration_go_add">Add configuration</string>
+    <string name="onboarding_guide_title">Get started in 3 steps</string>
+    <string name="onboarding_guide_step1">Import a subscription: scan a QR code, paste a link, or import from clipboard.</string>
+    <string name="onboarding_guide_step2">Set it as the active configuration.</string>
+    <string name="onboarding_guide_step3">Tap Start and you are online.</string>
+    <string name="onboarding_guide_action_import">Import now</string>
+    <string name="onboarding_guide_action_later">Later</string>
 </resources>
