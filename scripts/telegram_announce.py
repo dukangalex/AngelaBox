@@ -11,6 +11,18 @@ import os
 from pathlib import Path
 
 
+def _step_summary(line: str) -> None:
+    """Leave a trace in the Actions step summary (D3 observability)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as exc:
+        print(f"step summary write failed: {exc}", flush=True)
+
+
 def main() -> None:
     tag = os.environ["TAG"]
     sha = os.environ.get("SHA256", "").strip()
@@ -81,6 +93,7 @@ def main() -> None:
         text = text[:1000].rstrip() + "…"
     Path("telegram-caption.txt").write_text(text + "\n", encoding="utf-8")
     print("wrote telegram-message.txt, telegram-markup.json, telegram-caption.txt")
+    _step_summary(f"Telegram announcement built for {tag}.")
 
 
 if __name__ == "__main__":

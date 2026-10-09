@@ -99,6 +99,18 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 
 未配置时发版仍成功，只是跳过频道通知。配好后也可在 Actions 里手动跑 **Telegram Release**（文件 `telegram.yml`）。
 
+### 通知可观测性与手动补发 SOP（D3）
+
+- `scripts/telegram_send.py` / `scripts/telegram_announce.py` 会把关键节点写入 `$GITHUB_STEP_SUMMARY`（公告文字已发 / APK 已上传 / 上传失败），发版工作流的 "Notify Telegram" 步骤页可直接看到结论，不再是无声的黄叉。
+- **手动补发**：Actions → **Telegram Release**（`telegram.yml`）→ Run workflow：
+  - `tag` 留空 = 公告最新 Release；填 `v1.0.109-beta` 这类 tag = 公告指定版本；
+  - `document_only=true` = 只补传 APK 文件，不重发文字说明。
+- **待办（需网页编辑工作流文件，GitHub App 无写权限）：**
+  1. `release-chainbox.yml` 的 `Notify Telegram` 步骤去掉 `continue-on-error: true`（脚本侧已支持失败留痕，失败应标红而不是吞掉）；
+  2. `ci.yml` 的 overlay-guards 步骤追加 `python3 scripts/test_unit_test_whitelist.py`（D6：白名单外的新增单测类会被 CI 静默跳过）；
+  3. `ci.yml` / `release-chainbox.yml` 的 `--tests` 白名单补上当前漏掉的 15 个测试类（`scripts/test_unit_test_whitelist.py` 会列出），或改为全量 `testDebugUnitTest`；
+  4. `ci.yml` 追加 `spotlessCheck`（`spotless` 已配置但从未在 CI 跑）。
+
 ## 内核同步
 
 当前已同步（与 README / `version.properties` 一致）：
@@ -123,7 +135,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 27`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 28`。**Windows 暂停：** 不编命令行，不编图形端。`release-windows-desktop.yml` 的构建作业是 `if: false`。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 

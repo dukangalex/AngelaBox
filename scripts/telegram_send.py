@@ -36,6 +36,19 @@ def _log_err(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _step_summary(line: str) -> None:
+    """Leave a trace in the Actions step summary so notify failures are visible
+    instead of being swallowed (D3: the release step uses continue-on-error)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as exc:
+        _log_err(f"step summary write failed: {exc}")
+
+
 def _parse(raw: bytes, method: str) -> dict:
     parsed = json.loads(raw.decode("utf-8"))
     _log(json.dumps(parsed, ensure_ascii=False, indent=2)[:4000])
@@ -173,6 +186,7 @@ def post_document(token: str, fields: dict[str, str], apk: Path) -> dict:
 def main() -> None:
     token = os.environ["TG_BOT_TOKEN"]
     chat_id = os.environ["TG_CHANNEL_ID"]
+    tag = os.environ.get("TAG", "").strip()
     apk = Path(os.environ.get("APK_FILE", "AngelaBox-android.apk"))
     caption_file = Path("telegram-caption.txt")
     message_file = Path("telegram-message.txt")
@@ -193,6 +207,7 @@ def main() -> None:
             fields["reply_markup"] = json.loads(markup_file.read_text(encoding="utf-8"))
         post_json(token, "sendMessage", fields)
         message_sent = True
+        _step_summary(f"Telegram channel message sent{f' for {tag}' if tag else ''}.")
 
     if skip_document:
         return
@@ -209,15 +224,23 @@ def main() -> None:
             },
             apk,
         )
+        _step_summary(f"Telegram APK document uploaded{f' for {tag}' if tag else ''}.")
     except SystemExit as exc:
         if message_sent:
             _log_err(
                 f"warning: APK upload failed after changelog posted; "
                 f"channel still has notes + download button ({exc})"
             )
+            _step_summary(
+                f"Telegram message sent but APK upload failed{f' for {tag}' if tag else ''}; see logs."
+            )
             return
         raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as exc:
+        _step_summary(f"Telegram notify failed: {exc}")
+        raise
