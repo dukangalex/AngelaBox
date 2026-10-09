@@ -13,6 +13,8 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.ktx.marshall
+import io.nekohasekai.sfa.ktx.unmarshall
 import kotlinx.coroutines.runBlocking
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -329,7 +331,10 @@ object BackupManager {
         backupConfigs: File,
         portable: PortableCloudBackup.PortableProfile,
     ): Profile? {
-        val url = portable.remoteUrl.trim()
+        val rawUrl = portable.remoteUrl.trim()
+        // A redacted subscription URL carries no credential material by design;
+        // leave remoteURL empty so the user re-enters it after restore.
+        val url = if (rawUrl.endsWith(PortableCloudBackup.REDACTED_URL_SUFFIX)) "" else rawUrl
         if (url.isNotEmpty()) {
             try {
                 RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
@@ -694,6 +699,10 @@ object BackupManager {
                     arrayOf<Any?>(SettingsKey.WEBDAV_PASSWORD, SettingsKey.GITHUB_TOKEN),
                 )
                 db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
+                // DELETE only marks b-tree pages as free; VACUUM rebuilds the
+                // file so credential bytes are not left recoverable in free
+                // pages of a backup that will be uploaded to a third party.
+                db.execSQL("VACUUM")
             }
             putFile(zos, Path.SETTINGS_DATABASE_PATH, tmp)
         } finally {
@@ -716,7 +725,30 @@ object BackupManager {
                 if (hasTable) {
                     db.execSQL("UPDATE remote_servers SET secret = ''")
                 }
+                // Subscription URLs often embed the token in path/query: blank
+                // remoteURL inside each profile's serialized typed blob so the
+                // backup carries no credential material. Restore leaves the URL
+                // empty for the user to re-enter.
+                val redacted = mutableListOf<Pair<Long, ByteArray>>()
+                db.rawQuery("SELECT id, typed FROM profiles", null).use { cursor ->
+                    val idIndex = cursor.getColumnIndexOrThrow("id")
+                    val typedIndex = cursor.getColumnIndexOrThrow("typed")
+                    while (cursor.moveToNext()) {
+                        runCatching {
+                            val blob = cursor.getBlob(typedIndex) ?: return@runCatching
+                            val typed = blob.unmarshall(::TypedProfile)
+                            if (typed.remoteURL.isEmpty()) return@runCatching
+                            typed.remoteURL = ""
+                            redacted += cursor.getLong(idIndex) to typed.marshall()
+                        }
+                    }
+                }
+                for ((id, bytes) in redacted) {
+                    db.execSQL("UPDATE profiles SET typed = ? WHERE id = ?", arrayOf<Any?>(bytes, id))
+                }
                 db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
+                // See copySettingsDbRedacted: VACUUM away freed pages.
+                db.execSQL("VACUUM")
             }
             putFile(zos, Path.PROFILES_DATABASE_PATH, tmp)
         } finally {
