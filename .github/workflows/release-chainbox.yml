@@ -26,6 +26,27 @@ jobs:
         with:
           path: sing-box-for-android
 
+      - name: Pre-flight release gate
+        working-directory: sing-box-for-android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.version_tag }}"
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta$' || {
+            echo "version_tag '$TAG' does not match ^vX.Y.Z-beta$" >&2
+            exit 1
+          }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — refusing to silently overwrite a published APK" >&2
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "Tag $TAG already exists — refusing to rebuild over it" >&2
+            exit 1
+          fi
+          echo "Pre-flight OK: $TAG is new"
+
       - name: Security regression
         working-directory: sing-box-for-android
         run: |
@@ -77,7 +98,16 @@ jobs:
         run: |
           set -euo pipefail
           UPSTREAM=$(grep '^KERNEL_UPSTREAM=' sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
-          git clone --depth 1 --branch "v${UPSTREAM}" https://github.com/SagerNet/sing-box.git sing-box-official
+          attempt=1
+          until git clone --depth 1 --branch "v${UPSTREAM}" https://github.com/SagerNet/sing-box.git sing-box-official; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "git clone of SagerNet/sing-box failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "git clone failed (attempt $attempt), retrying in $((attempt * 30))s…"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
           python3 sing-box-for-android/scripts/check_upstream_features.py --official sing-box-official --fork sing-box
 
       - name: Setup Java 17 and 21
@@ -130,7 +160,16 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
-          sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          attempt=1
+          until sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "sdkmanager --install failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "sdkmanager --install failed (attempt $attempt), retrying in $((attempt * 30))s…"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
           test -d "${ANDROID_HOME}/ndk/28.0.13004108"
           echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
@@ -146,7 +185,16 @@ jobs:
       - name: Install gomobile
         run: |
           set -euo pipefail
-          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          attempt=1
+          until go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "go install gomobile failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "go install gomobile failed (attempt $attempt), retrying in $((attempt * 30))s…"
+            sleep $((attempt * 30))
+            attempt=$((attempt + 1))
+          done
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           "$(go env GOPATH)/bin/gomobile" version || true
           "$(go env GOPATH)/bin/gomobile" init || true
@@ -297,7 +345,7 @@ jobs:
           } > github-release-body.md
 
       - name: Publish release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b0e65
         with:
           tag_name: ${{ inputs.version_tag }}
           name: AngelaBox ${{ inputs.version_tag }}
