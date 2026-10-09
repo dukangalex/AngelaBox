@@ -345,7 +345,7 @@ jobs:
           } > github-release-body.md
 
       - name: Publish release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b0e65
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.version_tag }}
           name: AngelaBox ${{ inputs.version_tag }}
