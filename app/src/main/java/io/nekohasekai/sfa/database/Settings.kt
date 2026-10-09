@@ -69,6 +69,7 @@ object Settings {
     var autoUpdateEnabled by dataStore.boolean(SettingsKey.AUTO_UPDATE_ENABLED) { false }
     var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) { true }
     var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
+    var onboardingGuideDismissed by dataStore.boolean(SettingsKey.ONBOARDING_GUIDE_DISMISSED) { false }
     var themeMode by dataStore.string(SettingsKey.THEME_MODE) { "system" }
     var themeSeed by dataStore.string(SettingsKey.THEME_SEED) { "default" }
     var themePureBlack by dataStore.boolean(SettingsKey.THEME_PURE_BLACK) { false }

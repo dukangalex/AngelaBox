@@ -34,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.OverrideBanner
 import io.nekohasekai.sfa.compose.component.RemoteControlMenuItems
+import io.nekohasekai.sfa.compose.component.OnboardingGuideCard
 import io.nekohasekai.sfa.compose.component.SubscriptionHealthBanner
 import io.nekohasekai.sfa.compose.component.rememberRemoteServers
 import io.nekohasekai.sfa.compose.navigation.NewProfileArgs
@@ -102,6 +103,14 @@ fun DashboardScreen(
         ) {
             item { OverrideBanner() }
             item { SubscriptionHealthBanner(uiState.healthIssues) }
+            if (uiState.showOnboardingGuide) {
+                item {
+                    OnboardingGuideCard(
+                        onImport = viewModel::showAddProfileSheet,
+                        onDismiss = viewModel::dismissOnboardingGuide,
+                    )
+                }
+            }
             val serviceRunning = uiState.isStatusVisible
             // Local home is only the new path UI. Official SFA cards stay in
             // the codebase so their functions can be called from chips / the

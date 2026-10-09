@@ -15,6 +15,7 @@ object SettingsKey {
     const val AUTO_UPDATE_ENABLED = "auto_update_enabled"
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"
     const val DISABLE_DEPRECATED_WARNINGS = "disable_deprecated_warnings"
+    const val ONBOARDING_GUIDE_DISMISSED = "onboarding_guide_dismissed"
 
     const val AUTO_REDIRECT = "auto_redirect"
     const val ON_DEMAND = "on_demand"
