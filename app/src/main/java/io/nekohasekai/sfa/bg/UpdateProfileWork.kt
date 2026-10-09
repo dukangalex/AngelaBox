@@ -3,8 +3,10 @@ package io.nekohasekai.sfa.bg
 import android.content.Context
 import android.util.Log
 import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -14,6 +16,8 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.HTTPClient
+import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -53,6 +57,12 @@ class UpdateProfileWork {
                     .apply {
                         if (minInitDelay > 0) setInitialDelay(minInitDelay, TimeUnit.SECONDS)
                         setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.MINUTES)
+                        // 审计 B1：离线时不按周期唤醒空转，等有网络再跑
+                        setConstraints(
+                            Constraints.Builder()
+                                .setRequiredNetworkType(NetworkType.CONNECTED)
+                                .build(),
+                        )
                     }
                     .build(),
             )
@@ -66,7 +76,7 @@ class UpdateProfileWork {
                 ProfileManager.list()
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
             if (remoteProfiles.isEmpty()) return Result.success()
-            var success = true
+            var hasTransientFailure = false
             val selectedProfile = Settings.selectedProfile
             for (profile in remoteProfiles) {
                 val lastSeconds =
@@ -92,9 +102,16 @@ class UpdateProfileWork {
                     }
                     profile.typed.lastUpdated = Date()
                     ProfileManager.update(profile)
+                    SubscriptionUpdateHealth.recordSuccess(applicationContext, profile.id)
                 } catch (e: Exception) {
                     Log.e(TAG, "update profile ${profile.name}", e)
-                    success = false
+                    SubscriptionUpdateHealth.recordFailure(applicationContext, profile.id, e)
+                    // 审计 B1：只有网络抖动类失败才退避重试；404/401/403、订阅被删等
+                    // 永久失败不再无意义重试，失败计数由 SubscriptionUpdateHealth 累积，
+                    // 达阈值后仪表盘横幅提醒（下个周期仍会再试一次）
+                    if (HTTPClient.isTransientUpdateFailure(e)) {
+                        hasTransientFailure = true
+                    }
                 }
             }
             if (selectedProfileUpdated) {
@@ -102,10 +119,10 @@ class UpdateProfileWork {
                     Libbox.newStandaloneCommandClient().serviceReload()
                 }
             }
-            return if (success) {
-                Result.success()
-            } else {
+            return if (hasTransientFailure) {
                 Result.retry()
+            } else {
+                Result.success()
             }
         }
     }

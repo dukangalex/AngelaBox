@@ -34,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.OverrideBanner
 import io.nekohasekai.sfa.compose.component.RemoteControlMenuItems
+import io.nekohasekai.sfa.compose.component.SubscriptionHealthBanner
 import io.nekohasekai.sfa.compose.component.rememberRemoteServers
 import io.nekohasekai.sfa.compose.navigation.NewProfileArgs
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
@@ -100,6 +101,7 @@ fun DashboardScreen(
             contentPadding = PaddingValues(bottom = bottomPadding),
         ) {
             item { OverrideBanner() }
+            item { SubscriptionHealthBanner(uiState.healthIssues) }
             val serviceRunning = uiState.isStatusVisible
             // Local home is only the new path UI. Official SFA cards stay in
             // the codebase so their functions can be called from chips / the

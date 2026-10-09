@@ -7,6 +7,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OutboundGroup
 import io.nekohasekai.libbox.OutboundGroupItem
 import io.nekohasekai.libbox.StatusMessage
+import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainPath
@@ -34,6 +35,7 @@ import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.RemoteControlManager
+import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -109,6 +111,8 @@ data class DashboardUiState(
     val systemProxyVisible: Boolean = false,
     val systemProxyEnabled: Boolean = false,
     val systemProxySwitching: Boolean = false,
+    // 订阅健康横幅（过期 / 流量耗尽或将尽 / 连续更新失败）
+    val healthIssues: List<SubscriptionUpdateHealth.HealthIssue> = emptyList(),
     // Card visibility settings
     val visibleCards: Set<CardGroup> =
         setOf(
@@ -288,6 +292,14 @@ class DashboardViewModel :
 
     fun reloadChainPath() {
         loadProfiles()
+        viewModelScope.launch(Dispatchers.IO) {
+            val issues = runCatching {
+                SubscriptionUpdateHealth.evaluate(Application.application)
+            }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) {
+                updateState { copy(healthIssues = issues) }
+            }
+        }
     }
 
     private fun buildChainPath(
@@ -473,6 +485,10 @@ class DashboardViewModel :
                 // Update last updated time
                 profile.typed.lastUpdated = Date()
                 ProfileManager.update(profile)
+                SubscriptionUpdateHealth.recordSuccess(
+                    io.nekohasekai.sfa.Application.application,
+                    profile.id,
+                )
 
                 // Reload profiles
                 loadProfiles()
@@ -495,6 +511,11 @@ class DashboardViewModel :
                     }
                 }
             } catch (e: Exception) {
+                SubscriptionUpdateHealth.recordFailure(
+                    io.nekohasekai.sfa.Application.application,
+                    profile.id,
+                    e,
+                )
                 sendErrorMessage(io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e))
                 // Clear updating state on error
                 withContext(Dispatchers.Main) {
