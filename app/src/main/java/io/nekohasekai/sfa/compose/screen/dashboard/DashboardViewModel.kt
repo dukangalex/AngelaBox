@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.compose.screen.dashboard
 
+import android.content.Context
+import android.net.ConnectivityManager
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.ConnectionEvents
 import io.nekohasekai.libbox.Connections
@@ -34,8 +36,14 @@ import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.NetworkCheckup
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
+import io.nekohasekai.sfa.utils.TunnelGate
+import java.io.File
+import java.util.Collections
+import java.util.Date
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -50,10 +58,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
-import java.io.File
-import java.util.Collections
-import java.util.Date
-import java.util.concurrent.atomic.AtomicLong
 
 enum class CardGroup {
     ChainPath,
@@ -115,6 +119,8 @@ data class DashboardUiState(
     val healthIssues: List<SubscriptionUpdateHealth.HealthIssue> = emptyList(),
     // 首次启动三步引导（配置列表为空且未关闭过）
     val showOnboardingGuide: Boolean = false,
+    // 一键网络体检（TUN 连通性 / DNS / 节点延迟 / 订阅状态）
+    val checkup: NetworkCheckupUiState = NetworkCheckupUiState.Idle,
     // Card visibility settings
     val visibleCards: Set<CardGroup> =
         setOf(
@@ -150,6 +156,13 @@ data class DashboardUiState(
     val showCardSettingsDialog: Boolean = false,
 ) {
     data class DeprecatedNote(val message: String, val migrationLink: String?)
+}
+
+// 一键网络体检卡片状态：Idle（一个按钮）→ Running（进度）→ Done（四项结果 + 人话结论）。
+sealed interface NetworkCheckupUiState {
+    data object Idle : NetworkCheckupUiState
+    data class Running(val step: NetworkCheckup.ItemId) : NetworkCheckupUiState
+    data class Done(val result: NetworkCheckup.Result) : NetworkCheckupUiState
 }
 
 // DashboardViewModel now only uses UiEvent for all events
@@ -971,16 +984,67 @@ class DashboardViewModel :
 
     fun testSelectedDelay() {
         if (_serviceStatus.value != Status.Started) return
+        val tag = currentOutboundTagForTest()
+        if (tag.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { CommandTarget.standaloneClient().urlTest(tag) }
+        }
+    }
+
+    /**
+     * 当前承载流量的出口 tag（Landing/Exit hop），取法与 testSelectedDelay 一致，
+     * 供一键网络体检的延迟项复用。拿不到返回 ""。
+     */
+    private fun currentOutboundTagForTest(): String {
         val hop = currentState.topology.hops.lastOrNull { live ->
             (live.role == ChainPathHop.Role.Landing || live.role == ChainPathHop.Role.Exit) &&
                 live.title.isNotBlank() &&
                 !TrafficFlowBuilder.isDirectTag(live.title)
         }
         val tag = hop?.title?.ifBlank { hop.subtitle }.orEmpty()
-        if (tag.isBlank() || TrafficFlowBuilder.isDirectTag(tag)) return
+        if (tag.isBlank() || TrafficFlowBuilder.isDirectTag(tag)) return ""
+        return tag
+    }
+
+    /** 该 tag 最新已知的 urlTest 延迟（ms），无数据返回 null。 */
+    private fun currentOutboundDelayMs(tag: String): Int? {
+        if (tag.isBlank()) return null
+        val delays = outboundDelays
+        return delays[tag] ?: delays[ChainRuntimeCompiler.displayHopTag(tag)]
+    }
+
+    private fun hasActiveNetwork(): Boolean {
+        val cm = Application.application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        return cm?.activeNetwork != null
+    }
+
+    /** 一键网络体检：跑完 TUN 连通性、DNS、节点延迟、订阅状态四项，给一句人话结论。 */
+    fun runNetworkCheckup() {
+        if (currentState.checkup is NetworkCheckupUiState.Running) return
+        val tag = currentOutboundTagForTest()
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { CommandTarget.standaloneClient().urlTest(tag) }
+            val result = NetworkCheckup.run(
+                context = Application.application,
+                hasNetwork = hasActiveNetwork(),
+                tunnelUp = TunnelGate.up,
+                outboundTag = tag,
+                currentDelayMs = { currentOutboundDelayMs(tag) },
+                triggerUrlTest = { t -> runCatching { CommandTarget.standaloneClient().urlTest(t) } },
+                onStep = { step ->
+                    viewModelScope.launch(Dispatchers.Main) {
+                        updateState { copy(checkup = NetworkCheckupUiState.Running(step)) }
+                    }
+                },
+            )
+            withContext(Dispatchers.Main) {
+                updateState { copy(checkup = NetworkCheckupUiState.Done(result)) }
+            }
         }
+    }
+
+    fun dismissNetworkCheckup() {
+        if (currentState.checkup is NetworkCheckupUiState.Running) return
+        updateState { copy(checkup = NetworkCheckupUiState.Idle) }
     }
 
     private fun maybePrimeDelay() {

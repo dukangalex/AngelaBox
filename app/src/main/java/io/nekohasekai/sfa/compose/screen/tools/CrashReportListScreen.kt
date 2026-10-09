@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.compose.screen.tools
 
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,11 +51,12 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.CrashReportManager
+import io.nekohasekai.sfa.bg.ReportRetention
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +66,8 @@ fun CrashReportListScreen(navController: NavController) {
     var menuExpanded by remember { mutableStateOf(false) }
     var crashTriggerExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val storageBytes by CrashReportManager.storageBytes.collectAsState()
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         CrashReportManager.refresh()
@@ -186,6 +191,18 @@ fun CrashReportListScreen(navController: NavController) {
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+            )
+            Text(
+                text = stringResource(
+                    R.string.report_storage_summary,
+                    reports.size,
+                    Formatter.formatShortFileSize(context, storageBytes),
+                    ReportRetention.KEEP_LATEST,
+                    ReportRetention.MAX_AGE_DAYS,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 32.dp),
             )
             if (reports.isEmpty()) {
                 Card(
