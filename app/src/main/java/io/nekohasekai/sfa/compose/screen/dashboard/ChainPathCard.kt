@@ -102,6 +102,7 @@ fun ChainPathCard(
     onToggleService: () -> Unit = {},
     onRequestDelayTest: () -> Unit = {},
     onUpdateCurrentProfile: () -> Unit = {},
+    onOpenCheckup: () -> Unit = {},
     canUpdateCurrentProfile: Boolean = false,
     updatingCurrentProfile: Boolean = false,
     updatedCurrentProfile: Boolean = false,
@@ -176,6 +177,11 @@ fun ChainPathCard(
                     onSelected = onClashModeSelected,
                 )
             }
+            StatusChip(
+                stringResource(R.string.network_checkup_title),
+                emphasized = false,
+                onClick = onOpenCheckup,
+            )
             IconButton(
                 onClick = onOpenChainBuilder,
                 modifier = Modifier.size(28.dp),

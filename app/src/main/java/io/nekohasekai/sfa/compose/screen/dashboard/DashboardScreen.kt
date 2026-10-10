@@ -32,7 +32,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
-import io.nekohasekai.sfa.compose.component.NetworkCheckupCard
+import io.nekohasekai.sfa.compose.component.NetworkCheckupDialog
 import io.nekohasekai.sfa.compose.component.OnboardingGuideCard
 import io.nekohasekai.sfa.compose.component.OverrideBanner
 import io.nekohasekai.sfa.compose.component.RemoteControlMenuItems
@@ -62,6 +62,7 @@ fun DashboardScreen(
     val isRemote = remoteServer != null
     val remoteServers by rememberRemoteServers()
     var showOthersMenu by remember { mutableStateOf(false) }
+    var showCheckupDialog by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.reloadChainPath()
@@ -104,13 +105,6 @@ fun DashboardScreen(
         ) {
             item { OverrideBanner() }
             item { SubscriptionHealthBanner(uiState.healthIssues) }
-            item {
-                NetworkCheckupCard(
-                    state = uiState.checkup,
-                    onRun = viewModel::runNetworkCheckup,
-                    onDismiss = viewModel::dismissNetworkCheckup,
-                )
-            }
             if (uiState.showOnboardingGuide) {
                 item {
                     OnboardingGuideCard(
@@ -181,6 +175,7 @@ fun DashboardScreen(
                                 onHideProfilePickerSheet = viewModel::hideProfilePickerSheet,
                                 onOpenNewProfile = onOpenNewProfile,
                                 onOpenChainBuilder = onOpenChainBuilder,
+                            onOpenCheckup = { showCheckupDialog = true },
                                 onToggleService = viewModel::toggleService,
                                 onRequestDelayTest = viewModel::testSelectedDelay,
                                 commandClient = viewModel.commandClient,
@@ -218,6 +213,7 @@ fun DashboardScreen(
                             onHideProfilePickerSheet = viewModel::hideProfilePickerSheet,
                             onOpenNewProfile = onOpenNewProfile,
                             onOpenChainBuilder = onOpenChainBuilder,
+                            onOpenCheckup = { showCheckupDialog = true },
                             onToggleService = viewModel::toggleService,
                             onRequestDelayTest = viewModel::testSelectedDelay,
                             commandClient = viewModel.commandClient,
@@ -247,6 +243,18 @@ fun DashboardScreen(
             onDismiss = viewModel::hideAddProfileSheet,
             onOpenNewProfile = onOpenNewProfile,
             onProfileImported = { profile -> viewModel.editProfile(profile) },
+        )
+    }
+
+    if (showCheckupDialog) {
+        NetworkCheckupDialog(
+            state = uiState.checkup,
+            onRun = viewModel::runNetworkCheckup,
+            onDismiss = {
+                viewModel.dismissNetworkCheckup()
+                showCheckupDialog = false
+            },
+            onClose = { showCheckupDialog = false },
         )
     }
 }

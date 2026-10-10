@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.Warning
@@ -17,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,40 +30,60 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.screen.dashboard.NetworkCheckupUiState
 import io.nekohasekai.sfa.utils.NetworkCheckup
 
 /**
- * 一键网络体检卡片（审计"我的用户视角"想法 1）。
+ * 一键网络体检弹窗（审计"我的用户视角"想法 1）。
+ * 仪表盘上只留一个小选项按钮，点开才弹这个 Dialog。
  * Idle → 一个按钮；Running → 进度；Done → 四项结果 + 一句人话结论。
- * 放在仪表盘顶部（SubscriptionHealthBanner 之后），与横幅/引导卡片同一视觉语言。
+ *
+ * @param onClose 只关弹窗（保留 state，下次打开还能看到上次结果）。
+ * @param onDismiss 重置为 Idle；调用方同时关弹窗。
  */
 @Composable
-fun NetworkCheckupCard(
+fun NetworkCheckupDialog(
     state: NetworkCheckupUiState,
     onRun: () -> Unit,
     onDismiss: () -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                stringResource(R.string.network_checkup_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            when (state) {
-                is NetworkCheckupUiState.Idle -> IdleContent(onRun)
-                is NetworkCheckupUiState.Running -> RunningContent(state.step)
-                is NetworkCheckupUiState.Done -> DoneContent(state.result, onRun, onDismiss)
+    Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.network_checkup_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.close),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                when (state) {
+                    is NetworkCheckupUiState.Idle -> IdleContent(onRun)
+                    is NetworkCheckupUiState.Running -> RunningContent(state.step)
+                    is NetworkCheckupUiState.Done -> DoneContent(state.result, onRun, onDismiss)
+                }
             }
         }
     }
@@ -108,7 +131,7 @@ private fun DoneContent(
         }
         Spacer(Modifier.width(8.dp))
         TextButton(onClick = onDismiss) {
-            Text(stringResource(R.string.network_checkup_dismiss))
+            Text(stringResource(R.string.close))
         }
     }
 }

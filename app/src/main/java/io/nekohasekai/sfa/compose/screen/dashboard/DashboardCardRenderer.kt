@@ -38,6 +38,7 @@ fun DashboardCardRenderer(
     onHideProfilePickerSheet: () -> Unit = {},
     onOpenNewProfile: (NewProfileArgs) -> Unit = {},
     onOpenChainBuilder: () -> Unit = {},
+    onOpenCheckup: () -> Unit = {},
     onToggleService: () -> Unit = {},
     onRequestDelayTest: () -> Unit = {},
     commandClient: CommandClient? = null,
@@ -61,6 +62,7 @@ fun DashboardCardRenderer(
                 onShowProfilePicker = onShowProfilePickerSheet,
                 onToggleService = onToggleService,
                 onRequestDelayTest = onRequestDelayTest,
+                onOpenCheckup = onOpenCheckup,
                 onUpdateCurrentProfile = {
                     selected?.let(onProfileUpdate)
                 },
