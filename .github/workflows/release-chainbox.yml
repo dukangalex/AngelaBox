@@ -1,4 +1,4 @@
-elaBox Release
+name: AngelaBox Release
 
 on:
   workflow_dispatch:
@@ -45,10 +45,10 @@ jobs:
           fi
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
             echo "Tag $TAG already exists — refusing to rebuild over it" >&2
-   exit 1
+            exit 1
           fi
-                   bash scripts/release_preflight_gate.sh "$TAG"
-                   echo "Pre-flight OK: $TAG is new"
+          bash scripts/release_preflight_gate.sh "$TAG"
+          echo "Pre-flight OK: $TAG is new"
 
       - name: Security regression
         working-directory: sing-box-for-android
