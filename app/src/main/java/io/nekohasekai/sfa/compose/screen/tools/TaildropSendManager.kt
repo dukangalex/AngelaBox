@@ -210,7 +210,9 @@ object TaildropSendManager {
             var readFailure: IOException? = null
             try {
                 for (file in files) {
-                    writeFile(session, file.open())
+                    file.open().use { input ->
+                        writeFile(session, input)
+                    }
                 }
             } catch (e: IOException) {
                 readFailure = e
