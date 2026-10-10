@@ -263,8 +263,8 @@ class DashboardViewModel :
         ProfileManager.unregisterCallback(::onProfilesChanged)
         // A drag that ended just before the screen closed has not been saved yet.
         pendingOrder?.let { order ->
-            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) { persistOrder(order) }
+            // onCleared 时 viewModelScope 已取消，只能同步写（数据量小），防进程被杀丢排序。
+            runCatching { persistOrder(order) }
         }
         commandClient.disconnect()
     }
@@ -1021,6 +1021,8 @@ class DashboardViewModel :
     /** 一键网络体检：跑完 TUN 连通性、DNS、节点延迟、订阅状态四项，给一句人话结论。 */
     fun runNetworkCheckup() {
         if (currentState.checkup is NetworkCheckupUiState.Running) return
+        // 同步先置为 Running，防快速双击启动两个并发体检。
+        updateState { it.copy(checkup = NetworkCheckupUiState.Running()) }
         val tag = currentOutboundTagForTest()
         viewModelScope.launch(Dispatchers.IO) {
             val result = NetworkCheckup.run(
