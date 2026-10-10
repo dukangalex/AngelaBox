@@ -251,6 +251,29 @@ jobs:
             desktop/pnpm-lock.yaml
             desktop/dashboard/pnpm-lock.yaml
 
+      - name: Windows signing material (test certificate)
+        # 打包脚本硬要求 signing.local.json；这里只生成自签测试证书供 electron-builder
+        # 完成构建，真正的签名由后续 SignPath 步骤覆盖。
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'windows-signing.p12'
+          Write-Host 'Issuing a self-signed code-signing certificate for the build; SignPath will replace the signature after packaging.'
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AngelaBox Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(1)
+          $password = [guid]::NewGuid().ToString('N')
+          $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath $certificatePath -Password $secure | Out-Null
+          if (-not (Test-Path $certificatePath)) { throw "missing $certificatePath" }
+          $payload = @{
+            windows = @{
+              certificateFile = $certificatePath
+              certificatePassword = $password
+            }
+          } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'signing.local.json'), $payload)
+          Write-Host 'Wrote signing.local.json'
+
       - name: Install dependencies
         working-directory: desktop
         run: pnpm install --frozen-lockfile
