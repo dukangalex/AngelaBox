@@ -18,6 +18,7 @@ var ruleOptionsEnable = {
   YouTube: true,
   Google: true,
   AI: true,
+  Claude防封直连: true,
   Microsoft: true,
   Apple: true,
   Telegram: true,
@@ -912,6 +913,36 @@ function main(config) {
       }]
     });
     addService({ name: "Google", sets: [{ tag: "geosite-google", file: "geosite-google.srs", out: "Google" }] });
+    if (on("Claude防封直连")) {
+      // Claude 防封分流：这类流量直连，不走代理。
+      // 由用户提供的 Clash/Mihomo 规则翻译成 sing-box 写法：
+      // - 原稿 DOMAIN-SUFFIX 带了 http 协议前缀（冒号双斜杠），按原样一条都匹配不上，这里已去掉；
+      // - sing-box 路由规则没有 IP-ASN 字段，用该 ASN（399358）名下的两个 IP 段兜底；
+      // - [General] 的内网直连默认脚本本来就有（ip_is_private → 直连），不再重复。
+      // 必须放在 ClaudeAI 服务之前：路由按顺序匹配，直连优先。
+      useSet(sets, rules, "geosite-anthropic", "geosite-anthropic.srs", false, "直连");
+      rules.push({
+        domain_suffix: [
+          "anthropic.com", "claude.ai", "claude.com", "clau.de",
+          "claudemcpclient.com", "claudeusercontent.com"
+        ],
+        outbound: "直连"
+      });
+      rules.push({
+        domain: [
+          "servd-anthropic-website.b-cdn.net", "anthropic.com.cdn.cloudflare.net",
+          "anthropic.auth0.com", "anthropic-com.ghost.io",
+          "browser-intake-us5-datadoghq.com", "cdn.usefathom.com"
+        ],
+        outbound: "直连"
+      });
+      rules.push({
+        domain_suffix: ["sentry.io", "statsigapi.net", "intercom.io", "intercomcdn.com"],
+        outbound: "直连"
+      });
+      rules.push({ domain_keyword: ["datadog", "sift"], outbound: "直连" });
+      rules.push({ ip_cidr: ["160.79.104.0/21", "2607:6bc0::/32"], outbound: "直连" });
+    }
     addService({
       name: "ClaudeAI",
       def: "🇺🇸 美国",

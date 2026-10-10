@@ -120,6 +120,58 @@ class ConfigScriptOverrideTest {
     }
 
     @Test
+    fun claudeAntiBlockDirectBeforeClaudeAI() {
+        val file = File("src/main/assets/scripts/airport-region.js")
+        if (!file.isFile) return
+        val code = file.readText()
+        val input = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "vless").put("tag", "香港 01"))
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .toString()
+        val out = JSONObject(ConfigScriptOverride.ScriptEngine.run(code, input, "sample"))
+        val rules = out.getJSONObject("route").getJSONArray("rules")
+        val objs = (0 until rules.length()).map { rules.getJSONObject(it) }
+        fun hasDomainSuffix(r: JSONObject, d: String): Boolean {
+            val arr = r.optJSONArray("domain_suffix") ?: return false
+            return (0 until arr.length()).any { arr.getString(it) == d }
+        }
+        val directIdx = objs.indexOfFirst { it.optString("outbound") == "直连" && hasDomainSuffix(it, "anthropic.com") }
+        val claudeIdx = objs.indexOfFirst { it.optString("outbound") == "ClaudeAI" }
+        assertTrue("claude direct rule present", directIdx >= 0)
+        assertTrue("claudeAI rule present", claudeIdx >= 0)
+        assertTrue("direct shadows ClaudeAI", directIdx < claudeIdx)
+        assertTrue("no http:// in any rule", objs.none { it.toString().contains("http://") })
+        assertTrue(
+            "anthropic ip ranges direct",
+            objs.any { r ->
+                r.optString("outbound") == "直连" &&
+                    r.optJSONArray("ip_cidr")?.let { arr ->
+                        (0 until arr.length()).map { arr.getString(it) }
+                    }?.containsAll(listOf("160.79.104.0/21", "2607:6bc0::/32")) == true
+            },
+        )
+
+        val off = JSONObject(
+            ConfigScriptOverride.ScriptEngine.run(
+                code.replace("Claude防封直连: true", "Claude防封直连: false"),
+                input,
+                "sample",
+            ),
+        )
+        val offRules = off.getJSONObject("route").getJSONArray("rules")
+        val offObjs = (0 until offRules.length()).map { offRules.getJSONObject(it) }
+        assertTrue(
+            "no claude direct rules when toggled off",
+            offObjs.none { it.optString("outbound") == "直连" && hasDomainSuffix(it, "anthropic.com") },
+        )
+        assertTrue("ClaudeAI rule still present when toggled off", offObjs.any { it.optString("outbound") == "ClaudeAI" })
+    }
+
+    @Test
     fun sampleClearsStrictRouteWhenSwitchOff() {
         val file = File("src/main/assets/scripts/airport-region.js")
         if (!file.isFile) return
