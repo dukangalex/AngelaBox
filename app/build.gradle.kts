@@ -193,7 +193,6 @@ dependencies {
     implementation("androidx.browser:browser:$browserVersion")
     implementation("androidx.webkit:webkit:$webkitVersion")
     implementation("androidx.core:core-ktx:$coreVersion")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.google.android.material:material:$materialVersion")
     val soraVersion = "0.23.6"
     val treeSitterVersion = "4.3.2"
