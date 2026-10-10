@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+    actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
 concurrency:
@@ -46,7 +47,9 @@ jobs:
             echo "Tag $TAG already exists — refusing to rebuild over it" >&2
             exit 1
           fi
-          echo "Pre-flight OK: $TAG is new"
+         
+                   bash scripts/release_preflight_gate.sh "$TAG"
+                   echo "Pre-flight OK: $TAG is new"
 
       - name: Security regression
         working-directory: sing-box-for-android
@@ -342,7 +345,7 @@ jobs:
           KBRANCH=$(grep '^KERNEL_BRANCH=' version.properties | cut -d= -f2 | tr -d '\r')
           GOV=$(grep '^GO_VERSION=' version.properties | cut -d= -f2 | tr -d '\r')
           {
-            cat docs/RELEASE_NOTES.md
+            bash scripts/extract_release_notes.sh
             echo
             echo "本版安装包：\`AngelaBox-android.apk\`（arm64）。"
             echo
