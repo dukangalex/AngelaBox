@@ -256,10 +256,10 @@ object PortableCloudBackup {
 
         val webdav = root.optJSONObject("webdav")
         if (webdav != null) {
-            val url = webdav.optString("url").trim()
+            // M3: 恢复时不恢复 webdav.url——恶意备份可借此把上传目标指向攻击者服务器
+            // （密码经 Basic Auth 明文发送）。用户需手动重填 URL，与"密码不进备份"原则一致。
             val user = webdav.optString("user").trim()
             val remote = webdav.optString("remote_file").trim()
-            if (url.isNotEmpty()) Settings.webdavUrl = url
             if (user.isNotEmpty()) Settings.webdavUser = user
             if (remote.isNotEmpty()) Settings.webdavRemoteFile = remote
         }
