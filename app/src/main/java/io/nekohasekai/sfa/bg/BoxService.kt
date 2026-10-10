@@ -612,13 +612,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     receiverRegistered = false
                 }
                 notification.close()
+                // 关键状态同步落盘，防 GlobalScope 协程没跑完进程就被杀。
+                Settings.startedByUser = false
                 GlobalScope.launch(Dispatchers.IO) {
                     DefaultNetworkMonitor.stop()
                     if (::commandServer.isInitialized) {
                         closeService()
                         runCatching { commandServer.close() }
                     }
-                    Settings.startedByUser = false
                     withContext(Dispatchers.Main) {
                         TunnelGate.setUp(false)
                         status.value = Status.Stopped
