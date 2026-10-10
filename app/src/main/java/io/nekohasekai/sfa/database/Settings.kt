@@ -59,34 +59,7 @@ object Settings {
             "stable"
         }
     }
-    private var legacyGithubToken by dataStore.string(SettingsKey.GITHUB_TOKEN) { "" }
-    /**
-     * GitHub Token：存加密存储（Android Keystore）。首次读取时把旧明文迁移过去，
-     * 迁移成功才删旧值，失败保留旧值。
-     */
-    var githubToken: String
-        get() {
-            SecureStorage.get("github_token")?.let { return it }
-            // 一次性迁移：旧 Room 明文 → 加密存储
-            val legacy = legacyGithubToken
-            if (legacy.isNotEmpty()) {
-                SecureStorage.set("github_token", legacy)
-                if (SecureStorage.get("github_token") == legacy) {
-                    legacyGithubToken = ""
-                }
-                return legacy
-            }
-            return ""
-        }
-        set(value) {
-            if (value.isEmpty()) {
-                SecureStorage.remove("github_token")
-            } else {
-                SecureStorage.set("github_token", value)
-            }
-            // 迁移后旧槽位保持清空
-            if (legacyGithubToken.isNotEmpty()) legacyGithubToken = ""
-        }
+    var githubToken by dataStore.string(SettingsKey.GITHUB_TOKEN) { "" }
     var silentInstallEnabled by dataStore.boolean(SettingsKey.SILENT_INSTALL_ENABLED) { false }
     var silentInstallMethod by dataStore.string(SettingsKey.SILENT_INSTALL_METHOD) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "PACKAGE_INSTALLER" else "SHIZUKU"
@@ -128,32 +101,7 @@ object Settings {
     var profileStableIdsJson by dataStore.string(SettingsKey.PROFILE_STABLE_IDS) { "{}" }
     var webdavUrl by dataStore.string(SettingsKey.WEBDAV_URL) { "" }
     var webdavUser by dataStore.string(SettingsKey.WEBDAV_USER) { "" }
-    private var legacyWebdavPassword by dataStore.string(SettingsKey.WEBDAV_PASSWORD) { "" }
-    /**
-     * WebDAV 密码：存加密存储（Android Keystore）。首次读取时把旧明文迁移过去，
-     * 迁移成功才删旧值，失败保留旧值。
-     */
-    var webdavPassword: String
-        get() {
-            SecureStorage.get("webdav_password")?.let { return it }
-            val legacy = legacyWebdavPassword
-            if (legacy.isNotEmpty()) {
-                SecureStorage.set("webdav_password", legacy)
-                if (SecureStorage.get("webdav_password") == legacy) {
-                    legacyWebdavPassword = ""
-                }
-                return legacy
-            }
-            return ""
-        }
-        set(value) {
-            if (value.isEmpty()) {
-                SecureStorage.remove("webdav_password")
-            } else {
-                SecureStorage.set("webdav_password", value)
-            }
-            if (legacyWebdavPassword.isNotEmpty()) legacyWebdavPassword = ""
-        }
+    var webdavPassword by dataStore.string(SettingsKey.WEBDAV_PASSWORD) { "" }
     var webdavRemoteFile by dataStore.string(SettingsKey.WEBDAV_REMOTE_FILE) { "backup.zip" }
     var webdavProbeOk by dataStore.int(SettingsKey.WEBDAV_PROBE_OK) { -1 }
     var restoreCompat by dataStore.boolean(SettingsKey.RESTORE_COMPAT) { false }
