@@ -138,4 +138,40 @@ class NetworkCheckupTest {
             ),
         )
     }
+
+    @Test
+    fun fakeIp_range198_18_slash15() {
+        // 198.18.0.0/15：198.18.x.x 与 198.19.x.x 都是 FakeIP。
+        assertEquals(true, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.18.0.1")))
+        assertEquals(true, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.18.255.254")))
+        assertEquals(true, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.19.0.1")))
+        assertEquals(true, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.19.255.255")))
+    }
+
+    @Test
+    fun fakeIp_outsideRangeIsNotFakeIp() {
+        // 边界外：198.17.x.x、198.20.x.x、公网 IP 都不是 FakeIP。
+        assertEquals(false, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.17.255.255")))
+        assertEquals(false, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("198.20.0.1")))
+        assertEquals(false, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("8.8.8.8")))
+        assertEquals(false, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("223.5.5.5")))
+    }
+
+    @Test
+    fun fakeIp_ipv6IsNotFakeIp() {
+        assertEquals(false, NetworkCheckup.isFakeIp(java.net.InetAddress.getByName("::1")))
+    }
+
+    @Test
+    fun verdict_fakeipCodeIsOkNotHijacked() {
+        // code "fakeip" 配 OK 状态：不能触发 DNS_HIJACKED。
+        assertEquals(
+            NetworkCheckup.VerdictKind.ALL_OK,
+            NetworkCheckup.decideVerdict(
+                true,
+                true,
+                withItem(NetworkCheckup.ItemId.DNS, NetworkCheckup.ItemStatus.OK, "fakeip"),
+            ),
+        )
+    }
 }

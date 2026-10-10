@@ -210,27 +210,34 @@ object NetworkCheckup {
 
     /**
      * 劫持探测：查一个保证 NXDOMAIN 的随机 canary（RFC 2606 .invalid 永不解析）。
-     * 任何返回 A 记录的解析器都在劫持。
+     * 任何返回 A 记录的解析器都在劫持——FakeIP 除外（见 [isFakeIp]）。
      *
      * 注意：隧道 up 时只用系统解析（此时走隧道 DNS）；直连公共 DNS 的原始查询
      * 只在隧道 down 时做，且只用于区分"系统 DNS 被劫持"还是"本地网络整体劫持"。
      */
     private fun probeDns(context: Context, tunnelUp: Boolean): Item {
         val canary = "nq${System.currentTimeMillis().toString(36)}${(0..9999).random().toString(36)}.dnscheck.invalid"
-        val systemHijacked = try {
-            InetAddress.getAllByName(canary).isNotEmpty()
+        val addresses = try {
+            InetAddress.getAllByName(canary)
         } catch (_: UnknownHostException) {
-            false
+            emptyArray()
         } catch (_: Exception) {
             return Item(
                 ItemId.DNS, ItemStatus.WARN, "error",
                 context.getString(R.string.checkup_dns_error),
             )
         }
-        if (!systemHijacked) {
+        if (addresses.isEmpty()) {
             return Item(
                 ItemId.DNS, ItemStatus.OK, "ok",
                 context.getString(R.string.checkup_dns_ok),
+            )
+        }
+        if (addresses.all(::isFakeIp)) {
+            // FakeIP 会给所有域名返回假地址（含 .invalid 金丝雀），这是预期行为，不是劫持。
+            return Item(
+                ItemId.DNS, ItemStatus.OK, "fakeip",
+                context.getString(R.string.checkup_dns_fakeip),
             )
         }
         if (!tunnelUp) {
@@ -254,6 +261,16 @@ object NetworkCheckup {
             ItemId.DNS, ItemStatus.FAIL, "hijacked",
             context.getString(R.string.checkup_dns_hijacked_tunnel),
         )
+    }
+
+    /**
+     * sing-box / Clash 系默认 FakeIP 段 198.18.0.0/15（RFC 2544 benchmarking）。
+     * 供单测，做成 internal。
+     */
+    internal fun isFakeIp(address: InetAddress): Boolean {
+        val b = address.address
+        if (b.size != 4) return false
+        return (b[0].toInt() and 0xFF) == 198 && ((b[1].toInt() and 0xFF) and 0xFE) == 18
     }
 
     // ---- 节点延迟 ----
