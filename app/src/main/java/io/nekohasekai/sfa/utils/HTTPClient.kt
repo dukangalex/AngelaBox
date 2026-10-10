@@ -282,7 +282,7 @@ class HTTPClient : Closeable {
                     raw.contains("abort", ignoreCase = true) ||
                     raw.contains("unexpected end", ignoreCase = true) ||
                     // HTTP 5xx（服务器临时故障）应退避重试，而非判永久失败。
-                    Regex("HTTP\s*5\d\d").containsMatchIn(raw)
+                    raw.contains("HTTP 5")
                 ) {
                     return true
                 }
