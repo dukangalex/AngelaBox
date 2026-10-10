@@ -28,6 +28,9 @@ jobs:
     name: Build Windows desktop (${{ matrix.desktop_arch }})
     runs-on: windows-latest
     timeout-minutes: 120
+    # secrets 不能直接用在 step 的 if: 里，先转成 env 再判断。
+    env:
+      SIGNPATH_ENABLED: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -244,7 +247,7 @@ jobs:
 
       - name: Upload unsigned artifacts for SignPath
         id: upload_unsigned
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_ENABLED == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-unsigned-${{ matrix.desktop_arch }}
@@ -253,7 +256,7 @@ jobs:
 
       - name: Submit SignPath signing request
         id: signpath
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_ENABLED == 'true' }}
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
