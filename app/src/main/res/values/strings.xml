@@ -867,7 +867,6 @@
     <string name="network_checkup_desc">Check TUN connectivity, DNS, node latency and subscription health in one tap.</string>
     <string name="network_checkup_run">Run checkup</string>
     <string name="network_checkup_rerun">Re-run</string>
-    <string name="network_checkup_dismiss">Dismiss</string>
     <string name="network_checkup_running">Checking: %1$s</string>
     <string name="checkup_item_tunnel">TUN connectivity</string>
     <string name="checkup_item_dns">DNS</string>
@@ -880,6 +879,7 @@
     <string name="checkup_tunnel_http_error">Probe returned HTTP %1$d</string>
     <string name="checkup_tunnel_io_error">Network error</string>
     <string name="checkup_dns_ok">No DNS hijacking detected</string>
+    <string name="checkup_dns_fakeip">DNS OK (FakeIP in use — expected)</string>
     <string name="checkup_dns_error">DNS query failed</string>
     <string name="checkup_dns_hijacked_tunnel">DNS answers look hijacked (tunnel DNS)</string>
     <string name="checkup_dns_hijacked_system">System DNS looks hijacked</string>
@@ -895,7 +895,7 @@
     <string name="checkup_verdict_service_stopped">Service is not running: start it first; tunnel checks were skipped.</string>
     <string name="checkup_verdict_subscription_bad">Subscription problem: %1$s</string>
     <string name="checkup_verdict_tunnel_broken">Node unreachable: try another node, or the node server may be down.</string>
-    <string name="checkup_verdict_dns_hijacked">Node is fine — your local network\'s DNS looks hijacked. Try another DNS (e.g. 223.5.5.5) or another network.</string>
+    <string name="checkup_verdict_dns_hijacked">Node is fine — the tunnel DNS answers look hijacked. Try another DNS (e.g. 223.5.5.5) or another network.</string>
     <string name="checkup_verdict_node_slow">Node latency is high (%1$s ms): switch to a faster node.</string>
     <string name="checkup_verdict_subscription_unhealthy">Subscription needs attention: %1$s</string>
     <string name="empty_configuration_go_add">Add configuration</string>
