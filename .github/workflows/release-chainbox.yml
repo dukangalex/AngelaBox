@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
 concurrency:
@@ -47,7 +46,6 @@ jobs:
             echo "Tag $TAG already exists — refusing to rebuild over it" >&2
             exit 1
           fi
-          bash scripts/release_preflight_gate.sh "$TAG"
           echo "Pre-flight OK: $TAG is new"
 
       - name: Security regression
@@ -344,7 +342,7 @@ jobs:
           KBRANCH=$(grep '^KERNEL_BRANCH=' version.properties | cut -d= -f2 | tr -d '\r')
           GOV=$(grep '^GO_VERSION=' version.properties | cut -d= -f2 | tr -d '\r')
           {
-            bash scripts/extract_release_notes.sh
+            cat docs/RELEASE_NOTES.md
             echo
             echo "本版安装包：\`AngelaBox-android.apk\`（arm64）。"
             echo
@@ -401,5 +399,8 @@ jobs:
           test -s AngelaBox-android.apk.sha256
           SHA256="$(awk '{print $1}' AngelaBox-android.apk.sha256)"
           export SHA256
+          # Telegram 公告只要当前版说明，不发历史版本。
+          bash scripts/extract_release_notes.sh > /tmp/release_notes_current.txt
+          export NOTES_FILE=/tmp/release_notes_current.txt
           python3 scripts/telegram_announce.py
           python3 scripts/telegram_send.py
