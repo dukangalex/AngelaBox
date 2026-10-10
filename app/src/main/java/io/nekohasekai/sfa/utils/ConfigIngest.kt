@@ -2320,7 +2320,7 @@ object ConfigIngest {
 
     private fun parseVless(body: String): JSONObject? = parseUserHostQuery(body, "vless") { out, query, host ->
         val uuid = urlDecode(body.substringBefore('@'))
-        if (uuid.isBlank()) return@parseUserHostQuery null
+        if (uuid.isBlank()) return@parseUserHostQuery false
         out.put("uuid", uuid)
         val encryption = query["encryption"].orEmpty()
         // Xray's post-quantum VLESS encryption is not in sing-box.
