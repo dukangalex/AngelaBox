@@ -1022,7 +1022,7 @@ class DashboardViewModel :
     fun runNetworkCheckup() {
         if (currentState.checkup is NetworkCheckupUiState.Running) return
         // 同步先置为 Running，防快速双击启动两个并发体检。
-        updateState { it.copy(checkup = NetworkCheckupUiState.Running(NetworkCheckup.ItemId.TUNNEL)) }
+        updateState { copy(checkup = NetworkCheckupUiState.Running(NetworkCheckup.ItemId.TUNNEL)) }
         val tag = currentOutboundTagForTest()
         viewModelScope.launch(Dispatchers.IO) {
             val result = NetworkCheckup.run(
