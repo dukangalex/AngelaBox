@@ -263,8 +263,8 @@ class DashboardViewModel :
         ProfileManager.unregisterCallback(::onProfilesChanged)
         // A drag that ended just before the screen closed has not been saved yet.
         pendingOrder?.let { order ->
-            // onCleared 时 viewModelScope 已取消，只能同步写（数据量小），防进程被杀丢排序。
-            runCatching { persistOrder(order) }
+            // onCleared 时 viewModelScope 已取消，用 runBlocking 同步写（数据量小），防进程被杀丢排序。
+            runCatching { kotlinx.coroutines.runBlocking { persistOrder(order) } }
         }
         commandClient.disconnect()
     }
