@@ -69,4 +69,14 @@ class SubscriptionInfoTest {
         assertEquals("23.53 GB", SubscriptionInfo.formatBytes((23.53 * 1024 * 1024 * 1024).toLong()))
         assertEquals("512.00 GB", SubscriptionInfo.formatBytes(512L * 1024 * 1024 * 1024))
     }
+
+    @Test
+    fun parseClampsNegativeValuesToZero() {
+        // v1.0.112: negative upload/download/total must be clamped to 0, not propagated.
+        val info = SubscriptionInfo.parse("upload=-5; download=-10; total=-100; expire=4102358400")
+        requireNotNull(info)
+        assertEquals(0L, info.upload)
+        assertEquals(0L, info.download)
+        assertEquals(0L, info.total)
+    }
 }
