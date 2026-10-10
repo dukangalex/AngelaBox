@@ -15,7 +15,7 @@
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑、分应用扫描不解析应用组件 |
 | 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 / 禁用 QUIC 默认开；严格路由默认关，打开后丢掉没进隧道的包；QUIC 用复位拒绝 UDP 443，国内可排除；脚本开着时由同一套开关控制，不叠两套规则；节点能用就能代理 |
 
-AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。**当前只发 Android。** Windows 图形端和命令行都已暂停：条件未成熟，已有 Windows 包功能残缺、无法使用，未来一段时间不会再发，也不再跟进维护。时机成熟后再做。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
+AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。当前主发 Android；Windows 版已恢复开发（代码签名改走 SignPath 基金会免费开源方案），首个签名版本发布前，已有 Windows 旧包仍视为功能残缺、不要安装。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
 
 ## 公开说明（2026-09-18）
 
@@ -27,7 +27,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 - 构建：[Actions](https://github.com/dukangalex/AngelaBox/actions)
 - 频道：[Telegram](https://t.me/AngelaBox)
 - 使用说明：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)
-- Windows：已暂停，见 [docs/WINDOWS.md](docs/WINDOWS.md)
+- Windows：恢复开发中，见 [docs/WINDOWS.md](docs/WINDOWS.md)
 - 身份表：[docs/IDENTITY.md](docs/IDENTITY.md)
 - 云备份：[docs/BACKUP.md](docs/BACKUP.md)
 - 安全说明：[docs/SECURITY.md](docs/SECURITY.md)
@@ -43,10 +43,10 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 内核仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box)（分支 `chain-dev`） |
 | 更新检查 | 仅本仓库 GitHub Releases |
 | 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
-| 安装包 | 只发 Android：`AngelaBox-android.apk`。Windows 不在发行范围内 |
+| 安装包 | Android：`AngelaBox-android.apk`；Windows 版恢复开发中，首个签名版本见 [docs/WINDOWS.md](docs/WINDOWS.md) |
 | 客户端版本 | 见 `version.properties` 的 `VERSION_NAME`（当前为 **1.0.109-beta** 测试版） |
 
-曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。Windows 版暂停，不因为改名而恢复打包。
+曾用名 ChainBox。产品名称与代码仓库均已更名为 AngelaBox；应用包名仍为 `io.chainbox.app`，以免打断已安装用户的覆盖更新。
 
 ## 上游内核
 
@@ -82,7 +82,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 - 实时拓扑：仪表首页以下行速率、当前节点/延迟和最多四列的放射状路径为主（来源 → 规则 → 入口/落地）。首页图标为启动/停止开关。链式时中国直连是底层路由，不作为中间跳或当前节点显示。未链式时直连流量为灰色线束。
 - 链路保持：出口选择保存于本地；远程订阅更新后仍按已保存的出口复用，不必重配。
 - 运行时覆盖：中国直连、广告拦截、严格路由、DNS、IPv6、QUIC、WebRTC 防护、1.15 按需连接。开启后**强制覆盖**对应字段，不修改订阅原文。脚本开着时由脚本按这些开关写出一套规则，应用不再重复写入分流类开关；按需连接不是分流，脚本开着时应用仍写入。
-- 备份与恢复：本地文件及 WebDAV（覆盖=完全替换，兼容=与现有共存）。备份不含账号密码。格式仍是 `angelabox-cloud/1`，见 [docs/BACKUP.md](docs/BACKUP.md)。Windows 端暂停，这套格式先只在 Android 上用。
+- 备份与恢复：本地文件及 WebDAV（覆盖=完全替换，兼容=与现有共存）。备份不含账号密码。格式仍是 `angelabox-cloud/1`，见 [docs/BACKUP.md](docs/BACKUP.md)。Windows 端可用构建验证通过前，这套格式先只在 Android 上用。
 - 启动自愈：出站引用了不存在的 DNS（例如 `domain_resolver: local`）时，当场补上本机 DNS 再启动，不弹内核原文，也不把节点改成直连。
 - 应用更新：本机代理开着时，检查和下载走当前隧道；本机代理没开时，先按当前网络（包括别的代理）访问更新服务器。对话框不显示握手或 okhttp 原文。
 - 更新校验：Releases 附带 APK SHA-256；应用内下载在存在校验和时会验证。
@@ -110,7 +110,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 
 ## 下载
 
-请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。不要下载任何 Windows 压缩包或安装器，那些包功能不完整，已停止维护。
+请从 [Releases](https://github.com/dukangalex/AngelaBox/releases) 下载 `AngelaBox-android.apk`，并用同目录 `AngelaBox-android.apk.sha256` 校验。不要下载无版本号的旧 Windows 压缩包或安装器，那些包功能不完整；等首个 SignPath 签名版本发布后再从 Releases 获取 Windows 包。
 
 ```
 sha256sum -c AngelaBox-android.apk.sha256
@@ -130,8 +130,8 @@ sha256sum -c AngelaBox-android.apk.sha256
 1. 从钉死的 `KERNEL_COMMIT` 编译 `libbox.aar`
 2. 与官方 sing-box 核对 inbound/outbound 类型常量
 3. 校验发行证书 SHA-256 后组装 Android APK，生成 `AngelaBox-android.apk.sha256`
-4. 指定 `version_tag` 后发布至 GitHub Releases。只挂 `AngelaBox-android.apk` 和它的 `.sha256`。不要再挂 Windows 资产。
-5. `.github/workflows/release-windows-desktop.yml` 已停用（作业 `if: false`）。不要手动跑它来出包。
+4. 指定 `version_tag` 后发布至 GitHub Releases。挂 `AngelaBox-android.apk` 和它的 `.sha256`。Windows 资产仅在 SignPath 签名成功后才挂，未签名绝不挂（见 `.github/workflows/release-windows-desktop.yml` 的 fail-closed 校验）。
+5. `.github/workflows/release-windows-desktop.yml` 已恢复：SignPath 签名，未配置 secrets 时只构建不发版。
 
 发版说明只写**当前版**：`docs/RELEASE_NOTES.md` 每次发布前整篇替换，不累积旧版流水账，先写新行为，再写这次修好的点。
 
