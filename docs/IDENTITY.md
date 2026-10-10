@@ -43,8 +43,8 @@
 | 命名管道前缀 | `\\.\pipe\angelabox-worker.` | `\\.\pipe\sing-box-worker.` |
 | 守护进程管道 | `\\.\pipe\ProtectedPrefix\Administrators\angelabox` | `\\.\pipe\ProtectedPrefix\Administrators\sing-box` |
 | 图形端用户数据 | `%APPDATA%\AngelaBox` | `%APPDATA%\sing-box` |
-| Authenticode | 同一把长期证书签主程序 **和** 守护进程 | 每次构建新的自签证书发「正式」包 |
-| 证书存放 | secrets `WINDOWS_CERTIFICATES_P12` + `WINDOWS_P12_PASSWORD` | 仓库、日志、README |
+| Authenticode | SignPath Foundation 签名（发布者显示 SignPath Foundation），主程序、daemon、安装器、便携包全覆盖 | 每次构建新的自签证书发「正式」包 |
+| 证书存放 | 私钥在 SignPath HSM；CI 用 secrets `SIGNPATH_API_TOKEN` + vars `SIGNPATH_ORGANIZATION_ID`/`SIGNPATH_PROJECT_SLUG` 提交未签名包 | 仓库、日志、README |
 | 源码 | [dukangalex/sing-box-for-desktop](https://github.com/dukangalex/sing-box-for-desktop) 分支 `angelabox` | 内核里的官方 `clients/desktop` 子模块现场改名 |
 | 仪表盘 | [dukangalex/sing-box-dashboard](https://github.com/dukangalex/sing-box-dashboard) 分支 `angelabox` | 构建时仍指向 `SagerNet/sing-box-dashboard` |
 
