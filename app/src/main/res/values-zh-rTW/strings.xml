@@ -582,7 +582,6 @@
     <string name="network_checkup_desc">一鍵檢查 TUN 連通性、DNS、節點延遲和訂閱狀態。</string>
     <string name="network_checkup_run">開始體檢</string>
     <string name="network_checkup_rerun">重新體檢</string>
-    <string name="network_checkup_dismiss">收起</string>
     <string name="network_checkup_running">正在檢查：%1$s</string>
     <string name="checkup_item_tunnel">TUN 連通性</string>
     <string name="checkup_item_dns">DNS</string>
@@ -595,6 +594,7 @@
     <string name="checkup_tunnel_http_error">探測返回 HTTP %1$d</string>
     <string name="checkup_tunnel_io_error">網路錯誤</string>
     <string name="checkup_dns_ok">未發現 DNS 劫持</string>
+    <string name="checkup_dns_fakeip">DNS 正常（目前使用 FakeIP，屬預期行為）</string>
     <string name="checkup_dns_error">DNS 查詢異常</string>
     <string name="checkup_dns_hijacked_tunnel">DNS 返回疑似被劫持（隧道 DNS 異常）</string>
     <string name="checkup_dns_hijacked_system">系統 DNS 疑似被劫持</string>
@@ -610,7 +610,7 @@
     <string name="checkup_verdict_service_stopped">服務沒啟動：先點啟動，隧道相關的兩項這次沒測。</string>
     <string name="checkup_verdict_subscription_bad">訂閱有問題：%1$s</string>
     <string name="checkup_verdict_tunnel_broken">節點連不上：換個節點試試，也可能是節點伺服器掛了。</string>
-    <string name="checkup_verdict_dns_hijacked">節點沒問題，是你本地網路的 DNS 疑似被劫持了：換個 DNS（如 223.5.5.5）或換個網路試試。</string>
+    <string name="checkup_verdict_dns_hijacked">節點沒問題，是隧道 DNS 返回疑似被劫持了：換個 DNS（如 223.5.5.5）或換個網路試試。</string>
     <string name="checkup_verdict_node_slow">節點延遲太高（%1$sms）：換個延遲低的節點。</string>
     <string name="checkup_verdict_subscription_unhealthy">訂閱需要關注：%1$s</string>
     <string name="report_section_files">檔案</string>
