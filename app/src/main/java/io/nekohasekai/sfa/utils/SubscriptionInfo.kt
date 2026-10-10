@@ -50,7 +50,7 @@ data class SubscriptionInfo(
                 val eq = part.indexOf('=')
                 if (eq <= 0) continue
                 val key = part.substring(0, eq).trim().lowercase(Locale.US)
-                val value = part.substring(eq + 1).trim().toLongOrNull() ?: continue
+                val value = part.substring(eq + 1).trim().toLongOrNull()?.coerceAtLeast(0L) ?: continue
                 when (key) {
                     "upload" -> upload = value
                     "download" -> download = value
