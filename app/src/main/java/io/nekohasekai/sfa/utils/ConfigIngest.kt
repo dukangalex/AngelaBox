@@ -2227,7 +2227,7 @@ object ConfigIngest {
         val method = methodPass.substringBefore(':')
         val password = methodPass.substringAfter(':', "")
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
-        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val port = portVal(hostPort.substringAfterLast(':')) ?: return null
         val tag = fragment.ifBlank { host }
         val out = JSONObject()
             .put("type", "shadowsocks")
@@ -2320,6 +2320,7 @@ object ConfigIngest {
 
     private fun parseVless(body: String): JSONObject? = parseUserHostQuery(body, "vless") { out, query, host ->
         val uuid = urlDecode(body.substringBefore('@'))
+        if (uuid.isBlank()) return@parseUserHostQuery null
         out.put("uuid", uuid)
         val encryption = query["encryption"].orEmpty()
         // Xray's post-quantum VLESS encryption is not in sing-box.
@@ -2367,7 +2368,7 @@ object ConfigIngest {
         val user = if ('@' in beforeQuery) urlDecode(beforeQuery.substringBefore('@')) else ""
         if (hostPort.isEmpty() || ':' !in hostPort) return null
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
-        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val port = portVal(hostPort.substringAfterLast(':')) ?: return null
         val out = JSONObject()
             .put("type", "hysteria")
             .put("tag", urlDecode(fragment).ifBlank { host })
@@ -2411,7 +2412,9 @@ object ConfigIngest {
         out.put("server_port", single ?: firstPort(ports) ?: return null)
         if (single == null) putPortList(out, ports)
         query["mport"]?.takeIf { it.isNotBlank() }?.let { putPortList(out, it) }
-        out.put("password", urlDecodeKeepPlus(user))
+        val hysteriaPassword = urlDecodeKeepPlus(user)
+        if (hysteriaPassword.isBlank()) return null
+        out.put("password", hysteriaPassword)
         putQueryTls(out, query, host, defaultOn = true)
         val obfsType = query["obfs"].orEmpty()
         (query["obfs-password"] ?: query["obfs_password"] ?: query["obfs_param"])?.takeIf { it.isNotEmpty() }?.let { pwd ->
@@ -2513,7 +2516,7 @@ object ConfigIngest {
         val hostPort = userHost.substringAfter('@', userHost).substringBefore('?').substringBefore('/')
         val userPass = if ('@' in userHost) userHost.substringBefore('@') else ""
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
-        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val port = portVal(hostPort.substringAfterLast(':')) ?: return null
         val out = JSONObject()
             .put("type", type)
             .put("tag", urlDecode(fragment).ifBlank { host })
@@ -2561,7 +2564,7 @@ object ConfigIngest {
         val hostPort = hostPortQuery.substringBefore('?').substringBefore('/')
         val query = parseQuery(hostPortQuery.substringAfter('?', ""))
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
-        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val port = portVal(hostPort.substringAfterLast(':')) ?: return null
         val out = JSONObject()
             .put("type", type)
             .put("tag", urlDecode(fragment).ifBlank { host })
@@ -2993,7 +2996,7 @@ object ConfigIngest {
         val hostPort = hostPortQuery.substringBefore('?')
         val query = parseQuery(hostPortQuery.substringAfter('?', ""))
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
-        val port = intVal(hostPort.substringAfterLast(':')) ?: return null
+        val port = portVal(hostPort.substringAfterLast(':')) ?: return null
         val addresses = (query["address"] ?: query["ip"] ?: "")
             .split(',')
             .map { it.trim() }
@@ -3140,7 +3143,8 @@ object ConfigIngest {
         return raw.split('&').mapNotNull { pair ->
             val key = pair.substringBefore('=')
             if (key.isEmpty()) return@mapNotNull null
-            key to urlDecode(pair.substringAfter('=', ""))
+            // 分享链接 query 里的 + 几乎不可能是字面空格（base64 密钥常见），用 KeepPlus 保住它。
+            key to urlDecodeKeepPlus(pair.substringAfter('=', ""))
         }.toMap()
     }
 
@@ -3167,6 +3171,12 @@ object ConfigIngest {
         null -> null
         is Number -> value.toInt()
         else -> value.toString().substringBefore(' ').toIntOrNull()
+    }
+
+    /** 端口必须在 1-65535，非法则返回 null（调用方跳过该节点）。 */
+    private fun portVal(value: Any?): Int? {
+        val port = intVal(value) ?: return null
+        return if (port in 1..65535) port else null
     }
 
     private fun boolVal(value: Any?): Boolean? = when (value) {
@@ -3219,7 +3229,7 @@ object ConfigIngest {
     private const val AUTO_SELECT = "节点选择"
     private const val AUTO_TEST = "自动选择"
     private val ECH_PEM = Regex("-----BEGIN ECH CONFIGS-----([\\s\\S]*?)-----END ECH CONFIGS-----")
-    private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+    private const val B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-_"
 }
 
 /**
@@ -3231,6 +3241,9 @@ object ConfigIngest {
  */
 internal object MiniYaml {
     private val anchors = ThreadLocal.withInitial { HashMap<String, Any?>() }
+    /** 递归深度上限：防恶意嵌套 YAML 导致 StackOverflowError（Error 抓不住，只能事前限）。 */
+    private const val MAX_DEPTH = 512
+    private class YamlDepthException(message: String) : IllegalArgumentException(message)
 
     fun parse(text: String): Any? {
         val lines = tokenize(text)
@@ -3463,7 +3476,8 @@ internal object MiniYaml {
         return line.replace("\t", "  ")
     }
 
-    private fun parseNode(lines: List<YLine>, index: IntArray, minIndent: Int): Any? {
+    private fun parseNode(lines: List<YLine>, index: IntArray, minIndent: Int, depth: Int = 0): Any? {
+        if (depth > MAX_DEPTH) throw YamlDepthException("YAML nesting too deep (>$MAX_DEPTH)")
         if (index[0] >= lines.size) return null
         val line = lines[index[0]]
         if (line.indent < minIndent) return null
@@ -3473,16 +3487,16 @@ internal object MiniYaml {
         }
         if (line.raw.startsWith("&") || line.raw.startsWith("*")) {
             index[0]++
-            return parseScalarOrChild(line.raw, lines, index, line.indent)
+            return parseScalarOrChild(line.raw, lines, index, line.indent, depth)
         }
         return if (isItem(line.raw)) {
-            parseList(lines, index, line.indent)
+            parseList(lines, index, line.indent, depth)
         } else {
-            parseMap(lines, index, line.indent)
+            parseMap(lines, index, line.indent, depth)
         }
     }
 
-    private fun parseList(lines: List<YLine>, index: IntArray, indent: Int): List<Any?> {
+    private fun parseList(lines: List<YLine>, index: IntArray, indent: Int, depth: Int): List<Any?> {
         val list = ArrayList<Any?>()
         while (index[0] < lines.size) {
             val line = lines[index[0]]
@@ -3499,7 +3513,7 @@ internal object MiniYaml {
             // Items of a `- ` line sit at the dash indent plus two.
             val itemIndent = indent + 2
             val value: Any? = when {
-                rest.isEmpty() -> parseNode(lines, index, indent + 1)
+                rest.isEmpty() -> parseNode(lines, index, indent + 1, depth + 1)
                 rest.startsWith("*") -> alias(rest)
                 isFlowStart(rest) && pairColon(rest) < 0 -> parseFlow(rest)
                 isItem(rest) -> {
@@ -3511,9 +3525,9 @@ internal object MiniYaml {
                     val (k, v) = splitPair(rest)
                     val next = lines.getOrNull(index[0])
                     map[k] = if (v.isEmpty() && next != null && next.indent == itemIndent && isItem(next.raw)) {
-                        parseList(lines, index, itemIndent)
+                        parseList(lines, index, itemIndent, depth + 1)
                     } else {
-                        parseScalarOrChild(v, lines, index, itemIndent + 1)
+                        parseScalarOrChild(v, lines, index, itemIndent + 1, depth + 1)
                     }
                     while (index[0] < lines.size) {
                         val child = lines[index[0]]
@@ -3522,19 +3536,19 @@ internal object MiniYaml {
                             val existing = map.values.lastOrNull()
                             if (existing is MutableList<*>) {
                                 @Suppress("UNCHECKED_CAST")
-                                (existing as MutableList<Any?>).addAll(parseList(lines, index, child.indent) as Collection<Any?>)
+                                (existing as MutableList<Any?>).addAll(parseList(lines, index, child.indent, depth + 1) as Collection<Any?>)
                             } else {
                                 val key = map.keys.last()
-                                map[key] = parseNode(lines, index, child.indent)
+                                map[key] = parseNode(lines, index, child.indent, depth + 1)
                             }
                         } else {
                             val (ck, cv) = splitPair(child.raw)
                             index[0]++
                             val after = lines.getOrNull(index[0])
                             map[ck] = if (cv.isEmpty() && after != null && after.indent == child.indent && isItem(after.raw)) {
-                                parseList(lines, index, child.indent)
+                                parseList(lines, index, child.indent, depth + 1)
                             } else {
-                                parseScalarOrChild(cv, lines, index, child.indent + 1)
+                                parseScalarOrChild(cv, lines, index, child.indent + 1, depth + 1)
                             }
                         }
                     }
@@ -3548,7 +3562,7 @@ internal object MiniYaml {
         return list
     }
 
-    private fun parseMap(lines: List<YLine>, index: IntArray, indent: Int): Map<String, Any?> {
+    private fun parseMap(lines: List<YLine>, index: IntArray, indent: Int, depth: Int): Map<String, Any?> {
         val map = LinkedHashMap<String, Any?>()
         while (index[0] < lines.size) {
             val line = lines[index[0]]
@@ -3560,9 +3574,9 @@ internal object MiniYaml {
             val next = lines.getOrNull(index[0])
             map[k] = if (v.isEmpty() && next != null && next.indent == indent && isItem(next.raw)) {
                 // Compact sequence (yaml.v2 / PyYAML default): `proxies:` then `- name: a` at the same indent.
-                parseList(lines, index, indent)
+                parseList(lines, index, indent, depth + 1)
             } else {
-                parseScalarOrChild(v, lines, index, indent + 1)
+                parseScalarOrChild(v, lines, index, indent + 1, depth + 1)
             }
         }
         return applyMerge(map)
@@ -3595,6 +3609,7 @@ internal object MiniYaml {
         lines: List<YLine>,
         index: IntArray,
         childIndent: Int,
+        depth: Int,
     ): Any? {
         var v = value
         var anchor: String? = null
@@ -3608,7 +3623,7 @@ internal object MiniYaml {
             index[0] >= lines.size -> emptyMap<String, Any?>()
             else -> {
                 val next = lines[index[0]]
-                if (next.indent >= childIndent) parseNode(lines, index, next.indent) else emptyMap<String, Any?>()
+                if (next.indent >= childIndent) parseNode(lines, index, next.indent, depth + 1) else emptyMap<String, Any?>()
             }
         }
         if (anchor != null) anchors.get()[anchor] = result
