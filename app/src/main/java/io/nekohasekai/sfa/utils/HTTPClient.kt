@@ -280,7 +280,9 @@ class HTTPClient : Closeable {
                     raw.contains("return exception", ignoreCase = true) ||
                     raw.contains("reset", ignoreCase = true) ||
                     raw.contains("abort", ignoreCase = true) ||
-                    raw.contains("unexpected end", ignoreCase = true)
+                    raw.contains("unexpected end", ignoreCase = true) ||
+                    // HTTP 5xx（服务器临时故障）应退避重试，而非判永久失败。
+                    Regex("HTTP\s*5\d\d").containsMatchIn(raw)
                 ) {
                     return true
                 }
@@ -329,20 +331,25 @@ class HTTPClient : Closeable {
                 val total = conn.contentLengthLong
                 dest.parentFile?.mkdirs()
                 if (dest.exists()) dest.delete()
-                dest.outputStream().use { output ->
-                    val buf = ByteArray(64 * 1024)
-                    var written = 0L
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        written += n
-                        if (written > max) {
-                            dest.delete()
-                            throw IllegalStateException("下载内容过大（>${max} 字节）")
+                try {
+                    dest.outputStream().use { output ->
+                        val buf = ByteArray(64 * 1024)
+                        var written = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            written += n
+                            if (written > max) {
+                                throw IllegalStateException("下载内容过大（>${max} 字节）")
+                            }
+                            output.write(buf, 0, n)
+                            onProgress?.invoke(written, total)
                         }
-                        output.write(buf, 0, n)
-                        onProgress?.invoke(written, total)
                     }
+                } catch (e: Exception) {
+                    // 磁盘满等异常时删除残留的损坏文件，防调用方拿到半截文件。
+                    dest.delete()
+                    throw e
                 }
                 if (!dest.exists() || dest.length() == 0L) {
                     dest.delete()
