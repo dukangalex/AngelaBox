@@ -95,7 +95,15 @@ class UpdateProfileWork {
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
                     if (file.readText() != content) {
-                        File(profile.typed.path).writeText(content)
+                        // 原子写入：先写临时文件再 rename，防进程被杀导致配置写一半损坏。
+                        val tmp = File(file.parent, file.name + ".tmp")
+                        tmp.writeText(content)
+                        // fsync 确保落盘
+                        java.io.FileOutputStream(tmp, true).channel.use { it.force(true) }
+                        if (!tmp.renameTo(file)) {
+                            tmp.delete()
+                            throw java.io.IOException("原子写入配置失败")
+                        }
                         if (profile.id == selectedProfile) {
                             selectedProfileUpdated = true
                         }
