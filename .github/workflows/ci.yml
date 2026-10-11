@@ -291,6 +291,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ApkSigningCertsTest \
             --tests io.nekohasekai.sfa.utils.ConfigDiagnoseTest \
             --tests io.nekohasekai.sfa.utils.ConfigDomainResolverTest \
+                        --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
             --tests io.nekohasekai.sfa.utils.ConfigIngestFormatsTest \
             --tests io.nekohasekai.sfa.utils.ConfigNormalizeTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
