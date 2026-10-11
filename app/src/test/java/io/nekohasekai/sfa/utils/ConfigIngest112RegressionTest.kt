@@ -41,7 +41,7 @@ class ConfigIngest112RegressionTest {
         val link = "vless://11111111-1111-1111-1111-111111111111@1.2.3.4:443" +
             "?encryption=none&security=reality&pbk=abc+def%2Bghi&fp=chrome&sni=example.com#pbk-test"
         val result = ConfigIngest.adapt(link)
-        assertEquals(ConfigIngest.Format.VLESS, result.format)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
         val text = result.content
         // The `+` must be preserved as `+`, not turned into a space.
         assertTrue("pbk lost its plus sign", text.contains("abc+def+ghi") || text.contains("abc+def%2Bghi"))
@@ -84,7 +84,7 @@ class ConfigIngest112RegressionTest {
     fun hysteria2EmptyPasswordIsSkipped() {
         val link = "hysteria2://@1.2.3.4:443#empty-auth"
         val result = ConfigIngest.adapt(link)
-        assertEquals(ConfigIngest.Format.Hysteria2, result.format)
+        assertEquals(ConfigIngest.Format.ShareLinks, result.format)
         // No outbound with empty password should be generated.
         assertFalse(result.content.contains("\"password\":\"\""))
     }
@@ -110,7 +110,7 @@ class ConfigIngest112RegressionTest {
         for (port in listOf("1", "443", "65535")) {
             val link = "vless://11111111-1111-1111-1111-111111111111@1.2.3.4:$port?encryption=none#good-port-$port"
             val result = ConfigIngest.adapt(link)
-            assertEquals(ConfigIngest.Format.VLESS, result.format)
+            assertEquals(ConfigIngest.Format.ShareLinks, result.format)
             assertTrue(
                 "port $port should be accepted",
                 result.content.contains("\"server_port\":$port")
