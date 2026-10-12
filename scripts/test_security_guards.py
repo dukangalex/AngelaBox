@@ -392,7 +392,8 @@ def test_no_second_publisher() -> None:
         text = path.read_text(encoding="utf-8")
         if "action-gh-release" in text or "softprops/action-gh-release" in text:
             publishers.append(path.name)
-    assert publishers == ["release-chainbox.yml"], publishers
+    # 双轨：beta 轨（release-chainbox.yml）+ stable 轨（release-stable.yml）均为合法发布者
+    assert sorted(publishers) == ["release-chainbox.yml", "release-stable.yml"], publishers
     assert not (workflows / "build-chainbox.yml").exists()
 
 
