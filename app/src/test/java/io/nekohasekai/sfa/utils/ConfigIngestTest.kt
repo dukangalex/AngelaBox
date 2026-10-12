@@ -980,3 +980,77 @@ class ConfigIngestTest {
         assertEquals("o1", ob.getString("obfs_param"))
     }
 }
+
+    @Test
+    fun xrayVlessRealityConverts() {
+        val json = """
+            {
+                "outbounds": [
+                    {
+                        "tag": "xray-vless",
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [
+                                {
+                                    "address": "x.example.com",
+                                    "port": 443,
+                                    "users": [{"id": "11111111-1111-1111-1111-111111111111", "flow": "xtls-rprx-vision"}]
+                                }
+                            ]
+                        },
+                        "streamSettings": {
+                            "network": "tcp",
+                            "security": "reality",
+                            "realitySettings": {
+                                "serverName": "www.microsoft.com",
+                                "fingerprint": "chrome",
+                                "publicKey": "abc123",
+                                "shortId": "01"
+                            }
+                        }
+                    }
+                ]
+            }
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val ob = outbound(result.content, "xray-vless")
+        assertEquals("vless", ob.getString("type"))
+        assertEquals("x.example.com", ob.getString("server"))
+        assertEquals("xtls-rprx-vision", ob.getString("flow"))
+        val tls = ob.getJSONObject("tls")
+        assertTrue(tls.getBoolean("enabled"))
+        assertTrue(tls.getJSONObject("reality").getBoolean("enabled"))
+    }
+
+    @Test
+    fun xrayVmessWsTlsConverts() {
+        val json = """
+            {
+                "protocol": "vmess",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": "v.example.com",
+                            "port": 443,
+                            "users": [{"id": "22222222-2222-2222-2222-222222222222", "security": "auto"}]
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "ws",
+                    "security": "tls",
+                    "tlsSettings": {"serverName": "v.example.com"},
+                    "wsSettings": {"path": "/ws", "headers": {"Host": "v.example.com"}}
+                }
+            }
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        // 单个 Xray outbound 对象，tag 回退为 address
+        val ob = outbound(result.content, "v.example.com")
+        assertEquals("vmess", ob.getString("type"))
+        assertEquals("ws", ob.getJSONObject("transport").getString("type"))
+        assertTrue(ob.getJSONObject("tls").getBoolean("enabled"))
+    }
+}
