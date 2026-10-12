@@ -1153,7 +1153,8 @@ object ConfigIngest {
     private fun vlessFlow(raw: String): String? {
         val flow = raw.trim()
         if (flow.isEmpty() || flow.equals("none", true)) return ""
-        if (flow.startsWith("xtls-rprx-vision", ignoreCase = true)) return "xtls-rprx-vision"
+        // 保留完整的 flow 值（如 xtls-rprx-vision-udp443），不要截断
+        if (flow.startsWith("xtls-rprx-vision", ignoreCase = true)) return flow
         return null
     }
 
