@@ -943,3 +943,40 @@ class ConfigIngestTest {
         assertFalse(root.getJSONObject("route").optJSONArray("rules")?.toString().orEmpty().contains("ONLY-CHAIN"))
     }
 }
+
+    @Test
+    fun ssrShareLinkParses() {
+        // ssr://base64(host:port:protocol:method:obfs:base64(password)/?remarks=base64(name))
+        val link = "ssr://ZXhhbXBsZS5jb206NDQzOm9yaWdpbjphZXMtMjU2LWNmYjpwbGFpbjpkR1Z6ZEhCaGMzTjNiM0prLz9vYmZzcGFyYW09JnByb3RvcGFyYW09JnJlbWFya3M9VTFOU0xWUmxjM1E"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val ob = outbound(result.content, "SSR-Test")
+        assertEquals("shadowsocksr", ob.getString("type"))
+        assertEquals("example.com", ob.getString("server"))
+        assertEquals(443, ob.getInt("server_port"))
+        assertEquals("aes-256-cfb", ob.getString("method"))
+        assertEquals("testpassword", ob.getString("password"))
+        assertEquals("origin", ob.getString("protocol"))
+        assertEquals("plain", ob.getString("obfs"))
+    }
+
+    @Test
+    fun ssrClashProxyConverts() {
+        val yaml = """
+            proxies:
+              - {name: ssr1, type: ssr, server: 1.2.3.4, port: 8388, cipher: aes-128-cfb, password: pass123, protocol: auth_aes128_md5, protocol-param: p1, obfs: tls1.2_ticket_auth, obfs-param: o1}
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal.orEmpty(), result.fatal == null)
+        val ob = outbound(result.content, "ssr1")
+        assertEquals("shadowsocksr", ob.getString("type"))
+        assertEquals("1.2.3.4", ob.getString("server"))
+        assertEquals(8388, ob.getInt("server_port"))
+        assertEquals("aes-128-cfb", ob.getString("method"))
+        assertEquals("pass123", ob.getString("password"))
+        assertEquals("auth_aes128_md5", ob.getString("protocol"))
+        assertEquals("p1", ob.getString("protocol_param"))
+        assertEquals("tls1.2_ticket_auth", ob.getString("obfs"))
+        assertEquals("o1", ob.getString("obfs_param"))
+    }
+}
