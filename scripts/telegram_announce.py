@@ -27,9 +27,10 @@ def main() -> None:
     tag = os.environ["TAG"]
     sha = os.environ.get("SHA256", "").strip()
     url = os.environ["RELEASE_URL"]
+    apk_file = os.environ.get("APK_FILE", "AngelaBox-android.apk")
     apk_url = os.environ.get(
         "APK_URL",
-        f"https://github.com/dukangalex/AngelaBox/releases/download/{tag}/AngelaBox-android.apk",
+        f"https://github.com/dukangalex/AngelaBox/releases/download/{tag}/{apk_file}",
     )
     run_url = os.environ.get("RUN_URL", "").strip()
     notes_file = Path(os.environ.get("NOTES_FILE", "docs/RELEASE_NOTES.md"))
@@ -48,7 +49,7 @@ def main() -> None:
             "",
             notes or f"AngelaBox {tag} 已发布。",
             "",
-            "请安装 AngelaBox-android.apk。",
+            f"请安装 {apk_file}。",
         ]
     )
     if sha:
@@ -65,7 +66,7 @@ def main() -> None:
             {
                 "inline_keyboard": [
                     [
-                        {"text": "下载 AngelaBox-android.apk", "url": apk_url},
+                        {"text": f"下载 {apk_file}", "url": apk_url},
                         {"text": "GitHub Release", "url": url},
                     ]
                 ]

@@ -116,7 +116,7 @@ def _multipart_preamble(fields: dict[str, str], filename: str, content_type: str
 
 
 def post_document(token: str, fields: dict[str, str], apk: Path) -> dict:
-    filename = "AngelaBox-android.apk"
+    filename = os.environ.get("APK_FILE", "AngelaBox-android.apk")
     content_type = "application/vnd.android.package-archive"
     preamble = _multipart_preamble(fields, filename, content_type)
     epilogue = b"\r\n" + f"--{BOUNDARY}--".encode() + b"\r\n"
