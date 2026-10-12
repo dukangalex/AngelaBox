@@ -1,0 +1,72 @@
+name: Stable Kernel Verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - version-stable.properties
+
+permissions:
+  contents: read
+
+jobs:
+  verify-stable-kernel:
+    name: Verify stable kernel (v1.14.3-chain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout AngelaBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: chainbox
+
+      - name: Read stable kernel pin
+        id: pin
+        working-directory: chainbox
+        run: |
+          set -euo pipefail
+          TAG=$(grep '^KERNEL_TAG=' version-stable.properties | cut -d= -f2 | tr -d '\r')
+          UPSTREAM=$(grep '^KERNEL_UPSTREAM=' version-stable.properties | cut -d= -f2 | tr -d '\r')
+          GOVER=$(grep '^GO_VERSION=' version-stable.properties | cut -d= -f2 | tr -d '\r')
+          test -n "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "gover=$GOVER" >> "$GITHUB_OUTPUT"
+          echo "Stable kernel: $TAG (upstream $UPSTREAM, go $GOVER)"
+
+      - name: Checkout stable kernel
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.tag }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@f111f3307d885b11e265a5f5d254689c331dd34
+        with:
+          go-version: ${{ steps.pin.outputs.gover }}
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Verify chain files present
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test -f option/chain.go
+          test -f option/chain_compile.go
+          test -f protocol/chain/outbound.go
+          echo "Chain files present"
+
+      - name: Build kernel packages
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          go build ./option/... ./protocol/chain/... ./protocol/group/... ./include/... ./constant/...
+
+      - name: Run chain tests
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          go test ./option/ -run TestChain -v
+          go test ./protocol/group/ -v
