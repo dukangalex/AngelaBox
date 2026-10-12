@@ -34,8 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ inputs.version_tag }}"
-          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta$' || {
-            echo "version_tag '$TAG' does not match ^vX.Y.Z-beta$" >&2
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-stable$' || {
+            echo "version_tag '$TAG' does not match ^vX.Y.Z-stable$" >&2
             exit 1
           }
           if gh release view "$TAG" >/dev/null 2>&1; then
