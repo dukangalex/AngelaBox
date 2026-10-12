@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Go
-        uses: actions/setup-go@f111f3307d885b11e265a5f5d254689c331dd34
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ steps.pin.outputs.gover }}
           cache-dependency-path: sing-box/go.sum
