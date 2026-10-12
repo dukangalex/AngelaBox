@@ -103,7 +103,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 
 - `scripts/telegram_send.py` / `scripts/telegram_announce.py` 会把关键节点写入 `$GITHUB_STEP_SUMMARY`（公告文字已发 / APK 已上传 / 上传失败），发版工作流的 "Notify Telegram" 步骤页可直接看到结论，不再是无声的黄叉。
 - **手动补发**：Actions → **Telegram Release**（`telegram.yml`）→ Run workflow：
-  - `tag` 留空 = 公告最新 Release；填 `v1.0.109-beta` 这类 tag = 公告指定版本；
+  - `tag` 留空 = 公告最新 Release；填 `v1.0.114-stable` / `v1.0.113-beta` 这类 tag = 公告指定版本；
   - `document_only=true` = 只补传 APK 文件，不重发文字说明。
 - **待办（需网页编辑工作流文件，GitHub App 无写权限）：**
   1. `release-chainbox.yml` 的 `Notify Telegram` 步骤去掉 `continue-on-error: true`（脚本侧已支持失败留痕，失败应标红而不是吞掉）；
