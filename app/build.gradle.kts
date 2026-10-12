@@ -16,7 +16,9 @@ plugins {
 }
 
 fun getVersionProps(propName: String): String {
-    val propsFile = rootProject.file("version.properties")
+    // 支持通过环境变量 VERSION_PROPS_FILE 选择不同的版本配置文件（如 stable 构建用 version-stable.properties）
+    val propsFileName = System.getenv("VERSION_PROPS_FILE") ?: "version.properties"
+    val propsFile = rootProject.file(propsFileName)
     if (propsFile.exists()) {
         val props = Properties()
         props.load(FileInputStream(propsFile))
