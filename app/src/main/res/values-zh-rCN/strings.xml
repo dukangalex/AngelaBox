@@ -759,6 +759,7 @@
     <string name="subscription_health_quota_low_title">订阅流量即将用完：%1$s</string>
     <string name="subscription_health_quota_used">已用 %1$s / 共 %2$s</string>
     <string name="subscription_health_update_failed_title">订阅连续更新失败：%1$s</string>
+    <string name="subscription_health_update_failed_title_multi">%1$d 个订阅连续更新失败</string>
     <string name="subscription_health_update_failed_detail">已连续失败 %1$d 次（%2$s），请检查订阅链接是否仍然有效。</string>
     <string name="subscription_health_update_failed_detail_simple">已连续失败 %1$d 次，请检查订阅链接是否仍然有效。</string>
 
