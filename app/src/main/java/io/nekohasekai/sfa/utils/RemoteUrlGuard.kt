@@ -411,7 +411,17 @@ object RemoteUrlGuard {
         if (system.isNotEmpty()) return system
         // Tunnel DNS is fake-ip. A raw answer in 198.18/15 is not a dial
         // target and must not be reported as a forbidden address.
-        if (TunnelGate.up) return resolveOutsideTunnel(host)
+        if (TunnelGate.up) {
+            val outside = resolveOutsideTunnel(host)
+            if (outside.isNotEmpty()) return outside
+            // 绕过隧道的 DNS 被墙时，回退到走隧道 DNS（原生体验优先）。
+            // 订阅内容走 HTTPS，TLS 本身防劫持，DNS 绕过只是纵深防御。
+            return try {
+                InetAddress.getAllByName(host)?.toList().orEmpty()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
         if (!allowPublicDnsFallback()) return emptyList()
         if (!canQueryDns(host)) return emptyList()
         for (server in PUBLIC_DNS) {
