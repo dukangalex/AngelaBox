@@ -1,3 +1,9 @@
+• **1.0.114：**
+1. **SSR 协议支持：** 新增 shadowsocksr 协议完整支持，分享链接（ssr://）和 Clash 订阅中的 SSR 节点现在可以正常导入使用。
+2. **vless flow 修复：** 修复 vless 节点的 flow 参数被截断的问题（如 xtls-rprx-vision-udp443 被截成 xtls-rprx-vision），相关节点现在可以正常连接。
+3. **订阅更新 DNS 修复：** VPN 开启时订阅更新强制绕过隧道查 DNS，若直连 DNS 被墙会导致所有订阅"无法解析主机"；现在绕过失败时自动回退到走隧道 DNS。
+4. **订阅失败横幅合并：** 多个订阅同时更新失败时，仪表盘只显示一条合并提醒（"N 个订阅连续更新失败"），不再刷屏。
+
 • **1.0.113：**
 1. **测试回归修复：** 修复 5 个单元测试（ChainPathTest 3 个 DIRECT 车道断言、SubscriptionInfoTest 2 个时区相关），CI 恢复全绿。
 
@@ -33,5 +39,5 @@
 1. **诊断导出脱敏补漏（中危修复）：** `DebugInfoExporter` 的密钥脱敏正则追加裸 `auth` 分支——此前 hysteria 出站的裸 `"auth"` 键（base64 密钥材料）会原文落入诊断导出包；现已覆盖，并新增单测。`author=` 等非密钥词不受影响。
 2. **崩溃/OOM 报告纵深防御：** `CrashReportManager` / `OOMReportManager` 在打包分享前对 go/jvm 日志文本复用 `redactSecrets` 脱敏；二进制堆转储保持原样（文本脱敏不适用）。
 3. **崩溃上报可观测性：** 写 pending JVM 崩溃报告失败时不再静默吞异常，改为 `Log.e` 留痕，便于排查磁盘满/权限问题。
-4. **备份凭据防丢：** 备份时不再先清空 live Settings 再 `sleep(250)` 等落盘（进程若在该窗口被杀会导致用户 WebDAV 密码 / GitHub token 丢失）；改为与 profiles 库相同的“redacted 临时库”模式——拷贝 settings 库到临时文件后在副本里删除凭据行，live Settings 全程不被触碰。
-5. **云备份隧道感知：** 隧道开着时 WebDAV 建连改走隧道内按域名直拨（此前守卫要求直连 DNS 出答案，隧道 fake-ip 下直连 DNS 常失败，导致“无法解析主机，已拒绝”）；隧道关闭时保持原来的 IP  pinning 直连。TLS 仍校验主机名，SSRF 防护不变。
+4. **备份凭据防丢：** 备份时不再先清空 live Settings 再 `sleep(250)` 等落盘（进程若在该窗口被杀会导致用户 WebDAV 密码 / GitHub token 丢失）；改为与 profiles 库相同的"redacted 临时库"模式——拷贝 settings 库到临时文件后在副本里删除凭据行，live Settings 全程不被触碰。
+5. **云备份隧道感知：** 隧道开着时 WebDAV 建连改走隧道内按域名直拨（此前守卫要求直连 DNS 出答案，隧道 fake-ip 下直连 DNS 常失败，导致"无法解析主机，已拒绝"）；隧道关闭时保持原来的 IP  pinning 直连。TLS 仍校验主机名，SSRF 防护不变。
