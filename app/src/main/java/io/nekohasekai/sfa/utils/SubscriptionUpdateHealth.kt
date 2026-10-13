@@ -10,6 +10,9 @@ import io.nekohasekai.sfa.database.TypedProfile
  *
  * 覆盖审计 Top3 的「订阅健康主动提醒」：
  * 订阅过期 / 流量耗尽或将尽 / 连续更新失败达到阈值 → 仪表盘横幅。
+ *
+ * 原则：只要有可用节点（缓存配置非空），订阅更新失败不打扰用户——
+ * 后台默默重试即可。只有当订阅没有任何可用缓存时，才提示用户。
  */
 object SubscriptionUpdateHealth {
 
@@ -52,6 +55,21 @@ object SubscriptionUpdateHealth {
         if (profileId < 0L) return null
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_ERROR_PREFIX + profileId, null)
+    }
+
+    /**
+     * 订阅是否有可用的缓存配置（非空文件）。
+     * 有缓存 = 有可用节点 = 更新失败不该打扰用户。
+     */
+    private fun hasCachedConfig(profile: io.nekohasekai.sfa.database.Profile): Boolean {
+        val path = profile.typed.path
+        if (path.isBlank()) return false
+        return try {
+            val file = java.io.File(path)
+            file.isFile && file.length() > 0L
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -121,9 +139,10 @@ object SubscriptionUpdateHealth {
                     }
                 }
             }
-            // 连续更新失败
+            // 连续更新失败：仅当无可用缓存时才提醒用户。
+            // 有缓存节点可用时，后台默默重试，不打扰用户（开箱即用原则）。
             val failures = consecutiveFailures(context, profile.id)
-            if (failures >= FAILURE_ALERT_THRESHOLD) {
+            if (failures >= FAILURE_ALERT_THRESHOLD && !hasCachedConfig(profile)) {
                 val error = lastError(context, profile.id)
                 val detail = if (!error.isNullOrBlank()) {
                     context.getString(
