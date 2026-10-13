@@ -94,7 +94,13 @@ class UpdateProfileWork {
                     )
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
-                    if (file.readText() != content) {
+                    // 文件不存在时视为内容不同（首次更新），直接写入
+                    val oldContent = try {
+                        if (file.isFile) file.readText() else null
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (oldContent != content) {
                         // 原子写入：先写临时文件再 rename，防进程被杀导致配置写一半损坏。
                         val tmp = File(file.parent, file.name + ".tmp")
                         tmp.writeText(content)
