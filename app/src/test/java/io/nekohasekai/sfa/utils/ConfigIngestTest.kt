@@ -942,7 +942,6 @@ class ConfigIngestTest {
         assertEquals("PROXY", root.getJSONObject("route").getString("final"))
         assertFalse(root.getJSONObject("route").optJSONArray("rules")?.toString().orEmpty().contains("ONLY-CHAIN"))
     }
-}
 
     @Test
     fun ssrShareLinkParses() {
