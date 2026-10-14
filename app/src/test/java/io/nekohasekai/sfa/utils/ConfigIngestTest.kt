@@ -979,7 +979,6 @@ class ConfigIngestTest {
         assertEquals("tls1.2_ticket_auth", ob.getString("obfs"))
         assertEquals("o1", ob.getString("obfs_param"))
     }
-}
 
     @Test
     fun xrayVlessRealityConverts() {
