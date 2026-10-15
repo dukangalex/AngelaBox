@@ -65,6 +65,7 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.launchCustomTab
+import io.nekohasekai.sfa.utils.VendorKeepAlive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -194,6 +195,52 @@ fun ServiceSettingsScreen(
                             },
                         ) {
                             Text(stringResource(R.string.request_background_permission))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 国产手机厂商后台保活引导（仅国产 OEM 显示）
+        if (VendorKeepAlive.isChineseOem()) {
+            val vendor = VendorKeepAlive.vendorName()
+            Card(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Text(
+                        "${vendor}手机后台保活",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    Text(
+                        "1. 点击下方按钮，进入「应用启动管理」，将 AngelaBox 设为「手动管理」，三个开关（自启动/关联启动/后台活动）全部打开。\n" +
+                            "2. 在多任务界面（最近任务）找到 AngelaBox，点右上角「加锁」，锁屏清理时不会被杀。\n" +
+                            "3. 上方电池优化也请设为「不优化」。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        Button(
+                            onClick = {
+                                VendorKeepAlive.openAutoStartSettings(context)
+                            },
+                        ) {
+                            Text("去设置")
                         }
                     }
                 }
