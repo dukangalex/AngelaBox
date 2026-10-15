@@ -1,10 +1,10 @@
 name: AngelaBox Windows Desktop
 
-# Windows shipping resumed. Code signing via SignPath Foundation (free OSS).
+# Windows shipping resumed. Code signing via self-signed certificate.
 # See docs/WINDOWS.md and docs/SIGNING-POLICY.md.
-# The build always runs; SignPath signing + Release attach only run when
-# SIGNPATH_API_TOKEN / SIGNPATH_ORGANIZATION_ID / SIGNPATH_PROJECT_SLUG are
-# configured. Unsigned assets are never attached to a GitHub Release.
+# The build always runs; self-signing + Release attach only run when
+# WINDOWS_PFX_BASE64 / WINDOWS_PFX_PASSWORD are configured.
+# Unsigned assets are never attached to a GitHub Release.
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       attach_to_release:
-        description: "Attach signed Windows assets to the GitHub Release (requires SignPath)"
+        description: "Attach signed Windows assets to the GitHub Release (requires self-signing secrets)"
         required: false
         type: boolean
         default: false
@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 120
     # secrets 不能直接用在 step 的 if: 里，先转成 env 再判断。
     env:
-      SIGNPATH_ENABLED: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      SELFSIGN_ENABLED: ${{ secrets.WINDOWS_PFX_BASE64 != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -198,13 +198,13 @@ jobs:
 
       - name: Windows signing material (test certificate)
         # 打包脚本硬要求 signing.local.json；这里只生成自签测试证书供 electron-builder
-        # 完成构建，真正的签名由后续 SignPath 步骤覆盖。
+        # 完成构建，真正的签名由后续自签名步骤覆盖。
         working-directory: desktop
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $certificatePath = Join-Path $env:RUNNER_TEMP 'windows-signing.p12'
-          Write-Host 'Issuing a self-signed code-signing certificate for the build; SignPath will replace the signature after packaging.'
+          Write-Host 'Issuing a self-signed code-signing certificate for the build; production self-signing will replace the signature after packaging.'
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AngelaBox Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(1)
           $password = [guid]::NewGuid().ToString('N')
           $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
@@ -240,9 +240,9 @@ jobs:
         run: pnpm package:win -- ${{ matrix.desktop_arch }}
 
       # electron-builder builds unsigned without signing.local.json;
-      # binaries are signed below via SignPath (when configured).
+      # binaries are signed below via self-signing (when configured).
 
-      - name: Collect unsigned binaries for SignPath
+      - name: Collect binaries for self-signing
         id: signing_input
         working-directory: desktop
         shell: pwsh
@@ -268,30 +268,45 @@ jobs:
           "daemon_src=$($daemon[0].FullName)" >> $env:GITHUB_OUTPUT
           Get-ChildItem -Recurse $inputDir | Format-Table FullName, Length
 
-      - name: Upload unsigned artifacts for SignPath
+      - name: Upload artifacts for self-signing
         id: upload_unsigned
-        if: ${{ env.SIGNPATH_ENABLED == 'true' }}
+        if: ${{ env.SELFSIGN_ENABLED == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-unsigned-${{ matrix.desktop_arch }}
           path: desktop/signing-input/
           if-no-files-found: error
 
-      - name: Submit SignPath signing request
-        id: signpath
-        if: ${{ env.SIGNPATH_ENABLED == 'true' }}
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release
-          github-artifact-id: ${{ steps.upload_unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: desktop/signed
+      - name: Self-sign Windows binaries
+        id: selfsign
+        if: ${{ env.SELFSIGN_ENABLED == 'true' }}
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Decode PFX from secrets
+          $pfxBytes = [Convert]::FromBase64String('${{ secrets.WINDOWS_PFX_BASE64 }}')
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'angelabox-signing.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password (ConvertTo-SecureString -String '${{ secrets.WINDOWS_PFX_PASSWORD }}' -Force -AsPlainText)
+          Write-Host "Using certificate: $($cert.Subject)"
+          # Sign the binaries
+          $files = @(
+            '${{ steps.signing_input.outputs.installer_src }}',
+            '${{ steps.signing_input.outputs.main_src }}',
+            '${{ steps.signing_input.outputs.daemon_src }}'
+          )
+          foreach ($f in $files) {
+            & signtool sign /fd SHA256 /a /f $pfxPath /p '${{ secrets.WINDOWS_PFX_PASSWORD }}' /tr http://timestamp.digicert.com /td SHA256 $f
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $f" }
+            $sig = Get-AuthenticodeSignature $f
+            Write-Host "$f : $($sig.Status)"
+          }
+          Write-Host 'Self-signing complete.'
+          "signing_done=true" >> $env:GITHUB_OUTPUT
 
-      - name: Install signed binaries
-        if: ${{ steps.signpath.outputs.signing-request-id != '' }}
+      - name: Verify signed binaries
+        if: ${{ steps.selfsign.outputs.signing_done == 'true' }}
         working-directory: desktop
         shell: pwsh
         run: |
@@ -366,9 +381,9 @@ jobs:
             echo 'attach_to_release requires version_tag' >&2
             exit 1
           fi
-          if [ -z "${{ steps.signpath.outputs.signing-request-id }}" ]; then
-            echo 'Refusing to attach unsigned Windows assets: SignPath signing did not run.' >&2
-            echo 'Configure SIGNPATH_API_TOKEN, SIGNPATH_ORGANIZATION_ID and SIGNPATH_PROJECT_SLUG first. See docs/WINDOWS.md.' >&2
+          if [ -z "${{ steps.selfsign.outputs.signing_done }}" ]; then
+            echo 'Refusing to attach unsigned Windows assets: self-signing did not run.' >&2
+            echo 'Configure WINDOWS_PFX_BASE64 and WINDOWS_PFX_PASSWORD first. See docs/WINDOWS.md.' >&2
             exit 1
           fi
           ls -lah desktop/dist
