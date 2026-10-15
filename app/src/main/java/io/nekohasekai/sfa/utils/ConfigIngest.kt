@@ -1128,15 +1128,8 @@ object ConfigIngest {
                 }
             }
             "ssr", "shadowsocksr" -> {
-                out.put("type", "shadowsocksr")
-                out.put("method", str(raw["cipher"]).ifBlank { "aes-256-cfb" })
-                out.put("password", str(raw["password"]))
-                out.put("protocol", str(raw["protocol"]).ifBlank { "origin" })
-                str(raw["protocol-param"] ?: raw["protocol_param"]).takeIf { it.isNotEmpty() }
-                    ?.let { out.put("protocol_param", it) }
-                out.put("obfs", str(raw["obfs"]).ifBlank { "plain" })
-                str(raw["obfs-param"] ?: raw["obfs_param"]).takeIf { it.isNotEmpty() }
-                    ?.let { out.put("obfs_param", it) }
+                skips.other("ssr")
+                return null
             }
             else -> {
                 // mieru / sudoku / trojan-go / juicity... have no sing-box outbound.
@@ -1792,7 +1785,6 @@ object ConfigIngest {
     /** `exclude-type` uses mihomo names (Shadowsocks, Vmess, Hysteria2...); share-link nodes carry sing-box types. */
     private fun clashTypeName(type: String): String = when (type.lowercase()) {
         "ss", "shadowsocks" -> "shadowsocks"
-        "ssr", "shadowsocksr" -> "shadowsocksr"
         "hy2", "hysteria2" -> "hysteria2"
         "socks", "socks5" -> "socks5"
         else -> type.lowercase()
@@ -2100,8 +2092,12 @@ object ConfigIngest {
         }
         if (nodes.isEmpty()) {
             val schemes = lines.map { it.substringBefore("://").lowercase() }.filter { it.isNotEmpty() }.distinct()
-            val rest = schemes.filter { it.isNotEmpty() }
-            val named = if (rest.isNotEmpty()) "${rest.joinToString("、")} 没能转成节点" else "这些协议"
+            val removed = schemes.filter { it == "ssr" }
+            val rest = schemes.filter { it != "ssr" }
+            val parts = mutableListOf<String>()
+            if (removed.isNotEmpty()) parts += "ssr 已从内核移除"
+            if (rest.isNotEmpty()) parts += "${rest.joinToString("、")} 没能转成节点"
+            val named = parts.joinToString("；").ifBlank { "这些协议" }
             val message = "没有可用节点（$named）。没有改成直连。"
             return Result("", listOf(message), Format.ShareLinks, message)
         }
@@ -2196,7 +2192,7 @@ object ConfigIngest {
             "naive", "naive+https", "naive+quic" -> parseNaive(body, scheme)
             "shadowtls" -> parseShadowTls(body)
             "snell" -> parseSnell(body)
-            "ssr" -> parseSsr(body)
+            "ssr" -> null
             "socks", "socks5", "socks5h" -> parseUserHost(body, "socks")
             "socks4", "socks4a" -> parseUserHost(body, "socks")?.put("version", scheme.removePrefix("socks"))
             "http", "https" -> parseHttpProxy(body, scheme == "https")
@@ -2497,53 +2493,6 @@ object ConfigIngest {
             query["mode"]?.let { out.put("mode", it) }
         }
         true
-    }
-
-    private fun parseSsr(body: String): JSONObject? {
-        // ssr://base64(host:port:protocol:method:obfs:base64(password)/?obfsparam=..&protoparam=..&remarks=..&group=..)
-        // 所有 query 参数值也是 base64 编码的
-        val decoded = decodeB64(body.substringBefore('#'))?.toString(Charsets.UTF_8)?.trim()
-            ?: return null
-        val (main, queryStr) = if ('?' in decoded) {
-            decoded.substringBefore('?') to decoded.substringAfter('?')
-        } else {
-            decoded to ""
-        }
-        // 从后往前切：password 本身是 base64，可能包含 ':'，所以先分离出最后一段
-        // 格式: host:port:protocol:method:obfs:base64(password)
-        val parts = main.split(':')
-        if (parts.size < 6) return null
-        val host = parts[0].trim().trim('[', ']')
-        val port = portVal(parts[1]) ?: return null
-        val protocol = parts[2].trim().ifEmpty { "origin" }
-        val method = parts[3].trim().ifEmpty { return null }
-        val obfs = parts[4].trim().ifEmpty { "plain" }
-        // password 部分可能包含 ':'（base64 不含冒号，但容错处理），取第 5 个之后全部重新拼接
-        val passwordB64 = parts.drop(5).joinToString(":").substringBefore('/').trim()
-        val password = decodeB64(passwordB64)?.toString(Charsets.UTF_8) ?: return null
-        if (host.isEmpty() || password.isEmpty()) return null
-
-        val query = parseQuery(queryStr)
-        fun b64Param(key: String): String {
-            val v = query[key] ?: return ""
-            if (v.isEmpty()) return ""
-            return decodeB64(v)?.toString(Charsets.UTF_8)?.trim().orEmpty()
-        }
-        val remarks = b64Param("remarks")
-        val tag = urlDecode(body.substringAfter('#', "")).ifBlank { remarks }.ifBlank { host }
-
-        val out = JSONObject()
-            .put("type", "shadowsocksr")
-            .put("tag", tag)
-            .put("server", host)
-            .put("server_port", port)
-            .put("method", method)
-            .put("password", password)
-            .put("protocol", protocol)
-            .put("obfs", obfs)
-        b64Param("protoparam").takeIf { it.isNotEmpty() }?.let { out.put("protocol_param", it) }
-        b64Param("obfsparam").takeIf { it.isNotEmpty() }?.let { out.put("obfs_param", it) }
-        return out
     }
 
     private fun parseTuic(body: String): JSONObject? = parseUserHostQuery(body, "tuic") { out, query, host ->
