@@ -85,10 +85,11 @@ class ConfigQuicOverrideTest {
     @Test
     fun dnsProtectOverwritesExisting() {
         val root = JSONObject()
-            .put("dns", JSONObject().put("independent_cache", false))
+            .put("dns", JSONObject().put("strategy", "ipv6_only"))
             .put("route", JSONObject().put("auto_detect_interface", false))
         ConfigQuicOverride.applyDnsProtect(root)
-        assertTrue(root.getJSONObject("dns").getBoolean("independent_cache"))
+        // independent_cache 已废弃（1.16.0 删除），不再写入；strategy 为空时才写 prefer_ipv4
+        assertEquals("ipv6_only", root.getJSONObject("dns").getString("strategy"))
         assertTrue(root.getJSONObject("route").getBoolean("auto_detect_interface"))
     }
 
