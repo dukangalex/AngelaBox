@@ -447,7 +447,7 @@ fun ProfileOverrideScreen(
                     onHelp = {
                         help = SwitchHelp(
                             "DNS",
-                            "强制写入 independent_cache 与 auto_detect_interface，覆盖订阅原值。脚本开着时由脚本写入，本开关决定开或关。",
+                            "强制写入 auto_detect_interface，覆盖订阅原值。脚本开着时由脚本写入，本开关决定开或关。",
                         )
                     },
                 ) {
