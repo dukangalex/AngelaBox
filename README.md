@@ -15,7 +15,7 @@
 | 高能低耗 | 关进程扫描、限制日志缓冲、测速只在需要时跑、分应用扫描不解析应用组件 |
 | 开箱即用 | 配置规范化只在确有错误时修正（没有错误不提示）/ 中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 / 禁用 QUIC 默认开；严格路由默认关，打开后丢掉没进隧道的包；QUIC 用复位拒绝 UDP 443，国内可排除；脚本开着时由同一套开关控制，不叠两套规则；节点能用就能代理 |
 
-AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。当前主发 Android；Windows 版已恢复开发（代码签名改走 SignPath 基金会免费开源方案），首个签名版本发布前，已有 Windows 旧包仍视为功能残缺、不要安装。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
+AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的代理客户端。当前主发 Android；Windows 版已恢复开发（代码签名采用自签名方案，安装时显示“未知发布者”警告），首个签名版本发布前，已有 Windows 旧包仍视为功能残缺、不要安装。项目保持官方内核完整，并在其上提供模块化的链式出站与面向普通用户的操作界面。
 
 ## 公开说明（2026-09-18）
 
@@ -131,7 +131,7 @@ AngelaBox 采用 **正式版（stable）+ 测试版（beta）** 双轨并行：
 - **日常使用（推荐）：** `AngelaBox-stable-android.apk`（正式版），用同目录 `AngelaBox-stable-android.apk.sha256` 校验
 - **尝鲜测试：** `AngelaBox-android.apk`（测试版），用同目录 `AngelaBox-android.apk.sha256` 校验
 
-不要下载无版本号的旧 Windows 压缩包或安装器，那些包功能不完整；等首个 SignPath 签名版本发布后再从 Releases 获取 Windows 包。
+不要下载无版本号的旧 Windows 压缩包或安装器，那些包功能不完整；等首个自签名版本发布后再从 Releases 获取 Windows 包。
 
 ```
 # 正式版
@@ -163,9 +163,9 @@ sha256sum -c AngelaBox-android.apk.sha256
 3. 校验发行证书 SHA-256 后组装 Android APK（`VERSION_PROPS_FILE=version-stable.properties`），生成 `AngelaBox-stable-android.apk.sha256`
 4. 指定 `version_tag`（如 `v1.0.114-stable`）后发布至 GitHub Releases（正式版，Latest）。挂 `AngelaBox-stable-android.apk` 和它的 `.sha256`。
 
-Windows 资产仅在 SignPath 签名成功后才挂，未签名绝不挂（见 `.github/workflows/release-windows-desktop.yml` 的 fail-closed 校验）。
+Windows 资产仅在自签名成功后才挂，未签名绝不挂（见 `.github/workflows/release-windows-desktop.yml` 的 fail-closed 校验）。
 
-`.github/workflows/release-windows-desktop.yml` 已恢复：SignPath 签名，未配置 secrets 时只构建不发版。
+`.github/workflows/release-windows-desktop.yml` 已恢复：自签名，未配置 secrets 时只构建不发版。
 
 发版说明只写**当前版**：`docs/RELEASE_NOTES.md` 每次发布前整篇替换，不累积旧版流水账，先写新行为，再写这次修好的点。**只写用户可感知的变化**，内部开发流程细节（如发版流程改动、测试白名单、CI 守卫）不写入用户公告。
 
