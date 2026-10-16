@@ -978,7 +978,6 @@ function main(config) {
   }
   dns.rules = extraDns;
   dns.final = "dns-remote";
-  if (dnsProtect) dns.independent_cache = true;
   dns.strategy = disableIpv6 ? "ipv4_only" : "prefer_ipv4";
   route.default_domain_resolver = "dns-local";
   if (dnsProtect) route.auto_detect_interface = true;

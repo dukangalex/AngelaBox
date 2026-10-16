@@ -3,6 +3,8 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 dotenv.config();
 
@@ -11,6 +13,46 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.HOST || '127.0.0.1';
+
+function blockedIp(ip: string): boolean {
+  const raw = ip.toLowerCase().replace(/^\[|\]$/g, '');
+  if (raw.startsWith('::ffff:')) return blockedIp(raw.slice(7));
+  if (raw.includes(':')) {
+    return raw === '::1' || raw === '::' || raw.startsWith('fe80:') || raw.startsWith('fc') || raw.startsWith('fd');
+  }
+  const parts = raw.split('.').map((n) => Number(n));
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  const [a, b] = parts;
+  return a === 0 || a === 10 || a === 127 || a === 255 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127);
+}
+
+/** Public http(s) only. Rejects loopback, LAN, link-local, and cloud metadata. */
+async function assertPublicHttpUrl(raw: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('URL is not valid');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('only http and https URLs are allowed');
+  }
+  if (parsed.username || parsed.password) throw new Error('URL credentials are not allowed');
+  const host = parsed.hostname;
+  if (!host || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error('that host is not allowed');
+  }
+  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true })).map((item) => item.address);
+  if (addresses.length === 0 || addresses.some(blockedIp)) {
+    throw new Error('that address is not allowed');
+  }
+  return parsed;
+}
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -32,20 +74,30 @@ app.post('/api/fetch-subscription', async (req, res) => {
   const selectedUa = userAgents[userAgentType] || userAgents.singbox;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': selectedUa,
-        'Accept': '*/*',
-        'Accept-Encoding': 'identity',
-      },
-      redirect: 'follow',
-    });
-
-    clearTimeout(timeout);
+    let current = (await assertPublicHttpUrl(url)).toString();
+    let response: Response | null = null;
+    for (let hop = 0; hop < 3; hop++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      response = await fetch(current, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': selectedUa,
+          'Accept': '*/*',
+          'Accept-Encoding': 'identity',
+        },
+      });
+      clearTimeout(timeout);
+      if (response.status < 300 || response.status >= 400) break;
+      const location = response.headers.get('location');
+      if (!location) break;
+      current = (await assertPublicHttpUrl(new URL(location, current).toString())).toString();
+      response = null;
+    }
+    if (!response) {
+      return res.status(502).json({ error: 'too many redirects' });
+    }
 
     if (!response.ok) {
       return res.status(response.status).json({
@@ -83,7 +135,8 @@ app.post('/api/fetch-subscription', async (req, res) => {
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({
+    const denied = /not allowed|not valid|only http|credentials/.test(errorMsg);
+    return res.status(denied ? 400 : 500).json({
       error: `Failed to fetch subscription: ${errorMsg}`,
     });
   }
@@ -199,8 +252,8 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[AngelaBox] Server active at http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[AngelaBox] Server active at http://${HOST}:${PORT}`);
   });
 }
 

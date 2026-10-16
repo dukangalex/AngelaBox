@@ -364,9 +364,10 @@ def main() -> int:
         errors.append("each overlay switch must apply in isolation so one failure cannot skip the rest")
     if "entryMissing" not in override:
         errors.append("subscription update should fall back when entry tag is gone")
-    if "independent_cache\", true)" not in override and "independent_cache\", true" not in override:
-        if 'dns.put("independent_cache", true)' not in override:
-            errors.append("DNS protect must force-overwrite independent_cache")
+    if "independent_cache" in override:
+        errors.append("DNS protect must not write deprecated independent_cache")
+    if "independent_cache" in read("app/src/main/assets/scripts/airport-region.js"):
+        errors.append("default script must not set deprecated independent_cache")
     if "stripBrokenDnsDetours" not in override:
         errors.append("runtime overlay must strip empty-direct DNS detours after other switches")
     webrtc_call = override.find('applyOne(warnings, "防 WebRTC 泄露")')
@@ -865,8 +866,8 @@ def main() -> int:
         errors.append("default script must replace original groups, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 28" not in sample:
-        errors.append("default script must stamp overlay-revision: 28 so stale copies refresh")
+    if "overlay-revision: 29" not in sample:
+        errors.append("default script must stamp overlay-revision: 29 so stale copies refresh")
     claude = sample.find('name: "ClaudeAI"')
     ai = sample.find('name: "AI"')
     if claude < 0 or ai < 0 or claude > ai:
@@ -874,7 +875,7 @@ def main() -> int:
     if "geosite-anthropic" not in sample:
         errors.append("ClaudeAI must use the official anthropic rule set")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 28"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 29"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
         errors.append("default script must not fake load-balance or failover groups")

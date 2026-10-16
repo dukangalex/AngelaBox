@@ -299,6 +299,7 @@ class ConfigScriptOverrideTest {
         assertTrue(dnsRuleText.contains("HTTPS"))
         assertTrue(dnsRuleText.contains("SVCB"))
         assertEquals("ipv4_only", out.getJSONObject("dns").optString("strategy"))
+        assertFalse(out.getJSONObject("dns").has("independent_cache"))
     }
 
     @Test

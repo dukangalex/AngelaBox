@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 28
+ * overlay-revision: 29
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -1105,8 +1105,7 @@ function main(config) {
     servers: dnsServers,
     rules: dnsRules,
     final: "dns-remote",
-    strategy: disableIpv6 ? "ipv4_only" : "prefer_ipv4",
-    independent_cache: true
+    strategy: disableIpv6 ? "ipv4_only" : "prefer_ipv4"
   };
 
   applyTransport(config);

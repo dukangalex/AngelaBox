@@ -154,6 +154,8 @@ jobs:
           APK_URL: ${{ steps.assets.outputs.apk_url }}
         run: |
           set -euo pipefail
+          bash scripts/extract_release_notes.sh "${TAG}" > /tmp/release_notes_current.txt
+          export NOTES_FILE=/tmp/release_notes_current.txt
           python3 scripts/telegram_announce.py
 
       - name: Send to Telegram

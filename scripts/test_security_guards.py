@@ -201,10 +201,11 @@ def test_source_guards() -> None:
     assert "io.chainbox.desktop" in desktop
     assert "AngelaBox-windows-" in desktop
     assert "refusing to publish official SFW" in desktop
-    # P12 商业证书模式已由 SignPath Foundation 取代（私钥在其 HSM，CI 只提交未签名包）。
+    # SignPath 申请被拒。私钥只放在 WINDOWS_PFX_* secrets，不进仓库。
     assert "WINDOWS_CERTIFICATES_P12" not in desktop
-    assert "SIGNPATH_API_TOKEN" in desktop
-    assert "signpath/github-action-submit-signing-request" in desktop
+    assert "SIGNPATH_API_TOKEN" not in desktop
+    assert "signpath/github-action-submit-signing-request" not in desktop
+    assert "WINDOWS_PFX_BASE64" in desktop
     assert "signing.local.json" in desktop
     assert "New-SelfSignedCertificate" in desktop
     assert "Compress-Archive" in desktop

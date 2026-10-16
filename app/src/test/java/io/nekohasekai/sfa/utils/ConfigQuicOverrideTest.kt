@@ -88,7 +88,7 @@ class ConfigQuicOverrideTest {
             .put("dns", JSONObject().put("strategy", "ipv6_only"))
             .put("route", JSONObject().put("auto_detect_interface", false))
         ConfigQuicOverride.applyDnsProtect(root)
-        // independent_cache 已废弃（1.16.0 删除），不再写入；strategy 为空时才写 prefer_ipv4
+        assertFalse(root.getJSONObject("dns").has("independent_cache"))
         assertEquals("ipv6_only", root.getJSONObject("dns").getString("strategy"))
         assertTrue(root.getJSONObject("route").getBoolean("auto_detect_interface"))
     }
