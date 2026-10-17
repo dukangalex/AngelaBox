@@ -78,6 +78,8 @@ private fun HealthCard(issue: SubscriptionUpdateHealth.HealthIssue) {
             stringResource(R.string.subscription_health_quota_low_title, issue.profileName)
         SubscriptionUpdateHealth.IssueKind.UPDATE_FAILED ->
             stringResource(R.string.subscription_health_update_failed_title, issue.profileName)
+        SubscriptionUpdateHealth.IssueKind.IMPORT_WARNINGS ->
+            stringResource(R.string.subscription_health_import_warnings_title, issue.profileName)
     }
     Card(
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),

@@ -85,13 +85,14 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    val content = ConfigCompat.sanitizeRemote(
+                    val detailed = ConfigCompat.sanitizeRemoteDetailed(
                         io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                             profile.typed.remoteURL,
                             profile.id,
                             applicationContext,
                         ),
                     )
+                    val content = detailed.content
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
                     // 文件不存在时视为内容不同（首次更新），直接写入
@@ -117,6 +118,12 @@ class UpdateProfileWork {
                     profile.typed.lastUpdated = Date()
                     ProfileManager.update(profile)
                     SubscriptionUpdateHealth.recordSuccess(applicationContext, profile.id)
+                    // 更新成功但有"跳过/修正"提示：记下来，仪表盘横幅展示，不藏报错。
+                    SubscriptionUpdateHealth.recordImportWarnings(
+                        applicationContext,
+                        profile.id,
+                        detailed.notes,
+                    )
                 } catch (e: Exception) {
                     Log.e(TAG, "update profile ${profile.name}", e)
                     SubscriptionUpdateHealth.recordFailure(applicationContext, profile.id, e)

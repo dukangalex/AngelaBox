@@ -986,6 +986,145 @@ class ConfigIngestTest {
     }
 
     @Test
+    fun vlessRealityEmptyPbkIsSkippedWithNote() {
+        val good = "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=reality&pbk=abc123&fp=chrome#good"
+        val bad = "vless://22222222-2222-2222-2222-222222222222@example.com:443?security=reality&fp=chrome#bad"
+        val result = ConfigIngest.adapt("$good\n$bad")
+        assertTrue(result.fatal == null)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("good"))
+        assertFalse(tags.contains("bad"))
+        assertTrue(result.notes.any { it.contains("pbk") })
+    }
+
+    @Test
+    fun hysteriaV1UriReadsMportHopIntervalAndFp() {
+        val link = "hysteria://example.com:443?auth=secret&mport=20000-30000&hop_interval=30s&fp=chrome#HY"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "HY")
+        assertEquals("hysteria", node.getString("type"))
+        val ports = node.getJSONArray("server_ports")
+        assertEquals("20000:30000", ports.getString(0))
+        assertEquals("30s", node.getString("hop_interval"))
+        assertEquals("chrome", node.getJSONObject("tls").getJSONObject("utls").getString("fingerprint"))
+    }
+
+    @Test
+    fun hysteriaV1XplusWithoutObfsParamIsSkipped() {
+        val link = "hysteria://example.com:443?auth=secret&obfs=xplus#HY"
+        val result = ConfigIngest.adapt(link)
+        // 整个订阅只有这一条：节点被跳过 → fatal 说明原因，不会静默导入一个连不上的节点
+        assertTrue(result.fatal != null)
+        assertTrue((result.fatal ?: "").contains("xplus") || result.notes.any { it.contains("xplus") })
+    }
+
+    @Test
+    fun wireguardUriReadsPskAndKeepalive() {
+        val link = "wireguard://cHJpdmF0ZWtleQ@example.com:51820?publickey=cGVlcnB1YmxpY2tleQ&address=10.0.0.2%2F32&pre-shared-key=cHNrdGVzdA&persistent-keepalive=25#WG"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal == null)
+        val root = JSONObject(result.content)
+        val ep = (0 until root.getJSONArray("endpoints").length())
+            .map { root.getJSONArray("endpoints").getJSONObject(it) }
+            .first { it.getString("tag") == "WG" }
+        val peer = ep.getJSONArray("peers").getJSONObject(0)
+        assertEquals("cHNrdGVzdA", peer.getString("pre_shared_key"))
+        assertEquals(25, peer.getInt("persistent_keepalive_interval"))
+    }
+
+    @Test
+    fun wireguardUriNonNumericReservedIsSkipped() {
+        val link = "wireguard://cHJpdmF0ZWtleQ@example.com:51820?publickey=cGVlcnB1YmxpY2tleQ&reserved=abc#WG"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal != null || result.notes.any { it.contains("reserved") })
+    }
+
+    @Test
+    fun wireguardUriAmneziaIsSkipped() {
+        val link = "wireguard://cHJpdmF0ZWtleQ@example.com:51820?publickey=cGVlcnB1YmxpY2tleQ&Jc=5&Jmin=10#WG"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal != null || result.notes.any { it.contains("Amnezia") })
+    }
+
+    @Test
+    fun httpLinkWithPathIsNotParsedAsProxyNode() {
+        // 订阅地址不能被建成一个指向订阅服务器的 http 代理节点
+        val link = "https://example.com/sub?token=secret"
+        val result = ConfigIngest.adapt(link)
+        val outbounds = runCatching { JSONObject(result.content).getJSONArray("outbounds") }.getOrNull()
+        val hasHttpNode = outbounds?.let { arr ->
+            (0 until arr.length()).any { arr.getJSONObject(it).optString("type") == "http" }
+        } ?: false
+        assertFalse(hasHttpNode)
+    }
+
+    @Test
+    fun clashHy2AuthStrFallsBackToPassword() {
+        val yaml = """
+            proxies:
+              - name: hy2
+                type: hysteria2
+                server: hy.example.com
+                port: 443
+                auth-str: the-password
+                sni: hy.example.com
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "hy2")
+        assertEquals("hysteria2", node.getString("type"))
+        assertEquals("the-password", node.getString("password"))
+    }
+
+    @Test
+    fun clashHysteriaMapObfsIsSkipped() {
+        val yaml = """
+            proxies:
+              - name: hy1
+                type: hysteria
+                server: hy.example.com
+                port: 443
+                auth-str: secret
+                obfs:
+                  type: salamander
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal != null || result.notes.any { it.contains("obfs") })
+    }
+
+    @Test
+    fun tuicUriReadsZeroRttAndHeartbeat() {
+        val link = "tuic://11111111-1111-1111-1111-111111111111:pass@example.com:443?reduce-rtt=1&heartbeat-interval=10000#T"
+        val result = ConfigIngest.adapt(link)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "T")
+        assertTrue(node.getBoolean("zero_rtt_handshake"))
+        assertEquals("10000ms", node.getString("heartbeat"))
+    }
+
+    @Test
+    fun danglingDetourRemovalIsNoted() {
+        // dialer-proxy 指向不存在的节点：detour 被摘掉，且 notes 里必须说明
+        val yaml = """
+            proxies:
+              - name: real
+                type: ss
+                server: ss.example.com
+                port: 8388
+                cipher: aes-256-gcm
+                password: pass
+                dialer-proxy: ghost
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal == null)
+        assertTrue(result.notes.any { it.contains("直连拨号") || it.contains("前置代理") })
+        val node = outbound(result.content, "real")
+        assertFalse(node.has("detour"))
+    }
+
+    @Test
     fun xrayVmessWsTlsConverts() {
         val json = """
             {

@@ -20,10 +20,23 @@ import java.util.Date
 class ProfileImportHandler(private val context: Context) {
     companion object {
         private const val MAX_IMPORT_BYTES = 8L * 1024L * 1024L
+
+        /**
+         * 导入成功但有"跳过/修正"提示时弹窗告知。用户划线：绝不藏报错，
+         * "导入成功"背后的节点丢失必须让用户看见。
+         */
+        fun showImportWarningsDialog(context: Context, warnings: List<String>) {
+            if (warnings.isEmpty()) return
+            android.app.AlertDialog.Builder(context)
+                .setTitle(context.getString(R.string.import_warnings_title, warnings.size))
+                .setMessage(warnings.joinToString("\n\n"))
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
     }
 
     sealed class ImportResult {
-        data class Success(val profile: Profile) : ImportResult()
+        data class Success(val profile: Profile, val warnings: List<String> = emptyList()) : ImportResult()
         data class Error(val message: String) : ImportResult()
     }
 
@@ -323,7 +336,8 @@ class ProfileImportHandler(private val context: Context) {
 
     private suspend fun importJsonConfiguration(jsonContent: String, profileName: String): ImportResult {
         return try {
-            val sanitized = ConfigCompat.sanitize(jsonContent)
+            val detailed = ConfigCompat.sanitizeDetailed(jsonContent)
+            val sanitized = detailed.content
             try {
                 Libbox.checkConfig(sanitized)
             } catch (e: Exception) {
@@ -344,7 +358,7 @@ class ProfileImportHandler(private val context: Context) {
             configFile.writeText(sanitized)
             typedProfile.path = configFile.path
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-            ImportResult.Success(profile)
+            ImportResult.Success(profile, detailed.notes)
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "Unknown error importing JSON configuration")
         }

@@ -16,6 +16,7 @@ object SubscriptionUpdateHealth {
     private const val PREFS = "subscription_update_health"
     private const val KEY_FAIL_PREFIX = "fail_"
     private const val KEY_ERROR_PREFIX = "err_"
+    private const val KEY_WARN_PREFIX = "warn_"
 
     /** 连续失败达到该次数后在仪表盘横幅提醒 */
     const val FAILURE_ALERT_THRESHOLD = 3
@@ -55,6 +56,30 @@ object SubscriptionUpdateHealth {
     }
 
     /**
+     * 记录上次成功更新时的"跳过/修正"提示（如跳过 N 个不支持的节点）。
+     * 更新成功不等于没有丢失，提示必须留下来给仪表盘横幅展示。
+     */
+    fun recordImportWarnings(context: Context, profileId: Long, warnings: List<String>) {
+        if (profileId < 0L) return
+        val text = warnings.filter { it.isNotBlank() }.joinToString("\n")
+            .replace(Regex("https?://[^\\s\"'<>]+"), "[链接已隐藏]")
+            .take(500)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .apply {
+                if (text.isBlank()) remove(KEY_WARN_PREFIX + profileId)
+                else putString(KEY_WARN_PREFIX + profileId, text)
+            }
+            .apply()
+    }
+
+    fun lastImportWarnings(context: Context, profileId: Long): String? {
+        if (profileId < 0L) return null
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_WARN_PREFIX + profileId, null)
+    }
+
+    /**
      * 错误信息只保留脱敏后的首条 message，URL（含订阅 token）一律抹掉，
      * 避免凭据落进 SharedPreferences。
      */
@@ -76,6 +101,7 @@ object SubscriptionUpdateHealth {
         QUOTA_EXHAUSTED,
         QUOTA_LOW,
         UPDATE_FAILED,
+        IMPORT_WARNINGS,
     }
 
     data class HealthIssue(
@@ -120,6 +146,11 @@ object SubscriptionUpdateHealth {
                             issues.add(HealthIssue(name, IssueKind.QUOTA_LOW, usage))
                     }
                 }
+            }
+            // 上次更新成功但有"跳过/修正"提示：也要让用户看见
+            val importWarnings = lastImportWarnings(context, profile.id)
+            if (!importWarnings.isNullOrBlank()) {
+                issues.add(HealthIssue(name, IssueKind.IMPORT_WARNINGS, importWarnings))
             }
             // 连续更新失败
             val failures = consecutiveFailures(context, profile.id)

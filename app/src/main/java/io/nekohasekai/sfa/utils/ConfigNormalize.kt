@@ -110,7 +110,7 @@ object ConfigNormalize {
             if (changed) notes += message
         }
         mark(ConfigCompat.stripClashResidue(root), "已去掉 Clash 残留字段")
-        mark(ConfigCompat.dropUnsupportedLeaves(root), "已跳过当前内核不支持的 xhttp / MASQUE 节点")
+        mark(ConfigCompat.dropUnsupportedLeaves(root).isNotEmpty(), "已跳过当前内核不支持的 xhttp / MASQUE 节点")
         ConfigCompat.coerceTcpKeepAlive(root)
         val outs = root.optJSONArray("outbounds")
         if (outs != null) {

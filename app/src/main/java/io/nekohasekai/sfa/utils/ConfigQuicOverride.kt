@@ -290,13 +290,97 @@ object ConfigQuicOverride {
         walk("outbounds")
     }
 
+    /**
+     * 真正的 DNS 防泄漏（默认开就必须真生效）：
+     * 1. fakeip DNS：A/AAAA 查询返回 198.18.0.0/15 假地址，应用拿不到真实 IP，
+     *    sing-box 在路由前把假地址映射回域名，走隧道出站；
+     * 2. 53 端口 + dns 协议流量劫持到内部 DNS，应用自带的 DNS 配置绕不过；
+     * 3. HTTPS/SVCB 查询直接拒绝（防 ECH/DNS 旁路）。
+     * 幂等：重复调用不会叠加。已有用户配置（servers/final/strategy）只做加法不覆盖。
+     */
     internal fun applyDnsProtect(root: JSONObject) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         if (dns.optString("strategy").isBlank()) {
             dns.put("strategy", "prefer_ipv4")
         }
+        ensureFakeIpDns(dns)
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
+        ConfigInboundCompat.ensureHijackDns(root)
+    }
+
+    private fun ensureFakeIpDns(dns: JSONObject) {
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        var hasFakeIp = false
+        var firstRealTag: String? = null
+        for (i in 0 until servers.length()) {
+            val s = servers.optJSONObject(i) ?: continue
+            if (s.optString("type") == "fakeip" || s.optString("tag") == "dns-fakeip") {
+                hasFakeIp = true
+            } else if (firstRealTag == null) {
+                firstRealTag = s.optString("tag").ifBlank { null }
+            }
+        }
+        if (!hasFakeIp) {
+            val fakeIp = JSONObject()
+                .put("type", "fakeip")
+                .put("tag", "dns-fakeip")
+                .put("inet4_range", "198.18.0.0/15")
+            val merged = JSONArray().put(fakeIp)
+            for (i in 0 until servers.length()) merged.put(servers.get(i))
+            dns.put("servers", merged)
+        }
+        if (firstRealTag == null) {
+            // 没有任何真实上游：补一个走隧道（默认路由）的远程 DNS，
+            // 否则 final 只能指向 fakeip，非 A/AAAA 查询会失败。
+            val remote = JSONObject()
+                .put("type", "tcp")
+                .put("tag", "dns-remote")
+                .put("server", "1.1.1.1")
+                .put("server_port", 53)
+            dns.getJSONArray("servers").put(remote)
+            firstRealTag = "dns-remote"
+        }
+        if (dns.optString("final").isBlank()) {
+            dns.put("final", firstRealTag)
+        }
+        val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
+        var hasFakeIpRule = false
+        var hasHttpsReject = false
+        for (i in 0 until rules.length()) {
+            val r = rules.optJSONObject(i) ?: continue
+            if (r.optString("server") == "dns-fakeip") hasFakeIpRule = true
+            if (r.optString("action") == "reject" && queryTypesContain(r, "HTTPS")) hasHttpsReject = true
+        }
+        if (!hasFakeIpRule || !hasHttpsReject) {
+            val extra = JSONArray()
+            if (!hasHttpsReject) {
+                extra.put(
+                    JSONObject()
+                        .put("query_type", JSONArray().put("HTTPS").put("SVCB"))
+                        .put("action", "reject"),
+                )
+            }
+            if (!hasFakeIpRule) {
+                extra.put(
+                    JSONObject()
+                        .put("query_type", JSONArray().put("A").put("AAAA"))
+                        .put("server", "dns-fakeip"),
+                )
+            }
+            val merged = JSONArray()
+            for (i in 0 until extra.length()) merged.put(extra.get(i))
+            for (i in 0 until rules.length()) merged.put(rules.get(i))
+            dns.put("rules", merged)
+        }
+    }
+
+    private fun queryTypesContain(rule: JSONObject, type: String): Boolean {
+        val qt = rule.optJSONArray("query_type") ?: return false
+        for (i in 0 until qt.length()) {
+            if (qt.optString(i).equals(type, ignoreCase = true)) return true
+        }
+        return false
     }
 
     internal fun applyDisableIpv6(root: JSONObject) {

@@ -183,6 +183,7 @@ fun AddProfileSheet(
                                         withContext(Dispatchers.Main) {
                                             onDismiss()
                                             onProfileImported(result.profile)
+                                            ProfileImportHandler.showImportWarningsDialog(context, result.warnings)
                                         }
                                     }
                                     is ProfileImportHandler.ImportResult.Error -> {
@@ -197,6 +198,7 @@ fun AddProfileSheet(
                                         withContext(Dispatchers.Main) {
                                             onDismiss()
                                             onProfileImported(result.profile)
+                                            ProfileImportHandler.showImportWarningsDialog(context, result.warnings)
                                         }
                                     }
                                     is ProfileImportHandler.ImportResult.Error -> {
@@ -271,6 +273,7 @@ fun AddProfileSheet(
                                             withContext(Dispatchers.Main) {
                                                 onDismiss()
                                                 onProfileImported(importResult.profile)
+                                                ProfileImportHandler.showImportWarningsDialog(context, importResult.warnings)
                                             }
                                         }
                                         is ProfileImportHandler.ImportResult.Error -> {
