@@ -32,6 +32,10 @@ Windows 版已暂停。不要安装以前的 Windows 压缩包或安装器，那
 
 远程订阅只允许 HTTPS。已保存的 HTTP 订阅更新时会被拒绝，请改成 HTTPS 后再更新。脚本导入同样只允许 HTTPS。
 
+导入时若有节点被跳过（内核不支持的协议/参数），导入成功后会弹窗列出原因；订阅后台更新的跳过提示会显示在仪表盘横幅里。不会静默丢失。
+
+以下类型暂无分享链接/Clash 入口，只能写 sing-box JSON 原样透传给内核：`tor` 出站、`chain` 链式出站（应用内请用「工具 → 链式代理」可视化配置）。
+
 远程订阅若含 Clash 风格 `plugin_opts` 对象，或仍使用 sing-box 1.11 的 `dns.fakeip` / `servers[].address` / `rcode://` / `type: rcode`，或入站仍写 `sniff` / `domain_strategy`、出站仍用 `type: dns` / `type: block`，导入和启动时会自动转成 1.12+ 的 typed DNS 与路由动作，避免内核拒绝。GitHub `raw.githubusercontent.com` 规则集地址会改写到 jsDelivr testingcf 镜像，避免 raw/LFS 404 导致无法启动。
 
 ## 链式代理

@@ -35,7 +35,16 @@ import org.json.JSONObject
 object ConfigCompat {
     const val MAX_CONFIG_CHARS = 8 * 1024 * 1024
 
-    fun sanitize(content: String, fetch: ((String) -> String)? = null): String {
+    /**
+     * sanitize 的结果：content 是可用配置，notes 是导入期"跳过/修正"的中文提示。
+     * 这些提示必须一路透传到 UI（导入对话框 / 订阅健康横幅），绝不允许静默丢弃。
+     */
+    data class SanitizeResult(val content: String, val notes: List<String>)
+
+    fun sanitize(content: String, fetch: ((String) -> String)? = null): String =
+        sanitizeDetailed(content, fetch).content
+
+    fun sanitizeDetailed(content: String, fetch: ((String) -> String)? = null): SanitizeResult {
         val ingested = ConfigIngest.adapt(content, fetch)
         if (!ingested.fatal.isNullOrBlank()) {
             throw IllegalArgumentException(ingested.fatal)
@@ -54,7 +63,8 @@ object ConfigCompat {
         }
         var changed = false
         if (stripClashResidue(root)) changed = true
-        if (dropUnsupportedLeaves(root)) changed = true
+        val droppedLeaves = dropUnsupportedLeaves(root)
+        if (droppedLeaves.isNotEmpty()) changed = true
         if (coerceTcpKeepAlive(root)) changed = true
         val outs = root.optJSONArray("outbounds")
         if (outs != null) {
@@ -73,7 +83,18 @@ object ConfigCompat {
         if (ConfigIngest.normalizeEchConfigs(root)) changed = true
         if (stripBrokenDnsDetours(root)) changed = true
         if (stripLogFileOutput(root)) changed = true
-        return if (changed) root.toString() else ingested.content
+        // dropUnsupportedLeaves 在 sanitize 里还会删节点，
+        // 在这里记一笔，保证提示能到用户。
+        val notes = ingested.notes.toMutableList()
+        if (droppedLeaves.isNotEmpty()) {
+            val names = droppedLeaves.take(5).joinToString("、")
+            val suffix = if (droppedLeaves.size > 5) "等" else ""
+            notes += "已跳过 ${droppedLeaves.size} 个当前内核不支持的节点（$names$suffix），其余节点不受影响。"
+        }
+        return SanitizeResult(
+            content = if (changed) root.toString() else ingested.content,
+            notes = notes,
+        )
     }
 
     /**
@@ -89,7 +110,9 @@ object ConfigCompat {
     }
 
     /** Import and subscription refresh. HTTPS proxy-providers are pulled here. */
-    fun sanitizeRemote(content: String): String = sanitize(content) { url ->
+    fun sanitizeRemote(content: String): String = sanitizeRemoteDetailed(content).content
+
+    fun sanitizeRemoteDetailed(content: String): SanitizeResult = sanitizeDetailed(content) { url ->
         HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
     }
 
@@ -173,8 +196,8 @@ object ConfigCompat {
      * xhttp / MASQUE are not in this kernel. Drop those leaves. If nothing
      * usable remains, fail closed instead of leaving a direct-only config.
      */
-    internal fun dropUnsupportedLeaves(root: JSONObject): Boolean {
-        val outs = root.optJSONArray("outbounds") ?: return false
+    internal fun dropUnsupportedLeaves(root: JSONObject): Set<String> {
+        val outs = root.optJSONArray("outbounds") ?: return emptySet()
         val dropped = linkedSetOf<String>()
         val keep = JSONArray()
         var changed = false
@@ -188,7 +211,7 @@ object ConfigCompat {
             }
             keep.put(o)
         }
-        if (!changed) return false
+        if (!changed) return emptySet()
         while (outs.length() > 0) outs.remove(0)
         for (i in 0 until keep.length()) outs.put(keep.get(i))
         val tags = linkedSetOf<String>()
@@ -216,7 +239,7 @@ object ConfigCompat {
                 "当前内核还不支持这份配置里的 xhttp / MASQUE。没有改成直连。",
             )
         }
-        return true
+        return dropped
     }
 
     private fun isUnsupportedLeaf(o: JSONObject): Boolean {

@@ -220,5 +220,65 @@ class ConfigQuicOverrideTest {
         ConfigQuicOverride.applyStrictRoute(root)
         assertTrue(tun.getBoolean("strict_route"))
     }
+
+    @Test
+    fun dnsProtectWritesRealFakeIpProtection() {
+        val root = JSONObject()
+        ConfigQuicOverride.applyDnsProtect(root)
+        val dns = root.getJSONObject("dns")
+        // fakeip 服务器
+        val servers = dns.getJSONArray("servers")
+        val fakeIp = (0 until servers.length()).map { servers.getJSONObject(it) }
+            .first { it.optString("type") == "fakeip" }
+        assertEquals("dns-fakeip", fakeIp.getString("tag"))
+        assertEquals("198.18.0.0/15", fakeIp.getString("inet4_range"))
+        // final 指向真实上游，不能是 fakeip
+        assertEquals("dns-remote", dns.getString("final"))
+        // DNS 规则：A/AAAA 走 fakeip，HTTPS/SVCB 拒绝
+        val rules = dns.getJSONArray("rules")
+        assertTrue(
+            (0 until rules.length()).any {
+                rules.getJSONObject(it).optString("server") == "dns-fakeip"
+            },
+        )
+        assertTrue(
+            (0 until rules.length()).any {
+                val r = rules.getJSONObject(it)
+                r.optString("action") == "reject" &&
+                    r.getJSONArray("query_type").toString().contains("HTTPS")
+            },
+        )
+        // 路由：53 端口劫持
+        val routeRules = root.getJSONObject("route").getJSONArray("rules")
+        assertTrue(
+            (0 until routeRules.length()).any {
+                routeRules.getJSONObject(it).optString("action") == "hijack-dns"
+            },
+        )
+    }
+
+    @Test
+    fun dnsProtectIsIdempotentAndKeepsUserDns() {
+        val root = JSONObject().put(
+            "dns",
+            JSONObject().put(
+                "servers",
+                org.json.JSONArray().put(
+                    JSONObject().put("type", "https").put("tag", "mine")
+                        .put("server", "dns.example.com"),
+                ),
+            ),
+        )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val first = root.toString()
+        ConfigQuicOverride.applyDnsProtect(root)
+        assertEquals(first, root.toString())
+        val dns = root.getJSONObject("dns")
+        // 用户自带的 DNS 服务器保留，final 指向它而不是我们补的
+        assertEquals("mine", dns.getString("final"))
+        val servers = dns.getJSONArray("servers")
+        assertTrue((0 until servers.length()).any { servers.getJSONObject(it).optString("tag") == "mine" })
+        assertTrue((0 until servers.length()).any { servers.getJSONObject(it).optString("tag") == "dns-fakeip" })
+    }
 }
 

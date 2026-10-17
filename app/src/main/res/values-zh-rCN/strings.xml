@@ -167,6 +167,7 @@
     <string name="unsaved_changes">未保存的更改</string>
     <string name="unsaved_changes_message">有未保存的更改。要放弃它们吗？</string>
     <string name="import_profile_confirm_title">导入配置</string>
+    <string name="import_warnings_title">导入完成，有 %1$d 条提醒</string>
     <string name="import_profile_confirm_message">导入配置「%s」？</string>
     <string name="import_action">导入</string>
     <string name="group_selected_title">选中</string>
@@ -759,6 +760,7 @@
     <string name="subscription_health_quota_low_title">订阅流量即将用完：%1$s</string>
     <string name="subscription_health_quota_used">已用 %1$s / 共 %2$s</string>
     <string name="subscription_health_update_failed_title">订阅连续更新失败：%1$s</string>
+    <string name="subscription_health_import_warnings_title">上次更新跳过了部分节点：%1$s</string>
     <string name="subscription_health_update_failed_title_multi">%1$d 个订阅连续更新失败</string>
     <string name="subscription_health_update_failed_detail">已连续失败 %1$d 次（%2$s），请检查订阅链接是否仍然有效。</string>
     <string name="subscription_health_update_failed_detail_simple">已连续失败 %1$d 次，请检查订阅链接是否仍然有效。</string>

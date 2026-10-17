@@ -333,6 +333,7 @@ object NetworkCheckup {
             SubscriptionUpdateHealth.IssueKind.QUOTA_EXHAUSTED to 3,
             SubscriptionUpdateHealth.IssueKind.UPDATE_FAILED to 2,
             SubscriptionUpdateHealth.IssueKind.QUOTA_LOW to 1,
+            SubscriptionUpdateHealth.IssueKind.IMPORT_WARNINGS to 1,
         )
         val worst = issues.maxByOrNull { severity[it.kind] ?: 0 } ?: issues.first()
         val extra = if (issues.size > 1) {
@@ -349,6 +350,8 @@ object NetworkCheckup {
                 ItemStatus.WARN to "update_failed"
             SubscriptionUpdateHealth.IssueKind.QUOTA_LOW ->
                 ItemStatus.WARN to "quota_low"
+            SubscriptionUpdateHealth.IssueKind.IMPORT_WARNINGS ->
+                ItemStatus.WARN to "import_warnings"
         }
         return Item(ItemId.SUBSCRIPTION, status, code, worst.detail + extra)
     }

@@ -569,6 +569,10 @@ class MainActivity :
                                     navController.navigate(ProfileRoutes.editProfile(result.profile.id)) {
                                         launchSingleTop = true
                                     }
+                                    ProfileImportHandler.showImportWarningsDialog(
+                                        this@MainActivity,
+                                        result.warnings,
+                                    )
                                 }
                                 is ProfileImportHandler.ImportResult.Error -> {
                                     errorMessage = result.message

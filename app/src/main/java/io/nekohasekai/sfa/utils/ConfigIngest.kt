@@ -597,7 +597,14 @@ object ConfigIngest {
         val skips = SkipBag()
         var skipped = 0
         for (proxy in proxies) {
-            val converted = convertClashProxy(proxy, skips)
+            // 逐条隔离：一个 proxy 抛异常只跳过它自己，不 abort 整个订阅
+            //（与 share / Xray 路径的逐条 try/catch 对齐）。
+            val converted = try {
+                convertClashProxy(proxy, skips)
+            } catch (_: Exception) {
+                skips.other("proxy 解析异常")
+                null
+            }
             if (converted == null) {
                 skipped++
                 continue
@@ -674,7 +681,11 @@ object ConfigIngest {
             }
         }
         groupNodes.forEach { outbounds.put(it) }
-        dropDanglingDetours(outbounds, endpoints, tags)
+        val dangling = dropDanglingDetours(outbounds, endpoints, tags)
+        if (dangling.isNotEmpty()) {
+            notes += "以下节点的前置代理指向了被跳过的节点，已改为直连拨号：${dangling.take(5).joinToString("、")}" +
+                if (dangling.size > 5) "等" else ""
+        }
         val mappedRules = JSONArray()
         val usedSets = LinkedHashMap<String, String?>()
         var finalTag = groupTags.firstOrNull() ?: leafTags.first()
@@ -770,15 +781,24 @@ object ConfigIngest {
         return null
     }
 
-    /** mihomo `dialer-proxy` / Xray `dialerProxy` pointing at a node that was skipped would stop the kernel. */
-    private fun dropDanglingDetours(outbounds: JSONArray, endpoints: JSONArray, tags: Set<String>) {
+    /**
+     * mihomo `dialer-proxy` / Xray `dialerProxy` pointing at a node that was skipped would stop the kernel.
+     * Returns the tags whose detour was removed so the caller can tell the user:
+     * these nodes now dial directly instead of through the intended front proxy.
+     */
+    private fun dropDanglingDetours(outbounds: JSONArray, endpoints: JSONArray, tags: Set<String>): List<String> {
+        val affected = mutableListOf<String>()
         for (arr in listOf(outbounds, endpoints)) {
             for (i in 0 until arr.length()) {
                 val node = arr.optJSONObject(i) ?: continue
                 val detour = node.optString("detour")
-                if (detour.isNotEmpty() && detour !in tags && !detour.equals("direct", true)) node.remove("detour")
+                if (detour.isNotEmpty() && detour !in tags && !detour.equals("direct", true)) {
+                    node.remove("detour")
+                    affected += node.optString("tag").ifBlank { "未命名节点" }
+                }
             }
         }
+        return affected
     }
 
     /** A node that needs a helper outbound (ss over shadow-tls) carries it here until tags are final. */
@@ -981,7 +1001,12 @@ object ConfigIngest {
             }
             "hysteria2", "hy2" -> {
                 out.put("type", "hysteria2")
-                out.put("password", str(raw["password"]).ifBlank { str(raw["auth"]) })
+                out.put(
+                    "password",
+                    str(raw["password"])
+                        .ifBlank { str(raw["auth-str"] ?: raw["auth_str"]) }
+                        .ifBlank { str(raw["auth"]) },
+                )
                 mbps(raw["up"] ?: raw["up-mbps"])?.let { out.put("up_mbps", it) }
                 mbps(raw["down"] ?: raw["down-mbps"])?.let { out.put("down_mbps", it) }
                 putTls(out, raw, defaultEnabled = true)
@@ -1007,10 +1032,13 @@ object ConfigIngest {
                     auth.isNotEmpty() -> out.put("auth_str", auth)
                 }
                 val obfs = raw["obfs"]
-                if (asMap(obfs) == null) {
-                    str(obfs).takeIf { it.isNotEmpty() && !it.equals("none", true) }
-                        ?.let { out.put("obfs", it) }
+                if (asMap(obfs) != null) {
+                    // obfs 写成 map 形式时无法对应到 sing-box 的字符串密码：不编造，直接跳过并告知。
+                    skips.other("hysteria obfs 不是字符串")
+                    return null
                 }
+                str(obfs).takeIf { it.isNotEmpty() && !it.equals("none", true) }
+                    ?.let { out.put("obfs", it) }
                 putTls(out, raw, defaultEnabled = true)
                 putServerPorts(out, raw)
                 clashDuration(raw["hop-interval"] ?: raw["hop_interval"])?.let { out.put("hop_interval", it) }
@@ -2082,8 +2110,9 @@ object ConfigIngest {
         if (lines.isEmpty()) return null
         val nodes = mutableListOf<JSONObject>()
         var skipped = 0
+        val skips = SkipBag()
         for (line in lines) {
-            val converted = convertShareLine(line)
+            val converted = convertShareLine(line, skips)
             if (converted == null) {
                 skipped++
                 continue
@@ -2097,6 +2126,9 @@ object ConfigIngest {
             val parts = mutableListOf<String>()
             if (removed.isNotEmpty()) parts += "ssr 已从内核移除"
             if (rest.isNotEmpty()) parts += "${rest.joinToString("、")} 没能转成节点"
+            // 导入期已逐条记下跳过原因：把原因直接说给用户，不藏报错。
+            val bits = skipBits(skips)
+            if (bits.isNotEmpty()) parts += bits.joinToString("、")
             val named = parts.joinToString("；").ifBlank { "这些协议" }
             val message = "没有可用节点（$named）。没有改成直连。"
             return Result("", listOf(message), Format.ShareLinks, message)
@@ -2105,7 +2137,7 @@ object ConfigIngest {
             "已将节点链接转为 sing-box 配置",
             "节点链接没有分流。建议开启默认脚本，应用不会自动开启。",
         )
-        if (skipped > 0) notes += "跳过 $skipped 条无法识别的链接"
+        if (skipped > 0) notes += skipNote(skipped, skips)
         return wrapNodes(nodes, notes, Format.ShareLinks)
     }
 
@@ -2114,6 +2146,7 @@ object ConfigIngest {
      * unique tags, ss + shadow-tls helpers, WireGuard as endpoints, selector + url-test, final.
      */
     private fun wrapNodes(nodes: List<JSONObject>, notes: List<String>, format: Format): Result {
+        val allNotes = notes.toMutableList()
         val outbounds = JSONArray()
         val endpoints = JSONArray()
         val tags = LinkedHashSet<String>()
@@ -2159,22 +2192,27 @@ object ConfigIngest {
         }
         ensureDirect(outbounds, tags)
         autoGroups(leaves, tags).forEach { outbounds.put(it) }
-        dropDanglingDetours(outbounds, endpoints, tags)
+        val dangling = dropDanglingDetours(outbounds, endpoints, tags)
+        if (dangling.isNotEmpty()) {
+            allNotes += "以下节点的前置代理指向了被跳过的节点，已改为直连拨号：${dangling.take(5).joinToString("、")}" +
+                if (dangling.size > 5) "等" else ""
+        }
         val root = JSONObject()
             .put("outbounds", outbounds)
             .put("route", JSONObject().put("final", AUTO_SELECT))
         if (endpoints.length() > 0) root.put("endpoints", endpoints)
-        return Result(root.toString(), notes, format)
+        return Result(root.toString(), allNotes, format)
     }
 
     /** One malformed link (e.g. vmess base64 that is not JSON) is skipped, not fatal for the whole list. */
-    private fun convertShareLine(line: String): JSONObject? = try {
-        convertShareLineUnchecked(line)
+    private fun convertShareLine(line: String, skips: SkipBag? = null): JSONObject? = try {
+        convertShareLineUnchecked(line, skips)
     } catch (_: Exception) {
+        skips?.other("链接解析异常")
         null
     }
 
-    private fun convertShareLineUnchecked(line: String): JSONObject? {
+    private fun convertShareLineUnchecked(line: String, skips: SkipBag?): JSONObject? {
         val raw = line.trim()
         val scheme = raw.substringBefore("://", "").lowercase()
         val body = raw.substringAfter("://", "")
@@ -2182,10 +2220,10 @@ object ConfigIngest {
         return when (scheme) {
             "ss" -> parseSs(body)
             "vmess" -> parseVmess(body)
-            "vless" -> parseVless(body)
+            "vless" -> parseVless(body, skips)
             "trojan" -> parseTrojan(body)
             "hysteria2", "hy2" -> parseHysteria2(body)
-            "hysteria" -> parseHysteria(body)
+            "hysteria" -> parseHysteria(body, skips)
             "anytls" -> parseAnyTls(body)
             "tuic" -> parseTuic(body)
             "ssh" -> parseSsh(body)
@@ -2195,8 +2233,8 @@ object ConfigIngest {
             "ssr" -> null
             "socks", "socks5", "socks5h" -> parseUserHost(body, "socks")
             "socks4", "socks4a" -> parseUserHost(body, "socks")?.put("version", scheme.removePrefix("socks"))
-            "http", "https" -> parseHttpProxy(body, scheme == "https")
-            "wireguard", "wg" -> parseWireGuard(body)
+            "http", "https" -> parseHttpProxy(body, scheme == "https", skips)
+            "wireguard", "wg" -> parseWireGuard(body, skips)
             else -> null
         }
     }
@@ -2319,7 +2357,7 @@ object ConfigIngest {
         return out
     }
 
-    private fun parseVless(body: String): JSONObject? = parseUserHostQuery(body, "vless") { out, query, host ->
+    private fun parseVless(body: String, skips: SkipBag? = null): JSONObject? = parseUserHostQuery(body, "vless") { out, query, host ->
         val uuid = urlDecode(body.substringBefore('@'))
         if (uuid.isBlank()) return@parseUserHostQuery false
         out.put("uuid", uuid)
@@ -2332,12 +2370,18 @@ object ConfigIngest {
         putQueryTls(out, query, host, defaultOn = query["security"].equals("tls", true) || query["security"].equals("reality", true))
         if (!putQueryTransport(out, query)) return@parseUserHostQuery false
         if (query["security"].equals("reality", true)) {
+            val pbk = query["pbk"].orEmpty()
+            if (pbk.isBlank()) {
+                // reality 没有 public_key 必定握手失败：导入期直接跳过，不让用户看到"导入成功、连不上"。
+                skips?.other("vless reality 缺少 pbk")
+                return@parseUserHostQuery false
+            }
             val tls = out.optJSONObject("tls") ?: JSONObject().put("enabled", true).also { out.put("tls", it) }
             tls.put(
                 "reality",
                 JSONObject()
                     .put("enabled", true)
-                    .put("public_key", query["pbk"].orEmpty())
+                    .put("public_key", pbk)
                     .put("short_id", query["sid"].orEmpty()),
             )
             query["fp"]?.takeIf { it.isNotBlank() }?.let { fp ->
@@ -2361,7 +2405,7 @@ object ConfigIngest {
         putQueryTransport(out, query)
     }
 
-    private fun parseHysteria(body: String): JSONObject? {
+    private fun parseHysteria(body: String, skips: SkipBag? = null): JSONObject? {
         val (main, fragment) = splitFragment(body)
         val query = parseQuery(main.substringAfter('?', ""))
         val beforeQuery = main.substringBefore('?')
@@ -2375,11 +2419,24 @@ object ConfigIngest {
             .put("tag", urlDecode(fragment).ifBlank { host })
             .put("server", host)
             .put("server_port", port)
+        // 端口跳跃：mport 参数（v2rayN 写法），内核 server_ports 支持
+        query["mport"]?.takeIf { it.isNotBlank() }?.let { putPortList(out, it) }
+        (query["hop_interval"] ?: query["hop-interval"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            clashDuration(raw)?.let { out.put("hop_interval", it) }
+        }
         val auth = user.ifBlank { query["auth"] ?: query["auth_str"].orEmpty() }
         if (auth.isNotEmpty()) out.put("auth_str", auth)
         intVal(query["upmbps"] ?: query["up"])?.let { out.put("up_mbps", it) }
         intVal(query["downmbps"] ?: query["down"])?.let { out.put("down_mbps", it) }
-        val obfs = query["obfsParam"]?.takeIf { it.isNotEmpty() }
+        val obfsParam = query["obfsParam"]?.takeIf { it.isNotEmpty() }
+        val obfsType = query["obfs"].orEmpty()
+        if (obfsParam == null && obfsType.equals("xplus", true)) {
+            // sing-box hysteria v1 只支持 salamander 密码式混淆，没有 xplus：
+            // 写了也连不上，导入期明确跳过并告知。
+            skips?.other("hysteria xplus 混淆不受支持")
+            return null
+        }
+        val obfs = obfsParam
             ?: query["obfs"]?.takeIf { it.isNotEmpty() && !it.equals("xplus", true) && !it.equals("none", true) }
         if (!obfs.isNullOrEmpty()) out.put("obfs", obfs)
         val tls = JSONObject().put("enabled", true)
@@ -2387,6 +2444,8 @@ object ConfigIngest {
         if (peer.isNotEmpty()) tls.put("server_name", peer)
         if (query["insecure"] == "1" || query["allowInsecure"] == "1") tls.put("insecure", true)
         query["alpn"]?.takeIf { it.isNotEmpty() }?.let { tls.put("alpn", JSONArray().put(it)) }
+        query["fp"]?.takeIf { it.isNotBlank() && !it.equals("none", true) }
+            ?.let { tls.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
         out.put("tls", tls)
         return out
     }
@@ -2444,6 +2503,16 @@ object ConfigIngest {
     private fun parseAnyTls(body: String): JSONObject? = parseUserHostQuery(body, "anytls") { out, query, host ->
         out.put("password", urlDecode(body.substringBefore('@')))
         putQueryTls(out, query, host, defaultOn = true)
+        // 空闲会话管理（与 Clash 路径对齐）：丢了会回退内核默认，用户无感知但体验打折
+        (query["idle_session_check_interval"] ?: query["idle-session-check-interval"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            clashDuration(raw)?.let { out.put("idle_session_check_interval", it) }
+        }
+        (query["idle_session_timeout"] ?: query["idle-session-timeout"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            clashDuration(raw)?.let { out.put("idle_session_timeout", it) }
+        }
+        (query["min_idle_session"] ?: query["min-idle-session"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            intVal(raw)?.let { out.put("min_idle_session", it) }
+        }
         true
     }
 
@@ -2456,6 +2525,18 @@ object ConfigIngest {
         out.put("user", name)
         if (pass.isNotEmpty()) out.put("password", pass)
         if (!key.isNullOrBlank()) out.put("private_key", urlDecode(key))
+        // 服务端密钥 pinning（安全参数，丢了是安全降级）
+        (query["host_key"] ?: query["host-key"])?.takeIf { it.isNotBlank() }?.let {
+            out.put("host_key", JSONArray().put(it))
+        }
+        (query["host_key_algorithms"] ?: query["host-key-algorithms"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            val arr = JSONArray()
+            raw.split(',').map { s -> s.trim() }.filter { s -> s.isNotEmpty() }.forEach { arr.put(it) }
+            if (arr.length() > 0) out.put("host_key_algorithms", arr)
+        }
+        (query["client_version"] ?: query["client-version"])?.takeIf { it.isNotBlank() }?.let {
+            out.put("client_version", it)
+        }
         true
     }
 
@@ -2506,6 +2587,14 @@ object ConfigIngest {
             ?.takeIf { it.isNotEmpty() }?.let { out.put("congestion_control", it) }
         (query["udp_relay_mode"] ?: query["udp-relay-mode"])?.lowercase()
             ?.takeIf { it == "native" || it == "quic" }?.let { out.put("udp_relay_mode", it) }
+        // 握手延迟优化（与 Clash 路径对齐：reduce-rtt / heartbeat-interval(ms)）
+        if (boolVal(query["reduce-rtt"] ?: query["reduce_rtt"] ?: query["zero_rtt"] ?: query["zero-rtt"]) == true) {
+            out.put("zero_rtt_handshake", true)
+        }
+        (query["heartbeat-interval"] ?: query["heartbeat_interval"] ?: query["heartbeat"])?.takeIf { it.isNotBlank() }?.let { raw ->
+            val ms = intVal(raw)?.takeIf { it > 0 }?.let { "${it}ms" } ?: clashDuration(raw)
+            ms?.let { out.put("heartbeat", it) }
+        }
         if (query["disable_sni"] == "1" || query["disable_sni"] == "true") out.optJSONObject("tls")?.remove("server_name")
         out.optJSONObject("tls")?.let { tls -> if (!tls.has("alpn")) tls.put("alpn", JSONArray().put("h3")) }
         true
@@ -2540,13 +2629,18 @@ object ConfigIngest {
 
     /**
      * `http(s)://user:pass@host:port#name` proxy links. A URL with a path or query is a
-     * subscription address, not a node, so it is not read as one.
+     * subscription address, not a node, so it is not read as one (reading it as a node
+     * could turn a subscription URL into a proxy pointing at the subscription server).
+     * The skip is named so the user sees why it was dropped.
      */
-    private fun parseHttpProxy(body: String, tls: Boolean): JSONObject? {
+    private fun parseHttpProxy(body: String, tls: Boolean, skips: SkipBag? = null): JSONObject? {
         val (main, _) = splitFragment(body)
         val afterUser = main.substringAfterLast('@')
         val path = afterUser.substringAfter('/', "")
-        if (path.isNotEmpty() || '?' in afterUser) return null
+        if (path.isNotEmpty() || '?' in afterUser) {
+            skips?.other("http(s) 链接含路径/参数，按订阅地址跳过")
+            return null
+        }
         if (splitHostPort(afterUser.trimEnd('/')).second.toIntOrNull() == null) return null
         val out = parseUserHost(body, "http") ?: return null
         if (tls) out.put("tls", JSONObject().put("enabled", true).put("server_name", out.optString("server")))
@@ -2962,6 +3056,8 @@ object ConfigIngest {
         addresses: List<String>,
         reserved: List<Int>,
         mtu: Int?,
+        psk: String? = null,
+        keepalive: Int? = null,
     ): JSONObject? {
         if (privateKey.isBlank() || peerPublic.isBlank() || server.isBlank() || port <= 0) return null
         val locals = JSONArray()
@@ -2974,6 +3070,8 @@ object ConfigIngest {
             .put("port", port)
             .put("public_key", peerPublic)
             .put("allowed_ips", JSONArray().put("0.0.0.0/0").put("::/0"))
+        if (!psk.isNullOrBlank()) peer.put("pre_shared_key", psk)
+        if (keepalive != null && keepalive > 0) peer.put("persistent_keepalive_interval", keepalive)
         if (reserved.isNotEmpty()) {
             val arr = JSONArray()
             reserved.forEach { arr.put(it) }
@@ -2989,7 +3087,7 @@ object ConfigIngest {
         return endpoint
     }
 
-    private fun parseWireGuard(body: String): JSONObject? {
+    private fun parseWireGuard(body: String, skips: SkipBag? = null): JSONObject? {
         val (main, fragment) = splitFragment(body)
         val user = urlDecodeKeepPlus(main.substringBefore('@'))
         val hostPortQuery = main.substringAfter('@', "")
@@ -2998,13 +3096,25 @@ object ConfigIngest {
         val query = parseQuery(hostPortQuery.substringAfter('?', ""))
         val host = hostPort.substringBeforeLast(':').trim('[', ']')
         val port = portVal(hostPort.substringAfterLast(':')) ?: return null
+        // AmneziaWG 的混淆参数内核不支持：静默降级成普通 WG 必定连不上，明确跳过并告知。
+        // 参数名大小写不一（Jc/Jmin/...），按忽略大小写匹配。
+        val queryKeysLower = query.keys.map { it.lowercase() }.toSet()
+        val amneziaKeys = setOf("jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4")
+        if (amneziaKeys.any { it in queryKeysLower }) {
+            skips?.other("AmneziaWG 参数不受支持")
+            return null
+        }
         val addresses = (query["address"] ?: query["ip"] ?: "")
             .split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        val reserved = (query["reserved"] ?: "")
-            .split(',')
-            .mapNotNull { it.trim().toIntOrNull() }
+        val reservedRaw = (query["reserved"] ?: "").split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (reservedRaw.any { it.toIntOrNull() == null }) {
+            // reserved 字节不对会握手失败：截断是错的，整条跳过。
+            skips?.other("wireguard reserved 非数字")
+            return null
+        }
+        val reserved = reservedRaw.map { it.toInt() }
         val peerPublic = urlDecodeKeepPlus(
             query["publickey"] ?: query["public_key"] ?: query["publicKey"] ?: query["peer"].orEmpty(),
         )
@@ -3017,6 +3127,8 @@ object ConfigIngest {
             addresses = addresses,
             reserved = reserved,
             mtu = intVal(query["mtu"]),
+            psk = query["pre-shared-key"] ?: query["presharedkey"] ?: query["psk"],
+            keepalive = intVal(query["persistent-keepalive"] ?: query["persistent_keepalive"] ?: query["keepalive"]),
         )
     }
 

@@ -586,4 +586,25 @@ class ConfigCompatTest {
         org.junit.Assert.assertFalse(out.getJSONObject("log").has("output"))
         org.junit.Assert.assertEquals("debug", out.getJSONObject("log").getString("level"))
     }
+
+    @Test
+    fun sanitizeDetailedSurfacesDroppedNodesAsNotes() {
+        // xhttp 节点被删掉时，notes 里必须有具名提示（用户划线：不藏报错）
+        val content = """
+            {"outbounds":[
+              {"type":"direct","tag":"direct"},
+              {"type":"trojan","tag":"ok-node","server":"ok.example.com","server_port":443,"password":"pw"},
+              {"type":"vless","tag":"xhttp-node","server":"x.example.com","server_port":443,
+               "uuid":"11111111-1111-1111-1111-111111111111",
+               "transport":{"type":"xhttp","path":"/"}}
+            ]}
+        """.trimIndent()
+        val detailed = ConfigCompat.sanitizeDetailed(content)
+        org.junit.Assert.assertTrue(detailed.notes.any { it.contains("xhttp-node") })
+        val tags = (0 until org.json.JSONObject(detailed.content).getJSONArray("outbounds").length())
+            .map { org.json.JSONObject(detailed.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        org.junit.Assert.assertFalse(tags.contains("xhttp-node"))
+        org.junit.Assert.assertTrue(tags.contains("direct"))
+        org.junit.Assert.assertTrue(tags.contains("ok-node"))
+    }
 }

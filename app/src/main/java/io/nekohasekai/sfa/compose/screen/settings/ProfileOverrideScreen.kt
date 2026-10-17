@@ -441,13 +441,13 @@ fun ProfileOverrideScreen(
                     }
                 }
                 OverrideSwitch(
-                    title = "DNS 防泄漏倾向",
-                    subtitle = "强制 DNS 走代理栈",
+                    title = "DNS 防泄漏",
+                    subtitle = "FakeIP + 53 端口劫持，DNS 不走明文",
                     checked = dnsProtect,
                     onHelp = {
                         help = SwitchHelp(
                             "DNS",
-                            "强制写入 auto_detect_interface，覆盖订阅原值。脚本开着时由脚本写入，本开关决定开或关。",
+                            "开启后：A/AAAA 查询走 FakeIP（应用只能拿到 198.18.0.0/15 假地址），53 端口与 DNS 协议流量劫持到内部 DNS，HTTPS/SVCB 查询直接拒绝。只做加法，不删订阅自带的 DNS 服务器。脚本开着时由脚本写入，本开关决定开或关。",
                         )
                     },
                 ) {

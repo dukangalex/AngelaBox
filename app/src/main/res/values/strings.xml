@@ -184,6 +184,7 @@
     <string name="unsaved_changes">Unsaved Changes</string>
     <string name="unsaved_changes_message">You have unsaved changes. Do you want to discard them?</string>
     <string name="import_profile_confirm_title">Import Profile</string>
+    <string name="import_warnings_title">Import finished with %1$d notices</string>
     <string name="import_profile_confirm_message">Import profile \"%s\"?</string>
     <string name="import_action">Import</string>
 
@@ -859,6 +860,7 @@
     <string name="subscription_health_quota_low_title">Subscription quota almost used up: %1$s</string>
     <string name="subscription_health_quota_used">Used %1$s of %2$s</string>
     <string name="subscription_health_update_failed_title">Subscription keeps failing to update: %1$s</string>
+    <string name="subscription_health_import_warnings_title">Last update skipped some nodes: %1$s</string>
     <string name="subscription_health_update_failed_title_multi">%1$d subscriptions keep failing to update</string>
     <string name="subscription_health_update_failed_detail">Failed %1$d times in a row (%2$s). Check whether the subscription link is still valid.</string>
     <string name="subscription_health_update_failed_detail_simple">Failed %1$d times in a row. Check whether the subscription link is still valid.</string>
