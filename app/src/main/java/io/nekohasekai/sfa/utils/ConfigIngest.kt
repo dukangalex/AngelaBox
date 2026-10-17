@@ -2126,6 +2126,9 @@ object ConfigIngest {
             val parts = mutableListOf<String>()
             if (removed.isNotEmpty()) parts += "ssr 已从内核移除"
             if (rest.isNotEmpty()) parts += "${rest.joinToString("、")} 没能转成节点"
+            // 导入期已逐条记下跳过原因：把原因直接说给用户，不藏报错。
+            val bits = skipBits(skips)
+            if (bits.isNotEmpty()) parts += bits.joinToString("、")
             val named = parts.joinToString("；").ifBlank { "这些协议" }
             val message = "没有可用节点（$named）。没有改成直连。"
             return Result("", listOf(message), Format.ShareLinks, message)
