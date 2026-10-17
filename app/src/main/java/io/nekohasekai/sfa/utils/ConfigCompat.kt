@@ -197,7 +197,7 @@ object ConfigCompat {
      * usable remains, fail closed instead of leaving a direct-only config.
      */
     internal fun dropUnsupportedLeaves(root: JSONObject): Set<String> {
-        val outs = root.optJSONArray("outbounds") ?: return false
+        val outs = root.optJSONArray("outbounds") ?: return emptySet()
         val dropped = linkedSetOf<String>()
         val keep = JSONArray()
         var changed = false
