@@ -14,12 +14,47 @@ class RemoteUrlGuardTest {
     }
 
     @Test
-    fun fakeIpIsNotADialAddress() {
+    fun fakeIpBlockedOnlyWhileOurTunnelIsUp() {
         val fake = InetAddress.getByAddress(
             byteArrayOf(198.toByte(), 18.toByte(), 1.toByte(), 9.toByte()),
         )
-        assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.UPDATE))
-        assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.SUBSCRIPTION))
+        // 自家隧道开着：自家 fake-ip DNS 的地址不能拿去旁路直连。
+        TunnelGate.setUp(true)
+        try {
+            assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.UPDATE))
+            assertFalse(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.SUBSCRIPTION))
+        } finally {
+            TunnelGate.setUp(false)
+        }
+        // 隧道没开：fake-ip 只可能来自别家 VPN 的 fake-ip DNS（经由该 VPN 可达），
+        // 不再拦——否则开着别家 VPN 永远导不进订阅。
+        assertTrue(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.UPDATE))
+        assertTrue(RemoteUrlGuard.isAddressAllowed(fake, RemoteUrlGuard.Kind.SUBSCRIPTION))
+    }
+
+    @Test
+    fun otherFiltersUnaffectedByTunnelState() {
+        val lan = InetAddress.getByAddress(
+            byteArrayOf(192.toByte(), 168.toByte(), 1.toByte(), 1.toByte()),
+        )
+        val metadata = InetAddress.getByAddress(
+            byteArrayOf(169.toByte(), 254.toByte(), 169.toByte(), 254.toByte()),
+        )
+        val public = InetAddress.getByAddress(
+            byteArrayOf(104.toByte(), 21.toByte(), 21.toByte(), 85.toByte()),
+        )
+        for (up in listOf(false, true)) {
+            TunnelGate.setUp(up)
+            try {
+                for (kind in RemoteUrlGuard.Kind.values()) {
+                    assertFalse(RemoteUrlGuard.isAddressAllowed(lan, kind))
+                    assertFalse(RemoteUrlGuard.isAddressAllowed(metadata, kind))
+                    assertTrue(RemoteUrlGuard.isAddressAllowed(public, kind))
+                }
+            } finally {
+                TunnelGate.setUp(false)
+            }
+        }
     }
 
     @Test
