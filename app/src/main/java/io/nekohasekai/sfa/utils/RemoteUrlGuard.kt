@@ -156,16 +156,21 @@ object RemoteUrlGuard {
      * reset and the next attempt must dial a real address outside the tunnel.
      * System resolution is ignored here: with the tunnel up it is often a
      * fake-ip. Answers still pass [isAddressAllowed].
+     *
+     * Socket protection bypasses OUR tunnel only. When it is down there is
+     * nothing to bypass, and requiring protection would guarantee empty
+     * results (DirectDial hooks are unset), so protect only while up.
      */
     internal fun resolveOutsideTunnel(host: String): List<InetAddress> {
         if (!canQueryDns(host)) return emptyList()
+        val protect = TunnelGate.up
         for (server in PUBLIC_DNS) {
-            val found = lookup(host, server, tcp = false)
+            val found = lookup(host, server, tcp = false, protect = protect)
             val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
             if (usable.isNotEmpty()) return usable
         }
         for (server in PUBLIC_DNS) {
-            val found = lookup(host, server, tcp = true)
+            val found = lookup(host, server, tcp = true, protect = protect)
             val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
             if (usable.isNotEmpty()) return usable
         }
