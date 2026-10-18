@@ -120,4 +120,45 @@ class HTTPClientSubscriptionTest {
         )
         assertEquals("下载失败 HTTP 403", msg)
     }
+
+    @Test
+    fun ladderRetriesDirectDnsAfterDnsGuardRejection() {
+        // 系统 DNS 被污染 + 公共 DNS(UDP) 被运营商拦截时，DIRECT 路由的守卫
+        // 会抛"无法解析主机"；ladder 必须继续走 DIRECT_DNS（TCP/53），而不是
+        // 当场判永久失败。回归：此前 isTransientUpdateFailure 对该异常返回
+        // false，DIRECT_DNS 路由永远走不到。
+        val seen = mutableListOf<HTTPClient.Route>()
+        val result = client.tryRoutes(
+            RemoteUrlGuard.Kind.SUBSCRIPTION,
+            listOf(HTTPClient.Route.DIRECT, HTTPClient.Route.DIRECT_DNS),
+        ) { route ->
+            seen.add(route)
+            if (route == HTTPClient.Route.DIRECT) throw IllegalArgumentException("无法解析主机，已拒绝")
+            "ok"
+        }
+        assertEquals("ok", result)
+        assertEquals(
+            listOf(HTTPClient.Route.DIRECT, HTTPClient.Route.DIRECT_DNS),
+            seen,
+        )
+    }
+
+    @Test
+    fun dnsGuardRejectionIsTransientButOtherGuardRejectionsStayPermanent() {
+        assertTrue(
+            HTTPClient.isTransientUpdateFailure(
+                IllegalArgumentException("无法解析主机，已拒绝"),
+            ),
+        )
+        assertFalse(
+            HTTPClient.isTransientUpdateFailure(
+                IllegalArgumentException("仅允许 HTTPS"),
+            ),
+        )
+        assertFalse(
+            HTTPClient.isTransientUpdateFailure(
+                IllegalArgumentException("URL 不能包含用户名密码"),
+            ),
+        )
+    }
 }

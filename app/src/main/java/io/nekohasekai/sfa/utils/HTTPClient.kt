@@ -300,6 +300,13 @@ class HTTPClient : Closeable {
                     -> return true
                 }
                 val raw = current.message.orEmpty()
+                // DNS 守卫拒绝（"无法解析主机"）不是永久失败：DIRECT_DNS 路由
+                // 的存在意义就是这个场景——系统 DNS 被污染时，用公共 DNS
+                // （含 TCP/53）再试一次。判永久会直接掐断 ladder，DIRECT_DNS
+                // 永远走不到。
+                if (current is IllegalArgumentException && raw.contains("无法解析主机")) {
+                    return true
+                }
                 if (raw.contains("handshake", ignoreCase = true) ||
                     raw.contains("timed out", ignoreCase = true) ||
                     raw.contains("timeout", ignoreCase = true) ||
