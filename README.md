@@ -42,7 +42,7 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 | 客户端仓库 | [dukangalex/AngelaBox](https://github.com/dukangalex/AngelaBox)（分支 `dev`） |
 | 内核仓库 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box)（分支 `chain-dev`） |
 | 更新检查 | 仅本仓库 GitHub Releases |
-| 应用图标 | 透明底立方体（橙黄顶 / 天蓝正面 / 玫红侧面），见 [docs/brand](docs/brand) |
+| 应用图标 | 透明底彩色井号（蓝/红竖条＋黄/绿横条），见 [docs/brand](docs/brand) |
 | 安装包 | Android：正式版 `AngelaBox-stable-android.apk`、测试版 `AngelaBox-android.apk`；Windows 版恢复开发中，首个签名版本见 [docs/WINDOWS.md](docs/WINDOWS.md) |
 | 客户端版本 | 双轨并行：正式版见 `version-stable.properties` 的 `VERSION_NAME`（当前为 **1.0.114-stable**）；测试版见 `version.properties` 的 `VERSION_NAME` |
 
