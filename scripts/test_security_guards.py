@@ -271,7 +271,12 @@ def test_source_guards() -> None:
     assert "fun embeddedIpv4" in guard
     assert "data class ValidatedEndpoint" in guard
     assert "resolved.all { isAddressAllowed(it, kind) }" in guard
-    assert "if (isRfc1918(embedded) || isCgnat(embedded) || isFakeIp(embedded)) return false" in guard
+    # fake-ip 拦截是有条件的：只在自家隧道开着时生效（防自家 fake-ip DNS
+    # 漏进旁路拨号）；隧道没开时不再拦——别家 VPN 的 fake-ip 经由该 VPN 可达，
+    # 拦了会导致开着别家 VPN 永远导不进订阅。见 PR #11。
+    assert "if (isRfc1918(embedded) || isCgnat(embedded) || isFakeIp(embedded)) return false" not in guard
+    assert "if (isFakeIp(embedded) && TunnelGate.up) return false" in guard
+    assert "if (isFakeIp(bytes) && TunnelGate.up) return false" in guard
     assert "fun isFakeIp" in guard
 
     inbound = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt")

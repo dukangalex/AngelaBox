@@ -203,9 +203,14 @@ object RemoteUrlGuard {
         val embedded = embeddedIpv4(bytes)
         if (embedded != null) {
             if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded)) return false
-            if (isRfc1918(embedded) || isCgnat(embedded) || isFakeIp(embedded)) return false
+            if (isRfc1918(embedded) || isCgnat(embedded)) return false
+            // 198.18/15 fake-ip：自家隧道开着时拦（自家 fake-ip DNS 漏进旁路拨号）；
+            // 隧道没开时只可能来自别家 VPN 的 fake-ip（经由该 VPN 可达）或投毒
+            // （连不上，自然失败），不再拦。否则开着别家 VPN 永远导不进订阅。
+            if (isFakeIp(embedded) && TunnelGate.up) return false
         }
-        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes) || isFakeIp(bytes)) return false
+        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
+        if (isFakeIp(bytes) && TunnelGate.up) return false
         return true
     }
 
