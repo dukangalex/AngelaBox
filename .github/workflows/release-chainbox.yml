@@ -273,6 +273,7 @@ jobs:
             :app:testDebugUnitTest \
             --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
             --tests io.nekohasekai.sfa.utils.BackupManagerTest \
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \

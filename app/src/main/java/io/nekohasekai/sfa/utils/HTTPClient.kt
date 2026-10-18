@@ -23,6 +23,20 @@ import javax.net.ssl.SSLSocketFactory
  * are capped.
  */
 class HTTPClient : Closeable {
+    /** First attempt may use the running node. A reset then retries outside, then through the node by real IP. */
+    internal enum class Route {
+        PROXY,
+        DIRECT,
+        TUNNEL_IP,
+
+        /**
+         * Tunnel down: same direct dial, but the host is resolved through
+         * public resolvers instead of the system resolver, which may be
+         * poisoned. Last resort before telling the user the truth.
+         */
+        DIRECT_DNS,
+    }
+
     companion object {
         const val MAX_SUBSCRIPTION_CHARS = 8 * 1024 * 1024
         const val MAX_UPDATE_CHARS = 2 * 1024 * 1024
@@ -200,9 +214,6 @@ class HTTPClient : Closeable {
                 kind == RemoteUrlGuard.Kind.SCRIPT
         }
 
-        /** First attempt may use the running node. A reset then retries outside, then through the node by real IP. */
-        internal enum class Route { PROXY, DIRECT, TUNNEL_IP }
-
         internal fun openFor(
             url: String,
             kind: RemoteUrlGuard.Kind,
@@ -213,7 +224,7 @@ class HTTPClient : Closeable {
                 val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
                 return openNamed(url, endpoint, kind, headers)
             }
-            if (route == Route.TUNNEL_IP) {
+            if (route == Route.TUNNEL_IP || route == Route.DIRECT_DNS) {
                 return openPinned(
                     url,
                     kind,
@@ -229,16 +240,32 @@ class HTTPClient : Closeable {
             explainProfileUpdate(error, TunnelGate.up)
 
         internal fun explainProfileUpdate(error: Throwable, tunnelUp: Boolean): String {
-            val messages = generateSequence(error) { it.cause }
-                .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
+            val chain = generateSequence(error) { it.cause }.toList()
+            val messages = chain.mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
             val chinese = messages.firstOrNull { msg ->
                 isUserFacing(msg) && !msg.startsWith("Failed to update")
             }
             if (chinese != null) return chinese.take(240)
-            return if (tunnelUp) {
-                "订阅没更新上。当前节点把连接断开了，不经过节点再试也失败。"
+            if (tunnelUp) {
+                return "订阅没更新上。当前节点把连接断开了，不经过节点再试也失败。"
+            }
+            // Tunnel down: say what actually failed instead of blaming the
+            // user's network. The ladder already retried with public-resolver
+            // DNS, so a DNS failure here means both resolvers gave up.
+            // The technical suffix names only the exception class: raw
+            // messages may contain handshake dumps.
+            val dnsFailed = chain.any { it is java.net.UnknownHostException } ||
+                messages.any { it.contains("无法解析主机") || it.contains("解析到禁止地址") }
+            val cause = chain.lastOrNull { !it.message.isNullOrBlank() }
+                ?.javaClass?.simpleName?.takeIf { it.isNotEmpty() }
+            val suffix = if (cause.isNullOrEmpty()) "" else "（$cause）"
+            return if (dnsFailed) {
+                "订阅没更新上：域名解析失败。系统 DNS 与公共 DNS 都拿不到可用地址，" +
+                    "可能是 DNS 被污染或订阅链接有误。请检查链接是否正确，或先连接可用节点后再更新。" + suffix
             } else {
-                "订阅没更新上。直连被断开，请检查网络后再更新。"
+                "订阅没更新上：直连订阅服务器失败，连接被中断或超时。" +
+                    "该地址可能限制了直接访问——先连接一个可用节点，再回来更新订阅；" +
+                    "也可以改用分享链接、二维码或文件导入。" + suffix
             }
         }
 
@@ -371,17 +398,14 @@ class HTTPClient : Closeable {
     private fun <T> withUpdateRetry(kind: RemoteUrlGuard.Kind, block: (Route) -> T): T {
         val tunnel = dialByName(kind, TunnelGate.up)
         if (!tunnel) {
-            if (kind != RemoteUrlGuard.Kind.UPDATE) return block(Route.DIRECT)
-            return try {
-                block(Route.PROXY)
-            } catch (named: Exception) {
-                if (!isTransientUpdateFailure(named)) throw friendlyFetch(kind, named)
-                try {
-                    block(Route.DIRECT)
-                } catch (direct: Exception) {
-                    throw friendlyFetch(kind, direct)
-                }
+            // Tunnel down: direct dial first; a poisoned system resolver gets
+            // one retry through public resolvers before giving up.
+            val routes = if (kind == RemoteUrlGuard.Kind.UPDATE) {
+                listOf(Route.PROXY, Route.DIRECT, Route.DIRECT_DNS)
+            } else {
+                listOf(Route.DIRECT, Route.DIRECT_DNS)
             }
+            return tryRoutes(kind, routes, block)
         }
         return try {
             block(Route.PROXY)
@@ -397,6 +421,27 @@ class HTTPClient : Closeable {
                 }
             }
         }
+    }
+
+    /**
+     * Walk the route ladder. A transient failure moves to the next route; a
+     * permanent one (bad URL, HTTP 4xx, guard rejection) stops immediately.
+     */
+    internal fun <T> tryRoutes(
+        kind: RemoteUrlGuard.Kind,
+        routes: List<Route>,
+        block: (Route) -> T,
+    ): T {
+        var last: Exception? = null
+        for (route in routes) {
+            try {
+                return block(route)
+            } catch (e: Exception) {
+                if (!isTransientUpdateFailure(e)) throw friendlyFetch(kind, e)
+                last = e
+            }
+        }
+        throw friendlyFetch(kind, last ?: IllegalStateException("下载失败"))
     }
 
     private fun friendlyFetch(kind: RemoteUrlGuard.Kind, error: Exception): Exception {
@@ -420,6 +465,8 @@ class HTTPClient : Closeable {
         val byName = route == Route.PROXY
         if (byName) {
             RemoteUrlGuard.validateWithoutDns(current, kind)
+        } else if (route == Route.DIRECT_DNS) {
+            RemoteUrlGuard.requireAllowed(current, kind, RemoteUrlGuard::resolveOutsideTunnel)
         } else if (TunnelGate.up && dialByName(kind, true)) {
             RemoteUrlGuard.validate(current, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
         } else {
