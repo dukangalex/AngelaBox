@@ -67,7 +67,18 @@ object RemoteUrlGuard {
         if (TunnelGate.up) {
             validateWithoutDns(url, Kind.SUBSCRIPTION)
         } else {
-            requireAllowed(url, Kind.SUBSCRIPTION)
+            try {
+                requireAllowed(url, Kind.SUBSCRIPTION)
+            } catch (e: IllegalArgumentException) {
+                // System DNS may be down or poisoned; give public resolvers a
+                // chance before rejecting a subscription the user just typed.
+                // Other rejections (scheme, blocked host, userinfo) still throw.
+                if (e.message?.contains("无法解析主机") == true) {
+                    validate(url, Kind.SUBSCRIPTION, resolve = ::resolveOutsideTunnel)
+                } else {
+                    throw e
+                }
+            }
         }
     }
 
