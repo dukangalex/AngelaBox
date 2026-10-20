@@ -297,11 +297,25 @@ object ConfigQuicOverride {
      * 2. 53 端口 + dns 协议流量劫持到内部 DNS，应用自带的 DNS 配置绕不过；
      * 3. HTTPS/SVCB 查询直接拒绝（防 ECH/DNS 旁路）。
      * 幂等：重复调用不会叠加。已有用户配置（servers/final/strategy）只做加法不覆盖。
+     *
+     * DNS 韧性默认值（1.14+ 内核均支持；已有用户配置只做加法不覆盖）：
+     * - optimistic：过期缓存先返回、后台刷新，弱网/断网瞬间解析成功率更高；
+     * - timeout：单查询 5s（内核默认 10s），弱网下 fallback 更快；
+     * - cache_capacity：LRU 2048（小于 1024 会被内核忽略），提升命中率、省电省流量。
      */
     internal fun applyDnsProtect(root: JSONObject) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         if (dns.optString("strategy").isBlank()) {
             dns.put("strategy", "prefer_ipv4")
+        }
+        if (!dns.has("optimistic")) {
+            dns.put("optimistic", true)
+        }
+        if (!dns.has("timeout")) {
+            dns.put("timeout", "5s")
+        }
+        if (!dns.has("cache_capacity")) {
+            dns.put("cache_capacity", 2048)
         }
         ensureFakeIpDns(dns)
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }

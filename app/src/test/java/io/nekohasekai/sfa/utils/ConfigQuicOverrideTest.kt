@@ -94,6 +94,32 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun dnsProtectAppliesResilienceDefaults() {
+        val root = JSONObject()
+        ConfigQuicOverride.applyDnsProtect(root)
+        val dns = root.getJSONObject("dns")
+        assertTrue(dns.getBoolean("optimistic"))
+        assertEquals("5s", dns.getString("timeout"))
+        assertEquals(2048, dns.getInt("cache_capacity"))
+    }
+
+    @Test
+    fun dnsProtectKeepsUserResilienceValues() {
+        val root = JSONObject().put(
+            "dns",
+            JSONObject()
+                .put("optimistic", false)
+                .put("timeout", "10s")
+                .put("cache_capacity", 4096),
+        )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val dns = root.getJSONObject("dns")
+        assertFalse(dns.getBoolean("optimistic"))
+        assertEquals("10s", dns.getString("timeout"))
+        assertEquals(4096, dns.getInt("cache_capacity"))
+    }
+
+    @Test
     fun strictRouteForcesTunEvenIfFalse() {
         val root = JSONObject().put(
             "inbounds",
