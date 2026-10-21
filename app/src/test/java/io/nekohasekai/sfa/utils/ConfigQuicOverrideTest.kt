@@ -563,7 +563,6 @@ class ConfigQuicOverrideTest {
         assertEquals(3, newRev)
         assertEquals(mapOf(SettingsKey.STRICT_ROUTE to false), writes)
     }
-}
 
     @Test
     fun ensureAndroidTunKeepsLanSharedMixedDropsOnlyAppPort() {
