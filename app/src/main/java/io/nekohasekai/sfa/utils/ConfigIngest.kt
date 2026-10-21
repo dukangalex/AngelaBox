@@ -2818,12 +2818,8 @@ object ConfigIngest {
         return changed
     }
 
-    /**
-     * ECH HTTPS lookups must not use a DNS server that detours through the
-     * same proxy. That proxy is waiting on this lookup (`fetch ECH config
-     * list: context deadline exceeded`). Dial AliDNS directly.
-     */
-    internal fun ensureEchQueryRoute(root: JSONObject): Boolean {
+    /** Domain names that ECH-enabled outbounds/endpoints query HTTPS records for. */
+    internal fun echQueryNames(root: JSONObject): LinkedHashSet<String> {
         val names = linkedSetOf<String>()
         fun walk(key: String) {
             val arr = root.optJSONArray(key) ?: return
@@ -2839,11 +2835,27 @@ object ConfigIngest {
         }
         walk("outbounds")
         walk("endpoints")
+        return names
+    }
+
+    /**
+     * ECH HTTPS lookups ride the profile's normal DNS path, exactly like the
+     * official sing-box client: the query names are routed to a dedicated
+     * encrypted DNS server (built from the subscription's ECH hint) that
+     * connects through the default outbound — no forced direct detour.
+     *
+     * The pre-1.0.122 bake rewrote that server to a raw-IP AliDNS address and
+     * forced it onto a direct bypass outbound; on the user's network that one
+     * direct leg never answers, so every ECH node showed no latency while
+     * non-ECH nodes worked. [alignEchServer] also repairs profiles that were
+     * already stored with the old bake.
+     */
+    internal fun ensureEchQueryRoute(root: JSONObject): Boolean {
+        val names = echQueryNames(root)
         if (names.isEmpty()) return false
-        val bypass = ensureDirectBypass(root)
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
-        var changed = bypass.changed
+        var changed = false
         var tag = firstDnsTag(servers) { it.startsWith("ech-") }
         if (tag == null) {
             tag = "ech-dns"
@@ -2852,79 +2864,61 @@ object ConfigIngest {
                     JSONObject()
                         .put("type", "https")
                         .put("tag", tag)
-                        .put("server", "223.5.5.5")
-                        .put("server_port", 443)
-                        .put("path", "/dns-query")
-                        .put(
-                            "tls",
-                            JSONObject().put("enabled", true).put("server_name", "dns.alidns.com"),
-                        )
-                        .put("detour", bypass.tag),
+                        .put("server", "dns.alidns.com")
+                        .put("domain_resolver", ensureLocalDns(servers)),
                 )
                 changed = true
             }
         }
-        if (forceEchDetour(servers, tag, bypass.tag)) changed = true
+        if (alignEchServer(root, servers, tag)) changed = true
         val missing = names.filter { !dnsRuleRoutesTo(dns.optJSONArray("rules"), it, tag) }
         if (missing.isEmpty()) return changed
         return prependEchRule(dns, missing, tag) || changed
     }
 
-    private class DirectBypass(val tag: String, val changed: Boolean)
-
-    /** Empty `direct` cannot be a DNS detour (kernel rejects it). A timeout makes it usable. */
-    private fun ensureDirectBypass(root: JSONObject): DirectBypass {
-        val outs = root.optJSONArray("outbounds") ?: JSONArray().also { root.put("outbounds", it) }
-        var fallback = -1
-        for (i in 0 until outs.length()) {
-            val outbound = outs.optJSONObject(i) ?: continue
-            if (!outbound.optString("type").equals("direct", true)) continue
-            val tag = outbound.optString("tag").trim()
-            if (tag.isEmpty()) continue
-            if (tag.equals("direct", true)) {
-                return DirectBypass(tag, stampDirectBypass(outbound))
-            }
-            if (fallback < 0) fallback = i
-        }
-        if (fallback >= 0) {
-            val outbound = outs.getJSONObject(fallback)
-            return DirectBypass(outbound.optString("tag"), stampDirectBypass(outbound))
-        }
-        outs.put(
-            JSONObject()
-                .put("type", "direct")
-                .put("tag", "direct")
-                .put("connect_timeout", "8s"),
-        )
-        return DirectBypass("direct", true)
-    }
-
-    private fun stampDirectBypass(outbound: JSONObject): Boolean {
-        if (outbound.optString("connect_timeout").isNotBlank()) return false
-        outbound.put("connect_timeout", "8s")
-        return true
-    }
-
-    private fun forceEchDetour(servers: JSONArray, tag: String, detour: String): Boolean {
+    /**
+     * Bring one ECH DNS server to the official shape:
+     * - undo the pre-1.0.122 bake (AliDNS flattened to 223.5.5.5 with an
+     *   injected TLS block): restore the domain form, resolved via local DNS;
+     * - drop a detour that points at a direct outbound, so the query rides
+     *   the default outbound like the official client's DNS does.
+     */
+    private fun alignEchServer(root: JSONObject, servers: JSONArray, tag: String): Boolean {
         var changed = false
         for (i in 0 until servers.length()) {
             val server = servers.optJSONObject(i) ?: continue
             if (server.optString("tag") != tag) continue
-            if (server.optString("server").equals("dns.alidns.com", true)) {
-                server.put("server", "223.5.5.5")
-                if (server.optInt("server_port", 0) == 0) server.put("server_port", 443)
-                val tls = server.optJSONObject("tls") ?: JSONObject().also { server.put("tls", it) }
-                tls.put("enabled", true)
-                if (tls.optString("server_name").isBlank()) tls.put("server_name", "dns.alidns.com")
-                server.remove("domain_resolver")
+            val tlsName = server.optJSONObject("tls")?.optString("server_name").orEmpty()
+            if (server.optString("server").equals("223.5.5.5", true) &&
+                tlsName.equals("dns.alidns.com", true)
+            ) {
+                server.put("server", "dns.alidns.com")
+                if (server.optInt("server_port", 0) == 443) server.remove("server_port")
+                server.remove("tls")
                 changed = true
             }
-            if (server.optString("detour") != detour) {
-                server.put("detour", detour)
+            if (server.optString("server").equals("dns.alidns.com", true) &&
+                server.optString("domain_resolver").isBlank()
+            ) {
+                server.put("domain_resolver", ensureLocalDns(servers))
+                changed = true
+            }
+            val detour = server.optString("detour")
+            if (detour.isNotEmpty() && outboundType(root, detour).equals("direct", true)) {
+                server.remove("detour")
                 changed = true
             }
         }
         return changed
+    }
+
+    private fun outboundType(root: JSONObject, tag: String): String {
+        val outs = root.optJSONArray("outbounds") ?: return ""
+        for (i in 0 until outs.length()) {
+            val outbound = outs.optJSONObject(i) ?: continue
+            if (outbound.optString("tag") == tag) return outbound.optString("type")
+        }
+        return ""
     }
 
     private fun dnsRuleRoutesTo(rules: JSONArray?, name: String, tag: String): Boolean {
