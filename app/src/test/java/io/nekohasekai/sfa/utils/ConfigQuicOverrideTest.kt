@@ -120,6 +120,73 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun dnsProtectKeepsEchRuleAheadOfHttpsReject() {
+        // The kernel fetches a node's ECH config with an HTTPS query; if the
+        // blanket HTTPS/SVCB reject sits ahead of the ECH domain route, the
+        // query is refused and ECH nodes can never connect.
+        val echRule = JSONObject()
+            .put("domain", JSONArray().put("cloudflare-ech.com"))
+            .put("action", "route")
+            .put("server", "ech-dns-cloudflare-com")
+        val root = JSONObject().put(
+            "dns",
+            JSONObject()
+                .put(
+                    "servers",
+                    JSONArray()
+                        .put(JSONObject().put("type", "https").put("tag", "ech-dns-cloudflare-com"))
+                        .put(JSONObject().put("type", "local").put("tag", "local")),
+                )
+                .put("rules", JSONArray().put(echRule)),
+        )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val rules = root.getJSONObject("dns").getJSONArray("rules")
+        assertEquals(3, rules.length())
+        assertEquals("ech-dns-cloudflare-com", rules.getJSONObject(0).getString("server"))
+        assertEquals("reject", rules.getJSONObject(1).getString("action"))
+        assertEquals("dns-fakeip", rules.getJSONObject(2).getString("server"))
+    }
+
+    @Test
+    fun dnsProtectWithoutEchKeepsRejectFirst() {
+        val root = JSONObject().put(
+            "dns",
+            JSONObject().put(
+                "rules",
+                JSONArray().put(
+                    JSONObject().put("domain", JSONArray().put("example.com")).put("server", "local"),
+                ),
+            ),
+        )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val rules = root.getJSONObject("dns").getJSONArray("rules")
+        assertEquals(3, rules.length())
+        assertEquals("reject", rules.getJSONObject(0).getString("action"))
+        assertEquals("dns-fakeip", rules.getJSONObject(1).getString("server"))
+        assertEquals("local", rules.getJSONObject(2).getString("server"))
+    }
+
+    @Test
+    fun dnsProtectRuleOrderIsIdempotent() {
+        val root = JSONObject().put(
+            "dns",
+            JSONObject().put(
+                "rules",
+                JSONArray().put(
+                    JSONObject()
+                        .put("domain", JSONArray().put("cloudflare-ech.com"))
+                        .put("action", "route")
+                        .put("server", "ech-dns"),
+                ),
+            ),
+        )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val once = root.getJSONObject("dns").getJSONArray("rules").toString()
+        ConfigQuicOverride.applyDnsProtect(root)
+        assertEquals(once, root.getJSONObject("dns").getJSONArray("rules").toString())
+    }
+
+    @Test
     fun strictRouteForcesTunEvenIfFalse() {
         val root = JSONObject().put(
             "inbounds",

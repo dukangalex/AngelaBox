@@ -295,7 +295,9 @@ object ConfigQuicOverride {
      * 1. fakeip DNS：A/AAAA 查询返回 198.18.0.0/15 假地址，应用拿不到真实 IP，
      *    sing-box 在路由前把假地址映射回域名，走隧道出站；
      * 2. 53 端口 + dns 协议流量劫持到内部 DNS，应用自带的 DNS 配置绕不过；
-     * 3. HTTPS/SVCB 查询直接拒绝（防 ECH/DNS 旁路）。
+     * 3. HTTPS/SVCB 查询直接拒绝（防 ECH/DNS 旁路）；节点自身的 ECH 查询域名
+     *    除外——放行到专用 ech-* DNS 服务器（见 ensureFakeIpDns 的规则排序），
+     *    否则内核取不到 ECH 配置，带 ECH 的节点永远连不上。
      * 幂等：重复调用不会叠加。已有用户配置（servers/final/strategy）只做加法不覆盖。
      *
      * DNS 韧性默认值（1.14+ 内核均支持；已有用户配置只做加法不覆盖）：
@@ -358,35 +360,42 @@ object ConfigQuicOverride {
         if (dns.optString("final").isBlank()) {
             dns.put("final", firstRealTag)
         }
+        // 规则顺序（内核按序首命中）固定为：ECH 查询路由 → HTTPS/SVCB reject →
+        // A/AAAA fakeip → 其余原规则。ECH 规则必须在 reject 之前：内核为节点取
+        // ECH 配置发的正是 HTTPS 查询，先命中 reject 就永远轮不到 ECH 规则。
+        // ECH 规则按域名精确匹配（ConfigIngest.prependEchRule），只有 ECH 查询
+        // 域名放行到专用 ech-* DNS，其它域名的 HTTPS/SVCB 照旧拒绝。
         val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
-        var hasFakeIpRule = false
-        var hasHttpsReject = false
+        val echRules = JSONArray()
+        val rest = JSONArray()
+        var rejectRule: JSONObject? = null
+        var fakeIpRule: JSONObject? = null
         for (i in 0 until rules.length()) {
             val r = rules.optJSONObject(i) ?: continue
-            if (r.optString("server") == "dns-fakeip") hasFakeIpRule = true
-            if (r.optString("action") == "reject" && queryTypesContain(r, "HTTPS")) hasHttpsReject = true
-        }
-        if (!hasFakeIpRule || !hasHttpsReject) {
-            val extra = JSONArray()
-            if (!hasHttpsReject) {
-                extra.put(
-                    JSONObject()
-                        .put("query_type", JSONArray().put("HTTPS").put("SVCB"))
-                        .put("action", "reject"),
-                )
+            when {
+                r.optString("server").startsWith("ech-") -> echRules.put(r)
+                rejectRule == null && r.optString("action") == "reject" &&
+                    queryTypesContain(r, "HTTPS") -> rejectRule = r
+                fakeIpRule == null && r.optString("server") == "dns-fakeip" -> fakeIpRule = r
+                else -> rest.put(r)
             }
-            if (!hasFakeIpRule) {
-                extra.put(
-                    JSONObject()
-                        .put("query_type", JSONArray().put("A").put("AAAA"))
-                        .put("server", "dns-fakeip"),
-                )
-            }
-            val merged = JSONArray()
-            for (i in 0 until extra.length()) merged.put(extra.get(i))
-            for (i in 0 until rules.length()) merged.put(rules.get(i))
-            dns.put("rules", merged)
         }
+        val merged = JSONArray()
+        for (i in 0 until echRules.length()) merged.put(echRules.get(i))
+        merged.put(
+            rejectRule ?: JSONObject()
+                .put("query_type", JSONArray().put("HTTPS").put("SVCB"))
+                .put("action", "reject"),
+        )
+        merged.put(
+            fakeIpRule ?: JSONObject()
+                .put("query_type", JSONArray().put("A").put("AAAA"))
+                .put("server", "dns-fakeip"),
+        )
+        for (i in 0 until rest.length()) merged.put(rest.get(i))
+        val unchanged = merged.length() == rules.length() &&
+            (0 until merged.length()).all { merged.get(it) == rules.get(it) }
+        if (!unchanged) dns.put("rules", merged)
     }
 
     private fun queryTypesContain(rule: JSONObject, type: String): Boolean {
