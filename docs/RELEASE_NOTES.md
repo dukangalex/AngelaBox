@@ -1,3 +1,7 @@
+• **1.0.122：**
+1. **带 ECH 的节点连不上修复（第二轮） (ECH nodes fixed, round two):** 1.0.121 修掉查询被拦截的问题后，带 ECH 的订阅节点在部分网络下仍连不上。这一版把 ECH 配置查询改成与 sing-box 官方客户端完全一致的走法；旧版本存下来的订阅会在升级后自动修复，不用删了重导。
+   After the 1.0.121 fix, subscriptions with ECH nodes still could not connect on some networks. This release aligns the ECH config lookup exactly with the official sing-box client, and profiles stored by older versions are repaired automatically on upgrade — no need to delete and re-import.
+
 • **1.0.121：**
 1. **带 ECH 的节点现在能正常连接 (Nodes with ECH now connect):** 修复 DNS 防泄漏把 ECH 配置查询也一并拦截的问题——节点自带 ECH 参数时，内核取 ECH 配置的查询被误拒，节点连不上。现在 ECH 查询走专用通道放行，其它域名的防泄漏行为不变。
    Fixed DNS leak protection also blocking ECH config lookups: for nodes that carry ECH parameters, the kernel's ECH config query was refused, so the node could never connect. ECH queries now go through their dedicated channel; leak protection for all other domains is unchanged.
