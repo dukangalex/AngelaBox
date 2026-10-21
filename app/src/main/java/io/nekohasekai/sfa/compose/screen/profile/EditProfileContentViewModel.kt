@@ -10,6 +10,7 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.ktx.unwrap
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -126,8 +127,21 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
             try {
                 _uiState.update { it.copy(isCheckingConfig = true) }
 
-                // Check configuration
-                Libbox.checkConfig(ConfigCompat.sanitize(content))
+                // Check configuration — G4: aligned with the startup
+                // heal, so content startup would fix is not flagged.
+                val gate = ConfigGate.validate(
+                    ConfigCompat.sanitize(content),
+                    ConfigGate::libboxCheck,
+                )
+                if (gate is ConfigGate.Result.Rejected) {
+                    _uiState.update {
+                        it.copy(
+                            configurationError = gate.reason,
+                            isCheckingConfig = false,
+                        )
+                    }
+                    return@withContext
+                }
 
                 // Configuration is valid, clear any error
                 _uiState.update {

@@ -754,6 +754,16 @@ object ConfigIngest {
             if (rules.isEmpty()) notes += "节点链接没有分流。建议开启默认脚本，应用不会自动开启。"
         }
         notes += providerNotes
+        // G5: the Clash dns / tun / sniffer / hosts sections have no
+        // counterpart in this conversion (DNS and TUN are rebuilt from
+        // the app's own settings) and used to vanish without a word —
+        // the converted profile could resolve and route differently
+        // from the source file with no way for the user to know.
+        val droppedSections = listOf("dns", "tun", "sniffer", "hosts")
+            .filter { mapIgnoreCase(tree, it) != null }
+        if (droppedSections.isNotEmpty()) {
+            notes += "原文件里的 ${droppedSections.joinToString("、")} 设置没有沿用，已按应用的设置重建，解析与分流行为可能和原文件略有不同"
+        }
         if (skippedRules > 0) {
             notes += "有 $skippedRules 条分流暂时对不上 sing-box，已跳过，没有改成直连"
         }

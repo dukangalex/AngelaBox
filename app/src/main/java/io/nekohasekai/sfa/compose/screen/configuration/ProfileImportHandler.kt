@@ -11,6 +11,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -338,11 +339,11 @@ class ProfileImportHandler(private val context: Context) {
         return try {
             val detailed = ConfigCompat.sanitizeDetailed(jsonContent)
             val sanitized = detailed.content
-            try {
-                Libbox.checkConfig(sanitized)
-            } catch (e: Exception) {
+            // G4: gate aligned with the startup heal, readable reason.
+            val gate = ConfigGate.validate(sanitized, ConfigGate::libboxCheck)
+            if (gate is ConfigGate.Result.Rejected) {
                 return ImportResult.Error(
-                    context.getString(R.string.error_invalid_configuration, e.message),
+                    context.getString(R.string.error_invalid_configuration, gate.reason),
                 )
             }
 

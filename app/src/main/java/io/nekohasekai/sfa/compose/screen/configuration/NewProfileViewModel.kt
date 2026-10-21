@@ -12,6 +12,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.ConfigIngest
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.Dispatchers
@@ -261,7 +262,13 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         }
         val configContent = ConfigCompat.sanitizeRemote(raw)
 
-        Libbox.checkConfig(configContent)
+        // G4: the storage gate is aligned with the startup heal —
+        // content startup could fix must not be rejected at the door,
+        // and a rejection carries a readable reason.
+        when (val gate = ConfigGate.validate(configContent, ConfigGate::libboxCheck)) {
+            is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
+            is ConfigGate.Result.Accepted -> Unit
+        }
         configFile.writeText(configContent)
 
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
@@ -296,7 +303,11 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         HTTPClient().use { client ->
             val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
             val content = ConfigCompat.sanitizeRemote(raw)
-            Libbox.checkConfig(content)
+            // G4: same heal-aligned gate as local creation.
+            when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
+                is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
+                is ConfigGate.Result.Accepted -> Unit
+            }
             configFile.writeText(content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             io.nekohasekai.sfa.utils.SubscriptionInfoStore.capture(client, profile.id, context)

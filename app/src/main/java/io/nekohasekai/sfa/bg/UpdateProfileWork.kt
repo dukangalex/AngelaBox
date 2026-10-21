@@ -16,6 +16,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
 import java.io.File
@@ -116,7 +117,17 @@ class UpdateProfileWork {
                         ),
                     )
                     val content = detailed.content
-                    Libbox.checkConfig(content)
+                    // G4: the update gate is aligned with the startup
+                    // heal — a config startup could fix is no longer
+                    // rejected here (which used to fail the update
+                    // forever), and a real rejection throws a readable
+                    // reason that recordFailure stores for the banner,
+                    // instead of leaving only a failure count.
+                    when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
+                        is ConfigGate.Result.Rejected ->
+                            throw IllegalStateException(gate.reason)
+                        is ConfigGate.Result.Accepted -> Unit
+                    }
                     val file = File(profile.typed.path)
                     // 文件不存在时视为内容不同（首次更新），直接写入
                     val oldContent = try {
