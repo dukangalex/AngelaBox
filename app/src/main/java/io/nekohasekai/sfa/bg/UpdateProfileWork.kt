@@ -202,11 +202,13 @@ class UpdateProfileWork {
                         System.currentTimeMillis() - dest.lastModified() > 24L * 60 * 60 * 1000
                     if (!stale) continue
                     runCatching {
-                        HTTPClient.downloadToFile(
-                            url,
-                            io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
-                            dest,
-                        )
+                        HTTPClient().use { client ->
+                            client.downloadToFile(
+                                url,
+                                io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
+                                dest,
+                            )
+                        }
                         if (dest.isFile && dest.length() > 0L) warmed++
                     }
                 }
