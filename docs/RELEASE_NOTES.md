@@ -1,3 +1,11 @@
+• **1.0.125：**
+1. **一个坏件不再拖垮整份配置 (One bad component no longer takes the whole profile down):** 启动时若配置里某个部件有问题（某条出站、某个 DNS、某条分流规则或某个规则集），现在会逐个检疫，只把真正坏的那个摘掉，其余内容原样保留、照常启动，并明确告诉你摘了什么。所有办法都用尽才降到最小可用形态，不再出现「配置明明是好的却怎么都启不动」。
+   At startup, if one component of a profile is broken (an outbound, a DNS server, a route rule or a rule set), the app now quarantines components one by one, removes only the one that is actually broken, keeps everything else exactly as it was, and tells you what was removed. The minimal fallback shape is the last resort — a valid profile no longer fails to start because of a single bad part.
+2. **导入和订阅更新不再误拒 (Import and subscription updates no longer refuse valid profiles):** 导入与更新时的校验已和启动时的修复能力对齐：启动能修好的配置，导入时不会再被拒之门外；确实有问题时也会把原因说清楚，不再只给你一个失败计数。
+   Validation at import and subscription-update time is now aligned with what startup can repair: a profile that startup could fix is no longer rejected at the door, and when something really is wrong you get a readable reason instead of a bare failure count.
+3. **链式降级必出声，绝不静默直连 (Chain downgrades are always announced, never a silent direct connection):** 链式代理实在保不住需要降级时，会用强提示把情况说明白；任何情况下都不会不声不响把你改成直连。
+   If a chain cannot be preserved and has to be downgraded, you get a prominent notice explaining exactly that. Your traffic is never silently switched to a direct connection.
+
 • **1.0.124：**
 1. **规则集下载不了不再跳过，改用本地缓存照常启动 (Rule sets fall back to the local cache instead of being skipped):** 以前远程规则集一时下载不下来，启动就会把它跳过，分流可能不准。现在订阅更新时会自动把规则集缓存在本地备好；启动时若下载不了，就直接用缓存替代，规则照常生效。只有实在没有缓存时才降级处理，并且会明确告知你。
    When a remote rule set could not be downloaded, startup used to skip it, which could make routing inaccurate. Subscription updates now keep a local cache of rule sets, and at startup a failed download is substituted with the cached copy so the rules keep working. Dropping a rule set is the last resort, and it is always reported.
