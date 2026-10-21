@@ -1118,8 +1118,9 @@ function main(config) {
     }
   })([config.outbounds, config.endpoints]);
   if (echNames.length) {
-    dnsServers.push({ type: "https", tag: "ech-dns", server: "dns.alidns.com", domain_resolver: CN_DNS_TAG });
-    dnsRules.unshift({ domain: echNames, server: "ech-dns" });
+    // No DoH in the script's DNS (project rule): the CN resolver answers
+    // HTTPS-type queries over UDP, which is all the ECH fetch needs.
+    dnsRules.unshift({ domain: echNames, server: CN_DNS_TAG });
   }
   config.dns = {
     servers: dnsServers,
