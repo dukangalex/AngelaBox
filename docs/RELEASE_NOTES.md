@@ -1,3 +1,9 @@
+• **1.0.124：**
+1. **规则集下载不了不再跳过，改用本地缓存照常启动 (Rule sets fall back to the local cache instead of being skipped):** 以前远程规则集一时下载不下来，启动就会把它跳过，分流可能不准。现在订阅更新时会自动把规则集缓存在本地备好；启动时若下载不了，就直接用缓存替代，规则照常生效。只有实在没有缓存时才降级处理，并且会明确告知你。
+   When a remote rule set could not be downloaded, startup used to skip it, which could make routing inaccurate. Subscription updates now keep a local cache of rule sets, and at startup a failed download is substituted with the cached copy so the rules keep working. Dropping a rule set is the last resort, and it is always reported.
+2. **动态路径图看得清了 (The flow diagram is readable now):** 路径图里的节点和域名标签不再被截断成半截词，改为完整单行显示；每条流下面标注当前连接数和它占这一列的比例，流量走哪条路一眼看清。
+   Node and domain labels in the traffic flow diagram are no longer cut off mid-word — they show in full on a single line — and each flow now shows its live connection count and its share of the column, so you can see at a glance where the traffic goes.
+
 • **1.0.123：**
 1. **开了脚本，带 ECH 的节点也能用了 (ECH nodes now work with overlay scripts on):** 默认脚本覆写开启时，脚本重建的 DNS 会把 ECH 配置查询的路由冲掉，整批 ECH 节点连不上。这一版在脚本跑完后按 sing-box 官方走法把 ECH 查询路由补回，默认脚本自身也会为 ECH 域名留出查询通道。
    With an overlay script enabled, the script-rebuilt DNS dropped the route for ECH config lookups, so every ECH node failed to connect. The ECH query route is now restored after scripts run, aligned with the official sing-box arrangement, and the bundled script itself keeps a query path open for ECH domains.
