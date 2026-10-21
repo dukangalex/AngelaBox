@@ -27,6 +27,9 @@ class UpdateProfileWork {
         private const val WORK_NAME = "UpdateProfile"
         private const val TAG = "UpdateProfileWork"
 
+        /** E-2: one update round's time budget; WorkManager kills a run at ~10 min. */
+        private const val ROUND_BUDGET_MS = 8L * 60 * 1000
+
         suspend fun reconfigureUpdater() {
             runCatching {
                 reconfigureUpdater0()
@@ -77,13 +80,33 @@ class UpdateProfileWork {
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
             if (remoteProfiles.isEmpty()) return Result.success()
             var hasTransientFailure = false
+            var hasDeferredWork = false
             val selectedProfile = Settings.selectedProfile
+            // E-2: WorkManager kills a run after ~10 minutes. Without a round
+            // budget one slow server could starve every profile behind it and
+            // the tail would be skipped silently (no attempt, no record).
+            // Stop with time to spare and let Result.retry() pick the rest up.
+            val roundDeadlineMs = System.currentTimeMillis() + ROUND_BUDGET_MS
             for (profile in remoteProfiles) {
-                val lastSeconds =
-                    (System.currentTimeMillis() - profile.typed.lastUpdated.time) / 1000L
-                if (lastSeconds < profile.typed.autoUpdateInterval * 60) {
+                // E-1: due-ness is interval AND failure backoff. lastUpdated
+                // only moves on success, so a dead profile used to be
+                // re-fetched in full on every worker run — which runs at the
+                // shortest interval of ALL profiles (floor 15 min).
+                val due = SubscriptionUpdateHealth.isDue(
+                    nowMs = System.currentTimeMillis(),
+                    lastUpdatedMs = profile.typed.lastUpdated.time,
+                    lastAttemptMs = SubscriptionUpdateHealth.lastAttempt(applicationContext, profile.id),
+                    failureStreak = SubscriptionUpdateHealth.consecutiveFailures(applicationContext, profile.id),
+                    intervalSeconds = profile.typed.autoUpdateInterval * 60L,
+                )
+                if (!due) {
                     continue
                 }
+                if (System.currentTimeMillis() > roundDeadlineMs) {
+                    hasDeferredWork = true
+                    break
+                }
+                SubscriptionUpdateHealth.recordAttempt(applicationContext, profile.id)
                 try {
                     val detailed = ConfigCompat.sanitizeRemoteDetailed(
                         io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
@@ -102,15 +125,9 @@ class UpdateProfileWork {
                         null
                     }
                     if (oldContent != content) {
-                        // 原子写入：先写临时文件再 rename，防进程被杀导致配置写一半损坏。
-                        val tmp = File(file.parent, file.name + ".tmp")
-                        tmp.writeText(content)
-                        // fsync 确保落盘
-                        java.io.FileOutputStream(tmp, true).channel.use { it.force(true) }
-                        if (!tmp.renameTo(file)) {
-                            tmp.delete()
-                            throw java.io.IOException("原子写入配置失败")
-                        }
+                        // X-3: 原子写入（tmp + fsync + rename），与前台更新
+                        // 路径共用同一实现，防进程被杀导致配置写一半损坏。
+                        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
                         if (profile.id == selectedProfile) {
                             selectedProfileUpdated = true
                         }
@@ -136,11 +153,19 @@ class UpdateProfileWork {
                 }
             }
             if (selectedProfileUpdated) {
+                // X-5 (worker side): exactly one reload, after all writes of
+                // this round are done — never one per profile. Serializing a
+                // reload against a foreground start is BoxService's job; the
+                // worker's part is to not multiply reloads and to reload only
+                // when the selected profile's content actually changed.
                 runCatching {
                     Libbox.newStandaloneCommandClient().serviceReload()
                 }
             }
-            return if (hasTransientFailure) {
+            // E-2: profiles left over by the round budget are deferred, not
+            // dropped — retry re-enters doWork and the due check (their
+            // lastUpdated never moved) picks them up.
+            return if (hasTransientFailure || hasDeferredWork) {
                 Result.retry()
             } else {
                 Result.success()

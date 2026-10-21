@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -435,6 +436,63 @@ class ChainRuntimeCompilerTest {
     fun haystackChinaAirlinesIsNotBypass() {
         val rule = JSONObject().put("domain", JSONArray().put("www.china-airlines.com")).put("outbound", "direct")
         assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun cnFullDomainRuleIsBypass() {
+        val rule = JSONObject()
+            .put("domain", JSONArray().put("example.cn"))
+            .put("outbound", "direct")
+        assertTrue(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun mixedCnAndForeignDomainRuleIsNotBypass() {
+        val rule = JSONObject()
+            .put("domain", JSONArray().put("example.cn").put("example.com"))
+            .put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun privateV6CidrRuleIsBypass() {
+        val rule = JSONObject()
+            .put("ip_cidr6", JSONArray().put("fd00::/8"))
+            .put("outbound", "direct")
+        assertTrue(ChainRuntimeCompiler.isBypassDirectRule(rule))
+        val publicRule = JSONObject()
+            .put("ip_cidr6", JSONArray().put("2001:db8::/32"))
+            .put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(publicRule))
+    }
+
+    @Test
+    fun keywordRuleIsNeverBypass() {
+        val rule = JSONObject()
+            .put("domain_keyword", JSONArray().put("cn"))
+            .put("outbound", "direct")
+        assertFalse(ChainRuntimeCompiler.isBypassDirectRule(rule))
+    }
+
+    @Test
+    fun compiledChainReportsRealHopTags() {
+        val content = profile()
+        assertNull(ChainRuntimeCompiler.compiledChain(content))
+        val compiled = ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = content,
+                currentProfileId = 1L,
+                entryTag = "节点选择",
+                landingProfileId = 1L,
+                landingTag = "jp-1",
+                landingContent = null,
+            ),
+        )
+        assertEquals("chainbox-chain-1-1", ChainRuntimeCompiler.chainTag(1L, 1L))
+        val chain = ChainRuntimeCompiler.compiledChain(compiled)
+        assertEquals("chainbox-chain-1-1", chain?.chainTag)
+        assertEquals("节点选择", chain?.entryTag)
+        assertEquals("jp-1", chain?.landingTag)
     }
 
     @Test

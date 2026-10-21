@@ -373,9 +373,11 @@ object ConfigIngest {
             ?: settings
         val user = target.optJSONArray("users")?.optJSONObject(0) ?: target
         val address = target.optString("address")
-        val port = target.optInt("port", 0)
         if (protocol == "wireguard") return xrayWireguard(o, settings)
-        if (address.isEmpty() || port <= 0) return null
+        // Same guard as every other path: an out-of-range port must skip
+        // this node, not poison the whole config at kernel decode time.
+        val port = portVal(target.opt("port")) ?: return null
+        if (address.isEmpty()) return null
         val out = JSONObject()
             .put("tag", o.optString("tag").ifBlank { address })
             .put("server", address)
@@ -596,6 +598,8 @@ object ConfigIngest {
         val helpers = mutableListOf<JSONObject>()
         val skips = SkipBag()
         var skipped = 0
+        var dupNodes = 0
+        var dupGroups = 0
         for (proxy in proxies) {
             // 逐条隔离：一个 proxy 抛异常只跳过它自己，不 abort 整个订阅
             //（与 share / Xray 路径的逐条 try/catch 对齐）。
@@ -610,7 +614,16 @@ object ConfigIngest {
                 continue
             }
             val tag = converted.optString("tag")
-            if (tag.isBlank() || !tags.add(tag)) continue
+            if (tag.isBlank()) {
+                skipped++
+                continue
+            }
+            // 同名节点只保留第一个（与 mihomo 一致），但必须计数并提示，
+            // 不能让用户对着变少的节点列表无从追溯。
+            if (!tags.add(tag)) {
+                dupNodes++
+                continue
+            }
             leafTypes[tag] = str(proxy["type"]).lowercase()
             if (converted.optString("type") == "wireguard") {
                 endpoints.put(converted)
@@ -622,7 +635,14 @@ object ConfigIngest {
         for (i in 0 until shareFromProviders.length()) {
             val converted = shareFromProviders.optJSONObject(i) ?: continue
             val tag = converted.optString("tag")
-            if (tag.isBlank() || !tags.add(tag)) continue
+            if (tag.isBlank()) {
+                skipped++
+                continue
+            }
+            if (!tags.add(tag)) {
+                dupNodes++
+                continue
+            }
             leafTypes[tag] = converted.optString("type")
             if (converted.optString("type") == "wireguard") endpoints.put(converted) else outbounds.put(converted)
             takeChain(converted)?.let { helpers += it }
@@ -660,7 +680,11 @@ object ConfigIngest {
         for (group in groups) {
             val converted = convertClashGroup(group, declared, pool) ?: continue
             val tag = converted.optString("tag")
-            if (tag.isBlank() || !tags.add(tag)) continue
+            if (tag.isBlank()) continue
+            if (!tags.add(tag)) {
+                dupGroups++
+                continue
+            }
             groupTags.add(tag)
             groupNodes += converted
         }
@@ -733,6 +757,8 @@ object ConfigIngest {
         if (skippedRules > 0) {
             notes += "有 $skippedRules 条分流暂时对不上 sing-box，已跳过，没有改成直连"
         }
+        if (dupNodes > 0) notes += "有 $dupNodes 个同名节点已跳过（同名只保留第一个）"
+        if (dupGroups > 0) notes += "有 $dupGroups 个同名分组已跳过（同名只保留第一个）"
         if (skipped > 0) notes += skipNote(skipped, skips)
         return Result(root.toString(), notes, format)
     }
@@ -1181,8 +1207,15 @@ object ConfigIngest {
     private fun vlessFlow(raw: String): String? {
         val flow = raw.trim()
         if (flow.isEmpty() || flow.equals("none", true)) return ""
-        // 保留完整的 flow 值（如 xtls-rprx-vision-udp443），不要截断
-        if (flow.startsWith("xtls-rprx-vision", ignoreCase = true)) return flow
+        // sing-box accepts only the canonical name. mihomo suffix variants
+        // (`xtls-rprx-vision-udp443`) are the same flow — normalize them to
+        // the canonical value instead of passing the raw string through:
+        // an unknown flow makes the kernel reject the WHOLE config.
+        if (flow.equals("xtls-rprx-vision", true) ||
+            flow.startsWith("xtls-rprx-vision-", true)
+        ) {
+            return "xtls-rprx-vision"
+        }
         return null
     }
 
@@ -2314,7 +2347,7 @@ object ConfigIngest {
             .put("type", "vmess")
             .put("tag", tag)
             .put("server", obj.optString("add"))
-            .put("server_port", obj.optString("port").toIntOrNull() ?: return null)
+            .put("server_port", portVal(obj.optString("port")) ?: return null)
             .put("uuid", obj.optString("id"))
             .put("security", obj.optString("scy").ifBlank { "auto" })
         obj.optString("aid").toIntOrNull()?.let { out.put("alter_id", it) }
@@ -2856,22 +2889,45 @@ object ConfigIngest {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
         var changed = false
-        var tag = firstDnsTag(servers) { it.startsWith("ech-") }
-        if (tag == null) {
-            tag = "ech-dns"
-            if (!dnsServerHas(servers, tag)) {
-                servers.put(
-                    JSONObject()
-                        .put("type", "https")
-                        .put("tag", tag)
-                        .put("server", "dns.alidns.com")
-                        .put("domain_resolver", ensureLocalDns(servers)),
-                )
-                changed = true
+        // Only a real ECH server may be claimed: https type AND the ech-
+        // prefix installEchDoh uses. An unrelated server that merely
+        // shares the prefix (say a plain UDP resolver named ech-*) must
+        // never receive the ECH config queries.
+        val echTags = linkedSetOf<String>()
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val t = server.optString("tag").trim()
+            if (t.isNotEmpty() && t.startsWith("ech-") &&
+                server.optString("type").equals("https", true)
+            ) {
+                echTags += t
             }
         }
-        if (alignEchServer(root, servers, tag)) changed = true
-        val missing = names.filter { !dnsRuleRoutesTo(dns.optJSONArray("rules"), it, tag) }
+        var tag = echTags.firstOrNull()
+        if (tag == null) {
+            // No usable ECH server: install the standard fallback. If a
+            // non-https server squats on the "ech-dns" tag, take another.
+            tag = if (!dnsServerHas(servers, "ech-dns")) "ech-dns" else "ech-dns-fallback"
+            servers.put(
+                JSONObject()
+                    .put("type", "https")
+                    .put("tag", tag)
+                    .put("server", "dns.alidns.com")
+                    .put("domain_resolver", ensureLocalDns(servers)),
+            )
+            echTags += tag
+            changed = true
+        }
+        for (echTag in echTags) {
+            if (alignEchServer(root, servers, echTag)) changed = true
+        }
+        // A name already routed to ANY real ECH server keeps that server:
+        // multi-provider profiles carry one DoH per hint, and collapsing
+        // every name onto the first server loses the other hints' hosts.
+        val rules = dns.optJSONArray("rules")
+        val missing = names.filter { name ->
+            echTags.none { dnsRuleRoutesTo(rules, name, it) }
+        }
         if (missing.isEmpty()) return changed
         return prependEchRule(dns, missing, tag) || changed
     }
@@ -2975,14 +3031,6 @@ object ConfigIngest {
         return false
     }
 
-    private fun firstDnsTag(servers: JSONArray, match: (String) -> Boolean): String? {
-        for (i in 0 until servers.length()) {
-            val tag = servers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
-            if (tag.isNotEmpty() && match(tag)) return tag
-        }
-        return null
-    }
-
     private fun dnsRuleHasDomain(rules: JSONArray?, name: String): Boolean {
         if (rules == null) return false
         for (i in 0 until rules.length()) {
@@ -3001,11 +3049,20 @@ object ConfigIngest {
     private fun wrapLeaves(arr: JSONArray, note: String): Result {
         val tags = LinkedHashSet<String>()
         val outbounds = JSONArray()
+        var renamed = 0
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
-            val tag = item.optString("tag").ifBlank { "node-${i + 1}" }
+            var tag = item.optString("tag").ifBlank { "node-${i + 1}" }
+            if (!tags.add(tag)) {
+                // 与 wrapNodes 同一命名策略：同名改名保留，不静默丢节点。
+                val base = tag
+                var n = 2
+                do {
+                    tag = "$base-${n++}"
+                } while (!tags.add(tag))
+                renamed++
+            }
             item.put("tag", tag)
-            if (!tags.add(tag)) continue
             outbounds.put(item)
         }
         if (tags.isEmpty()) return Result("{}", emptyList(), Format.Unknown)
@@ -3020,7 +3077,9 @@ object ConfigIngest {
         val root = JSONObject()
             .put("outbounds", outbounds)
             .put("route", JSONObject().put("final", "节点选择"))
-        return Result(root.toString(), listOf(note), Format.SingBox)
+        val notes = mutableListOf(note)
+        if (renamed > 0) notes += "有 $renamed 个同名节点已改名保留（原名后加 -2、-3…）"
+        return Result(root.toString(), notes, Format.SingBox)
     }
 
     private fun ensureDirect(outbounds: JSONArray, tags: MutableSet<String>) {

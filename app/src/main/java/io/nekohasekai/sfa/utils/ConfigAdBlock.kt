@@ -25,14 +25,39 @@ object ConfigAdBlock {
         )
         for (i in 0 until old.length()) {
             val rule = old.optJSONObject(i) ?: continue
-            if (rule.optString("action") == "reject" && rule.optString("rule_set") == tag) continue
+            if (rule.optString("action") == "reject" && ruleMentionsSet(rule, tag)) continue
             merged.put(rule)
         }
         route.put("rules", merged)
     }
 
     private fun alreadyRoutesAds(route: JSONObject, tag: String): Boolean {
-        return ruleSetMentioned(route.optJSONArray("rules"), tag)
+        // "Routes ads" only counts when the ads set is actually REJECTED.
+        // A rule that merely mentions the set — e.g. one that sends it to
+        // a proxy group — leaves ads flowing; treating any mention as
+        // coverage made the ad-block switch a silent no-op.
+        return ruleSetRejected(route.optJSONArray("rules"), tag, inheritedReject = false)
+    }
+
+    private fun ruleSetRejected(rules: JSONArray?, tag: String, inheritedReject: Boolean): Boolean {
+        if (rules == null) return false
+        // An ancestor rule already rejects: any mention below it counts.
+        if (inheritedReject) return ruleSetMentioned(rules, tag)
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val rejects = rule.optString("action").equals("reject", true)
+            if (rejects && ruleMentionsSet(rule, tag)) return true
+            if (ruleSetRejected(rule.optJSONArray("rules"), tag, rejects)) return true
+        }
+        return false
+    }
+
+    private fun ruleMentionsSet(rule: JSONObject, tag: String): Boolean {
+        return when (val raw = rule.opt("rule_set")) {
+            is String -> raw.trim() == tag
+            is JSONArray -> (0 until raw.length()).any { raw.optString(it).trim() == tag }
+            else -> false
+        }
     }
 
     private fun ruleSetMentioned(rules: JSONArray?, tag: String): Boolean {
@@ -54,16 +79,25 @@ object ConfigAdBlock {
 
     private fun ensureRuleSet(route: JSONObject): String {
         val sets = route.optJSONArray("rule_set") ?: JSONArray().also { route.put("rule_set", it) }
+        var blankMatch: JSONObject? = null
         for (i in 0 until sets.length()) {
             val item = sets.optJSONObject(i) ?: continue
             val tag = item.optString("tag").trim()
             val url = item.optString("url").trim()
-            if (tag.equals(RULESET_TAG, true) ||
-                tag.contains("category-ads", ignoreCase = true) ||
+            if (tag.equals(RULESET_TAG, true)) return tag
+            if (tag.contains("category-ads", ignoreCase = true) ||
                 url.contains("geosite-category-ads", ignoreCase = true)
             ) {
-                return tag.ifBlank { RULESET_TAG }
+                if (tag.isNotBlank()) return tag
+                // Matched by URL but carries no tag: remember it — if no
+                // canonically tagged set exists we name this one, so the
+                // reject rule never references a tag that does not exist.
+                if (blankMatch == null) blankMatch = item
             }
+        }
+        if (blankMatch != null) {
+            blankMatch.put("tag", RULESET_TAG)
+            return RULESET_TAG
         }
         sets.put(
             JSONObject()

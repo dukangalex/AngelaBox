@@ -29,13 +29,17 @@ object Settings {
         synchronized(dbLock) {
             db?.takeIf { it.isOpen }?.let { return it }
             Application.application.getDatabasePath(Path.SETTINGS_DATABASE_PATH).parentFile?.mkdirs()
-            DatabaseDowngradeGuard.backupIfNewer(Application.application, Path.SETTINGS_DATABASE_PATH, KeyValueDatabase.VERSION)
+            // Any schema-version mismatch is backed up before Room opens the
+            // file, so neither direction can silently wipe the KV store
+            // (audit F-7). Upgrades without a registered Migration now fail
+            // loudly instead of falling back to a destructive recreate.
+            DatabaseDowngradeGuard.backupIfVersionMismatch(Application.application, Path.SETTINGS_DATABASE_PATH, KeyValueDatabase.VERSION)
             val built = Room.databaseBuilder(
                 Application.application,
                 KeyValueDatabase::class.java,
                 Path.SETTINGS_DATABASE_PATH,
             ).allowMainThreadQueries()
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .enableMultiInstanceInvalidation()
                 .build()
             db = built
@@ -123,28 +127,67 @@ object Settings {
     fun getEffectivePerAppProxyMode(): Int = if (perAppProxyManagedMode) PER_APP_PROXY_EXCLUDE else perAppProxyMode
     fun getEffectivePerAppProxyList(): Set<String> = if (perAppProxyManagedMode) perAppProxyManagedList else perAppProxyList
 
-    /** One-shot: turn on China-user safeguards for installs that still have the old off defaults. */
-    fun applyChinaUserDefaultsIfNeeded() {
+    /** Switch keys the rev<1 tier turns on for China users. */
+    internal val CHINA_SAFEGUARD_KEYS: List<String> = listOf(
+        SettingsKey.CHINA_DIRECT,
+        SettingsKey.ADS_BLOCK,
+        SettingsKey.WEBRTC_PROTECT,
+        SettingsKey.DNS_PROTECT,
+        SettingsKey.DISABLE_IPV6,
+        SettingsKey.DISABLE_QUIC,
+        SettingsKey.EXCLUDE_CN_QUIC,
+    )
+
+    /**
+     * Pure migration planner for [applyChinaUserDefaultsIfNeeded]: returns
+     * the (key, value) writes a tier still owes plus the rev to store.
+     *
+     * A tier only fills in switches that were never set. A key present in
+     * the store was written by a user toggle and counts as a deliberate
+     * choice — the old unconditional tiers silently re-opened switches
+     * users had turned off on purpose (audit F-2/F-4). Absent keys on an
+     * upgrade still carry the old off defaults, so filling those in is
+     * exactly the tiers' original job. [chinaDefaultsRev] is the migration
+     * marker: an install already at rev 3 gets no writes and is never
+     * re-migrated.
+     */
+    internal fun chinaDefaultsMigration(
+        chinaDefaultsRev: Int,
+        isSet: (String) -> Boolean,
+    ): Pair<List<Pair<String, Boolean>>, Int> {
+        // Tiers are monotone (each owed tier advances the rev by one), so
+        // gating on the incoming rev is the same as gating tier by tier.
+        val writes = mutableListOf<Pair<String, Boolean>>()
         if (chinaDefaultsRev < 1) {
-            chinaDirect = true
-            adsBlock = true
-            webrtcProtect = true
-            dnsProtect = true
-            disableIpv6 = true
-            disableQuic = true
-            excludeCnQuic = true
-            chinaDefaultsRev = 1
+            for (key in CHINA_SAFEGUARD_KEYS) {
+                if (!isSet(key)) writes += key to true
+            }
         }
         if (chinaDefaultsRev < 2) {
-            configNormalize = true
-            chinaDefaultsRev = 2
+            if (!isSet(SettingsKey.CONFIG_NORMALIZE)) {
+                writes += SettingsKey.CONFIG_NORMALIZE to true
+            }
         }
         if (chinaDefaultsRev < 3) {
-            // 1.0.79 forced this on. It drops packets while Wi-Fi and
-            // cellular swap, which shows up as the whole device going offline.
-            strictRoute = false
-            chinaDefaultsRev = 3
+            // 1.0.79 forced strict route on. It drops packets while Wi-Fi
+            // and cellular swap, which shows up as the whole device going
+            // offline. Only the never-set case is filled in; a stored value
+            // may be a deliberate post-1.0.79 choice and stays untouched.
+            if (!isSet(SettingsKey.STRICT_ROUTE)) {
+                writes += SettingsKey.STRICT_ROUTE to false
+            }
         }
+        val newRev = if (chinaDefaultsRev < 3) 3 else chinaDefaultsRev
+        return writes to newRev
+    }
+
+    /** One-shot: turn on China-user safeguards for installs that still have the old off defaults. */
+    fun applyChinaUserDefaultsIfNeeded() {
+        val (writes, newRev) = chinaDefaultsMigration(chinaDefaultsRev) { key ->
+            dataStore.getBoolean(key) != null
+        }
+        writes.forEach { (key, value) -> dataStore.putBoolean(key, value) }
+        if (newRev != chinaDefaultsRev) chinaDefaultsRev = newRev
     }
 
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }

@@ -225,4 +225,35 @@ class HTTPClientRedirectTest {
             resolveDns = false,
         )
     }
+
+    @Test
+    fun redirectResolverChoiceKeepsDirectDnsOutside() {
+        // E-6 regression: DIRECT_DNS resolved its start URL through public
+        // resolvers but redirect hops fell back to the (poisoned) system
+        // resolver when the tunnel was down, losing the route on any
+        // redirect to another host.
+        assertTrue(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.DIRECT_DNS, tunnelUp = false),
+        )
+        assertTrue(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.DIRECT_DNS, tunnelUp = true),
+        )
+        // Pinned direct hops keep the system resolver only with the tunnel down.
+        assertFalse(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.DIRECT, tunnelUp = false),
+        )
+        assertTrue(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.DIRECT, tunnelUp = true),
+        )
+        assertTrue(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.TUNNEL_IP, tunnelUp = true),
+        )
+        // PROXY hops dial by name; no DNS choice to make.
+        assertFalse(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.PROXY, tunnelUp = true),
+        )
+        assertFalse(
+            HTTPClient.redirectResolvesOutside(HTTPClient.Route.PROXY, tunnelUp = false),
+        )
+    }
 }

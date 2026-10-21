@@ -15,6 +15,16 @@ data class SubscriptionInfo(
 ) {
     val used: Long get() = upload + download
     val hasQuota: Boolean get() = total > 0L
+
+    /**
+     * E-8: is the quota snapshot fresh enough to draw conclusions from?
+     * The snapshot only refreshes on a successful fetch; with auto-update
+     * off it can be weeks old, and reporting "quota exhausted" from it
+     * after the user renewed is a false alarm. Expiry is absolute time and
+     * deliberately not gated by this.
+     */
+    fun isQuotaFresh(nowMs: Long, maxAgeMs: Long): Boolean =
+        fetchedAt > 0L && nowMs - fetchedAt in 0..maxAgeMs
     val unlimited: Boolean get() = total <= 0L && expireAt == null
     val progress: Float
         get() = if (total > 0L) (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f

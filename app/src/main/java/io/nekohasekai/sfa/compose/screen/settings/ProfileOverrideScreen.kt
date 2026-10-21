@@ -43,11 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.BuildConfig
+import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
 import io.nekohasekai.sfa.compose.navigation.popToDashboard
@@ -88,6 +90,11 @@ fun ProfileOverrideScreen(
     var disableIpv6 by remember { mutableStateOf(Settings.disableIpv6) }
     var configNormalize by remember { mutableStateOf(Settings.configNormalize) }
     var help by remember { mutableStateOf<SwitchHelp?>(null) }
+
+    // Resolved in composition so the click-time help lambdas can use them.
+    val perAppManagedHint = stringResource(R.string.per_app_proxy_manage_managed_hint)
+    val perAppManagedPrecedence = stringResource(R.string.per_app_proxy_managed_precedence)
+    val excludeCnQuicRulesetNote = stringResource(R.string.exclude_cn_quic_ruleset_note)
 
     fun reload() {
         scope.launch(Dispatchers.Main) {
@@ -262,17 +269,39 @@ fun ProfileOverrideScreen(
                 if (perAppProxyEnabled) {
                     ListItem(
                         headlineContent = { Text("管理") },
+                        supportingContent = if (managedModeEnabled) {
+                            {
+                                Text(
+                                    perAppManagedHint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                         trailingContent = {
                             Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null)
                         },
-                        modifier = Modifier.clickable(enabled = !managedModeEnabled) {
+                        modifier = Modifier.clickable {
                             navController.navigate("settings/profile_override/manage")
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
                     ListItem(
                         headlineContent = { Text("托管模式") },
-                        supportingContent = { Text("自动排除中国应用") },
+                        supportingContent = {
+                            Column {
+                                Text("自动排除中国应用")
+                                if (managedModeEnabled) {
+                                    Text(
+                                        perAppManagedPrecedence,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        },
                         leadingContent = { Icon(Icons.Outlined.SmartToy, contentDescription = null) },
                         trailingContent = {
                             if (isScanning) {
@@ -503,6 +532,7 @@ fun ProfileOverrideScreen(
                         help = SwitchHelp(
                             "排除国内 QUIC",
                             "和「禁用 QUIC」一起用。国内 IP、国内域名的 UDP 443 先走直连，其余 UDP 443 拒绝。关掉则 UDP 443 全部拒绝。\n\n" +
+                                excludeCnQuicRulesetNote + "\n\n" +
                                 "脚本开着时由脚本按这个开关写。",
                         )
                     },

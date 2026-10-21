@@ -143,7 +143,8 @@ private fun VerdictBanner(result: NetworkCheckup.Result) {
             MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
         NetworkCheckup.VerdictKind.NO_NETWORK, NetworkCheckup.VerdictKind.SERVICE_STOPPED ->
             MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-        NetworkCheckup.VerdictKind.NODE_SLOW, NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY ->
+        NetworkCheckup.VerdictKind.NODE_SLOW, NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY,
+        NetworkCheckup.VerdictKind.TUNNEL_UNCERTAIN ->
             MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
         else ->
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
@@ -159,6 +160,8 @@ private fun VerdictBanner(result: NetworkCheckup.Result) {
             stringResource(R.string.checkup_verdict_subscription_bad, result.verdictDetail)
         NetworkCheckup.VerdictKind.TUNNEL_BROKEN ->
             stringResource(R.string.checkup_verdict_tunnel_broken)
+        NetworkCheckup.VerdictKind.TUNNEL_UNCERTAIN ->
+            stringResource(R.string.checkup_verdict_tunnel_uncertain, result.verdictDetail)
         NetworkCheckup.VerdictKind.DNS_HIJACKED ->
             stringResource(R.string.checkup_verdict_dns_hijacked)
         NetworkCheckup.VerdictKind.NODE_SLOW ->

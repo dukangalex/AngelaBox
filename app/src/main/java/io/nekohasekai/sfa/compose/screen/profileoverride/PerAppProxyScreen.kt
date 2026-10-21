@@ -123,6 +123,7 @@ fun PerAppProxyScreen(
     val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
     var proxyMode by remember { mutableStateOf(Settings.perAppProxyMode) }
+    val managedModeEnabled by remember { mutableStateOf(Settings.perAppProxyManagedMode) }
     var sortMode by remember { mutableStateOf(SortMode.NAME) }
     var sortReverse by remember { mutableStateOf(false) }
     var hideSystemApps by remember { mutableStateOf(Settings.perAppProxyHideSystem) }
@@ -459,6 +460,20 @@ fun PerAppProxyScreen(
             exit = fadeOut(),
         ) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        if (managedModeEnabled) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Text(
+                    text = stringResource(R.string.per_app_proxy_managed_banner),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
         }
 
         Surface(

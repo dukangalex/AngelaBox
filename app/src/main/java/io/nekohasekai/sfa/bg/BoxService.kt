@@ -30,7 +30,6 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
-import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -48,6 +47,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Collections
@@ -56,12 +57,37 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
         private const val START_BUDGET_MS = 45_000L
+        // The ladder as a whole gets a budget too: each rung having its
+        // own 45 s attempt budget let pathological starts sit on the
+        // Starting screen for minutes (7 attempts + repeated apply()).
+        private const val LADDER_BUDGET_MS = 180_000L
         private const val TAG = "BoxService"
         // A 45 s rule-set stall skips remote rule-sets on the next start only within
         // 10 min and on the same default network; a start that keeps them clears it.
         private val ruleSetStalls = RuleSetStallMemory(clock = SystemClock::elapsedRealtime)
 
-        private fun defaultNetworkKey(): String? = DefaultNetworkMonitor.defaultNetwork?.toString()
+        /**
+         * Canonical stall-memory key (audit E-4): physical interface name +
+         * transport via [RuleSetStallMemory.networkKey]. The old key used
+         * Network.toString() (the netId), which changes on every reconnect
+         * and, while the tunnel is up, describes the VPN itself.
+         */
+        private fun defaultNetworkKey(): String? = RuleSetStallMemory.networkKey(
+            DefaultNetworkMonitor.currentInterfaceName,
+            DefaultNetworkMonitor.currentTransport(),
+        )
+
+        /**
+         * Content dimension for the stall memory (audit X-1): a stall is
+         * remembered against the exact subscription content that stalled,
+         * so a subscription update invalidates it without the updater
+         * having to reach this in-process memory.
+         */
+        private fun contentHashOf(rawContent: String): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(rawContent.toByteArray(Charsets.UTF_8))
+            return digest.take(8).joinToString("") { "%02x".format(it) }
+        }
 
         fun start() {
             val intent =
@@ -94,6 +120,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean =
         thread in abandonedStartThreads
+
+    // Serializes startOrReloadKernel: a background subscription update's
+    // reload used to run a second pipeline concurrently with an ongoing
+    // start, the two sharing commandServer / OverrideStatus / stall memory
+    // (one side's retry could restartCommandServer under the other).
+    private val kernelStartMutex = Mutex()
 
     private val status = MutableLiveData(Status.Stopped)
     private val binder = ServiceBinder(status)
@@ -234,6 +266,23 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     suspend fun serviceReload0() {
+        // Same exception net as startService: this runs on a kernel
+        // callback thread, where a StartCancelled / ChainApplyException /
+        // pipeline failure escaping used to kill the reload silently or
+        // crash, leaving the service state inconsistent.
+        try {
+            serviceReload0Guarded()
+        } catch (e: Exception) {
+            if (e is StartCancelled) {
+                stopAndAlert(Alert.StartService, null, silent = true)
+            } else {
+                stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
+            }
+            return
+        }
+    }
+
+    private suspend fun serviceReload0Guarded() {
         val selectedProfileId = Settings.selectedProfile
         if (selectedProfileId == -1L) {
             stopAndAlert(Alert.EmptyConfiguration)
@@ -299,18 +348,28 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean {
+    private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean =
+        kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId) }
+
+    private suspend fun startOrReloadKernelLocked(rawContent: String, profileId: Long): Boolean {
+        val ladderStart = SystemClock.elapsedRealtime()
+        fun ladderExpired(): Boolean =
+            SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
         val options = buildOverrideOptions()
         val scriptBound = OverlayScripts.isBound(profileId)
 
-        var content = ConfigQuicOverride.apply(rawContent)
+        var content = ConfigQuicOverride.apply(rawContent, profileId = profileId)
         if (startAbort.get()) {
             stopAndAlert(Alert.StartService, null, silent = true)
             return false
         }
         var droppedRuleSets = false
-        if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey())) {
-            val dropped = ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true)
+        if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))) {
+            val dropped = ConfigQuicOverride.apply(
+                rawContent,
+                dropAllRemoteRuleSets = true,
+                profileId = profileId,
+            )
             if (dropped != content) {
                 content = dropped
                 droppedRuleSets = true
@@ -335,7 +394,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         val firstErr = result.exceptionOrNull()?.message
         if (shouldRestartAsVpn(firstErr)) {
-            Settings.serviceMode = ServiceMode.VPN
+            // Do not persist Settings.serviceMode here: rebuildServiceMode()
+            // (run on every BoxService.start) is the single source for the
+            // mode and writes it itself. Persisting from this error-text
+            // guess forked that source and could silently flip the user's
+            // stored mode on a false positive.
             stopAndAlert(Alert.RestartAsVpn, null)
             return false
         }
@@ -348,7 +411,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (ConfigDiagnose.looksLikeRpcDeath(err)) {
             restartCommandServer()
             result = attempt(content, options)
-            if (result.isSuccess) return started(!droppedRuleSets)
+            if (result.isSuccess) {
+                if (droppedRuleSets) noteRuleSetsSkipped()
+                return started(!droppedRuleSets)
+            }
             keep(result.exceptionOrNull()?.message)
         }
 
@@ -359,6 +425,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     rawContent,
                     stripEch = true,
                     dropAllRemoteRuleSets = droppedRuleSets,
+                    profileId = profileId,
                 ),
                 options,
             )
@@ -370,39 +437,66 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         hint = "节点还在，没有改成直连。",
                     ),
                 )
+                if (droppedRuleSets) noteRuleSetsSkipped()
                 return started(!droppedRuleSets)
             }
             keep(result.exceptionOrNull()?.message)
         }
+
+        // The resolver heal patches the already-processed content; later
+        // rungs rebuild from rawContent and would silently lose it, so
+        // remember and re-apply it to whatever they produce (reheal).
+        var resolverHealed = false
+        fun reheal(candidate: String): String =
+            if (resolverHealed) ConfigInboundCompat.healRuntimeConfig(candidate) else candidate
 
         if (ConfigDiagnose.looksLikeDomainResolver(firstErr) ||
             ConfigDiagnose.looksLikeDomainResolver(err)
         ) {
             val patched = ConfigInboundCompat.healRuntimeConfig(content)
             if (patched != content) {
+                resolverHealed = true
                 restartCommandServer()
                 content = patched
                 result = attempt(content, options)
-                if (result.isSuccess) return started(!droppedRuleSets)
+                if (result.isSuccess) {
+                    if (droppedRuleSets) noteRuleSetsSkipped()
+                    return started(!droppedRuleSets)
+                }
                 keep(result.exceptionOrNull()?.message)
             }
         }
 
         val ruleSetFail = ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
             ConfigDiagnose.looksLikeRuleSetFailure(err)
+        // A start-budget timeout is NOT proof the rule-sets are at fault
+        // (slow device / big config / slow DNS bootstrap all look alike),
+        // but dropping the remote sets is still the most effective retry —
+        // so timed-out starts enter this rung without the fabricated
+        // "rule-set" attribution, and the stall memory is only written
+        // when the evidence supports it (a real network stall error, or
+        // the drop-retry actually rescuing a timed-out start).
+        val timedOut = ConfigDiagnose.looksLikeStartTimeout(firstErr) ||
+            ConfigDiagnose.looksLikeStartTimeout(err)
         val stalled = isRuleSetStall(firstErr) || isRuleSetStall(err)
         var needles = ConfigDiagnose.ruleSetNeedles(firstErr)
         if (needles.isEmpty() && ruleSetFail && !stalled) {
             needles = ConfigInboundCompat.remoteRuleSetTags(content)
         }
         var ruleSetRetried = false
-        if (ruleSetFail) {
+        if ((ruleSetFail || timedOut) && !ladderExpired()) {
             ruleSetRetried = true
-            if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey())
+            if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
             if (!stalled && needles.isNotEmpty()) {
                 restartCommandServer()
                 result = attempt(
-                    ConfigQuicOverride.apply(rawContent, replaceRuleSetNeedles = needles),
+                    reheal(
+                        ConfigQuicOverride.apply(
+                            rawContent,
+                            replaceRuleSetNeedles = needles,
+                            profileId = profileId,
+                        ),
+                    ),
                     options,
                 )
                 if (result.isSuccess) {
@@ -419,69 +513,63 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             restartCommandServer()
             result = attempt(
-                ConfigQuicOverride.apply(rawContent, dropAllRemoteRuleSets = true),
+                reheal(
+                    ConfigQuicOverride.apply(
+                        rawContent,
+                        dropAllRemoteRuleSets = true,
+                        profileId = profileId,
+                    ),
+                ),
                 options,
             )
             if (result.isSuccess) {
+                if (timedOut && !stalled) {
+                    // The drop rescued a timed-out start: now the stall is
+                    // evidenced, so remembering it is fair.
+                    ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
+                }
                 noteRuleSetsSkipped()
                 return started(false)
             }
             keep(result.exceptionOrNull()?.message)
         }
 
-        if (Settings.configNormalize) {
-            if (ConfigDiagnose.looksLikeScriptFault(firstErr) ||
+        // Script rollback, attribution by experiment rather than by error
+        // text: with scripts bound and every targeted rung above exhausted,
+        // retry once without scripts. Success convicts the script (its
+        // output — syntax-valid but reference-broken — is exactly what the
+        // old looksLikeScriptFault substring gate could never recognize);
+        // failure clears it and the alert reports both attempts. This also
+        // unifies the recovery parameters: the configNormalize switch no
+        // longer forks whether the rollback keeps the rule-set needles.
+        if (scriptBound && !ladderExpired()) {
+            val classicScriptFault = ConfigDiagnose.looksLikeScriptFault(firstErr) ||
                 ConfigDiagnose.looksLikeScriptFault(err)
-            ) {
-                restartCommandServer()
-                val recovered = ConfigQuicOverride.apply(
+            restartCommandServer()
+            val rolled = reheal(
+                ConfigQuicOverride.apply(
                     rawContent,
                     skipScripts = true,
                     replaceRuleSetNeedles = needles,
                     dropAllRemoteRuleSets = droppedRuleSets,
-                )
-                result = attempt(recovered, options)
-                if (result.isSuccess) {
-                    OverrideStatus.add(
-                        OverrideNotice(
-                            title = "脚本启动失败，已回滚",
-                            reason = ConfigDiagnose.explain(firstErr, scriptsBound = true),
-                            hint = ConfigDiagnose.rollbackHint(),
-                            error = true,
-                        ),
-                    )
-                    return started(!droppedRuleSets)
-                }
-                keep(result.exceptionOrNull()?.message)
-            }
-            stopAndAlert(
-                Alert.CreateService,
-                ConfigDiagnose.explain(
-                    err,
-                    scriptsBound = scriptBound,
-                    ruleSetRetried = ruleSetRetried,
+                    profileId = profileId,
                 ),
-            )
-            return false
-        }
-
-        if (scriptBound && ConfigDiagnose.looksLikeScriptFault(err)) {
-            restartCommandServer()
-            val rolled = ConfigQuicOverride.apply(
-                rawContent,
-                skipScripts = true,
-                dropAllRemoteRuleSets = droppedRuleSets,
             )
             result = attempt(rolled, options)
             if (result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
                         title = "脚本启动失败，已回滚",
-                        reason = ConfigDiagnose.explain(firstErr, scriptsBound = true),
+                        reason = if (classicScriptFault) {
+                            ConfigDiagnose.explain(firstErr, scriptsBound = true)
+                        } else {
+                            "脚本改出的配置内核启动不了：${firstErr?.take(120) ?: "未知错误"}"
+                        },
                         hint = ConfigDiagnose.rollbackHint(),
                         error = true,
                     ),
                 )
+                if (droppedRuleSets) noteRuleSetsSkipped()
                 return started(!droppedRuleSets)
             }
             stopAndAlert(
@@ -528,7 +616,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             worker.join(left.coerceAtMost(400L))
             if (!worker.isAlive) {
                 return holder[0] ?: Result.failure(
-                    IllegalStateException("initialize rule-set: 启动没有返回"),
+                    IllegalStateException("内核启动没有返回结果"),
                 )
             }
             if (startAbort.get()) {
@@ -537,8 +625,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
         }
         abandonStart(server, worker)
+        // Neutral wording on purpose: a budget timeout proves nothing
+        // about WHY the kernel was slow. The old message fabricated
+        // "initialize rule-set: 远程规则集超过 45 秒还没下完" for every
+        // slow start, which the ladder then read as a confirmed rule-set
+        // stall — recording the memory and dropping all remote rule-sets
+        // for 10 minutes even when the sets were perfectly fine.
         return Result.failure(
-            IllegalStateException("initialize rule-set: 远程规则集超过 45 秒还没下完"),
+            IllegalStateException("内核启动超过 45 秒没有返回"),
         )
     }
 
@@ -574,7 +668,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private fun isRuleSetStall(err: String?): Boolean {
         val text = err.orEmpty()
-        if (text.contains("超过 45 秒")) return true
         if (!ConfigDiagnose.looksLikeRuleSetFailure(text)) return false
         return text.contains("timeout", ignoreCase = true) ||
             text.contains("connection refused", ignoreCase = true) ||
@@ -587,9 +680,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private fun shouldRestartAsVpn(err: String?): Boolean {
         if (service is VPNService) return false
         if (err.isNullOrBlank()) return false
-        val text = err.lowercase()
-        return text.contains("configure tun interface") ||
-            (text.contains("invalid argument") && text.contains("tun"))
+        val text = err.lowercase().trim()
+        if (text.contains("configure tun interface") || text.contains("open tun")) return true
+        if (!text.contains("invalid argument")) return false
+        // PlatformInterfaceWrapper.openTun throws a bare "invalid argument"
+        // with no tun context, and the gomobile round-trip may surface it
+        // as the whole error (or the tail of the chain) — the old
+        // "invalid argument AND tun" double-keyword match missed exactly
+        // that form and left the user with a generic failure instead of
+        // the switch-to-VPN guidance.
+        return text.contains("tun") ||
+            text == "invalid argument" ||
+            text.endsWith(": invalid argument")
     }
 
     private fun restartCommandServer() {

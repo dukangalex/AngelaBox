@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.utils
 
+import io.nekohasekai.sfa.constant.SettingsKey
+import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -501,5 +503,162 @@ class ConfigQuicOverrideTest {
         assertTrue((0 until servers.length()).any { servers.getJSONObject(it).optString("tag") == "mine" })
         assertTrue((0 until servers.length()).any { servers.getJSONObject(it).optString("tag") == "dns-fakeip" })
     }
+
+    // ---- China defaults migration (audit F-2/F-4) ----
+
+    private fun migrationWrites(rev: Int, setKeys: Set<String>): Pair<Map<String, Boolean>, Int> {
+        val (writes, newRev) = Settings.chinaDefaultsMigration(rev) { it in setKeys }
+        return writes.toMap() to newRev
+    }
+
+    @Test
+    fun chinaDefaultsMigrationFillsUnsetSwitches() {
+        val (writes, newRev) = migrationWrites(0, emptySet())
+        assertEquals(3, newRev)
+        for (key in Settings.CHINA_SAFEGUARD_KEYS) {
+            assertEquals("safeguard $key", true, writes[key])
+        }
+        assertEquals(true, writes[SettingsKey.CONFIG_NORMALIZE])
+        assertEquals(false, writes[SettingsKey.STRICT_ROUTE])
+    }
+
+    @Test
+    fun chinaDefaultsMigrationKeepsDeliberateOff() {
+        // A stored key means the user set it — a deliberate "off" on DNS
+        // protect / IPv6 must survive the rev<1 tier.
+        val setKeys = setOf(SettingsKey.DNS_PROTECT, SettingsKey.DISABLE_IPV6)
+        val (writes, newRev) = migrationWrites(0, setKeys)
+        assertEquals(3, newRev)
+        assertFalse(writes.containsKey(SettingsKey.DNS_PROTECT))
+        assertFalse(writes.containsKey(SettingsKey.DISABLE_IPV6))
+        assertEquals(true, writes[SettingsKey.CHINA_DIRECT])
+    }
+
+    @Test
+    fun chinaDefaultsMigrationKeepsDeliberateStrictRoute() {
+        // Post-1.0.79 deliberate strict-route users are not forced off.
+        val (writes, newRev) = migrationWrites(0, setOf(SettingsKey.STRICT_ROUTE))
+        assertEquals(3, newRev)
+        assertFalse(writes.containsKey(SettingsKey.STRICT_ROUTE))
+    }
+
+    @Test
+    fun chinaDefaultsMigrationKeepsDeliberateNormalizeOff() {
+        val (writes, _) = migrationWrites(1, setOf(SettingsKey.CONFIG_NORMALIZE))
+        assertFalse(writes.containsKey(SettingsKey.CONFIG_NORMALIZE))
+    }
+
+    @Test
+    fun chinaDefaultsMigrationIsOneShotAtCurrentRev() {
+        // Installs already migrated by the old unconditional tiers stay as
+        // they are: rev 3 means no writes, ever.
+        val (writes, newRev) = migrationWrites(3, emptySet())
+        assertEquals(3, newRev)
+        assertTrue(writes.isEmpty())
+    }
+
+    @Test
+    fun chinaDefaultsMigrationResumesFromMiddleRev() {
+        val (writes, newRev) = migrationWrites(2, emptySet())
+        assertEquals(3, newRev)
+        assertEquals(mapOf(SettingsKey.STRICT_ROUTE to false), writes)
+    }
 }
 
+    @Test
+    fun ensureAndroidTunKeepsLanSharedMixedDropsOnlyAppPort() {
+        val root = JSONObject()
+            .put(
+                "inbounds",
+                JSONArray()
+                    .put(
+                        JSONObject().put("type", "tun").put("tag", "tun-in")
+                            .put("address", JSONArray().put("172.19.0.1/30")).put("mtu", 1280),
+                    )
+                    .put(
+                        JSONObject().put("type", "mixed").put("tag", "lan-in")
+                            .put("listen", "0.0.0.0").put("listen_port", 7890),
+                    )
+                    .put(
+                        JSONObject().put("type", "mixed").put("tag", "app-in")
+                            .put("listen", "127.0.0.1").put("listen_port", 17890),
+                    ),
+            )
+        ConfigInboundCompat.ensureAndroidTun(root)
+        val inbounds = root.getJSONArray("inbounds")
+        val list = (0 until inbounds.length()).map { inbounds.getJSONObject(it) }
+        val tags = list.map { it.getString("tag") }
+        // A LAN-shared proxy port the user configured on purpose is not
+        // the app's own 17890 inbound and must survive; only the app
+        // port on loopback/wildcard is dropped.
+        assertTrue(tags.contains("lan-in"))
+        assertFalse(tags.contains("app-in"))
+        // An explicit smaller MTU is a user choice, not a defect.
+        assertEquals(1280, list.first { it.getString("type") == "tun" }.getInt("mtu"))
+    }
+
+    @Test
+    fun adBlockStillAppliesWhenAdsSetOnlyRoutedToProxy() {
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(JSONObject().put("type", "vless").put("tag", "proxy")),
+            )
+            .put(
+                "route",
+                JSONObject()
+                    .put(
+                        "rule_set",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("tag", "geosite-category-ads-all").put("type", "remote")
+                                .put("url", ConfigAdBlock.RULESET_URL),
+                        ),
+                    )
+                    .put(
+                        "rules",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("rule_set", "geosite-category-ads-all").put("outbound", "proxy"),
+                        ),
+                    ),
+            )
+        ConfigAdBlock.apply(root)
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        // Merely referencing the ads set (routed to a proxy!) must not
+        // count as "ads already handled" — the reject rule gets prepended.
+        assertEquals("reject", rules.getJSONObject(0).getString("action"))
+        assertEquals("geosite-category-ads-all", rules.getJSONObject(0).getString("rule_set"))
+    }
+
+    @Test
+    fun adBlockDoesNotDuplicateExistingReject() {
+        val root = JSONObject()
+            .put(
+                "route",
+                JSONObject()
+                    .put(
+                        "rule_set",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("tag", "geosite-category-ads-all").put("type", "remote")
+                                .put("url", ConfigAdBlock.RULESET_URL),
+                        ),
+                    )
+                    .put(
+                        "rules",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("rule_set", JSONArray().put("geosite-category-ads-all"))
+                                .put("action", "reject"),
+                        ),
+                    ),
+            )
+        ConfigAdBlock.apply(root)
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        // The ads set is genuinely rejected already (array-form rule_set):
+        // no second reject rule is added.
+        assertEquals(1, rules.length())
+    }
+
+}

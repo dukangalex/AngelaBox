@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.utils
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -607,4 +608,101 @@ class ConfigCompatTest {
         org.junit.Assert.assertTrue(tags.contains("direct"))
         org.junit.Assert.assertTrue(tags.contains("ok-node"))
     }
+
+    @Test
+    fun dropUnsupportedLeavesRemovesEmptiedGroupAndRetargetsFinal() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "x1", "transport": {"type": "xhttp"}},
+                {"type": "shadowsocks", "tag": "good", "server": "192.0.2.1", "server_port": 8388, "method": "aes-128-gcm", "password": "pw"},
+                {"type": "selector", "tag": "G1", "outbounds": ["x1"]},
+                {"type": "selector", "tag": "Main", "outbounds": ["good"]}
+              ],
+              "route": {"final": "G1"}
+            }
+            """.trimIndent(),
+        )
+        val dropped = ConfigCompat.dropUnsupportedLeaves(root)
+        assertTrue(dropped.contains("x1"))
+        val tags = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        // A group whose only member was pruned must not keep a dangling
+        // final pointer (the kernel rejects an empty selector).
+        assertFalse(tags.contains("G1"))
+        assertTrue(tags.contains("Main"))
+        assertEquals("Main", root.getJSONObject("route").getString("final"))
+    }
+
+    @Test
+    fun dropUnsupportedLeavesKeepsEndpointMembers() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "x1", "transport": {"type": "xhttp"}},
+                {"type": "selector", "tag": "Main", "outbounds": ["wg1", "x1"]}
+              ],
+              "endpoints": [
+                {"type": "wireguard", "tag": "wg1"}
+              ],
+              "route": {"final": "Main"}
+            }
+            """.trimIndent(),
+        )
+        ConfigCompat.dropUnsupportedLeaves(root)
+        val main = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "Main" }
+        val members = main.getJSONArray("outbounds")
+        // WireGuard nodes live in endpoints; a group member naming one is
+        // a valid reference, not a dangling one.
+        assertEquals(1, members.length())
+        assertEquals("wg1", members.getString(0))
+    }
+
+    @Test
+    fun sanitizeOutboundDropsHyphenPluginOptsWhenBothKeysPresent() {
+        val o = JSONObject()
+            .put("type", "shadowsocks")
+            .put("plugin", "obfs-local")
+            .put("plugin-opts", JSONObject().put("mode", "http"))
+            .put("plugin_opts", "obfs=http;obfs-host=example.com")
+        ConfigCompat.sanitizeOutbound(o)
+        // The kernel rejects unknown outbound fields; the hyphen variant
+        // must go even when the underscore variant already exists.
+        assertFalse(o.has("plugin-opts"))
+        assertEquals("obfs=http;obfs-host=example.com", o.getString("plugin_opts"))
+    }
+
+    @Test
+    fun stripBrokenDnsDetoursKeepsEndpointDetour() {
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
+            .put(
+                "endpoints",
+                JSONArray().put(JSONObject().put("type", "wireguard").put("tag", "wg-out")),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("type", "https")
+                            .put("tag", "remote")
+                            .put("server", "8.8.8.8")
+                            .put("detour", "wg-out"),
+                    ),
+                ),
+            )
+        assertFalse(ConfigCompat.stripBrokenDnsDetours(root))
+        val server = root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0)
+        assertEquals("wg-out", server.getString("detour"))
+    }
+
 }

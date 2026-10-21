@@ -17,6 +17,7 @@ object SubscriptionUpdateHealth {
     private const val KEY_FAIL_PREFIX = "fail_"
     private const val KEY_ERROR_PREFIX = "err_"
     private const val KEY_WARN_PREFIX = "warn_"
+    private const val KEY_ATTEMPT_PREFIX = "attempt_"
 
     /** 连续失败达到该次数后在仪表盘横幅提醒 */
     const val FAILURE_ALERT_THRESHOLD = 3
@@ -24,13 +25,77 @@ object SubscriptionUpdateHealth {
     /** 流量用到该比例后提醒「即将用尽」 */
     private const val QUOTA_WARN_RATIO = 0.9f
 
+    /** E-1 退避基数：首次失败后至少等这么久再由后台重试，之后翻倍。 */
+    private const val BACKOFF_BASE_SECONDS = 900L
+
+    /**
+     * E-8: 流量类结论只认这么新的 userinfo 快照。快照只在抓取成功时刷新，
+     * 关掉自动更新后它可以是几周前的值——拿旧值报「流量已用尽」是误报；
+     * 过期判断是绝对时间，不受这条影响。
+     */
+    private const val QUOTA_SNAPSHOT_MAX_AGE_MS = 7L * 24 * 3600 * 1000
+
     fun recordSuccess(context: Context, profileId: Long) {
         if (profileId < 0L) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_FAIL_PREFIX + profileId)
             .remove(KEY_ERROR_PREFIX + profileId)
+            .remove(KEY_ATTEMPT_PREFIX + profileId)
+            // X-4: 成功更新（含前台手动更新）必须清掉旧的「跳过/修正」警告，
+            // 否则横幅会一直展示上一次后台更新留下的旧内容。本次更新若仍有
+            // 警告，调用方在 recordSuccess 之后用 recordImportWarnings 重记。
+            .remove(KEY_WARN_PREFIX + profileId)
             .apply()
+    }
+
+    /** E-1: 每次真正发起抓取尝试时记时间戳，成功/失败都记。 */
+    fun recordAttempt(context: Context, profileId: Long) {
+        if (profileId < 0L) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_ATTEMPT_PREFIX + profileId, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun lastAttempt(context: Context, profileId: Long): Long {
+        if (profileId < 0L) return 0L
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_ATTEMPT_PREFIX + profileId, 0L)
+    }
+
+    /**
+     * E-1: 失败后的退避秒数。指数增长（15m、30m、1h、2h…），但永远不超过
+     * 该订阅自己的更新间隔——退避不会把正常订阅饿死，最差也按它自己的
+     * 周期重试一次；手动更新不走这条判断，永远直通。
+     */
+    internal fun backoffSeconds(failureStreak: Int, intervalSeconds: Long): Long {
+        if (failureStreak <= 0 || intervalSeconds <= 0L) return 0L
+        var backoff = BACKOFF_BASE_SECONDS
+        var doublings = failureStreak - 1
+        while (doublings > 0 && backoff < intervalSeconds) {
+            backoff = minOf(backoff * 2, intervalSeconds)
+            doublings--
+        }
+        return minOf(backoff, intervalSeconds)
+    }
+
+    /**
+     * E-1: 到期判断。lastUpdated 只在成功时更新，单看它会让失败（包括 404
+     * 这类永久失败）的订阅在每个 worker 周期里被全阶梯重抓。现在叠加
+     * 「距上次尝试须超过退避时长」，死订阅不再跟着全场最短周期空转。
+     */
+    internal fun isDue(
+        nowMs: Long,
+        lastUpdatedMs: Long,
+        lastAttemptMs: Long,
+        failureStreak: Int,
+        intervalSeconds: Long,
+    ): Boolean {
+        if (intervalSeconds <= 0L) return true
+        if (nowMs - lastUpdatedMs < intervalSeconds * 1000L) return false
+        if (lastAttemptMs <= 0L) return true
+        return nowMs - lastAttemptMs >= backoffSeconds(failureStreak, intervalSeconds) * 1000L
     }
 
     fun recordFailure(context: Context, profileId: Long, error: Throwable) {
@@ -133,7 +198,7 @@ object SubscriptionUpdateHealth {
                     // 已过期就不再重复报流量
                     continue
                 }
-                if (info.hasQuota) {
+                if (info.hasQuota && info.isQuotaFresh(now, QUOTA_SNAPSHOT_MAX_AGE_MS)) {
                     val usage = context.getString(
                         R.string.subscription_health_quota_used,
                         info.usedLabel(),

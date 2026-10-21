@@ -122,4 +122,41 @@ class ConfigDiagnoseTest {
         assertTrue(text.contains("Clash"))
         assertFalse(text.contains("tcp_keep_alive"))
     }
+
+    @Test
+    fun rpcDeathIgnoresParserEof() {
+        // Regression (audit C-低-1): a bare EOF / Unavailable substring in
+        // a genuine config error used to trigger a pointless command
+        // server restart before the real rung ran.
+        assertFalse(ConfigDiagnose.looksLikeRpcDeath("unmarshal config: unexpected EOF"))
+        assertFalse(ConfigDiagnose.looksLikeRpcDeath("decode config: stream error: EOF"))
+        assertTrue(
+            ConfigDiagnose.looksLikeRpcDeath(
+                "reload service: rpc error: code = Unavailable desc = error reading from server: EOF",
+            ),
+        )
+    }
+
+    @Test
+    fun badEchNeedsConfigContext() {
+        // Regression (audit C-低-2): the bare "invalid ech" substring
+        // stripped ECH from the whole subscription on a false positive.
+        assertFalse(ConfigDiagnose.looksLikeBadEch("invalid ech value on some field"))
+        assertTrue(ConfigDiagnose.looksLikeBadEch("invalid ECH configs pem"))
+        assertTrue(ConfigDiagnose.looksLikeBadEch("invalid ech config: parse failed"))
+    }
+
+    @Test
+    fun startTimeoutIsNotDisguisedAsRuleSetFailure() {
+        // Regression (audit C-中-4): a start-budget timeout used to be
+        // fabricated into an "initialize rule-set" error, which poisoned
+        // the stall memory and dropped all remote rule-sets.
+        val marker = "内核启动超过 45 秒没有返回"
+        assertTrue(ConfigDiagnose.looksLikeStartTimeout(marker))
+        assertFalse(ConfigDiagnose.looksLikeRuleSetFailure(marker))
+        assertFalse(ConfigDiagnose.looksLikeRuleSetFailure("内核启动没有返回结果"))
+        val text = ConfigDiagnose.explain(marker, scriptsBound = false)
+        assertTrue(text.contains("超过 45 秒"))
+        assertTrue(text.contains("可能"))
+    }
 }

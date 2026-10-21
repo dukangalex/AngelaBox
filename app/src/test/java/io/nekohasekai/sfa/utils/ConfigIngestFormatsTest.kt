@@ -303,7 +303,10 @@ class ConfigIngestFormatsTest {
         val (result, root) = convert(yaml)
         val all = nodes(root)
         val vision = all.getValue("vision")
-        assertEquals("xtls-rprx-vision-udp443", vision.getString("flow"))
+        // B-1: mihomo's xtls-rprx-vision-udp443 variant is normalized to
+        // the only flow name sing-box accepts; passing it through raw made
+        // the kernel reject the whole config at start.
+        assertEquals("xtls-rprx-vision", vision.getString("flow"))
         assertEquals("0123", vision.getJSONObject("tls").getJSONObject("reality").getString("short_id"))
         assertFalse("vless-enc" in all)
         assertFalse("vmess-http" in all)

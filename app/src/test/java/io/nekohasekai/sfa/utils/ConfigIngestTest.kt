@@ -1220,4 +1220,193 @@ class ConfigIngestTest {
         assertEquals("ws", ob.getJSONObject("transport").getString("type"))
         assertTrue(ob.getJSONObject("tls").getBoolean("enabled"))
     }
+
+    @Test
+    fun clashVlessVisionUdp443FlowIsNormalized() {
+        val yaml = """
+            proxies:
+              - {name: vision-udp, type: vless, server: 203.0.113.7, port: 443, uuid: 11111111-1111-1111-1111-111111111111, flow: xtls-rprx-vision-udp443, tls: true}
+            proxy-groups:
+              - {name: PROXY, type: select, proxies: [vision-udp]}
+            rules:
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal == null)
+        val node = outbound(result.content, "vision-udp")
+        // sing-box accepts only the canonical flow name; the mihomo
+        // variant must be normalized, never passed through raw (an
+        // unknown flow makes the kernel reject the whole config).
+        assertEquals("xtls-rprx-vision", node.getString("flow"))
+    }
+
+    @Test
+    fun vmessJsonWithOutOfRangePortIsSkippedNotFatal() {
+        val json = """
+            [
+              {"v":"2","ps":"bad-port","add":"example.com","port":"70000","id":"11111111-1111-1111-1111-111111111111","aid":"0","scy":"auto","net":"tcp","tls":""},
+              {"v":"2","ps":"good-port","add":"example.com","port":"443","id":"11111111-1111-1111-1111-111111111111","aid":"0","scy":"auto","net":"tcp","tls":"tls"}
+            ]
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertTrue(result.fatal == null)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("good-port"))
+        assertFalse(tags.contains("bad-port"))
+    }
+
+    @Test
+    fun xrayOutboundWithOutOfRangePortIsSkipped() {
+        val json = """
+            {
+              "outbounds": [
+                {
+                  "tag": "xray-bad-port",
+                  "protocol": "vless",
+                  "settings": {"vnext": [{"address": "x.example.com", "port": 70000, "users": [{"id": "11111111-1111-1111-1111-111111111111"}]}]},
+                  "streamSettings": {"network": "tcp"}
+                },
+                {
+                  "tag": "xray-good",
+                  "protocol": "vless",
+                  "settings": {"vnext": [{"address": "x.example.com", "port": 443, "users": [{"id": "11111111-1111-1111-1111-111111111111"}]}]},
+                  "streamSettings": {"network": "tcp"}
+                }
+              ]
+            }
+        """.trimIndent()
+        val result = ConfigIngest.adapt(json)
+        assertTrue(result.fatal == null)
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).optString("tag") }
+        assertTrue(tags.contains("xray-good"))
+        assertFalse(tags.contains("xray-bad-port"))
+    }
+
+    @Test
+    fun clashDuplicateProxyNamesAreCountedInNotes() {
+        val yaml = """
+            proxies:
+              - {name: dup, type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: pw}
+              - {name: dup, type: ss, server: 192.0.2.2, port: 8388, cipher: aes-128-gcm, password: pw}
+              - {name: solo, type: ss, server: 192.0.2.3, port: 8388, cipher: aes-128-gcm, password: pw}
+            proxy-groups:
+              - {name: pick, type: select, proxies: [dup, solo]}
+            rules:
+              - MATCH,pick
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertTrue(result.fatal == null)
+        // Dropping the second same-named node is fine (mihomo semantics);
+        // dropping it silently is not.
+        assertTrue(result.notes.any { it.contains("同名节点") })
+        val tags = (0 until JSONObject(result.content).getJSONArray("outbounds").length())
+            .map { JSONObject(result.content).getJSONArray("outbounds").getJSONObject(it).optString("tag") }
+        assertEquals(1, tags.count { it == "dup" })
+    }
+
+    @Test
+    fun echQueryRouteIgnoresNonHttpsEchPrefixedServer() {
+        // An unrelated UDP resolver whose tag merely starts with "ech-"
+        // must not be claimed as the ECH query server.
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "vless").put("tag", "n")
+                        .put(
+                            "tls",
+                            JSONObject().put(
+                                "ech",
+                                JSONObject()
+                                    .put("enabled", true)
+                                    .put("query_server_name", "cloudflare-ech.com"),
+                            ),
+                        ),
+                ),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(
+                        JSONObject().put("type", "udp").put("tag", "ech-plain").put("server", "8.8.8.8"),
+                    ),
+                ),
+            )
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        val fallback = (0 until servers.length()).map { servers.getJSONObject(it) }
+            .first { it.optString("type") == "https" }
+        val rules = root.getJSONObject("dns").getJSONArray("rules")
+        assertEquals(fallback.getString("tag"), rules.getJSONObject(0).getString("server"))
+        assertFalse(rules.getJSONObject(0).getString("server") == "ech-plain")
+    }
+
+    @Test
+    fun echQueryRouteKeepsPerHintServers() {
+        // Each query name already routed to its own hint DoH server must
+        // stay there — no collapse onto the first ech- server.
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(
+                        JSONObject().put("type", "vless").put("tag", "n1")
+                            .put(
+                                "tls",
+                                JSONObject().put(
+                                    "ech",
+                                    JSONObject()
+                                        .put("enabled", true)
+                                        .put("query_server_name", "a.example.com"),
+                                ),
+                            ),
+                    )
+                    .put(
+                        JSONObject().put("type", "vless").put("tag", "n2")
+                            .put(
+                                "tls",
+                                JSONObject().put(
+                                    "ech",
+                                    JSONObject()
+                                        .put("enabled", true)
+                                        .put("query_server_name", "b.example.com"),
+                                ),
+                            ),
+                    ),
+            )
+            .put(
+                "dns",
+                JSONObject()
+                    .put(
+                        "servers",
+                        JSONArray()
+                            .put(
+                                JSONObject().put("type", "https").put("tag", "ech-dns-a-com")
+                                    .put("server", "dns.a.com").put("domain_resolver", "local"),
+                            )
+                            .put(
+                                JSONObject().put("type", "https").put("tag", "ech-dns-b-com")
+                                    .put("server", "dns.b.com").put("domain_resolver", "local"),
+                            ),
+                    )
+                    .put(
+                        "rules",
+                        JSONArray()
+                            .put(
+                                JSONObject().put("domain", JSONArray().put("a.example.com"))
+                                    .put("action", "route").put("server", "ech-dns-a-com"),
+                            )
+                            .put(
+                                JSONObject().put("domain", JSONArray().put("b.example.com"))
+                                    .put("action", "route").put("server", "ech-dns-b-com"),
+                            ),
+                    ),
+            )
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+    }
+
 }

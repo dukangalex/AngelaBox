@@ -129,7 +129,7 @@ def main() -> int:
         errors.append("isFinalLike missing; 漏网之鱼 would be locked as entry again")
     if "landing/exit" not in chain and "public IP" not in chain:
         errors.append("chain compiler should document packet path: entry first, landing last")
-    if "if (sameProfile) add(req.landingTag)" not in chain:
+    if "if (sameProfile) add(landingSourceTag)" not in chain:
         errors.append("cross-profile landing tags must not be extraExcluded from the entry hop")
     if "rewriteDnsDetours" in chain:
         errors.append("compiler must not rewrite DNS detours onto the chain")

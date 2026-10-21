@@ -130,10 +130,25 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
         mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
-        mark(ConfigInboundCompat.healRemoteRuleSets(root), "无效规则集已换成官方地址")
+        // 换官方版会改变分流语义，逐个点名，不许只留一句笼统提示。
+        val rsHeal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        if (rsHeal.swapped.isNotEmpty()) {
+            notes += "无效规则集已换成官方地址：${rsHeal.swapped.take(5).joinToString("、")}"
+        }
+        if (rsHeal.dropped.isNotEmpty()) {
+            notes += "官方已下线的规则集已去掉：${rsHeal.dropped.take(5).joinToString("、")}"
+        }
         mark(ConfigIngest.normalizeEchConfigs(root), "节点自带的 ECH 已整理成内核能读的格式")
         ConfigInboundCompat.healDownloadClients(root)
-        mark(ConfigInboundCompat.healMissingOutboundRefs(root), "已清理指向不存在出站的引用")
+        // 改指必须出声：把失效引用改到了哪个分组，写进提示里。
+        val refHeal = ConfigInboundCompat.healMissingOutboundRefsWithReport(root)
+        if (refHeal.changed) {
+            notes += if (refHeal.retargets.isEmpty()) {
+                "已清理指向不存在出站的引用"
+            } else {
+                "已清理指向不存在出站的引用（${refHeal.retargets.take(4).joinToString("、")}）"
+            }
+        }
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
         return notes
     }
@@ -184,6 +199,10 @@ object ConfigNormalize {
     private fun isInfraRule(rule: JSONObject): Boolean {
         val action = rule.optString("action").lowercase()
         if (action == "sniff" || action == "resolve" || action == "hijack-dns") return true
+        // A protocol:dns rule that routes to an outbound is a terminal
+        // user rule in first-match order, not infrastructure — hoisting
+        // it above the user's earlier rules changes what it captures.
+        if (rule.has("outbound")) return false
         return rule.optString("protocol").equals("dns", true)
     }
 

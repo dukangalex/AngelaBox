@@ -5,7 +5,6 @@ import org.json.JSONObject
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.Scriptable
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs user `function main(config)` scripts against the live sing-box JSON.
@@ -23,17 +22,27 @@ object ConfigScriptOverride {
         OverlayScripts.refreshStaleSample()
         val scripts = OverlayScripts.enabledFor(profileId)
         if (scripts.isEmpty()) return
+        applyAll(root, scripts, overlayFlags().toString())
+    }
+
+    /**
+     * All-or-nothing: scripts run against a working copy and [root] is
+     * only rewritten when every script succeeded. A failing script used
+     * to leave the earlier scripts' output in place (already written
+     * back before the failure was reported), so the kernel ran a config
+     * nobody designed; now a failure leaves [root] untouched and the
+     * caller decides the fallback (App overlay switches take over).
+     */
+    internal fun applyAll(root: JSONObject, scripts: List<OverlayScript>, overlayJson: String) {
         var current = root.toString()
-        val failures = mutableListOf<String>()
-        val overlayJson = overlayFlags().toString()
-        scripts.forEach { script ->
-            try {
-                val next = ScriptEngine.run(script.code, current, script.name, overlayJson)
-                JSONObject(next)
-                current = next
+        for (script in scripts) {
+            val next = try {
+                ScriptEngine.run(script.code, current, script.name, overlayJson)
             } catch (e: Exception) {
-                failures += "${script.name}：${e.message ?: "执行失败"}"
+                throw IllegalStateException("${script.name}：${e.message ?: "执行失败"}")
             }
+            JSONObject(next)
+            current = next
         }
         val parsed = JSONObject(current)
         val names = root.names()
@@ -45,9 +54,6 @@ object ConfigScriptOverride {
         while (incoming.hasNext()) {
             val key = incoming.next()
             root.put(key, parsed.get(key))
-        }
-        if (failures.isNotEmpty()) {
-            throw IllegalStateException(failures.joinToString("；"))
         }
     }
 
@@ -73,8 +79,31 @@ object ConfigScriptOverride {
         .put("strictRoute", true)
 
     internal object ScriptEngine {
-        private val factoryReady = AtomicBoolean(false)
         private val deadline = ThreadLocal<Long>()
+
+        /**
+         * Dedicated factory, never the process-global one: the 5 s
+         * deadline lives in [factory]'s instruction observer, and the
+         * old lazy global install silently never happened when another
+         * component had already installed a global factory — scripts
+         * could then run forever. A private factory's contexts always
+         * carry the observer, whatever the global state is.
+         */
+        private val factory: ContextFactory = object : ContextFactory() {
+            override fun makeContext(): Context {
+                val cx = super.makeContext()
+                cx.setInstructionObserverThreshold(20_000)
+                cx.setOptimizationLevel(-1)
+                return cx
+            }
+
+            override fun observeInstructionCount(cx: Context, instructionCount: Int) {
+                val limit = deadline.get() ?: return
+                if (System.currentTimeMillis() > limit) {
+                    throw IllegalStateException("脚本执行超时")
+                }
+            }
+        }
 
         fun run(
             code: String,
@@ -91,9 +120,21 @@ object ConfigScriptOverride {
             if (!code.contains("function main")) {
                 throw IllegalStateException("脚本需要 function main(config)")
             }
-            ensureFactory()
-            val cx = Context.enter()
             deadline.set(System.currentTimeMillis() + TIMEOUT_MS)
+            try {
+                return factory.call { cx -> runWithContext(cx, code, configJson, name, overlayJson) }
+            } finally {
+                deadline.remove()
+            }
+        }
+
+        private fun runWithContext(
+            cx: Context,
+            code: String,
+            configJson: String,
+            name: String,
+            overlayJson: String?,
+        ): String {
             try {
                 cx.setOptimizationLevel(-1)
                 cx.languageVersion = Context.VERSION_ES6
@@ -143,36 +184,18 @@ object ConfigScriptOverride {
                     })();
                 """.trimIndent()
                 val result = cx.evaluateString(scope, wrapped, name.ifBlank { "overlay" }, 1, null)
-                return Context.toString(result)
+                val out = Context.toString(result)
+                // Rhino has no heap cap; the output size is the practical
+                // bound on what a runaway script can allocate its way into
+                // (a ballooning config is also useless to the kernel).
+                if (out.length > MAX_JSON_CHARS) {
+                    throw IllegalStateException("脚本产出的配置过大")
+                }
+                return out
             } catch (e: Throwable) {
                 val message = e.message?.take(240) ?: "脚本执行失败"
                 throw IllegalStateException(message, e)
-            } finally {
-                deadline.remove()
-                Context.exit()
             }
-        }
-
-        private fun ensureFactory() {
-            if (!factoryReady.compareAndSet(false, true)) return
-            if (ContextFactory.hasExplicitGlobal()) return
-            ContextFactory.initGlobal(
-                object : ContextFactory() {
-                    override fun makeContext(): Context {
-                        val cx = super.makeContext()
-                        cx.setInstructionObserverThreshold(20_000)
-                        cx.setOptimizationLevel(-1)
-                        return cx
-                    }
-
-                    override fun observeInstructionCount(cx: Context, instructionCount: Int) {
-                        val limit = deadline.get() ?: return
-                        if (System.currentTimeMillis() > limit) {
-                            throw IllegalStateException("脚本执行超时")
-                        }
-                    }
-                },
-            )
         }
     }
 }
