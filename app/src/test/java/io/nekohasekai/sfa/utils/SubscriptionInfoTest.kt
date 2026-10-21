@@ -71,6 +71,28 @@ class SubscriptionInfoTest {
     }
 
     @Test
+    fun quotaFreshnessWindow() {
+        // E-8: quota conclusions may only be drawn from a fresh snapshot;
+        // the userinfo snapshot can be weeks old when auto-update is off.
+        val now = 1_700_000_000_000L
+        val weekMs = 7L * 24 * 3600 * 1000
+        val fresh = SubscriptionInfo.parse(
+            "upload=1; download=2; total=100",
+            fetchedAt = now - 3600_000L,
+        )
+        requireNotNull(fresh)
+        assertTrue(fresh.isQuotaFresh(now, weekMs))
+        val stale = SubscriptionInfo.parse(
+            "upload=1; download=2; total=100",
+            fetchedAt = now - 30L * 24 * 3600 * 1000,
+        )
+        requireNotNull(stale)
+        assertFalse(stale.isQuotaFresh(now, weekMs))
+        // No snapshot timestamp at all: not fresh.
+        assertFalse(SubscriptionInfo(fetchedAt = 0L).isQuotaFresh(now, weekMs))
+    }
+
+    @Test
     fun parseClampsNegativeValuesToZero() {
         // v1.0.112: negative upload/download/total must be clamped to 0, not propagated.
         val info = SubscriptionInfo.parse("upload=-5; download=-10; total=-100; expire=4102358400")

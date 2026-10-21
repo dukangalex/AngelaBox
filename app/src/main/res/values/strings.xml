@@ -241,6 +241,12 @@
     <string name="per_app_proxy_mode_include_description">Whitelist: only checked apps go through the VPN. Scan overseas apps, then apply. System and vendor framework packages are never auto-selected.</string>
     <string name="per_app_proxy_mode_exclude">Exclude</string>
     <string name="per_app_proxy_mode_exclude_description">Blacklist: checked apps go direct. Scan China apps, then apply. System and vendor framework packages are never auto-selected.</string>
+    <string name="per_app_proxy_managed_banner">Managed mode is on: the automatically scanned China-app list is what takes effect (exclude mode). The manual mode and app list below do not apply until managed mode is turned off under Per-App Proxy in the profile override settings.</string>
+    <string name="per_app_proxy_manage_managed_hint">Managed mode is on — manual settings do not apply</string>
+    <string name="per_app_proxy_managed_precedence">While managed mode is on, the manual mode and app list do not apply</string>
+    <string name="exclude_cn_quic_ruleset_note">Note: the China exemption needs the geoip-cn / geosite-cn rule sets in the profile. When the profile does not carry them, the exemption cannot match and all UDP 443 is rejected.</string>
+    <string name="auto_start_skipped_title">Auto start skipped this time</string>
+    <string name="auto_start_skipped_text">An unread crash report was found, so AngelaBox did not start automatically at boot. Auto start stays on and will run at the next boot; tap to open the app and start it now.</string>
     <string name="per_app_proxy_action_copy">Copy</string>
     <string name="per_app_proxy_action_copy_package_name">Package Name</string>
     <string name="per_app_proxy_action_copy_uid">UID</string>
@@ -878,6 +884,7 @@
     <string name="checkup_tunnel_ok">TUN is working</string>
     <string name="checkup_tunnel_not_started">Service not started, skipped</string>
     <string name="checkup_tunnel_timeout">Probe timed out</string>
+    <string name="checkup_tunnel_timeout_but_node_ok">Probe timed out, but the node responds — likely a brief hiccup</string>
     <string name="checkup_tunnel_dns_failure">DNS resolution failed</string>
     <string name="checkup_tunnel_http_error">Probe returned HTTP %1$d</string>
     <string name="checkup_tunnel_io_error">Network error</string>
@@ -889,6 +896,8 @@
     <string name="checkup_dns_hijacked_local">Local network DNS looks hijacked</string>
     <string name="checkup_latency_ok">Current node: %1$d ms</string>
     <string name="checkup_latency_slow">Current node: %1$d ms, on the slow side</string>
+    <string name="checkup_latency_ok_stale">Current node: %1$d ms (last measured)</string>
+    <string name="checkup_latency_slow_stale">Current node: %1$d ms, on the slow side (last measured)</string>
     <string name="checkup_latency_no_data">Could not measure latency</string>
     <string name="checkup_latency_not_started">Service not started, skipped</string>
     <string name="checkup_subscription_ok">Subscription is healthy</string>
@@ -898,6 +907,7 @@
     <string name="checkup_verdict_service_stopped">Service is not running: start it first; tunnel checks were skipped.</string>
     <string name="checkup_verdict_subscription_bad">Subscription problem: %1$s</string>
     <string name="checkup_verdict_tunnel_broken">Node unreachable: try another node, or the node server may be down.</string>
+    <string name="checkup_verdict_tunnel_uncertain">Probe timed out, but the node itself responds fine (%1$s ms) — likely a momentary hiccup. If pages fail to load, run the checkup again.</string>
     <string name="checkup_verdict_dns_hijacked">Node is fine — the tunnel DNS answers look hijacked. Try another DNS (e.g. 223.5.5.5) or another network.</string>
     <string name="checkup_verdict_node_slow">Node latency is high (%1$s ms): switch to a faster node.</string>
     <string name="checkup_verdict_subscription_unhealthy">Subscription needs attention: %1$s</string>

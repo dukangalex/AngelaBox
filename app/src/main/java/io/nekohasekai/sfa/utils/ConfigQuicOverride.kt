@@ -18,6 +18,11 @@ object ConfigQuicOverride {
         dropRuleSetNeedles: Collection<String> = emptyList(),
         dropAllRemoteRuleSets: Boolean = false,
         stripEch: Boolean = false,
+        // The caller (BoxService) knows which profile this start is for.
+        // Reading Settings.selectedProfile here instead forked the two
+        // facts whenever the selection changed mid-start: this profile's
+        // content could get another profile's scripts / chain binding.
+        profileId: Long = Settings.selectedProfile,
     ): String {
         OverrideStatus.clear()
         val warnings = mutableListOf<OverrideNotice>()
@@ -40,7 +45,6 @@ object ConfigQuicOverride {
         }
         var out = healed.content
 
-        val profileId = Settings.selectedProfile
         val binding = ChainBindings.get(profileId)
         val savedEntry = binding?.entryTag?.trim().orEmpty()
 
@@ -48,10 +52,26 @@ object ConfigQuicOverride {
             var root = JSONObject(out)
             applyLogLevel(root)
             val scripts = if (skipScripts) emptyList() else OverlayScripts.enabledFor(profileId)
-            val scriptOn = scripts.isNotEmpty()
-            if (!skipScripts) {
-                applyOne(warnings, "覆写脚本") {
+            // scriptOn means the scripts actually RAN, not merely that
+            // some are bound: a script that throws applies nothing
+            // (ConfigScriptOverride is all-or-nothing), so the App overlay
+            // switches below must take over instead of yielding to a
+            // script that never wrote anything — and the failure must be
+            // a visible error, not a skippable warning.
+            var scriptOn = false
+            if (scripts.isNotEmpty()) {
+                val failure = runCatching {
                     ConfigScriptOverride.apply(root, profileId)
+                }.exceptionOrNull()
+                if (failure == null) {
+                    scriptOn = true
+                } else {
+                    warnings += OverrideNotice(
+                        title = "覆写脚本未生效",
+                        reason = failure.message ?: "脚本执行失败",
+                        hint = "脚本没有套上，这次已改用应用的覆写开关按订阅原配置加工。绑定还在，修好脚本后再开。",
+                        error = true,
+                    )
                 }
             }
             out = ConfigCompat.sanitize(root.toString())
@@ -59,11 +79,25 @@ object ConfigQuicOverride {
                 ChainRuntimeCompiler.savedEntryMatches(out, savedEntry) == null
             if (binding != null) {
                 try {
-                    out = ConfigChainReapply.apply(out)
+                    out = ConfigChainReapply.apply(out, profileId)
+                    if (ConfigChainReapply.lastLandingNotes.isNotEmpty()) {
+                        warnings += OverrideNotice(
+                            title = "链式落地",
+                            reason = ConfigChainReapply.lastLandingNotes.joinToString("；"),
+                            hint = "",
+                        )
+                    }
+                    if (ConfigChainReapply.lastBothHopsTls) {
+                        warnings += OverrideNotice(
+                            title = "链式两跳均为 TLS",
+                            reason = "入口与落地的节点都使用 TLS，双层 TLS 在部分网络下可能不稳定。",
+                            hint = "若连接异常，可换一个非 TLS 的入口或落地试试。",
+                        )
+                    }
                     if (entryMissing) {
                         warnings += OverrideNotice(
-                            title = "链式入口已随订阅更新",
-                            reason = "保存的入口「$savedEntry」在新订阅里不存在，已自动改用当前配置的主分组。落地绑定仍有效。",
+                            title = "链式入口已失效",
+                            reason = "保存的入口「$savedEntry」在当前生效配置里不存在（订阅更新或脚本改名都可能），已自动改用当前配置的主分组。落地绑定仍有效。",
                             hint = "不必重新配链式。若入口不对，到「工具 → 链式代理」重选一次即可。",
                         )
                     }
@@ -100,7 +134,13 @@ object ConfigQuicOverride {
             // route has nothing to write. Insert a standard TUN at runtime
             // only — do not turn the default script on, and do not edit the
             // subscription file.
-            ConfigInboundCompat.ensureAndroidTun(root)
+            // Structural stages run isolated like the switches below: one
+            // stage throwing must not discard every stage that already
+            // succeeded (the old catch-all returned the pre-pipeline
+            // content and the service "started" with none of this applied).
+            applyOne(warnings, "TUN 入站") {
+                ConfigInboundCompat.ensureAndroidTun(root)
+            }
             // Script already honored overlay.* . Writing the same blocks
             // here would be a second rule set and can break routing.
             applyOne(warnings, "中国直连") {
@@ -136,35 +176,63 @@ object ConfigQuicOverride {
             // After scripts and chain merge: rewrite 404 remote rule-sets to
             // official testingcf geosite/geoip URLs so APP routing still
             // matches the original tags. Chain landing is untouched.
-            ConfigInboundCompat.applyKernelCompat(root)
-            ConfigInboundCompat.ensureCacheFile(root, Settings.selectedProfile.toString())
-            ConfigInboundCompat.ensureDirectHttpTimeout(root)
-            ConfigNormalize.ensureClashModes(root)
+            applyOne(warnings, "内核兼容") {
+                ConfigInboundCompat.applyKernelCompat(root)
+            }
+            applyOne(warnings, "缓存文件") {
+                ConfigInboundCompat.ensureCacheFile(root, profileId.toString())
+            }
+            applyOne(warnings, "直连超时") {
+                ConfigInboundCompat.ensureDirectHttpTimeout(root)
+            }
+            applyOne(warnings, "模式规则") {
+                // ensureClashModes injects Global/Direct rules and reorders
+                // route rules — it IS config normalization, so the switch
+                // gates it too. It used to run unconditionally, rewriting
+                // the runtime config after the user turned normalization
+                // off, with no notice.
+                if (Settings.configNormalize) ConfigNormalize.ensureClashModes(root)
+            }
             if (BuildConfig.KERNEL_UPSTREAM.startsWith("1.15")) {
-                applyOnDemand(root, Settings.onDemand)
+                applyOne(warnings, "按需连接") {
+                    applyOnDemand(root, Settings.onDemand)
+                }
             }
-            ConfigCompat.stripBrokenDnsDetours(root)
+            applyOne(warnings, "DNS detour 清理") {
+                ConfigCompat.stripBrokenDnsDetours(root)
+            }
             if (stripEch) {
-                ConfigIngest.stripEch(root)
+                applyOne(warnings, "ECH 剥离") {
+                    ConfigIngest.stripEch(root)
+                }
             }
-            if (replaceRuleSetNeedles.isNotEmpty()) {
-                ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
-            }
-            if (dropAllRemoteRuleSets) {
-                ConfigInboundCompat.dropAllRemoteRuleSets(root)
-            } else if (dropRuleSetNeedles.isNotEmpty()) {
-                ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
+            applyOne(warnings, "规则集处理") {
+                if (replaceRuleSetNeedles.isNotEmpty()) {
+                    ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
+                }
+                if (dropAllRemoteRuleSets) {
+                    ConfigInboundCompat.dropAllRemoteRuleSets(root)
+                } else if (dropRuleSetNeedles.isNotEmpty()) {
+                    ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
+                }
             }
             out = root.toString()
         } catch (e: ChainApplyException) {
             throw e
         } catch (e: Exception) {
-            warnings += OverrideNotice(
-                title = "网络增强开关部分未生效",
-                reason = e.message ?: "覆盖失败",
-                hint = "请检查配置是否含 TUN/路由段，或临时关闭对应开关。",
-                error = true,
+            // A fatal here (e.g. the post-script sanitize rejects the
+            // script's output) means the processed config cannot be
+            // trusted: hard-stop with the reason instead of silently
+            // starting the raw subscription with no chain / no overlays.
+            OverrideStatus.set(
+                warnings + OverrideNotice(
+                    title = "配置加工失败，已停止启动",
+                    reason = e.message ?: "覆盖失败",
+                    hint = "没有用未加工的订阅原文启动。关掉脚本或对应开关后再试。",
+                    error = true,
+                ),
             )
+            throw IllegalStateException("配置加工失败，已停止启动：${e.message ?: "未知错误"}", e)
         }
 
         OverrideStatus.set(warnings)

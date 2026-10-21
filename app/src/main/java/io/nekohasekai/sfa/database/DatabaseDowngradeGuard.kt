@@ -17,13 +17,37 @@ internal object DatabaseDowngradeGuard {
     fun backupIfNewer(context: Context, name: String, currentVersion: Int) {
         val file = context.getDatabasePath(name)
         if (!file.isFile) return
-        val onDisk = runCatching {
+        val onDisk = readVersion(file, name) ?: return
+        if (onDisk <= currentVersion) return
+        copyAside(file, onDisk)
+        Log.w(TAG, "$name is schema v$onDisk, newer than v$currentVersion; backed up before downgrade")
+    }
+
+    /**
+     * Same backup, but for any version mismatch. The settings store only
+     * keeps destructive fallback on downgrade; an upgrade that ever bumps
+     * the schema version without a registered Migration fails loudly
+     * instead of wiping — and with this copy aside the data stays
+     * recoverable either way (audit F-7).
+     */
+    fun backupIfVersionMismatch(context: Context, name: String, currentVersion: Int) {
+        val file = context.getDatabasePath(name)
+        if (!file.isFile) return
+        val onDisk = readVersion(file, name) ?: return
+        if (onDisk == currentVersion) return
+        copyAside(file, onDisk)
+        Log.w(TAG, "$name is schema v$onDisk, app expects v$currentVersion; backed up before open")
+    }
+
+    private fun readVersion(file: File, name: String): Int? =
+        runCatching {
             SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { it.version }
         }.getOrElse {
             Log.w(TAG, "read version of $name", it)
-            return
+            null
         }
-        if (onDisk <= currentVersion) return
+
+    private fun copyAside(file: File, onDisk: Int) {
         for (suffix in listOf("", "-wal", "-shm", "-journal")) {
             val src = File(file.path + suffix)
             if (!src.isFile) continue
@@ -31,6 +55,5 @@ internal object DatabaseDowngradeGuard {
                 src.copyTo(File(file.path + ".v$onDisk.bak$suffix"), overwrite = true)
             }.onFailure { Log.w(TAG, "back up ${src.name}", it) }
         }
-        Log.w(TAG, "$name is schema v$onDisk, newer than v$currentVersion; backed up before downgrade")
     }
 }

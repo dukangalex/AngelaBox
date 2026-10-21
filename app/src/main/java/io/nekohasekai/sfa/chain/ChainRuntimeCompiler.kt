@@ -38,6 +38,34 @@ object ChainRuntimeCompiler {
 
     data class Hop(val profileId: Long, val profileName: String, val tag: String, val type: String)
 
+    /** Deterministic tag of the chain outbound compiled for a binding. */
+    fun chainTag(currentProfileId: Long, landingProfileId: Long): String =
+        "$GENERATED_PREFIX$currentProfileId-$landingProfileId"
+
+    data class CompiledChain(val chainTag: String, val entryTag: String, val landingTag: String)
+
+    /**
+     * Reads the real hop tags out of an already-compiled config. Health
+     * checks and delay tests must probe THESE tags — or [CompiledChain.chainTag]
+     * itself for a true end-to-end measurement: the saved binding names may
+     * not exist in the running kernel once groups were rewritten in place
+     * and the landing graph was cloned under [LANDING_PREFIX].
+     */
+    fun compiledChain(content: String): CompiledChain? {
+        val root = runCatching { JSONObject(content) }.getOrNull() ?: return null
+        val outs = root.optJSONArray("outbounds") ?: return null
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (o.optString("type") != NATIVE_CHAIN_TYPE) continue
+            val tag = o.optString("tag").trim()
+            if (!isGeneratedChainTag(tag)) continue
+            val hops = o.optJSONArray("outbounds") ?: continue
+            if (hops.length() < 2) continue
+            return CompiledChain(tag, hops.optString(0).trim(), hops.optString(1).trim())
+        }
+        return null
+    }
+
     fun apply(req: ApplyRequest): String {
         require(req.landingTag.isNotEmpty()) { "未选择链式落地出口" }
         val root = parseConfig(req.content, "当前配置")
@@ -54,38 +82,45 @@ object ChainRuntimeCompiler {
         // compiler only clones outbounds, so they can sit in the entry group
         // (resolved at runtime by the outbound manager) but not on the landing.
         val endpoints = endpointTags(root)
+        // The saved landing name gets the same rename tolerance as the entry
+        // (emoji-prefix drift from scripts or subscription updates).
+        val landingSourceTag: String
         val landingMergedTag = if (sameProfile) {
-            require(req.landingTag != main) { "入口与落地不能是同一个 outbound" }
-            require(req.landingTag !in endpoints) { "WireGuard/WARP 等 endpoint 不能作为链式落地：${req.landingTag}" }
-            find(outs, req.landingTag) ?: error("落地 outbound 不存在：${req.landingTag}")
-            prepareGroupHop(outs, req.landingTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true, endpoints = endpoints)
+            landingSourceTag = matchExistingTag(outs, req.landingTag) ?: req.landingTag
+            require(landingSourceTag != main) { "入口与落地不能是同一个 outbound" }
+            require(landingSourceTag !in endpoints) { "WireGuard/WARP 等 endpoint 不能作为链式落地：$landingSourceTag" }
+            find(outs, landingSourceTag) ?: error("落地 outbound 不存在：$landingSourceTag")
+            prepareGroupHop(outs, landingSourceTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true, endpoints = endpoints)
         } else {
             val landingRoot = parseConfig(req.landingContent!!, "落地配置")
             val landingOuts = landingRoot.optJSONArray("outbounds") ?: error("落地配置没有 outbounds")
-            mergeLandingGraph(outs, landingOuts, req.landingProfileId, req.landingTag, endpointTags(landingRoot))
+            landingSourceTag = matchExistingTag(landingOuts, req.landingTag) ?: req.landingTag
+            mergeLandingGraph(outs, landingOuts, req.landingProfileId, landingSourceTag, endpointTags(landingRoot))
         }
 
         val entryExclude = buildSet {
             add(landingMergedTag)
-            if (sameProfile) add(req.landingTag)
+            if (sameProfile) add(landingSourceTag)
         }
         // Same profile: entry and landing groups often share nodes, so both
-        // hops could pick the same one (us-1 → us-1). Drop the landing's nodes
-        // from the entry group's own member list, only at the top level since
-        // nested groups are shared with rules. If that leaves the entry empty,
-        // fall back to the old behaviour. A failed attempt does not touch the
-        // root group, and nested rewrites are the same on the retry.
+        // hops could pick the same one (us-1 → us-1). Drop the landing's
+        // leaves from the entry group at EVERY depth: a landing leaf left
+        // inside a nested region group is still selectable there and would
+        // loop the chain onto itself. If that leaves the entry empty, fall
+        // back to the old behaviour. A failed attempt does not touch the
+        // root group (nested groups that empty out are dropped without
+        // being rewritten), and groups it did rewrite stay valid on retry.
         val landingLeaves = if (sameProfile) leafTags(outs, landingMergedTag) else emptySet()
         val entryHop = runCatching {
             require(landingLeaves.isNotEmpty())
             prepareGroupHop(
                 outs, main, entryExclude, ENTRY_PREFIX, inPlace = true,
-                endpoints = endpoints, allowEndpoints = true, topLevelExclude = landingLeaves,
+                endpoints = endpoints, allowEndpoints = true, excludeLeaves = landingLeaves,
             )
         }.getOrElse {
             prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true, endpoints = endpoints, allowEndpoints = true)
         }
-        val chainTag = "$GENERATED_PREFIX${req.currentProfileId}-${req.landingProfileId}"
+        val chainTag = chainTag(req.currentProfileId, req.landingProfileId)
         removeOutbound(outs, chainTag)
         outs.put(JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
             .put("outbounds", JSONArray().put(entryHop).put(landingMergedTag)))
@@ -225,8 +260,11 @@ object ChainRuntimeCompiler {
     internal fun pinHopServerResolvers(root: JSONObject, entryTag: String, landingTag: String) {
         val outs = root.optJSONArray("outbounds") ?: return
         val risky = proxyDetourDnsTags(root)
+        val known = dnsServerTags(root)
         val fallback = resolverName(root.optJSONObject("route")?.opt("default_domain_resolver"))
-        val fallbackRisky = fallback.isNotEmpty() && fallback in risky
+        // A fallback that only resolves through the proxy — or not at all —
+        // leaves a resolver-less leaf just as stranded as a risky one.
+        val fallbackBad = fallback.isNotEmpty() && (fallback in risky || fallback !in known)
         val leaves = ArrayList<JSONObject>()
         collectLeafObjects(outs, entryTag, leaves, HashSet())
         collectLeafObjects(outs, landingTag, leaves, HashSet())
@@ -234,8 +272,14 @@ object ChainRuntimeCompiler {
         for (leaf in leaves) {
             val current = resolverName(leaf.opt("domain_resolver"))
             val needsDirect = when {
-                current.isEmpty() -> fallbackRisky
-                else -> current in risky
+                current.isEmpty() -> fallbackBad
+                current in risky -> true
+                // Cloned landing leaves keep the landing profile's resolver
+                // names; only the entry profile's DNS is merged in, so a
+                // name it does not define dangles and the kernel may refuse
+                // to start. Repoint it at a direct resolver like a risky one.
+                current !in known -> true
+                else -> false
             }
             if (!needsDirect) continue
             val tag = direct ?: directDnsTag(root) ?: ensureLocalDns(root)
@@ -247,6 +291,10 @@ object ChainRuntimeCompiler {
     internal fun pinTrafficToChain(root: JSONObject, chainTag: String, landingTag: String, entryTags: Set<String> = emptySet()) {
         val outs = root.optJSONArray("outbounds") ?: return
         val protected = mutableSetOf(chainTag, landingTag)
+        // Rules may legitimately target an endpoint (WireGuard/WARP exit).
+        // Endpoints are not outbounds, so without this they look unprotected
+        // and get rewritten onto the chain.
+        protected += endpointTags(root)
         val directTags = mutableSetOf<String>()
         for (i in 0 until outs.length()) {
             val o = outs.optJSONObject(i) ?: continue
@@ -271,14 +319,21 @@ object ChainRuntimeCompiler {
         if (sets.any { it.contains('!') }) return false
         val suffixes = textsOf(rule, "domain_suffix")
         val cidrs = textsOf(rule, "ip_cidr")
-        val extra = textsOf(rule, "domain") + textsOf(rule, "domain_keyword") +
-            textsOf(rule, "domain_regex") + textsOf(rule, "ip_cidr6")
-        if (extra.isNotEmpty()) return false
+        // Keyword/regex matchers can hit anything, so they disqualify the
+        // rule outright. Full domains and v6 CIDRs stay provable instead:
+        // every entry must be a .cn name / a private range, exactly like
+        // the domain_suffix and ip_cidr checks below.
+        if (textsOf(rule, "domain_keyword").isNotEmpty() || textsOf(rule, "domain_regex").isNotEmpty()) return false
+        val domains = textsOf(rule, "domain")
+        val cidr6 = textsOf(rule, "ip_cidr6")
+        if (domains.any { !isCnSuffix(it) }) return false
+        if (cidr6.any { !isPrivateCidr(it) }) return false
         if (sets.any { !isExplicitCnRuleSet(it) }) return false
         if (suffixes.any { !isCnSuffix(it) }) return false
         if (cidrs.any { !isPrivateCidr(it) }) return false
         val privateFlag = rule.optBoolean("ip_is_private", false)
-        return privateFlag || sets.isNotEmpty() || suffixes.isNotEmpty() || cidrs.isNotEmpty()
+        return privateFlag || sets.isNotEmpty() || suffixes.isNotEmpty() || cidrs.isNotEmpty() ||
+            domains.isNotEmpty() || cidr6.isNotEmpty()
     }
 
     internal fun isExplicitCnRuleSet(raw: String): Boolean {
@@ -383,7 +438,7 @@ object ChainRuntimeCompiler {
         inPlace: Boolean = false,
         endpoints: Set<String> = emptySet(),
         allowEndpoints: Boolean = false,
-        topLevelExclude: Set<String> = emptySet(),
+        excludeLeaves: Set<String> = emptySet(),
     ): String {
         val visiting = mutableSetOf<String>()
         val rewritten = mutableMapOf<String, String>()
@@ -411,7 +466,7 @@ object ChainRuntimeCompiler {
             for (i in 0 until members.length()) {
                 val member = members.optString(i).trim()
                 if (member.isEmpty() || member in forbiddenTags || member in extraExclude) continue
-                if (depth == 0 && member in topLevelExclude) continue
+                if (member in excludeLeaves) continue
                 if (member in endpoints && find(outs, member) == null) {
                     if (allowEndpoints) mapped.put(member)
                     continue
@@ -433,7 +488,7 @@ object ChainRuntimeCompiler {
             clone.put("outbounds", mapped)
             if (clone.has("default")) {
                 val d = clone.optString("default").trim()
-                if (d.isBlank() || d in forbiddenTags || d in extraExclude || (depth == 0 && d in topLevelExclude)) clone.remove("default")
+                if (d.isBlank() || d in forbiddenTags || d in extraExclude || d in excludeLeaves) clone.remove("default")
                 else {
                     val dObj = find(outs, d)
                     val dType = dObj?.optString("type")
@@ -585,6 +640,16 @@ object ChainRuntimeCompiler {
         if (type in alwaysTlsTypes) return true
         val tls = outbound.optJSONObject("tls") ?: return false
         return tls.optBoolean("enabled", false)
+    }
+
+    private fun dnsServerTags(root: JSONObject): Set<String> {
+        val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return emptySet()
+        val tags = HashSet<String>()
+        for (i in 0 until servers.length()) {
+            val tag = servers.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+            if (tag.isNotEmpty()) tags.add(tag)
+        }
+        return tags
     }
 
     private fun proxyDetourDnsTags(root: JSONObject): Set<String> {

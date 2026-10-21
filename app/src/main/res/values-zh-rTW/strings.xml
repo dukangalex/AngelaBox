@@ -590,6 +590,7 @@
     <string name="checkup_tunnel_ok">TUN 連通正常</string>
     <string name="checkup_tunnel_not_started">服務未啟動，未檢測</string>
     <string name="checkup_tunnel_timeout">探測超時</string>
+    <string name="checkup_tunnel_timeout_but_node_ok">探測超時，但節點有回應，多半是瞬時抖動</string>
     <string name="checkup_tunnel_dns_failure">DNS 解析失敗</string>
     <string name="checkup_tunnel_http_error">探測返回 HTTP %1$d</string>
     <string name="checkup_tunnel_io_error">網路錯誤</string>
@@ -601,6 +602,8 @@
     <string name="checkup_dns_hijacked_local">本地網路 DNS 疑似被劫持</string>
     <string name="checkup_latency_ok">當前節點 %1$dms</string>
     <string name="checkup_latency_slow">當前節點 %1$dms，延遲偏高</string>
+    <string name="checkup_latency_ok_stale">當前節點 %1$dms（上次測得）</string>
+    <string name="checkup_latency_slow_stale">當前節點 %1$dms，延遲偏高（上次測得）</string>
     <string name="checkup_latency_no_data">測不出延遲</string>
     <string name="checkup_latency_not_started">服務未啟動，未檢測</string>
     <string name="checkup_subscription_ok">訂閱正常</string>
@@ -610,6 +613,7 @@
     <string name="checkup_verdict_service_stopped">服務沒啟動：先點啟動，隧道相關的兩項這次沒測。</string>
     <string name="checkup_verdict_subscription_bad">訂閱有問題：%1$s</string>
     <string name="checkup_verdict_tunnel_broken">節點連不上：換個節點試試，也可能是節點伺服器掛了。</string>
+    <string name="checkup_verdict_tunnel_uncertain">探測超時了，但節點本身回應正常（%1$sms）——多半是瞬時抖動。如果網頁打不開，再體檢一次看看。</string>
     <string name="checkup_verdict_dns_hijacked">節點沒問題，是隧道 DNS 返回疑似被劫持了：換個 DNS（如 223.5.5.5）或換個網路試試。</string>
     <string name="checkup_verdict_node_slow">節點延遲太高（%1$sms）：換個延遲低的節點。</string>
     <string name="checkup_verdict_subscription_unhealthy">訂閱需要關注：%1$s</string>

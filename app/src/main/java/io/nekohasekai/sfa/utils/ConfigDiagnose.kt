@@ -19,6 +19,9 @@ object ConfigDiagnose {
             looksLikeRpcDeath(text) -> {
                 "内核刚才没起来，连接已断开。请再点一次启动。"
             }
+            looksLikeStartTimeout(text) -> {
+                "内核启动超过 45 秒没有返回。可能是远程规则集下载慢，也可能是设备或网络慢。应用会跳过远程规则集再试一次。"
+            }
             looksLike(text, "outbound detour not found") -> {
                 val tag = extractAfter(text, "outbound detour not found:")
                 "找不到出站「$tag」。规则集下载或 DNS 还指向旧名字。" +
@@ -121,15 +124,29 @@ object ConfigDiagnose {
 
     fun looksLikeRpcDeath(text: String?): Boolean {
         val t = text.orEmpty()
-        return t.contains("EOF", ignoreCase = true) ||
-            t.contains("Unavailable", ignoreCase = true) ||
-            t.contains("error reading from server", ignoreCase = true) ||
-            t.contains("code = Unavailable", ignoreCase = true)
+        // Narrow on purpose: a bare "EOF" / "Unavailable" substring also
+        // appears inside genuine config errors (a truncated subscription
+        // reports "unexpected EOF" from the JSON parser), and restarting
+        // the command server for those just wastes one ladder rung and
+        // muddies the attribution. Config-format errors are never RPC death.
+        if (looksLike(t, "decode config") || looksLike(t, "unmarshal")) return false
+        return looksLike(t, "error reading from server") ||
+            looksLike(t, "code = Unavailable") ||
+            looksLike(t, "unexpected EOF")
     }
 
     fun looksLikeBadEch(text: String?): Boolean {
         val t = text.orEmpty()
-        return looksLike(t, "invalid ECH configs pem") || looksLike(t, "invalid ech")
+        // Require the config context: a bare "invalid ech" substring can
+        // appear in unrelated errors, and a false positive strips ECH from
+        // the whole subscription for one retry.
+        return looksLike(t, "invalid ECH configs pem") || looksLike(t, "invalid ech config")
+    }
+
+    /** BoxService's own start-budget marker (not a kernel rule-set error). */
+    fun looksLikeStartTimeout(text: String?): Boolean {
+        val t = text.orEmpty()
+        return looksLike(t, "内核启动超过 45 秒") || looksLike(t, "内核启动没有返回结果")
     }
 
     fun looksLikeDomainResolver(text: String?): Boolean {

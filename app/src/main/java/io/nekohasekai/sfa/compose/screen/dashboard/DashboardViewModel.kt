@@ -482,20 +482,25 @@ class DashboardViewModel :
             }
 
             try {
-                val content = ConfigCompat.sanitizeRemote(
+                // X-4: 与后台 worker 同口径——用 Detailed 拿到「跳过/修正」
+                // 提示并记进健康记录，否则前台更新丢节点时用户看不到提示，
+                // 且旧警告会被 recordSuccess 清掉后无新记录可展示。
+                val detailed = ConfigCompat.sanitizeRemoteDetailed(
                     io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                         profile.typed.remoteURL,
                         profile.id,
                         io.nekohasekai.sfa.Application.application,
                     ),
                 )
+                val content = detailed.content
                 Libbox.checkConfig(content)
 
                 // Check if content changed
                 val file = File(profile.typed.path)
                 var contentChanged = false
                 if (!file.exists() || file.readText() != content) {
-                    file.writeText(content)
+                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
                     contentChanged = true
                 }
 
@@ -505,6 +510,11 @@ class DashboardViewModel :
                 SubscriptionUpdateHealth.recordSuccess(
                     io.nekohasekai.sfa.Application.application,
                     profile.id,
+                )
+                SubscriptionUpdateHealth.recordImportWarnings(
+                    io.nekohasekai.sfa.Application.application,
+                    profile.id,
+                    detailed.notes,
                 )
 
                 // Reload profiles

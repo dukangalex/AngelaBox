@@ -74,7 +74,8 @@ object ConfigCompat {
             }
         }
         if (migrateLegacyDns(root)) changed = true
-        if (ConfigInboundCompat.applyKernelCompat(root)) changed = true
+        val ruleSetNotes = mutableListOf<String>()
+        if (ConfigInboundCompat.applyKernelCompat(root, ruleSetNotes)) changed = true
         if (ingested.format != ConfigIngest.Format.SingBox &&
             ConfigInboundCompat.applyStartupPolicy(root)
         ) {
@@ -86,6 +87,7 @@ object ConfigCompat {
         // dropUnsupportedLeaves 在 sanitize 里还会删节点，
         // 在这里记一笔，保证提示能到用户。
         val notes = ingested.notes.toMutableList()
+        notes += ruleSetNotes
         if (droppedLeaves.isNotEmpty()) {
             val names = droppedLeaves.take(5).joinToString("、")
             val suffix = if (droppedLeaves.size > 5) "等" else ""
@@ -118,8 +120,11 @@ object ConfigCompat {
 
     fun sanitizeOutbound(o: JSONObject): Boolean {
         var changed = coerceKeepAliveField(o)
-        if (o.has("plugin-opts") && !o.has("plugin_opts")) {
-            o.put("plugin_opts", o.get("plugin-opts"))
+        if (o.has("plugin-opts")) {
+            if (!o.has("plugin_opts")) {
+                o.put("plugin_opts", o.get("plugin-opts"))
+            }
+            // 两键同存时也要删掉连字符键：内核不认它，残留进存档只会添乱。
             o.remove("plugin-opts")
             changed = true
         }
@@ -214,25 +219,72 @@ object ConfigCompat {
         if (!changed) return emptySet()
         while (outs.length() > 0) outs.remove(0)
         for (i in 0 until keep.length()) outs.put(keep.get(i))
+        // Valid member tags: outbounds AND endpoints. A group may hold a
+        // WireGuard endpoint; pruning those members would gut the group
+        // exactly like stripping a DNS detour to an endpoint would.
         val tags = linkedSetOf<String>()
         for (i in 0 until outs.length()) {
             val tag = outs.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
             if (tag.isNotEmpty()) tags += tag
         }
-        for (i in 0 until outs.length()) {
-            val o = outs.optJSONObject(i) ?: continue
-            val members = o.optJSONArray("outbounds") ?: continue
-            val next = JSONArray()
-            for (j in 0 until members.length()) {
-                val item = members.opt(j)
-                val tag = when (item) {
-                    is String -> item.trim()
-                    is JSONObject -> item.optString("tag").trim()
-                    else -> ""
-                }
-                if (tag.isEmpty() || tag in tags) next.put(members.get(j))
+        val endpoints = root.optJSONArray("endpoints")
+        if (endpoints != null) {
+            for (i in 0 until endpoints.length()) {
+                val tag = endpoints.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (tag.isNotEmpty()) tags += tag
             }
-            o.put("outbounds", next)
+        }
+        fun pruneMembers() {
+            for (i in 0 until outs.length()) {
+                val o = outs.optJSONObject(i) ?: continue
+                val members = o.optJSONArray("outbounds") ?: continue
+                val next = JSONArray()
+                for (j in 0 until members.length()) {
+                    val item = members.opt(j)
+                    val tag = when (item) {
+                        is String -> item.trim()
+                        is JSONObject -> item.optString("tag").trim()
+                        else -> ""
+                    }
+                    if (tag.isEmpty() || tag in tags) next.put(members.get(j))
+                }
+                o.put("outbounds", next)
+            }
+        }
+        pruneMembers()
+        // A group whose members were ALL dropped must not survive as an
+        // empty selector/urltest: the kernel refuses those at startup,
+        // which surfaces as a mystery failure long after import reported
+        // success. Remove emptied groups — cascading, since a parent can
+        // empty out too — and keep route.final on something that exists.
+        // The leaf-drop note in sanitize already covers these removals.
+        val removedGroups = linkedSetOf<String>()
+        while (true) {
+            var removedThisRound = false
+            val survivors = JSONArray()
+            for (i in 0 until outs.length()) {
+                val o = outs.optJSONObject(i) ?: continue
+                val members = o.optJSONArray("outbounds")
+                val tag = o.optString("tag").trim()
+                if (members != null && members.length() == 0 && tag.isNotEmpty()) {
+                    removedGroups += tag
+                    tags.remove(tag)
+                    removedThisRound = true
+                    continue
+                }
+                survivors.put(o)
+            }
+            if (!removedThisRound) break
+            while (outs.length() > 0) outs.remove(0)
+            for (i in 0 until survivors.length()) outs.put(survivors.get(i))
+            pruneMembers()
+        }
+        if (removedGroups.isNotEmpty()) {
+            val route = root.optJSONObject("route")
+            if (route != null && route.optString("final").trim() in removedGroups) {
+                val fallback = firstGroupTag(outs) ?: firstUsableLeafTag(root)
+                if (fallback != null) route.put("final", fallback) else route.remove("final")
+            }
         }
         if (dropped.isNotEmpty() && !hasUsableLeaf(root)) {
             throw IllegalArgumentException(
@@ -240,6 +292,29 @@ object ConfigCompat {
             )
         }
         return dropped
+    }
+
+    private fun firstGroupTag(outs: JSONArray): String? {
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            if (o.optJSONArray("outbounds") == null) continue
+            val tag = o.optString("tag").trim()
+            if (tag.isNotEmpty()) return tag
+        }
+        return null
+    }
+
+    private fun firstUsableLeafTag(root: JSONObject): String? {
+        val outs = root.optJSONArray("outbounds") ?: return null
+        for (i in 0 until outs.length()) {
+            val o = outs.optJSONObject(i) ?: continue
+            val type = o.optString("type").trim().lowercase()
+            if (type.isEmpty() || type in GROUP_OR_DIRECT) continue
+            if (isUnsupportedLeaf(o)) continue
+            val tag = o.optString("tag").trim()
+            if (tag.isNotEmpty()) return tag
+        }
+        return null
     }
 
     private fun isUnsupportedLeaf(o: JSONObject): Boolean {
@@ -250,7 +325,7 @@ object ConfigCompat {
     }
 
     private fun hasUsableLeaf(root: JSONObject): Boolean {
-        val outs = root.optJSONArray("outbounds") ?: return false
+        val outs = root.optJSONArray("outbounds") ?: JSONArray()
         for (i in 0 until outs.length()) {
             val o = outs.optJSONObject(i) ?: continue
             val type = o.optString("type").trim().lowercase()
@@ -258,6 +333,13 @@ object ConfigCompat {
             if (type in GROUP_OR_DIRECT) continue
             if (isUnsupportedLeaf(o)) continue
             return true
+        }
+        // Endpoints are usable egresses too: a profile whose only
+        // remaining node is a WireGuard endpoint is not "all unsupported".
+        val endpoints = root.optJSONArray("endpoints") ?: return false
+        for (i in 0 until endpoints.length()) {
+            val type = endpoints.optJSONObject(i)?.optString("type")?.trim()?.lowercase().orEmpty()
+            if (type.isNotEmpty()) return true
         }
         return false
     }
@@ -560,6 +642,17 @@ object ConfigCompat {
             tags.add(tag)
             if (o.optString("type").equals("direct", true) && isEmptyDirect(o)) {
                 emptyDirect.add(tag)
+            }
+        }
+        // Endpoints (WireGuard) are legal detour targets too — the same
+        // definition ConfigInboundCompat.outboundTags uses. Without this,
+        // a DNS server detoured through a WG endpoint loses its detour at
+        // import and at every startup heal.
+        val endpoints = root.optJSONArray("endpoints")
+        if (endpoints != null) {
+            for (i in 0 until endpoints.length()) {
+                val tag = endpoints.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                if (tag.isNotEmpty()) tags.add(tag)
             }
         }
         var changed = false

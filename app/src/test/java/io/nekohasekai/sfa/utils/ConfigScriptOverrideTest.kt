@@ -520,4 +520,127 @@ class ConfigScriptOverrideTest {
         assertEquals(1200, members(tags["手动选择"]).size)
         assertTrue("took $took ms", took < 4_000)
     }
+
+    private fun script(id: String, name: String, code: String) = OverlayScript(
+        id = id,
+        name = name,
+        enabled = true,
+        source = OverlayScripts.SOURCE_CODE,
+        code = code,
+    )
+
+    @Test
+    fun multiScriptFailureAppliesNothing() {
+        // Regression (audit C-中-1): the first script's output used to be
+        // written back before the second script's failure was reported,
+        // so the kernel ran a half-applied script set.
+        val root = JSONObject().put(
+            "outbounds",
+            JSONArray().put(JSONObject().put("type", "direct").put("tag", "direct")),
+        )
+        val before = root.toString()
+        val good = script("a", "good", "function main(c) { c.injected = true; return c; }")
+        val bad = script("b", "bad", "function main(c) { throw new Error('boom'); }")
+        val thrown = try {
+            ConfigScriptOverride.applyAll(root, listOf(good, bad), "{}")
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+        assertTrue("a failing script must abort the whole apply", thrown != null)
+        assertTrue(thrown!!.message.orEmpty().contains("bad"))
+        assertEquals(before, root.toString())
+    }
+
+    @Test
+    fun multiScriptSuccessAppliesAllInOrder() {
+        val root = JSONObject().put("log", JSONObject().put("level", "info"))
+        val a = script("a", "a", "function main(c) { c.trace = ['a']; return c; }")
+        val b = script("b", "b", "function main(c) { c.trace.push('b'); return c; }")
+        ConfigScriptOverride.applyAll(root, listOf(a, b), "{}")
+        val trace = root.getJSONArray("trace")
+        assertEquals(2, trace.length())
+        assertEquals("a", trace.getString(0))
+        assertEquals("b", trace.getString(1))
+    }
+
+    @Test
+    fun scriptTimeoutIsEnforced() {
+        // Regression (audit C-中-3): the deadline lives in a dedicated
+        // ContextFactory now; it must fire even for an infinite loop.
+        val code = "function main(c) { while (true) { } }"
+        val started = System.currentTimeMillis()
+        val thrown = try {
+            ConfigScriptOverride.ScriptEngine.run(code, "{}", "loop")
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+        val took = System.currentTimeMillis() - started
+        assertTrue("an infinite script must be aborted", thrown != null)
+        var chain = ""
+        var cause: Throwable? = thrown
+        while (cause != null) {
+            chain += cause.message.orEmpty()
+            cause = cause.cause
+        }
+        assertTrue("timeout must be attributed: $chain", chain.contains("超时"))
+        assertTrue("took $took ms", took < 30_000)
+    }
+
+    @Test
+    fun scriptOutputSizeIsCapped() {
+        val code = """
+            function main(c) {
+              var parts = [];
+              for (var i = 0; i < 200000; i++) parts.push("0123456789");
+              c.big = parts.join("");
+              return c;
+            }
+        """.trimIndent()
+        val thrown = try {
+            ConfigScriptOverride.ScriptEngine.run(code, "{}", "big")
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+        assertTrue("an oversized script output must be refused", thrown != null)
+        assertTrue(thrown!!.message.orEmpty().contains("过大"))
+    }
+
+    @Test
+    fun decodeAssignsStableIdWhenMissing() {
+        // Regression (audit C-低-4): a fresh random id per decode never
+        // matched the stored binding, so id-less entries silently never
+        // ran. The fallback id is derived from the content now.
+        val raw = JSONArray()
+            .put(
+                JSONObject()
+                    .put("name", "无 id 脚本")
+                    .put("source", "code")
+                    .put("enabled", true)
+                    .put("code", "function main(c) { return c; }"),
+            )
+            .toString()
+        val first = OverlayScripts.decode(raw).single()
+        val second = OverlayScripts.decode(raw).single()
+        assertTrue(first.id.isNotBlank())
+        assertEquals(first.id, second.id)
+    }
+
+    @Test
+    fun decodeKeepsGoodEntriesWhenOneIsMalformed() {
+        val raw = JSONArray()
+            .put("not-an-object")
+            .put(
+                JSONObject()
+                    .put("id", "ok")
+                    .put("name", "好的")
+                    .put("source", "code")
+                    .put("code", "function main(c) { return c; }"),
+            )
+            .toString()
+        val decoded = OverlayScripts.decode(raw)
+        assertEquals(listOf("ok"), decoded.map { it.id })
+    }
 }

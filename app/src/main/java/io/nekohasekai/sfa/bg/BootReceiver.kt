@@ -39,7 +39,13 @@ class BootReceiver : BroadcastReceiver() {
                 if (Settings.startedByUser) {
                     CrashReportManager.refresh()
                     if (CrashReportManager.unreadCount.value > 0) {
-                        Settings.startedByUser = false
+                        // Skip this boot only. The report may be an old,
+                        // unrelated one; clearing startedByUser here used to
+                        // turn auto start off for good with no explanation
+                        // (audit F-9). The flag stays on, and the user is
+                        // told why this boot did not start.
+                        Log.w("BootReceiver", "auto start skipped: unread crash report")
+                        notifyAutoStartSkipped(context)
                         return@launch
                     }
                     withContext(Dispatchers.Main) {
@@ -58,6 +64,36 @@ class BootReceiver : BroadcastReceiver() {
     companion object {
         private const val UPDATED_CHANNEL_ID = "app_updated"
         private const val UPDATED_NOTIFICATION_ID = 0xA9B0
+        private const val AUTO_START_SKIPPED_CHANNEL_ID = "auto_start_skipped"
+        private const val AUTO_START_SKIPPED_NOTIFICATION_ID = 0xA9B1
+
+        fun notifyAutoStartSkipped(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Application.notification.createNotificationChannel(
+                    NotificationChannel(
+                        AUTO_START_SKIPPED_CHANNEL_ID,
+                        context.getString(R.string.auto_start_skipped_title),
+                        NotificationManager.IMPORTANCE_DEFAULT,
+                    ),
+                )
+            }
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val contentIntent = PendingIntent.getActivity(context, 0, launch, flags)
+            val notification = NotificationCompat.Builder(context, AUTO_START_SKIPPED_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_qs_tile)
+                .setContentTitle(context.getString(R.string.auto_start_skipped_title))
+                .setContentText(context.getString(R.string.auto_start_skipped_text))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.auto_start_skipped_text)))
+                .setContentIntent(contentIntent)
+                .setAutoCancel(true)
+                .build()
+            Application.notification.notify(AUTO_START_SKIPPED_NOTIFICATION_ID, notification)
+        }
 
         fun launchApp(context: Context) {
             val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return

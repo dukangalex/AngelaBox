@@ -307,4 +307,117 @@ class ConfigNormalizeTest {
         assertFalse(refs.contains("geoip-fastly"))
         assertTrue(refs.contains("geoip-cn"))
     }
+
+    @Test
+    fun healRemoteRuleSetsReportsSwappedAndDroppedNames() {
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"},
+                  {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertTrue(heal.changed)
+        // Swapping a provider-hosted set for the official one changes
+        // routing semantics; the report must name exactly what happened.
+        assertTrue(heal.swapped.contains("telegram"))
+        assertTrue(heal.dropped.contains("geoip-fastly"))
+    }
+
+    @Test
+    fun healRemoteRuleSetsKeepsNonObjectEntries() {
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  "not-an-object",
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        // Nothing to heal: the report must say so, and the array must come
+        // through untouched — non-object entries included, never silently
+        // dropped, and the boolean must not claim a change that did not
+        // happen.
+        assertFalse(heal.changed)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(2, sets.length())
+        assertEquals("not-an-object", sets.getString(0))
+    }
+
+    @Test
+    fun healMissingOutboundRefsPrefersRouteFinalGroup() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443},
+                {"type": "selector", "tag": "HK", "outbounds": ["n1"]},
+                {"type": "selector", "tag": "Main", "outbounds": ["n1"]}
+              ],
+              "route": {
+                "final": "Main",
+                "rules": [{"domain": ["x.example.com"], "outbound": "gone"}]
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healMissingOutboundRefsWithReport(root)
+        assertTrue(heal.changed)
+        // A dangling rule must fall back to the profile's main group (the
+        // route.final target), not to whatever group happens to be first —
+        // silently re-routing a rule to a region group inverts intent.
+        assertTrue(heal.retargets.contains("gone → Main"))
+        assertEquals(
+            "Main",
+            root.getJSONObject("route").getJSONArray("rules").getJSONObject(0).getString("outbound"),
+        )
+    }
+
+    @Test
+    fun ensureClashModesKeepsTerminalDnsRuleBehindUserRules() {
+        val root = JSONObject(
+            """
+            {
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "1.2.3.4", "server_port": 443},
+                {"type": "selector", "tag": "proxy", "outbounds": ["n1"]},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {
+                "rules": [
+                  {"domain": ["a.example.com"], "outbound": "proxy"},
+                  {"protocol": "dns", "outbound": "proxy"},
+                  {"protocol": "dns", "action": "hijack-dns"}
+                ],
+                "final": "proxy"
+              }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(ConfigNormalize.ensureClashModes(root))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val list = (0 until rules.length()).map { rules.getJSONObject(it) }
+        // hijack-dns is infrastructure and stays in front…
+        assertEquals("hijack-dns", list[0].getString("action"))
+        // …but the terminal protocol:dns routing rule must not jump ahead
+        // of the user rule that originally preceded it (first-match order).
+        val domainIdx = list.indexOfFirst { it.optJSONArray("domain")?.optString(0) == "a.example.com" }
+        val dnsIdx = list.indexOfFirst { it.optString("protocol") == "dns" && it.has("outbound") }
+        assertTrue(domainIdx in 0 until dnsIdx)
+    }
+
 }

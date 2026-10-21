@@ -18,6 +18,33 @@ object DefaultNetworkMonitor {
 
     @Volatile
     var defaultNetwork: Network? = null
+
+    /**
+     * Name of the physical interface the default network runs on (wlan0,
+     * rmnet_data0, …), or null when unknown. [lastName] is main-thread
+     * state; this volatile snapshot is the read port for other threads
+     * (BoxService keys the rule-set stall memory with it, audit E-4).
+     */
+    @Volatile
+    var currentInterfaceName: String? = null
+        private set
+
+    /** Coarse transport of the current default network, for the stall key. */
+    fun currentTransport(): String? {
+        val network = defaultNetwork ?: return null
+        val caps = try {
+            Application.connectivity.getNetworkCapabilities(network)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+            else -> "other"
+        }
+    }
     @Volatile
     private var listener: InterfaceUpdateListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -155,6 +182,7 @@ object DefaultNetworkMonitor {
         }
         lastName = name
         lastIndex = index
+        currentInterfaceName = name.ifEmpty { null }
         current?.updateDefaultInterface(name, index, false, false)
     }
 

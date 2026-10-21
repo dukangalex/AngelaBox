@@ -64,12 +64,41 @@ object ConfigChinaDirect {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val injected = chinaRouteRules(direct, existingRuleSetTags(route))
         val old = route.optJSONArray("rules") ?: JSONArray()
-        val merged = JSONArray()
-        for (i in 0 until injected.length()) merged.put(injected.get(i))
-        for (i in 0 until old.length()) merged.put(old.get(i))
-        route.put("rules", merged)
+        // Idempotency guard: callers rebuild from the raw profile on every
+        // start today, but a second apply on the SAME root must not stack
+        // another copy of the whole rule block.
+        if (!startsWithRules(old, injected)) {
+            val merged = JSONArray()
+            for (i in 0 until injected.length()) merged.put(injected.get(i))
+            for (i in 0 until old.length()) merged.put(old.get(i))
+            route.put("rules", merged)
+        }
         dropLegacyChinaDns(root)
         ConfigCompat.stripBrokenDnsDetours(root)
+    }
+
+    /** True when [rules] already begins with exactly the [injected] block. */
+    private fun startsWithRules(rules: JSONArray, injected: JSONArray): Boolean {
+        if (injected.length() == 0 || rules.length() < injected.length()) return false
+        for (i in 0 until injected.length()) {
+            val a = rules.optJSONObject(i) ?: return false
+            val b = injected.optJSONObject(i) ?: return false
+            if (fingerprint(a) != fingerprint(b)) return false
+        }
+        return true
+    }
+
+    /** Key-order-insensitive canonical form, for rule comparison only. */
+    private fun fingerprint(value: Any?): String = when (value) {
+        is JSONObject -> {
+            val keys = mutableListOf<String>()
+            val iter = value.keys()
+            while (iter.hasNext()) keys += iter.next()
+            keys.sorted().joinToString(",", "{", "}") { k -> "$k=${fingerprint(value.opt(k))}" }
+        }
+        is JSONArray ->
+            (0 until value.length()).joinToString(",", "[", "]") { fingerprint(value.opt(it)) }
+        else -> value.toString()
     }
 
     fun chinaRouteRules(directTag: String, existingRuleSets: Set<String>): JSONArray {

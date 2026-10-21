@@ -49,6 +49,22 @@ class HTTPClient : Closeable {
         const val UPDATE_READ_TIMEOUT_MS = 60_000
         const val UPDATE_DIRECT_READ_TIMEOUT_MS = 12_000
 
+        /**
+         * E-2: connect/read timeouts are per-operation inactivity limits, not
+         * a total budget — a server dripping one byte every few seconds could
+         * hold one fetch (and with it the whole serial update round) forever.
+         * Every fetch() gets an absolute deadline on top of them.
+         */
+        const val FETCH_DEADLINE_MS = 90_000L
+        const val FILE_FETCH_DEADLINE_MS = 600_000L
+
+        /** Throws once the fetch deadline has passed; the timeout type keeps the failure transient. */
+        internal fun checkFetchDeadline(deadlineNanos: Long) {
+            if (System.nanoTime() - deadlineNanos >= 0) {
+                throw java.net.SocketTimeoutException("下载总时限已到")
+            }
+        }
+
         val userAgent by lazy {
             var userAgent = "SFA (sing-box "
             userAgent += CoreIdentity.libboxOrPin()
@@ -79,6 +95,18 @@ class HTTPClient : Closeable {
                 RemoteUrlGuard.requireAllowed(next, kind)
             }
             return next
+        }
+
+        /**
+         * E-6: which resolver validates a redirect target. PROXY hops dial by
+         * name (no DNS here). Every pinned route that resolved its start URL
+         * outside the tunnel must keep doing so on later hops — DIRECT_DNS
+         * exists precisely because the system resolver is poisoned, so
+         * falling back to it after the first redirect loses the route.
+         */
+        internal fun redirectResolvesOutside(route: Route, tunnelUp: Boolean): Boolean {
+            if (route == Route.PROXY) return false
+            return route == Route.DIRECT_DNS || route == Route.TUNNEL_IP || tunnelUp
         }
 
         internal fun sameHost(a: String, b: String): Boolean {
@@ -202,6 +230,9 @@ class HTTPClient : Closeable {
                     "未找到发行包。请点「查看发布」确认。"
                 kind == RemoteUrlGuard.Kind.UPDATE ->
                     "GitHub 下载失败 HTTP $code。请点「查看发布」用浏览器安装。"
+                // E-3: 429/408 本质是瞬时失败，文案也要说清原因，别误导排查。
+                code == 429 -> "下载失败 HTTP 429（服务器限流）"
+                code == 408 -> "下载失败 HTTP 408（服务器响应超时）"
                 else -> "下载失败 HTTP $code"
             }
         }
@@ -316,7 +347,12 @@ class HTTPClient : Closeable {
                     raw.contains("abort", ignoreCase = true) ||
                     raw.contains("unexpected end", ignoreCase = true) ||
                     // HTTP 5xx（服务器临时故障）应退避重试，而非判永久失败。
-                    raw.contains("HTTP 5")
+                    raw.contains("HTTP 5") ||
+                    // E-3: 429 限流 / 408 请求超时同样是瞬时失败。此前只有
+                    // "HTTP 5" 一条，限流时阶梯第一跳就整体放弃、worker 也
+                    // 不 retry——而服务商按出口 IP 限流时最需要换路由再试。
+                    raw.contains("HTTP 429") ||
+                    raw.contains("HTTP 408")
                 ) {
                     return true
                 }
@@ -344,9 +380,9 @@ class HTTPClient : Closeable {
         val max = maxChars(kind).toLong()
         lastUserinfo = null
         return withUpdateRetry(kind) { route ->
-            fetch(url, kind, headers, max, route) { input, conn ->
+            fetch(url, kind, headers, max, route, FETCH_DEADLINE_MS) { input, conn, deadlineNanos ->
                 lastUserinfo = header(conn, "subscription-userinfo") ?: lastUserinfo
-                val bytes = readLimited(input, max)
+                val bytes = readLimited(input, max, deadlineNanos)
                 String(bytes, Charsets.UTF_8)
             }
         }
@@ -361,7 +397,7 @@ class HTTPClient : Closeable {
     ) {
         val max = if (kind == RemoteUrlGuard.Kind.UPDATE) MAX_UPDATE_FILE_BYTES else maxChars(kind).toLong()
         withUpdateRetry(kind) { route ->
-            fetch(url, kind, headers, max, route) { input, conn ->
+            fetch(url, kind, headers, max, route, FILE_FETCH_DEADLINE_MS) { input, conn, deadlineNanos ->
                 val total = conn.contentLengthLong
                 dest.parentFile?.mkdirs()
                 if (dest.exists()) dest.delete()
@@ -370,6 +406,7 @@ class HTTPClient : Closeable {
                         val buf = ByteArray(64 * 1024)
                         var written = 0L
                         while (true) {
+                            checkFetchDeadline(deadlineNanos)
                             val n = input.read(buf)
                             if (n <= 0) break
                             written += n
@@ -466,8 +503,11 @@ class HTTPClient : Closeable {
         headers: Map<String, String>,
         maxBytes: Long,
         route: Route,
-        reader: (InputStream, HttpsURLConnection) -> T,
+        deadlineMs: Long,
+        reader: (InputStream, HttpsURLConnection, Long) -> T,
     ): T {
+        // E-2: one absolute deadline for the whole attempt, redirects included.
+        val deadlineNanos = System.nanoTime() + deadlineMs * 1_000_000L
         var current = startUrl.trim()
         val byName = route == Route.PROXY
         if (byName) {
@@ -482,6 +522,7 @@ class HTTPClient : Closeable {
         var hdrs = headers
         val seen = linkedSetOf<String>()
         repeat(MAX_REDIRECTS + 1) {
+            checkFetchDeadline(deadlineNanos)
             require(seen.add(current)) { "重定向循环" }
             hdrs = headersForHop(current, kind, hdrs)
             val conn = openFor(current, kind, hdrs, route)
@@ -496,7 +537,9 @@ class HTTPClient : Closeable {
                         conn.getHeaderField("Location"),
                         kind,
                         resolveDns = !byName,
-                        outsideTunnel = !byName && TunnelGate.up,
+                        // E-6: DIRECT_DNS must keep resolving through public
+                        // resolvers on redirect hops too, tunnel or not.
+                        outsideTunnel = redirectResolvesOutside(route, TunnelGate.up),
                     )
                     if (!sameHost(current, next)) {
                         hdrs = hdrs.filterKeys { !it.equals("Authorization", ignoreCase = true) }
@@ -511,7 +554,7 @@ class HTTPClient : Closeable {
                 if (declared > maxBytes) {
                     throw IllegalStateException("下载内容过大（>${maxBytes} 字节）")
                 }
-                return conn.inputStream.use { input -> reader(input, conn) }
+                return conn.inputStream.use { input -> reader(input, conn, deadlineNanos) }
             } finally {
                 conn.disconnect()
             }
@@ -531,11 +574,14 @@ class HTTPClient : Closeable {
         return null
     }
 
-    private fun readLimited(input: InputStream, maxBytes: Long): ByteArray {
+    private fun readLimited(input: InputStream, maxBytes: Long, deadlineNanos: Long): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
         var total = 0L
         while (true) {
+            // E-2: read timeout only bounds inactivity; a drip-feed server
+            // resets it forever. The absolute deadline ends the fetch.
+            checkFetchDeadline(deadlineNanos)
             val n = input.read(buf)
             if (n <= 0) break
             total += n

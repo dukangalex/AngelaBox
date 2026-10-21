@@ -7,6 +7,7 @@ import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -43,6 +44,7 @@ object NetworkCheckup {
         SERVICE_STOPPED,
         SUBSCRIPTION_BAD,
         TUNNEL_BROKEN,
+        TUNNEL_UNCERTAIN,
         DNS_HIJACKED,
         NODE_SLOW,
         SUBSCRIPTION_UNHEALTHY,
@@ -55,8 +57,16 @@ object NetworkCheckup {
         val verdictDetail: String = "",
     )
 
-    private const val TUNNEL_PROBE_URL = "https://www.gstatic.com/generate_204"
-    private const val PROBE_TIMEOUT_MS = 8000
+    // 双目标轮流探测：单目标在部分出口/网络下本身就慢或不可达，
+    // 只测一个会把目标的问题算到节点头上（审计 A-1/A-2）。
+    private val TUNNEL_PROBE_URLS = listOf(
+        "https://www.gstatic.com/generate_204",
+        "https://cp.cloudflare.com/generate_204",
+    )
+    private const val PROBE_ROUNDS = 2
+    private const val PROBE_CONNECT_TIMEOUT_MS = 5000
+    private const val PROBE_READ_TIMEOUT_MS = 5000
+    private const val TUNNEL_PROBE_BUDGET_MS = 24_000L
     private const val CHECK_TIMEOUT_MS = 12_000L
     private const val LATENCY_WAIT_MS = 12_000L
     private const val LATENCY_ACCEPT_STALE_MS = 4_000L
@@ -79,11 +89,25 @@ object NetworkCheckup {
             return VerdictKind.SUBSCRIPTION_BAD
         }
         val tun = byId[ItemId.TUNNEL]
-        if (tun != null && tun.status == ItemStatus.FAIL) return VerdictKind.TUNNEL_BROKEN
+        val lat = byId[ItemId.LATENCY]
+        // 旁证校准（审计 A-1）：探测超时是"这次没测通"，不等于"节点坏了"。
+        // 若同轮延迟是本轮新鲜测得的（code ok/slow，而非接受的旧值
+        // ok_stale/slow_stale），说明节点路径确实在回包，单凭探测超时
+        // 不能判 TUNNEL_BROKEN，先降级为"不确定"。
+        val latencyFresh = lat != null && (lat.code == "ok" || lat.code == "slow")
+        val tunnelTimeoutExcused = tun != null && tun.status == ItemStatus.FAIL &&
+            tun.code == "timeout" && latencyFresh
+        if (tun != null && tun.status == ItemStatus.FAIL && !tunnelTimeoutExcused) {
+            return VerdictKind.TUNNEL_BROKEN
+        }
         val dns = byId[ItemId.DNS]
         if (dns != null && dns.status == ItemStatus.FAIL) return VerdictKind.DNS_HIJACKED
-        val lat = byId[ItemId.LATENCY]
         if (lat != null && lat.code == "slow") return VerdictKind.NODE_SLOW
+        // run() 已降级的探测项（WARN + timeout_downgraded）或上面刚被旁证
+        // 豁免的原始超时项：结论是"不确定"——不是全好，也不是节点坏。
+        if (tunnelTimeoutExcused || (tun != null && tun.code == "timeout_downgraded")) {
+            return VerdictKind.TUNNEL_UNCERTAIN
+        }
         if (sub != null && sub.status == ItemStatus.WARN) return VerdictKind.SUBSCRIPTION_UNHEALTHY
         return VerdictKind.ALL_OK
     }
@@ -116,14 +140,36 @@ object NetworkCheckup {
         items += checkLatency(context, tunnelUp, outboundTag, currentDelayMs, triggerUrlTest)
         onStep(ItemId.SUBSCRIPTION)
         items += checkSubscription(context)
+        downgradeTunnelTimeout(items, context)
         val verdict = decideVerdict(hasNetwork, tunnelUp, items)
         val detail = when (verdict) {
             VerdictKind.SUBSCRIPTION_BAD, VerdictKind.SUBSCRIPTION_UNHEALTHY ->
                 items.firstOrNull { it.id == ItemId.SUBSCRIPTION }?.detail.orEmpty()
-            VerdictKind.NODE_SLOW -> msOf(items)
+            VerdictKind.NODE_SLOW, VerdictKind.TUNNEL_UNCERTAIN -> msOf(items)
             else -> ""
         }
         Result(items, verdict, detail)
+    }
+
+    /**
+     * 与 [decideVerdict] 的旁证校准配套（审计 A-1）：探测最终超时、但同轮
+     * 延迟是新鲜测得的（节点路径确实在回包）时，把 TUN 项从 FAIL 降为
+     * WARN 并换上文案，避免红行和结论横幅一起误报"节点连不上"。
+     * 延迟只是接受的旧值（ok_stale/slow_stale）时不降级：旧值证明不了
+     * 节点现在可用（审计 A-4/簇 D 联动 3）。
+     */
+    private fun downgradeTunnelTimeout(items: MutableList<Item>, context: Context) {
+        val lat = items.firstOrNull { it.id == ItemId.LATENCY } ?: return
+        if (lat.code != "ok" && lat.code != "slow") return
+        val index = items.indexOfFirst { it.id == ItemId.TUNNEL }
+        if (index < 0) return
+        val tun = items[index]
+        if (tun.status != ItemStatus.FAIL || tun.code != "timeout") return
+        items[index] = tun.copy(
+            status = ItemStatus.WARN,
+            code = "timeout_downgraded",
+            detail = context.getString(R.string.checkup_tunnel_timeout_but_node_ok),
+        )
     }
 
     private fun msOf(items: List<Item>): String {
@@ -140,7 +186,10 @@ object NetworkCheckup {
                 context.getString(R.string.checkup_tunnel_not_started),
             )
         }
-        val probed = withTimeoutOrNull(CHECK_TIMEOUT_MS + 8_000) { probeTunnel() }
+        // 外层预算耗尽（withTimeoutOrNull 返回 null）本身就是"没测通"，
+        // 归类为超时而不是网络错误（审计 A-3）。
+        val probed = withTimeoutOrNull(TUNNEL_PROBE_BUDGET_MS) { probeTunnel() }
+            ?: TunnelProbe.Timeout
         return when (probed) {
             is TunnelProbe.Ok -> Item(
                 ItemId.TUNNEL, ItemStatus.OK, "ok",
@@ -158,14 +207,14 @@ object NetworkCheckup {
                 ItemId.TUNNEL, ItemStatus.FAIL, "dns_failure",
                 context.getString(R.string.checkup_tunnel_dns_failure),
             )
-            else -> Item(
+            TunnelProbe.IoError -> Item(
                 ItemId.TUNNEL, ItemStatus.FAIL, "io_error",
                 context.getString(R.string.checkup_tunnel_io_error),
             )
         }
     }
 
-    private sealed interface TunnelProbe {
+    internal sealed interface TunnelProbe {
         data object Ok : TunnelProbe
         data object Timeout : TunnelProbe
         data object DnsFailure : TunnelProbe
@@ -174,15 +223,45 @@ object NetworkCheckup {
     }
 
     /**
+     * 多次尝试的合并规则（纯函数，供单测）：任一次通了就是通；
+     * 有 HTTP 回应说明路径能到服务器，优先报它；全军覆没于 DNS
+     * 才算 DNS 失败；只要有一次是超时，结果至少算超时而不是 IO 错误。
+     */
+    internal fun reduceProbeAttempts(attempts: List<TunnelProbe>): TunnelProbe {
+        attempts.firstOrNull { it is TunnelProbe.Ok }?.let { return it }
+        attempts.firstOrNull { it is TunnelProbe.HttpError }?.let { return it }
+        if (attempts.isNotEmpty() && attempts.all { it is TunnelProbe.DnsFailure }) {
+            return TunnelProbe.DnsFailure
+        }
+        if (attempts.any { it is TunnelProbe.Timeout }) return TunnelProbe.Timeout
+        if (attempts.any { it is TunnelProbe.DnsFailure }) return TunnelProbe.DnsFailure
+        return TunnelProbe.IoError
+    }
+
+    /**
      * 隧道 up 时 App 自身流量走 TUN（默认不排除自身，见 HTTPClient.dialByName 注释），
-     * 所以一次普通 HTTPS 请求就能验证隧道连通性。
+     * 所以普通 HTTPS 请求就能验证隧道连通性。双目标轮流试两轮（审计 A-1/A-2）：
+     * 第一轮顺带把 DNS 与链路预热，单次瞬时抖动/单目标不可达不再定格结论；
+     * 总时长由 checkTunnel 的外层预算封顶。
      */
     private fun probeTunnel(): TunnelProbe {
+        val attempts = mutableListOf<TunnelProbe>()
+        repeat(PROBE_ROUNDS) {
+            for (url in TUNNEL_PROBE_URLS) {
+                val result = probeTunnelOnce(url)
+                if (result is TunnelProbe.Ok) return result
+                attempts += result
+            }
+        }
+        return reduceProbeAttempts(attempts)
+    }
+
+    private fun probeTunnelOnce(url: String): TunnelProbe {
         var conn: HttpURLConnection? = null
         return try {
-            conn = URI(TUNNEL_PROBE_URL).toURL().openConnection() as HttpURLConnection
-            conn.connectTimeout = PROBE_TIMEOUT_MS
-            conn.readTimeout = PROBE_TIMEOUT_MS
+            conn = URI(url).toURL().openConnection() as HttpURLConnection
+            conn.connectTimeout = PROBE_CONNECT_TIMEOUT_MS
+            conn.readTimeout = PROBE_READ_TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.connect()
             val code = conn.responseCode
@@ -191,6 +270,10 @@ object NetworkCheckup {
             TunnelProbe.Timeout
         } catch (_: UnknownHostException) {
             TunnelProbe.DnsFailure
+        } catch (e: CancellationException) {
+            // 协程取消不是网络错误：必须上抛，否则外层超时会被吞成
+            // IoError、结论归类错误（审计 A-3）。
+            throw e
         } catch (_: Exception) {
             TunnelProbe.IoError
         } finally {
@@ -290,14 +373,23 @@ object NetworkCheckup {
         }
         val before = runCatching { currentDelayMs() }.getOrNull()
         runCatching { triggerUrlTest(outboundTag) }
-        // 等一次新鲜的 urlTest 回填；4 秒后仍是旧值也接受（值本身仍是最新已知延迟）。
+        // 等一次新鲜的 urlTest 回填；4 秒后仍是旧值也接受，但要分清
+        // "本轮新鲜测得"（fresh）和"接受的旧值"（stale）：旧值证明不了
+        // 节点现在的状态，结论层不许拿它当旁证、文案也要注明（审计 A-4）。
         val start = System.currentTimeMillis()
         var latest = before
+        var fresh = false
         while (System.currentTimeMillis() - start < LATENCY_WAIT_MS) {
             delay(500)
             latest = runCatching { currentDelayMs() }.getOrNull()
             val elapsed = System.currentTimeMillis() - start
-            if (latest != null && latest > 0 && (latest != before || elapsed >= LATENCY_ACCEPT_STALE_MS)) break
+            if (latest != null && latest > 0) {
+                if (latest != before) {
+                    fresh = true
+                    break
+                }
+                if (elapsed >= LATENCY_ACCEPT_STALE_MS) break
+            }
         }
         val ms = latest
         return when {
@@ -305,13 +397,21 @@ object NetworkCheckup {
                 ItemId.LATENCY, ItemStatus.WARN, "no_data",
                 context.getString(R.string.checkup_latency_no_data),
             )
-            ms > SLOW_LATENCY_MS -> Item(
+            ms > SLOW_LATENCY_MS && fresh -> Item(
                 ItemId.LATENCY, ItemStatus.WARN, "slow",
                 context.getString(R.string.checkup_latency_slow, ms),
             )
-            else -> Item(
+            ms > SLOW_LATENCY_MS -> Item(
+                ItemId.LATENCY, ItemStatus.WARN, "slow_stale",
+                context.getString(R.string.checkup_latency_slow_stale, ms),
+            )
+            fresh -> Item(
                 ItemId.LATENCY, ItemStatus.OK, "ok",
                 context.getString(R.string.checkup_latency_ok, ms),
+            )
+            else -> Item(
+                ItemId.LATENCY, ItemStatus.OK, "ok_stale",
+                context.getString(R.string.checkup_latency_ok_stale, ms),
             )
         }
     }

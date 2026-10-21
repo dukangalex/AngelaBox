@@ -36,6 +36,10 @@ object OverlayScripts {
     const val SOURCE_FILE = "file"
     const val SOURCE_SAMPLE = "sample"
 
+    // list() migrates and persists on the read path; synchronizing the
+    // read-modify-write entry points keeps a concurrent save from
+    // interleaving with the migration and resurrecting removed scripts.
+    @Synchronized
     fun list(): List<OverlayScript> {
         val items = decode(Settings.overlayScriptsJson)
         val migrated = items.map { script ->
@@ -105,6 +109,7 @@ object OverlayScripts {
         if (next.remove(profileId) != null) saveBindings(next)
     }
 
+    @Synchronized
     fun save(items: List<OverlayScript>) {
         Settings.overlayScriptsJson = encode(items.take(MAX_SCRIPTS))
     }
@@ -166,8 +171,15 @@ object OverlayScripts {
         "interrupt_exist_connections: !!interrupt",
     )
 
+    @Synchronized
     fun upsert(script: OverlayScript) {
-        val trimmed = script.copy(code = script.code.take(MAX_CODE_CHARS), name = script.name.trim().ifBlank { "脚本" })
+        // Refuse instead of silently truncating: a mid-code cut stores a
+        // syntactically broken script that then fails on every start,
+        // looking like a content bug to the user.
+        if (script.code.length > MAX_CODE_CHARS) {
+            throw IllegalStateException("脚本过长，最多 $MAX_CODE_CHARS 个字符")
+        }
+        val trimmed = script.copy(name = script.name.trim().ifBlank { "脚本" })
         val current = list().toMutableList()
         val index = current.indexOfFirst { it.id == trimmed.id }
         if (index >= 0) {
@@ -181,12 +193,14 @@ object OverlayScripts {
         save(current)
     }
 
+    @Synchronized
     fun remove(id: String) {
         save(list().filterNot { it.id == id })
         val next = loadBindings().mapValues { (_, ids) -> ids.filterNot { it == id } }
         saveBindings(next)
     }
 
+    @Synchronized
     fun toggle(id: String, enabled: Boolean) {
         save(list().map { if (it.id == id) it.copy(enabled = enabled) else it })
     }
@@ -212,35 +226,47 @@ object OverlayScripts {
 
     internal fun decode(raw: String): List<OverlayScript> {
         if (raw.isBlank()) return emptyList()
-        return try {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    val obj = array.optJSONObject(i) ?: continue
-                    val code = obj.optString("code")
-                    val id = obj.optString("id").ifBlank { newId() }
-                    val source = obj.optString("source").ifBlank { SOURCE_CODE }
-                    val name = if (source == SOURCE_SAMPLE) {
-                        SAMPLE_NAME
-                    } else {
-                        obj.optString("name").ifBlank { "脚本" }
-                    }
-                    add(
-                        OverlayScript(
-                            id = id,
-                            name = name,
-                            enabled = obj.optBoolean("enabled", false),
-                            source = source,
-                            url = obj.optString("url"),
-                            code = code,
-                            updatedAt = obj.optLong("updatedAt", 0L),
-                        ),
-                    )
-                }
-            }
+        val array = try {
+            JSONArray(raw)
         } catch (_: Exception) {
-            emptyList()
+            return emptyList()
         }
+        // Per-entry isolation: one malformed entry must not take the whole
+        // catalog (and every binding) down with it, which the old single
+        // try/catch did — silently, and the next save() made it permanent.
+        return buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val entry = runCatching { decodeEntry(obj) }.getOrNull() ?: continue
+                add(entry)
+            }
+        }
+    }
+
+    private fun decodeEntry(obj: JSONObject): OverlayScript {
+        val code = obj.optString("code")
+        val source = obj.optString("source").ifBlank { SOURCE_CODE }
+        val name = if (source == SOURCE_SAMPLE) {
+            SAMPLE_NAME
+        } else {
+            obj.optString("name").ifBlank { "脚本" }
+        }
+        // Deterministic fallback id: a fresh random id on every decode
+        // never matches the stored binding, so an id-less entry silently
+        // never ran. Deriving it from the content keeps it stable across
+        // decodes (and distinct per distinct script).
+        val id = obj.optString("id").ifBlank {
+            "legacy-" + Integer.toHexString((name + "\n" + code).hashCode())
+        }
+        return OverlayScript(
+            id = id,
+            name = name,
+            enabled = obj.optBoolean("enabled", false),
+            source = source,
+            url = obj.optString("url"),
+            code = code,
+            updatedAt = obj.optLong("updatedAt", 0L),
+        )
     }
 
     fun encodeBindings(map: Map<Long, List<String>>): String {

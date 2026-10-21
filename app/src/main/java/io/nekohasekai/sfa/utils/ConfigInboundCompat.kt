@@ -21,8 +21,12 @@ object ConfigInboundCompat {
     /**
      * Fields the current kernel rejects or that 404 at startup.
      * Does not add routing the file did not already have.
+     *
+     * When [ruleSetNotes] is given, every rule-set URL swap / drop is
+     * appended there by name — a swapped set changes routing semantics
+     * and must be visible in the caller's user-facing notes.
      */
-    fun applyKernelCompat(root: JSONObject): Boolean {
+    fun applyKernelCompat(root: JSONObject, ruleSetNotes: MutableList<String>? = null): Boolean {
         var changed = false
         if (migrateLegacyInbounds(root)) changed = true
         if (stripDeprecatedTunStack(root)) changed = true
@@ -30,7 +34,14 @@ object ConfigInboundCompat {
         if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
         if (rewriteRuleSetUrls(root)) changed = true
-        if (healRemoteRuleSets(root)) changed = true
+        if (ruleSetNotes != null) {
+            val heal = healRemoteRuleSetsWithReport(root)
+            if (heal.changed) changed = true
+            heal.swapped.forEach { ruleSetNotes += "规则集「$it」的地址已换成官方版" }
+            heal.dropped.forEach { ruleSetNotes += "规则集「$it」官方已下线，已去掉" }
+        } else if (healRemoteRuleSets(root)) {
+            changed = true
+        }
         if (sanitizeClashDownloadUrls(root)) changed = true
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
@@ -203,7 +214,8 @@ object ConfigInboundCompat {
     /**
      * Android VPN needs one TUN. Runtime only: normalize a bad tun (the
      * kernel returns invalid argument for inet6 / stack / huge MTU) and
-     * drop loopback mixed so 127.0.0.1:17890 is not bound twice.
+     * drop only the mixed inbound that would bind the app's own
+     * 127.0.0.1:17890 listener twice.
      */
     internal fun ensureAndroidTun(root: JSONObject): Boolean {
         val inbounds = root.optJSONArray("inbounds") ?: JSONArray().also { root.put("inbounds", it) }
@@ -256,10 +268,15 @@ object ConfigInboundCompat {
     }
 
     private fun isLoopbackListen(ib: JSONObject): Boolean {
-        if (ib.optInt("listen_port") == 17890) return true
+        // Only a mixed inbound that would actually bind the app's own
+        // 127.0.0.1:17890 listener collides. A LAN-shared mixed on
+        // 0.0.0.0:7890 (or a loopback mixed on any other port) binds
+        // nothing of ours — deleting it silently breaks the shared
+        // proxy the user configured on purpose.
+        if (ib.optInt("listen_port") != 17890) return false
         val listen = ib.optString("listen").trim().lowercase()
         return listen.isEmpty() || listen == "127.0.0.1" || listen == "localhost" ||
-            listen == "::1" || listen == "[::1]" || listen == "0.0.0.0"
+            listen == "::1" || listen == "[::1]" || listen == "0.0.0.0" || listen == "::"
     }
 
     private fun normalizeTun(ib: JSONObject): Boolean {
@@ -286,8 +303,9 @@ object ConfigInboundCompat {
             else -> 0
         }
         // Android's kernel default is 9000 when mtu is omitted. That burns
-        // memory and some phones reject it. Always pin 1500.
-        if (mtu != 1500) {
+        // memory and some phones reject it. Pin absent/oversized values to
+        // 1500, but respect an explicit smaller MTU (some networks need it).
+        if (mtu <= 0 || mtu > 1500) {
             ib.put("mtu", 1500)
             changed = true
         }
@@ -551,20 +569,44 @@ object ConfigInboundCompat {
         return trimmed
     }
 
+    /** What [healRemoteRuleSets] did, for callers with a notes channel. */
+    internal data class RuleSetHeal(
+        val changed: Boolean,
+        /** Tags whose URL was rewritten to (or filled from) the official file. */
+        val swapped: List<String>,
+        /** Tags dropped because the official repo no longer ships the file. */
+        val dropped: List<String>,
+    )
+
     /**
      * Remote rule-sets that 404 on the jsDelivr testingcf mirror abort kernel
      * start. Rewrite short / missing filenames to the official SagerNet
      * geosite/geoip URL and keep the original tag so route rules still match.
      * Only drop a set when there is no known replacement (e.g. geoip-fastly).
+     * Every swap/drop is recorded in the report variant: replacing a
+     * provider's self-hosted set changes routing semantics, so it must
+     * never happen silently — callers surface the names in their notes.
      */
-    internal fun healRemoteRuleSets(root: JSONObject): Boolean {
-        val route = root.optJSONObject("route") ?: return false
-        val sets = route.optJSONArray("rule_set") ?: return false
+    internal fun healRemoteRuleSets(root: JSONObject): Boolean =
+        healRemoteRuleSetsWithReport(root).changed
+
+    internal fun healRemoteRuleSetsWithReport(root: JSONObject): RuleSetHeal {
+        val none = RuleSetHeal(false, emptyList(), emptyList())
+        val route = root.optJSONObject("route") ?: return none
+        val sets = route.optJSONArray("rule_set") ?: return none
         val dropTags = mutableSetOf<String>()
+        val swapped = mutableListOf<String>()
         val keep = JSONArray()
         var changed = false
         for (i in 0 until sets.length()) {
-            val item = sets.optJSONObject(i) ?: continue
+            val rawItem = sets.get(i)
+            val item = rawItem as? JSONObject
+            if (item == null) {
+                // Not an object: not ours to judge — keep it verbatim
+                // instead of silently dropping it from the array.
+                keep.put(rawItem)
+                continue
+            }
             val urlKey = if (item.optString("url").isNotBlank()) "url" else "download_url"
             val url = item.optString(urlKey).trim()
             val file = url.substringAfterLast('/').substringBefore('?').lowercase()
@@ -579,6 +621,7 @@ object ConfigInboundCompat {
                 if (officialFromTag.isNotEmpty()) {
                     item.put("url", officialFromTag)
                     keep.put(item)
+                    swapped += tag.ifBlank { file }
                     changed = true
                 } else {
                     if (tag.isNotEmpty()) dropTags.add(tag)
@@ -591,6 +634,7 @@ object ConfigInboundCompat {
                 official.isNotEmpty() && url != official && looksBrokenRuleSet(file, url) -> {
                     item.put(urlKey, official)
                     keep.put(item)
+                    swapped += tag.ifBlank { file }
                     changed = true
                 }
                 file in UNREPLACEABLE_RULESET_FILES -> {
@@ -600,13 +644,13 @@ object ConfigInboundCompat {
                 else -> keep.put(item)
             }
         }
-        if (!changed && dropTags.isEmpty() && keep.length() == sets.length()) return false
+        if (!changed && dropTags.isEmpty()) return none
         replaceArray(sets, keep)
         if (dropTags.isNotEmpty()) {
             stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
             stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
         }
-        return true
+        return RuleSetHeal(true, swapped, dropTags.toList())
     }
 
     /** @deprecated Name kept so older tests still compile; delegates to [healRemoteRuleSets]. */
@@ -878,27 +922,46 @@ object ConfigInboundCompat {
         return changed
     }
 
+    /** What [healMissingOutboundRefs] did, for callers with a notes channel. */
+    internal data class RefHeal(
+        val changed: Boolean,
+        /** "missing → fallback" pairs for every rule/final retarget. */
+        val retargets: List<String>,
+    )
+
     /**
      * After scripts rebuild groups, leftover DNS/route/outbound detours and
      * selector members still name the old tags. Rewrite or drop them so the
      * kernel can start. Missing non-China route targets fall back to the
      * primary selector, never silently to DIRECT.
      */
-    internal fun healMissingOutboundRefs(root: JSONObject): Boolean {
+    internal fun healMissingOutboundRefs(root: JSONObject): Boolean =
+        healMissingOutboundRefsWithReport(root).changed
+
+    internal fun healMissingOutboundRefsWithReport(root: JSONObject): RefHeal {
         val tags = outboundTags(root)
-        if (tags.isEmpty()) return false
+        if (tags.isEmpty()) return RefHeal(false, emptyList())
+        val retargets = linkedSetOf<String>()
         var changed = ConfigCompat.stripBrokenDnsDetours(root)
         val outs = root.optJSONArray("outbounds") ?: JSONArray()
-        var selectorTag: String? = null
+        // The fallback for a dangling reference is the profile's primary
+        // selector. route.final names it by definition, so prefer it; only
+        // when final is missing or not a group do we use outbounds order —
+        // in converted configs the first group is often a region group,
+        // and retargeting rules there exits traffic via the wrong region.
+        val finalCandidate = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
+        var firstGroupTag: String? = null
+        var finalGroupTag: String? = null
         for (i in 0 until outs.length()) {
             val o = outs.optJSONObject(i) ?: continue
             val tag = o.optString("tag").trim()
             val type = o.optString("type").trim().lowercase()
-            if ((type == "selector" || type == "urltest") && selectorTag == null && tag.isNotEmpty()) {
-                selectorTag = tag
-            }
+            if (type != "selector" && type != "urltest") continue
+            if (tag.isEmpty()) continue
+            if (firstGroupTag == null) firstGroupTag = tag
+            if (tag == finalCandidate) finalGroupTag = tag
         }
-        val proxyFallback = selectorTag
+        val proxyFallback = finalGroupTag ?: firstGroupTag
         for (i in 0 until outs.length()) {
             val o = outs.optJSONObject(i) ?: continue
             val detour = o.optString("detour").trim()
@@ -952,10 +1015,15 @@ object ConfigInboundCompat {
                 changed = true
             }
         }
-        val route = root.optJSONObject("route") ?: return changed
+        val route = root.optJSONObject("route") ?: return RefHeal(changed, retargets.toList())
         val finalTag = route.optString("final").trim()
         if (finalTag.isNotEmpty() && finalTag !in tags) {
-            if (!proxyFallback.isNullOrEmpty()) route.put("final", proxyFallback) else route.remove("final")
+            if (!proxyFallback.isNullOrEmpty()) {
+                route.put("final", proxyFallback)
+                retargets += "$finalTag → $proxyFallback"
+            } else {
+                route.remove("final")
+            }
             changed = true
         }
         val defaultResolver = route.opt("default_domain_resolver")
@@ -973,22 +1041,23 @@ object ConfigInboundCompat {
                 changed = true
             }
         }
-        if (rewriteMissingRuleOutbounds(route.optJSONArray("rules"), tags, proxyFallback)) {
+        if (rewriteMissingRuleOutbounds(route.optJSONArray("rules"), tags, proxyFallback, retargets)) {
             changed = true
         }
-        return changed
+        return RefHeal(changed, retargets.toList())
     }
 
     private fun rewriteMissingRuleOutbounds(
         rules: JSONArray?,
         tags: Set<String>,
         proxyFallback: String?,
+        retargets: MutableSet<String>,
     ): Boolean {
         if (rules == null) return false
         var changed = false
         for (i in 0 until rules.length()) {
             val rule = rules.optJSONObject(i) ?: continue
-            if (rewriteMissingRuleOutbounds(rule.optJSONArray("rules"), tags, proxyFallback)) {
+            if (rewriteMissingRuleOutbounds(rule.optJSONArray("rules"), tags, proxyFallback, retargets)) {
                 changed = true
             }
             val ob = rule.optString("outbound").trim()
@@ -1001,6 +1070,7 @@ object ConfigInboundCompat {
             }
             if (!proxyFallback.isNullOrEmpty()) {
                 rule.put("outbound", proxyFallback)
+                retargets += "$ob → $proxyFallback"
             } else {
                 rule.remove("outbound")
             }

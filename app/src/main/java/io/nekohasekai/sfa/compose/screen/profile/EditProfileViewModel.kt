@@ -259,19 +259,23 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 var selectedProfileUpdated = false
 
                 // Fetch remote config
-                val content = ConfigCompat.sanitizeRemote(
+                // X-4: 与后台 worker / 仪表盘同口径——Detailed + 记录健康，
+                // 此前这条路径既不记成功也不记「跳过/修正」提示。
+                val detailed = ConfigCompat.sanitizeRemoteDetailed(
                     io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                         profile.typed.remoteURL,
                         profile.id,
                         getApplication<Application>(),
                     ),
                 )
+                val content = detailed.content
                 Libbox.checkConfig(content)
 
                 // Check if content changed
                 val file = File(profile.typed.path)
                 if (!file.exists() || file.readText() != content) {
-                    file.writeText(content)
+                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
                     if (profile.id == Settings.selectedProfile) {
                         selectedProfileUpdated = true
                     }
@@ -280,6 +284,15 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 // Update last updated time
                 profile.typed.lastUpdated = Date()
                 ProfileManager.update(profile)
+                io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordSuccess(
+                    getApplication<Application>(),
+                    profile.id,
+                )
+                io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordImportWarnings(
+                    getApplication<Application>(),
+                    profile.id,
+                    detailed.notes,
+                )
 
                 // Update UI state with success indicator
                 _uiState.update {

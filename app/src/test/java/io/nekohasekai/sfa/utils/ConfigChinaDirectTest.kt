@@ -149,4 +149,20 @@ class ConfigChinaDirectTest {
         assertFalse(text.contains("geoip-google"))
         assertFalse(text.contains("geoip-cn-ads"))
     }
+
+    @Test
+    fun applyTwiceDoesNotDuplicateRules() {
+        val root = JSONObject().put(
+            "outbounds",
+            JSONArray().put(JSONObject().put("type", "vless").put("tag", "node")),
+        )
+        ConfigChinaDirect.apply(root)
+        val once = root.getJSONObject("route").getJSONArray("rules").toString()
+        ConfigChinaDirect.apply(root)
+        val twice = root.getJSONObject("route").getJSONArray("rules").toString()
+        // apply() is re-run on every heal; the injected china-direct block
+        // must be recognized and not merged a second time.
+        assertEquals(once, twice)
+    }
+
 }

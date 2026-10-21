@@ -124,4 +124,98 @@ class ChainRuntimeCompilerBacklogTest {
         assertEquals(listOf("us-1", "us-2"), members(root, "自动"))
         assertFalse(members(root, "自动").isEmpty())
     }
+
+    @Test
+    fun crossProfileLandingDanglingResolverIsRepointedToDirectDns() {
+        // The cloned leaf keeps the landing profile's resolver name, but
+        // only the entry profile's DNS is merged in: the name dangles and
+        // must be repointed at a direct resolver that actually exists.
+        val entry = JSONObject()
+            .put("outbounds", JSONArray().put(node("a-1")).put(selector("入口", "a-1")))
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(JSONObject().put("type", "local").put("tag", "dns-local")),
+                ),
+            )
+            .put("route", JSONObject().put("final", "入口"))
+            .toString()
+        val landing = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(node("exit-1").put("domain_resolver", "landing-dns")),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(
+                        JSONObject().put("type", "udp").put("tag", "landing-dns").put("server", "223.5.5.5"),
+                    ),
+                ),
+            )
+            .toString()
+        val root = apply(entry, "入口", "exit-1", landingProfile = 2L, landingContent = landing)
+        val outs = root.getJSONArray("outbounds")
+        val cloned = (0 until outs.length()).map { outs.getJSONObject(it) }
+            .first { it.optString("tag") == "chainbox-landing-2-exit-1" }
+        assertEquals("dns-local", cloned.optString("domain_resolver"))
+        assertEquals("chainbox-landing-2-exit-1", ChainRuntimeCompiler.compiledChain(root.toString())?.landingTag)
+    }
+
+    @Test
+    fun crossProfileLandingResolverKnownToEntryConfigIsKept() {
+        val entry = JSONObject()
+            .put("outbounds", JSONArray().put(node("a-1")).put(selector("入口", "a-1")))
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray()
+                        .put(JSONObject().put("type", "local").put("tag", "dns-local"))
+                        .put(JSONObject().put("type", "udp").put("tag", "dns-plain").put("server", "1.1.1.1")),
+                ),
+            )
+            .put("route", JSONObject().put("final", "入口"))
+            .toString()
+        val landing = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(node("exit-1").put("domain_resolver", "dns-plain")),
+            )
+            .toString()
+        val root = apply(entry, "入口", "exit-1", landingProfile = 2L, landingContent = landing)
+        val outs = root.getJSONArray("outbounds")
+        val cloned = (0 until outs.length()).map { outs.getJSONObject(it) }
+            .first { it.optString("tag") == "chainbox-landing-2-exit-1" }
+        assertEquals("dns-plain", cloned.optString("domain_resolver"))
+    }
+
+    @Test
+    fun ruleTargetingWireGuardEndpointIsNotRewrittenToChain() {
+        val content = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(node("us-1")).put(node("hk-1")).put(selector("入口", "us-1")),
+            )
+            .put("endpoints", JSONArray().put(wg("warp")))
+            .put(
+                "route",
+                JSONObject()
+                    .put("final", "入口")
+                    .put(
+                        "rules",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("domain", JSONArray().put("example.com"))
+                                .put("outbound", "warp"),
+                        ),
+                    ),
+            )
+            .toString()
+        val root = apply(content, "入口", "hk-1")
+        val rule = root.getJSONObject("route").getJSONArray("rules").getJSONObject(0)
+        assertEquals("warp", rule.optString("outbound"))
+    }
 }

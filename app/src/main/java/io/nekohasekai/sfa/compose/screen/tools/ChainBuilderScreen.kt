@@ -268,7 +268,12 @@ fun ChainBuilderScreen(
                     } else {
                         val landingProfile = ProfileManager.get(landing.profileId)
                             ?: error("落地配置不存在")
-                        File(landingProfile.typed.path).readText()
+                        // Validate against the same prepared content the
+                        // runtime chain will see (heal + landing scripts).
+                        io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(
+                            File(landingProfile.typed.path).readText(),
+                            landing.profileId,
+                        )
                     }
                     // apply() is validation-only here: it throws if entry/landing
                     // is illegal. The profile JSON stays clean (clear() writes it
