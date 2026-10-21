@@ -17,6 +17,9 @@ object ConfigQuicOverride {
         replaceRuleSetNeedles: Collection<String> = emptyList(),
         dropRuleSetNeedles: Collection<String> = emptyList(),
         dropAllRemoteRuleSets: Boolean = false,
+        // Replace undownloadable remote rule sets with their cached local
+        // copies (normalization substitute) instead of dropping them.
+        substituteCachedRuleSets: Boolean = false,
         stripEch: Boolean = false,
         // The caller (BoxService) knows which profile this start is for.
         // Reading Settings.selectedProfile here instead forked the two
@@ -209,6 +212,13 @@ object ConfigQuicOverride {
             applyOne(warnings, "规则集处理") {
                 if (replaceRuleSetNeedles.isNotEmpty()) {
                     ConfigInboundCompat.replaceRemoteRuleSetsMatching(root, replaceRuleSetNeedles)
+                }
+                if (substituteCachedRuleSets) {
+                    val dir = runCatching {
+                        io.nekohasekai.sfa.Application.application.getExternalFilesDir(null)
+                            ?: io.nekohasekai.sfa.Application.application.filesDir
+                    }.getOrNull()
+                    if (dir != null) ConfigNormalize.substituteCachedRuleSets(root, dir)
                 }
                 if (dropAllRemoteRuleSets) {
                     ConfigInboundCompat.dropAllRemoteRuleSets(root)

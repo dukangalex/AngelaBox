@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -151,6 +152,46 @@ object ConfigNormalize {
         }
         mark(ConfigCompat.stripBrokenDnsDetours(root), "已去掉会阻止启动的空 direct DNS 出口")
         return notes
+    }
+
+    /**
+     * Normalization substitute for remote rule sets that cannot be
+     * downloaded right now: rewrite each one that has a previously
+     * downloaded copy in the rule-set cache ([workingDir]/rule-sets) into
+     * an equivalent local rule set pointing at that file — the same shape
+     * the rule-provider screen writes when the user picks a local file.
+     * Routing semantics are preserved (same tag, same content family);
+     * sets without a usable cache file stay remote and are the caller's
+     * next rung. Runtime-only: the stored profile is never mutated, so a
+     * later start with a healthy network uses the remote sets again.
+     * Returns the substituted tags.
+     */
+    fun substituteCachedRuleSets(root: JSONObject, workingDir: File): List<String> {
+        val route = root.optJSONObject("route") ?: return emptyList()
+        val sets = route.optJSONArray("rule_set") ?: return emptyList()
+        val substituted = mutableListOf<String>()
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
+            if (!remote) continue
+            val tag = item.optString("tag").trim()
+            if (tag.isEmpty()) continue
+            val cache = RuleSetProviders.cacheFile(workingDir, tag, item.optString("format"), url)
+            if (!cache.isFile || cache.length() == 0L) continue
+            item.put("type", "local")
+            item.put(
+                "format",
+                if (cache.extension.equals("json", true)) "source" else "binary",
+            )
+            item.put("path", cache.absolutePath)
+            item.remove("url")
+            item.remove("download_url")
+            item.remove("download_detour")
+            item.remove("update_interval")
+            substituted += tag
+        }
+        return substituted
     }
 
     /**

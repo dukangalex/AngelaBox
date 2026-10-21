@@ -659,11 +659,18 @@ private fun TrafficSankey(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val labelColor = MaterialTheme.colorScheme.onSurface
+    val subLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val labelStyle = TextStyle(
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
         color = labelColor,
         lineHeight = 13.sp,
+    )
+    val subLabelStyle = TextStyle(
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Normal,
+        color = subLabelColor,
+        lineHeight = 11.sp,
     )
     val phase by rememberInfiniteTransition(label = "sankey").animateFloat(
         initialValue = 0f,
@@ -692,20 +699,72 @@ private fun TrafficSankey(
         val maxText = (layerWidth - barW - with(density) { 10.dp.toPx() }).coerceAtLeast(
             with(density) { 48.dp.toPx() },
         )
-        val measured = remember(nodes, maxText, labelColor) {
-            nodes.associate { node ->
-                node.id to textMeasurer.measure(
-                    text = node.label,
-                    style = labelStyle,
-                    maxLines = 2,
+        // Labels are single-line and shrink-to-fit: the old two-line
+        // measure broke long domains mid-word ("youtube.co / m you…"),
+        // which read as corruption. A label now steps its font size down
+        // until it fits its column on one line and only tail-ellipsizes
+        // as the last resort. Below it, a dim sub-label carries the
+        // node's live connection count and its share of the column.
+        fun measureFit(text: String, style: TextStyle, budgetPx: Float): androidx.compose.ui.text.TextLayoutResult {
+            val budget = budgetPx.toInt().coerceAtLeast(24)
+            if (style.fontSize == subLabelStyle.fontSize) {
+                return textMeasurer.measure(
+                    text = text,
+                    style = style,
+                    maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = maxText.toInt().coerceAtLeast(24)),
+                    constraints = Constraints(maxWidth = budget),
                 )
             }
+            for (sp in listOf(11f, 10f, 9.5f, 9f)) {
+                val result = textMeasurer.measure(
+                    text = text,
+                    style = style.copy(fontSize = sp.sp),
+                    maxLines = 1,
+                    softWrap = false,
+                    constraints = Constraints(maxWidth = budget),
+                )
+                if (result.size.width <= budget) return result
+            }
+            return textMeasurer.measure(
+                text = text,
+                style = style.copy(fontSize = 9.sp),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                constraints = Constraints(maxWidth = budget),
+            )
         }
-        val minHeights = remember(measured) {
+        val colTotals = remember(nodes) {
+            nodes.groupBy({ it.column }, { it.weight }).mapValues { (_, ws) -> ws.sum() }
+        }
+        fun subLabelOf(node: FlowNode): String? {
+            // The Device column is the total itself; weight 1 flows that
+            // are alone in their column need no annotation either.
+            if (node.column <= 0 || node.weight <= 0) return null
+            val total = colTotals[node.column] ?: return null
+            if (total <= 1) return null
+            val pct = (node.weight * 100 + total / 2) / total
+            return "×${node.weight} · $pct%"
+        }
+        val measured = remember(nodes, maxText, labelColor, subLabelColor) {
+            nodes.associate { node ->
+                node.id to measureFit(node.label, labelStyle, maxText)
+            }
+        }
+        val measuredSub = remember(nodes, maxText, labelColor, subLabelColor) {
+            nodes.associate { node ->
+                node.id to subLabelOf(node)?.let { measureFit(it, subLabelStyle, maxText) }
+            }
+        }
+        val minHeights = remember(measured, measuredSub) {
             val padH = with(density) { 6.dp.toPx() }
-            measured.mapValues { (_, layout) -> layout.size.height + padH }
+            val subGap = with(density) { 1.dp.toPx() }
+            measured.mapValues { (id, layout) ->
+                val sub = measuredSub[id]
+                layout.size.height + (if (sub != null) subGap + sub.size.height else 0f) + padH
+            }
         }
         val required = SankeyLayout.requiredHeight(nodes, padPx, gapY, minHeights, 1f)
         val minPx = with(density) { (if (compact) 148.dp else 160.dp).toPx() }
@@ -834,17 +893,26 @@ private fun TrafficSankey(
                     val drawn = if (layout.size.width <= maxW.toInt() + 1) {
                         layout
                     } else {
-                        textMeasurer.measure(
-                            text = node.node.label,
-                            style = labelStyle,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            constraints = Constraints(maxWidth = maxW.toInt()),
+                        measureFit(node.node.label, labelStyle, maxW)
+                    }
+                    val sub = measuredSub[node.node.id]
+                    val subDrawn = if (sub == null || sub.size.width <= maxW.toInt() + 1) {
+                        sub
+                    } else {
+                        subLabelOf(node.node)?.let { measureFit(it, subLabelStyle, maxW) }
+                    }
+                    val subGapPx = 1.dp.toPx()
+                    val totalTextH = drawn.size.height +
+                        (if (subDrawn != null) subGapPx + subDrawn.size.height else 0f)
+                    val tx = node.x + node.w + 5f
+                    val ty = node.y + ((node.h - totalTextH) / 2f).coerceAtLeast(0f)
+                    drawText(drawn, topLeft = Offset(tx, ty))
+                    if (subDrawn != null) {
+                        drawText(
+                            subDrawn,
+                            topLeft = Offset(tx, ty + drawn.size.height + subGapPx),
                         )
                     }
-                    val tx = node.x + node.w + 5f
-                    val ty = node.y + ((node.h - drawn.size.height) / 2f).coerceAtLeast(0f)
-                    drawText(drawn, topLeft = Offset(tx, ty))
                 }
                 }
             }

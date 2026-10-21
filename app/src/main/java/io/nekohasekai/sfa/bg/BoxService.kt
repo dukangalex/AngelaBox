@@ -364,15 +364,30 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return false
         }
         var droppedRuleSets = false
+        var substitutedRuleSets = false
         if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))) {
-            val dropped = ConfigQuicOverride.apply(
+            // This network + content stalled on remote rule sets before.
+            // Substitute the cached local copies first (normalization
+            // instead of skipping); only sets with no cache fall back to
+            // the old anti-stall drop.
+            val substituted = ConfigQuicOverride.apply(
                 rawContent,
-                dropAllRemoteRuleSets = true,
+                substituteCachedRuleSets = true,
                 profileId = profileId,
             )
-            if (dropped != content) {
-                content = dropped
-                droppedRuleSets = true
+            if (substituted != content) {
+                content = substituted
+                substitutedRuleSets = true
+            } else {
+                val dropped = ConfigQuicOverride.apply(
+                    rawContent,
+                    dropAllRemoteRuleSets = true,
+                    profileId = profileId,
+                )
+                if (dropped != content) {
+                    content = dropped
+                    droppedRuleSets = true
+                }
             }
         }
 
@@ -386,6 +401,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         var result = attempt(content, options)
         if (result.isSuccess) {
             if (droppedRuleSets) noteRuleSetsSkipped()
+            if (substitutedRuleSets) noteRuleSetsSubstituted()
             return started(!droppedRuleSets)
         }
         if (result.exceptionOrNull() is StartCancelled) {
@@ -413,6 +429,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             result = attempt(content, options)
             if (result.isSuccess) {
                 if (droppedRuleSets) noteRuleSetsSkipped()
+                if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
             keep(result.exceptionOrNull()?.message)
@@ -425,6 +442,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     rawContent,
                     stripEch = true,
                     dropAllRemoteRuleSets = droppedRuleSets,
+                    substituteCachedRuleSets = substitutedRuleSets,
                     profileId = profileId,
                 ),
                 options,
@@ -438,6 +456,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     ),
                 )
                 if (droppedRuleSets) noteRuleSetsSkipped()
+                if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
             keep(result.exceptionOrNull()?.message)
@@ -461,6 +480,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 result = attempt(content, options)
                 if (result.isSuccess) {
                     if (droppedRuleSets) noteRuleSetsSkipped()
+                    if (substitutedRuleSets) noteRuleSetsSubstituted()
                     return started(!droppedRuleSets)
                 }
                 keep(result.exceptionOrNull()?.message)
@@ -511,6 +531,29 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
                 keep(result.exceptionOrNull()?.message)
             }
+            if (!substitutedRuleSets && !ladderExpired()) {
+                // Normalization substitute before any skipping: swap the
+                // remote sets that have a cached copy for local ones and
+                // retry. Only sets without a cache can still fail here,
+                // and only they reach the drop below.
+                restartCommandServer()
+                result = attempt(
+                    reheal(
+                        ConfigQuicOverride.apply(
+                            rawContent,
+                            replaceRuleSetNeedles = needles,
+                            substituteCachedRuleSets = true,
+                            profileId = profileId,
+                        ),
+                    ),
+                    options,
+                )
+                if (result.isSuccess) {
+                    noteRuleSetsSubstituted()
+                    return started(false)
+                }
+                keep(result.exceptionOrNull()?.message)
+            }
             restartCommandServer()
             result = attempt(
                 reheal(
@@ -552,6 +595,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     skipScripts = true,
                     replaceRuleSetNeedles = needles,
                     dropAllRemoteRuleSets = droppedRuleSets,
+                    substituteCachedRuleSets = substitutedRuleSets,
                     profileId = profileId,
                 ),
             )
@@ -570,6 +614,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     ),
                 )
                 if (droppedRuleSets) noteRuleSetsSkipped()
+                if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
             stopAndAlert(
@@ -662,6 +707,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 title = "规则集已跳过",
                 reason = "远程规则集下不下来，已跳过这些规则集后启动。",
                 hint = "节点和分组还在，其余分流还在。没有改成直连。",
+            ),
+        )
+    }
+
+    private fun noteRuleSetsSubstituted() {
+        OverrideStatus.add(
+            OverrideNotice(
+                title = "配置规范化",
+                reason = "远程规则集暂时下不下来，已用本地缓存的同名规则集替代后启动。",
+                hint = "节点、分组和分流没动。网络恢复、规则集能下载后会自动换回远程版。",
             ),
         )
     }
