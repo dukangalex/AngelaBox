@@ -36,6 +36,7 @@ import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.ConfigCompat
+import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.NetworkCheckup
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
@@ -493,7 +494,14 @@ class DashboardViewModel :
                     ),
                 )
                 val content = detailed.content
-                Libbox.checkConfig(content)
+                // G4: same heal-aligned gate as the background worker.
+                // The rejection reason is Chinese and user-facing, so
+                // explainProfileUpdate surfaces it as-is instead of
+                // misreporting a config rejection as a network failure.
+                when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
+                    is ConfigGate.Result.Rejected -> throw IllegalStateException(gate.reason)
+                    is ConfigGate.Result.Accepted -> Unit
+                }
 
                 // Check if content changed
                 val file = File(profile.typed.path)

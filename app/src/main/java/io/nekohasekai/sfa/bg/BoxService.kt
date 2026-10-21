@@ -33,12 +33,20 @@ import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.utils.ConfigChainReapply
+import io.nekohasekai.sfa.utils.ConfigCheckOracle
 import io.nekohasekai.sfa.utils.ConfigDiagnose
+import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.ConfigInboundCompat
+import io.nekohasekai.sfa.utils.ConfigNormalize
+import io.nekohasekai.sfa.utils.ConfigQuarantine
 import io.nekohasekai.sfa.utils.ConfigQuicOverride
 import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
+import io.nekohasekai.sfa.utils.QuarantineBudget
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
@@ -126,6 +134,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     // start, the two sharing commandServer / OverrideStatus / stall memory
     // (one side's retry could restartCommandServer under the other).
     private val kernelStartMutex = Mutex()
+
+    // Kernel acceptance oracle (Libbox.checkConfig) for the quarantine
+    // rung and the pipeline-fatal recovery: structural faults are
+    // localised by asking the kernel, not by guessing from error text.
+    private val checkOracle = ConfigCheckOracle { candidate -> ConfigGate.libboxCheck(candidate) }
 
     private val status = MutableLiveData(Status.Stopped)
     private val binder = ServiceBinder(status)
@@ -357,50 +370,93 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
         val options = buildOverrideOptions()
         val scriptBound = OverlayScripts.isBound(profileId)
+        val chainBound = ChainBindings.get(profileId) != null
 
-        var content = ConfigQuicOverride.apply(rawContent, profileId = profileId)
+        var droppedRuleSets = false
+        var substitutedRuleSets = false
+        // Pipeline-fatal recovery state (G1): set when the first apply()
+        // threw and a degraded-but-startable config was recovered.
+        var recoveryNotice: OverrideNotice? = null
+        var recoveredContent = false
+
+        // G1: a pipeline fatal (heal fatal / chain compile failure /
+        // post-script sanitize rejection) used to bypass the ENTIRE
+        // ladder — the first apply() was unguarded, so the exception
+        // escaped and the start died with zero rungs tried, including
+        // the script rollback rung that exists precisely for
+        // script-produced fatals. The first apply is now guarded and a
+        // fatal is rerouted into recoverFromPipelineFatal + the ladder.
+        var content: String
+        val firstApply = runCatching { ConfigQuicOverride.apply(rawContent, profileId = profileId) }
+        if (firstApply.isSuccess) {
+            content = firstApply.getOrThrow()
+            if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))) {
+                // This network + content stalled on remote rule sets before.
+                // Substitute the cached local copies first (normalization
+                // instead of skipping); only sets with no cache fall back to
+                // the old anti-stall drop.
+                val substituted = applyForRung(
+                    rawContent,
+                    substituteCachedRuleSets = true,
+                    profileId = profileId,
+                )
+                if (substituted != null && substituted != content) {
+                    content = substituted
+                    substitutedRuleSets = true
+                } else {
+                    val dropped = applyForRung(
+                        rawContent,
+                        dropAllRemoteRuleSets = true,
+                        profileId = profileId,
+                    )
+                    if (dropped != null && dropped != content) {
+                        content = dropped
+                        droppedRuleSets = true
+                    }
+                }
+            }
+        } else {
+            val recovered = recoverFromPipelineFatal(
+                rawContent,
+                profileId,
+                firstApply.exceptionOrNull(),
+                scriptBound,
+                chainBound,
+                ladderExpired = { ladderExpired() },
+            )
+            if (recovered == null) {
+                stopAndAlert(
+                    Alert.CreateService,
+                    ConfigDiagnose.explain(
+                        firstApply.exceptionOrNull()?.message,
+                        scriptsBound = scriptBound,
+                    ),
+                )
+                return false
+            }
+            content = recovered.content
+            recoveryNotice = recovered.notice
+            recoveredContent = true
+            // A recovered start must not clear the rule-set stall
+            // memory: it never proved the remote sets load.
+            droppedRuleSets = true
+        }
         if (startAbort.get()) {
             stopAndAlert(Alert.StartService, null, silent = true)
             return false
-        }
-        var droppedRuleSets = false
-        var substitutedRuleSets = false
-        if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))) {
-            // This network + content stalled on remote rule sets before.
-            // Substitute the cached local copies first (normalization
-            // instead of skipping); only sets with no cache fall back to
-            // the old anti-stall drop.
-            val substituted = ConfigQuicOverride.apply(
-                rawContent,
-                substituteCachedRuleSets = true,
-                profileId = profileId,
-            )
-            if (substituted != content) {
-                content = substituted
-                substitutedRuleSets = true
-            } else {
-                val dropped = ConfigQuicOverride.apply(
-                    rawContent,
-                    dropAllRemoteRuleSets = true,
-                    profileId = profileId,
-                )
-                if (dropped != content) {
-                    content = dropped
-                    droppedRuleSets = true
-                }
-            }
         }
 
         // Every successful start goes through here. Starting with the remote
         // rule-sets kept proves they load again, so the stall is forgotten.
         fun started(keptRuleSets: Boolean): Boolean {
+            recoveryNotice?.let { OverrideStatus.add(it) }
             if (keptRuleSets) ruleSetStalls.clear(profileId)
             return true
         }
 
         var result = attempt(content, options)
         if (result.isSuccess) {
-            if (droppedRuleSets) noteRuleSetsSkipped()
+            if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
             if (substitutedRuleSets) noteRuleSetsSubstituted()
             return started(!droppedRuleSets)
         }
@@ -428,7 +484,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             restartCommandServer()
             result = attempt(content, options)
             if (result.isSuccess) {
-                if (droppedRuleSets) noteRuleSetsSkipped()
+                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
                 if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
@@ -436,18 +492,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
 
         if (ConfigDiagnose.looksLikeBadEch(firstErr) || ConfigDiagnose.looksLikeBadEch(err)) {
-            restartCommandServer()
-            result = attempt(
-                ConfigQuicOverride.apply(
-                    rawContent,
-                    stripEch = true,
-                    dropAllRemoteRuleSets = droppedRuleSets,
-                    substituteCachedRuleSets = substitutedRuleSets,
-                    profileId = profileId,
-                ),
-                options,
+            val echContent = applyForRung(
+                rawContent,
+                stripEch = true,
+                dropAllRemoteRuleSets = droppedRuleSets,
+                substituteCachedRuleSets = substitutedRuleSets,
+                profileId = profileId,
             )
-            if (result.isSuccess) {
+            if (echContent != null) {
+                restartCommandServer()
+                result = attempt(echContent, options)
+            }
+            if (echContent != null && result.isSuccess) {
                 OverrideStatus.add(
                     OverrideNotice(
                         title = "ECH 已跳过",
@@ -455,7 +511,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         hint = "节点还在，没有改成直连。",
                     ),
                 )
-                if (droppedRuleSets) noteRuleSetsSkipped()
+                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
                 if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
@@ -479,7 +535,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 content = patched
                 result = attempt(content, options)
                 if (result.isSuccess) {
-                    if (droppedRuleSets) noteRuleSetsSkipped()
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
                     if (substitutedRuleSets) noteRuleSetsSubstituted()
                     return started(!droppedRuleSets)
                 }
@@ -508,73 +564,67 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             ruleSetRetried = true
             if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
             if (!stalled && needles.isNotEmpty()) {
-                restartCommandServer()
-                result = attempt(
-                    reheal(
-                        ConfigQuicOverride.apply(
-                            rawContent,
-                            replaceRuleSetNeedles = needles,
-                            profileId = profileId,
-                        ),
-                    ),
-                    options,
+                val replaced = applyForRung(
+                    rawContent,
+                    replaceRuleSetNeedles = needles,
+                    profileId = profileId,
                 )
-                if (result.isSuccess) {
-                    OverrideStatus.add(
-                        OverrideNotice(
-                            title = "配置规范化",
-                            reason = "已修正",
-                            hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
-                        ),
-                    )
-                    return started(true)
+                if (replaced != null) {
+                    restartCommandServer()
+                    result = attempt(reheal(replaced), options)
+                    if (result.isSuccess) {
+                        OverrideStatus.add(
+                            OverrideNotice(
+                                title = "配置规范化",
+                                reason = "已修正",
+                                hint = "打不开的规则集已换成官方地址后再启动。节点、分组和其余分流没动。",
+                            ),
+                        )
+                        return started(true)
+                    }
+                    keep(result.exceptionOrNull()?.message)
                 }
-                keep(result.exceptionOrNull()?.message)
             }
             if (!substitutedRuleSets && !ladderExpired()) {
                 // Normalization substitute before any skipping: swap the
                 // remote sets that have a cached copy for local ones and
                 // retry. Only sets without a cache can still fail here,
                 // and only they reach the drop below.
-                restartCommandServer()
-                result = attempt(
-                    reheal(
-                        ConfigQuicOverride.apply(
-                            rawContent,
-                            replaceRuleSetNeedles = needles,
-                            substituteCachedRuleSets = true,
-                            profileId = profileId,
-                        ),
-                    ),
-                    options,
+                val substitutedRetry = applyForRung(
+                    rawContent,
+                    replaceRuleSetNeedles = needles,
+                    substituteCachedRuleSets = true,
+                    profileId = profileId,
                 )
+                if (substitutedRetry != null) {
+                    restartCommandServer()
+                    result = attempt(reheal(substitutedRetry), options)
+                    if (result.isSuccess) {
+                        noteRuleSetsSubstituted()
+                        return started(false)
+                    }
+                    keep(result.exceptionOrNull()?.message)
+                }
+            }
+            val droppedAll = applyForRung(
+                rawContent,
+                dropAllRemoteRuleSets = true,
+                profileId = profileId,
+            )
+            if (droppedAll != null) {
+                restartCommandServer()
+                result = attempt(reheal(droppedAll), options)
                 if (result.isSuccess) {
-                    noteRuleSetsSubstituted()
+                    if (timedOut && !stalled) {
+                        // The drop rescued a timed-out start: now the stall is
+                        // evidenced, so remembering it is fair.
+                        ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
+                    }
+                    noteRuleSetsSkipped()
                     return started(false)
                 }
                 keep(result.exceptionOrNull()?.message)
             }
-            restartCommandServer()
-            result = attempt(
-                reheal(
-                    ConfigQuicOverride.apply(
-                        rawContent,
-                        dropAllRemoteRuleSets = true,
-                        profileId = profileId,
-                    ),
-                ),
-                options,
-            )
-            if (result.isSuccess) {
-                if (timedOut && !stalled) {
-                    // The drop rescued a timed-out start: now the stall is
-                    // evidenced, so remembering it is fair.
-                    ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
-                }
-                noteRuleSetsSkipped()
-                return started(false)
-            }
-            keep(result.exceptionOrNull()?.message)
         }
 
         // Script rollback, attribution by experiment rather than by error
@@ -585,52 +635,297 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // failure clears it and the alert reports both attempts. This also
         // unifies the recovery parameters: the configNormalize switch no
         // longer forks whether the rollback keeps the rule-set needles.
+        var scriptRollbackError: String? = null
         if (scriptBound && !ladderExpired()) {
             val classicScriptFault = ConfigDiagnose.looksLikeScriptFault(firstErr) ||
                 ConfigDiagnose.looksLikeScriptFault(err)
-            restartCommandServer()
-            val rolled = reheal(
-                ConfigQuicOverride.apply(
-                    rawContent,
-                    skipScripts = true,
-                    replaceRuleSetNeedles = needles,
-                    dropAllRemoteRuleSets = droppedRuleSets,
-                    substituteCachedRuleSets = substitutedRuleSets,
-                    profileId = profileId,
-                ),
+            val rolledRaw = applyForRung(
+                rawContent,
+                skipScripts = true,
+                replaceRuleSetNeedles = needles,
+                dropAllRemoteRuleSets = droppedRuleSets,
+                substituteCachedRuleSets = substitutedRuleSets,
+                profileId = profileId,
             )
-            result = attempt(rolled, options)
-            if (result.isSuccess) {
-                OverrideStatus.add(
+            if (rolledRaw != null) {
+                restartCommandServer()
+                result = attempt(reheal(rolledRaw), options)
+                if (result.isSuccess) {
+                    OverrideStatus.add(
+                        OverrideNotice(
+                            title = "脚本启动失败，已回滚",
+                            reason = if (classicScriptFault) {
+                                ConfigDiagnose.explain(firstErr, scriptsBound = true)
+                            } else {
+                                "脚本改出的配置内核启动不了：${firstErr?.take(120) ?: "未知错误"}"
+                            },
+                            hint = ConfigDiagnose.rollbackHint(),
+                            error = true,
+                        ),
+                    )
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                    if (substitutedRuleSets) noteRuleSetsSubstituted()
+                    return started(!droppedRuleSets)
+                }
+                // No longer an immediate dead end (G1/G2): the message
+                // is kept for the final failure, but the quarantine
+                // rung below gets its turn first.
+                scriptRollbackError =
+                    ConfigDiagnose.explain(firstErr, scriptsBound = true) +
+                        "\n\n关掉脚本后仍失败：" +
+                        ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false)
+            }
+        }
+
+        // Fidelity degradation rung （保真降级档）: every text-attributed
+        // rung above is exhausted. Ask the kernel itself which parts of
+        // the config it rejects and quarantine ONLY those (see
+        // ConfigQuarantine) — a structural fault outside every known
+        // error pattern no longer kills an otherwise valid profile.
+        // Skipped when this start already runs on recovered content.
+        var quarantineAttempted = false
+        if (!recoveredContent && !ladderExpired()) {
+            quarantineAttempted = true
+            val quarantined = runCatching {
+                ConfigQuarantine.degrade(
+                    content,
+                    checkOracle,
+                    QuarantineBudget(expired = { ladderExpired() }),
+                )
+            }.getOrNull()
+            if (quarantined != null &&
+                (quarantined.removedItems.isNotEmpty() || quarantined.floorUsed)
+            ) {
+                restartCommandServer()
+                result = attempt(reheal(quarantined.content), options)
+                if (result.isSuccess) {
+                    OverrideStatus.add(quarantineNotice(quarantined))
+                    if (chainBound &&
+                        ChainRuntimeCompiler.compiledChain(content) != null &&
+                        ChainRuntimeCompiler.compiledChain(quarantined.content) == null
+                    ) {
+                        // The compiled chain was collateral damage of
+                        // the quarantine: say so loudly — a chained
+                        // profile must never silently start unchained.
+                        OverrideStatus.add(
+                            OverrideNotice(
+                                title = "链式代理这次没生效",
+                                reason = "链路里有一段被隔离，这次没有走链式，流量由入口节点直接出去。",
+                                hint = "订阅原文和链式绑定都没改，下次启动会先重试带链的完整配置。",
+                                error = true,
+                            ),
+                        )
+                    }
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                    if (substitutedRuleSets) noteRuleSetsSubstituted()
+                    return started(false)
+                }
+                keep(result.exceptionOrNull()?.message)
+            }
+        }
+
+        if (scriptRollbackError != null) {
+            stopAndAlert(Alert.CreateService, scriptRollbackError)
+            return false
+        }
+        var failureMessage = ConfigDiagnose.explain(
+            err,
+            scriptsBound = scriptBound,
+            ruleSetRetried = ruleSetRetried,
+        )
+        if (quarantineAttempted) {
+            // Even the check-driven quarantine could not make the
+            // kernel accept this config: attach the kernel's own words
+            // so the failure stays diagnosable instead of generic (G10).
+            val checkError = checkOracle.check(content)
+            if (checkError != null) {
+                failureMessage += "\n\n逐部件检疫也没能让内核接受这份配置。内核校验原话：" +
+                    checkError.take(200)
+            }
+        }
+        if (ladderExpired()) {
+            failureMessage += "\n\n启动重试的时间已用完，还有降级手段没来得及试；下次启动会从完整配置重新尝试。"
+        }
+        stopAndAlert(Alert.CreateService, failureMessage)
+        return false
+    }
+
+    /**
+     * Ladder-internal pipeline call (G1): one rung's apply() throwing
+     * must not blow up the whole ladder the way the unguarded first
+     * apply used to — the rung simply fails, the ladder moves on, and
+     * the quarantine rung works from whatever content is at hand.
+     */
+    private suspend fun applyForRung(
+        rawContent: String,
+        skipScripts: Boolean = false,
+        replaceRuleSetNeedles: Collection<String> = emptyList(),
+        dropAllRemoteRuleSets: Boolean = false,
+        substituteCachedRuleSets: Boolean = false,
+        stripEch: Boolean = false,
+        profileId: Long,
+    ): String? {
+        return try {
+            ConfigQuicOverride.apply(
+                rawContent,
+                skipScripts = skipScripts,
+                replaceRuleSetNeedles = replaceRuleSetNeedles,
+                dropAllRemoteRuleSets = dropAllRemoteRuleSets,
+                substituteCachedRuleSets = substituteCachedRuleSets,
+                stripEch = stripEch,
+                profileId = profileId,
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private class PipelineRecovery(val content: String, val notice: OverrideNotice)
+
+    /**
+     * G1 reroute for a pipeline fatal. The fatal says the PROCESSED
+     * config cannot be trusted, but the ladder was never the problem —
+     * so instead of dying, recover a startable config in fidelity
+     * order and let the normal ladder attempt it:
+     * 1. scripts skipped (a script-produced fatal is exactly what the
+     *    rollback rung exists for; it just could never be reached);
+     * 2. the heal product's floor, chain-compiled first when a chain
+     *    is bound (G7: keep the chain if at all possible; degrade
+     *    without it only with a loud notice; a landing detour is never
+     *    silently retargeted at a direct outbound);
+     * 3. the heal product through the full quarantine (isolation of
+     *    the provably bad parts, floor as its own last resort).
+     * Returns null when nothing startable could be recovered.
+     */
+    private suspend fun recoverFromPipelineFatal(
+        rawContent: String,
+        profileId: Long,
+        fatal: Throwable?,
+        scriptBound: Boolean,
+        chainBound: Boolean,
+        ladderExpired: () -> Boolean,
+    ): PipelineRecovery? {
+        if (scriptBound) {
+            val rolled = applyForRung(rawContent, skipScripts = true, profileId = profileId)
+            if (rolled != null) {
+                return PipelineRecovery(
+                    rolled,
                     OverrideNotice(
                         title = "脚本启动失败，已回滚",
-                        reason = if (classicScriptFault) {
-                            ConfigDiagnose.explain(firstErr, scriptsBound = true)
-                        } else {
-                            "脚本改出的配置内核启动不了：${firstErr?.take(120) ?: "未知错误"}"
-                        },
+                        reason = "脚本改出的配置在加工阶段就被内核拒绝：${fatal?.message?.take(120) ?: "未知错误"}",
                         hint = ConfigDiagnose.rollbackHint(),
                         error = true,
                     ),
                 )
-                if (droppedRuleSets) noteRuleSetsSkipped()
-                if (substitutedRuleSets) noteRuleSetsSubstituted()
-                return started(!droppedRuleSets)
             }
-            stopAndAlert(
-                Alert.CreateService,
-                ConfigDiagnose.explain(firstErr, scriptsBound = true) +
-                    "\n\n关掉脚本后仍失败：" +
-                    ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false),
-            )
-            return false
         }
-
-        stopAndAlert(
-            Alert.CreateService,
-            ConfigDiagnose.explain(err, scriptsBound = scriptBound, ruleSetRetried = ruleSetRetried),
+        val healed = runCatching { ConfigNormalize.heal(rawContent) }.getOrNull() ?: return null
+        val floor = ConfigQuarantine.buildFloor(healed.content)
+        if (floor != null) {
+            if (chainBound) {
+                val chained = runCatching { ConfigChainReapply.apply(floor, profileId) }.getOrNull()
+                if (chained != null && checkOracle.check(chained) == null) {
+                    return PipelineRecovery(
+                        chained,
+                        OverrideNotice(
+                            title = "已用最小配置启动，链式保持中",
+                            reason = "完整配置加工失败，已用还能用的节点拼成最小配置，链式照常成立。",
+                            hint = "订阅原文没有改，下次启动会先重试完整配置。",
+                            error = true,
+                        ),
+                    )
+                }
+            }
+            if (checkOracle.check(floor) == null) {
+                return PipelineRecovery(
+                    floor,
+                    if (chainBound) {
+                        OverrideNotice(
+                            title = "链式代理这次没生效",
+                            reason = "完整配置加工失败，最小配置也编译不出链式，这次没有走链式。",
+                            hint = "订阅原文和链式绑定都没改，下次启动会先重试带链的完整配置。",
+                            error = true,
+                        )
+                    } else {
+                        OverrideNotice(
+                            title = "已用最小配置启动",
+                            reason = "完整配置加工失败，已用还能用的节点拼成最小配置启动。",
+                            hint = "订阅原文没有改，下次启动会先重试完整配置。",
+                            error = true,
+                        )
+                    },
+                )
+            }
+        }
+        val quarantined = runCatching {
+            ConfigQuarantine.degrade(
+                healed.content,
+                checkOracle,
+                QuarantineBudget(expired = ladderExpired),
+            )
+        }.getOrNull() ?: return null
+        if (chainBound) {
+            val chained = runCatching {
+                ConfigChainReapply.apply(quarantined.content, profileId)
+            }.getOrNull()
+            if (chained != null && checkOracle.check(chained) == null) {
+                return PipelineRecovery(
+                    chained,
+                    quarantineRecoveryNotice(quarantined, chainDropped = false),
+                )
+            }
+            return PipelineRecovery(
+                quarantined.content,
+                quarantineRecoveryNotice(quarantined, chainDropped = true),
+            )
+        }
+        return PipelineRecovery(
+            quarantined.content,
+            quarantineRecoveryNotice(quarantined, chainDropped = false),
         )
-        return false
+    }
+
+    private fun quarantineRecoveryNotice(
+        outcome: ConfigQuarantine.Outcome,
+        chainDropped: Boolean,
+    ): OverrideNotice {
+        val removed = outcome.removedItems
+        val base = when {
+            outcome.floorUsed ->
+                "完整配置加工失败，已用还能用的节点拼成最小配置启动"
+            removed.isEmpty() ->
+                "完整配置加工失败，已用规范化后的配置启动"
+            else ->
+                "完整配置加工失败，已隔离 ${removed.size} 处内核不认的内容后启动：" +
+                    removed.take(6).joinToString("、")
+        }
+        return OverrideNotice(
+            title = if (chainDropped) "链式代理这次没生效" else "配置规范化",
+            reason = if (chainDropped) "$base。这次没有走链式。" else "$base。",
+            hint = "订阅原文没有改，下次启动会先重试完整配置。",
+            error = true,
+        )
+    }
+
+    private fun quarantineNotice(outcome: ConfigQuarantine.Outcome): OverrideNotice {
+        val removed = outcome.removedItems
+        return if (outcome.floorUsed) {
+            OverrideNotice(
+                title = "已用最小配置启动",
+                reason = "完整配置有多处内核不认的内容，已用还能用的节点拼成最小配置启动。涉及：${removed.take(6).joinToString("、")}",
+                hint = "订阅原文没有改，下次启动会先重试完整配置。",
+                error = true,
+            )
+        } else {
+            OverrideNotice(
+                title = "已隔离坏部件后启动",
+                reason = "配置里有 ${removed.size} 处内核不认的内容，已只去掉这些，其余原样保留：${removed.take(6).joinToString("、")}",
+                hint = "订阅原文没有改，下次启动会先重试完整配置。",
+                error = true,
+            )
+        }
     }
 
     private suspend fun attempt(content: String, options: OverrideOptions): Result<Unit> {

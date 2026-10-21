@@ -304,9 +304,21 @@ object ConfigNormalize {
         }
         val trimmed = ingested.content.trim()
         if (trimmed.isEmpty() || trimmed[0] != '{') {
+            // Deliberately total: heal never throws on unparseable
+            // input (healStringIsSafeOnGarbage pins this). The import
+            // gate rejects such content with a readable reason long
+            // before startup; at startup the G1 reroute turns the
+            // resulting pipeline fatal into recovery attempts instead
+            // of the old bare parse-error death.
             return HealResult(ingested.content, ingested.notes)
         }
-        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return HealResult(ingested.content, ingested.notes)
+        if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) {
+            // G8: the size cap used to skip every heal repair silently.
+            return HealResult(
+                ingested.content,
+                ingested.notes + "配置超过 8MB，规范化修复已跳过，按原文启动",
+            )
+        }
         val root = try {
             JSONObject(trimmed)
         } catch (_: Exception) {
