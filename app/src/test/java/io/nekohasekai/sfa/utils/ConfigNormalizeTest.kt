@@ -455,6 +455,301 @@ class ConfigNormalizeTest {
         dir.deleteRecursively()
     }
 
+    // ---------------------------------------------------------------
+    // ConfigQuarantine: check-driven isolation + floor (AB-010).
+    // The fake oracle rejects any config still carrying an "x-bad"
+    // marker key — the stand-in for a field the real kernel refuses.
+    // ---------------------------------------------------------------
+
+    private fun markerOracle(): ConfigCheckOracle = ConfigCheckOracle { json ->
+        if (json.contains("\"x-bad\"")) "decode config: unknown field x-bad" else null
+    }
+
+    private fun tagsOf(arr: org.json.JSONArray): List<String> =
+        (0 until arr.length()).map { arr.getJSONObject(it).getString("tag") }
+
+    @Test
+    fun quarantineIsolatesBadDnsRuleAndNodeOnly() {
+        val content = """
+            {
+              "dns": {"servers": [
+                {"type": "local", "tag": "local"},
+                {"type": "tcp", "tag": "bad-dns", "server": "1.2.3.4", "x-bad": true},
+                {"type": "tcp", "tag": "good-dns", "server": "8.8.8.8"}
+              ], "final": "bad-dns"},
+              "inbounds": [{"type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"]}],
+              "outbounds": [
+                {"type": "vless", "tag": "good-1", "server": "a.example.com", "server_port": 443},
+                {"type": "vless", "tag": "bad-1", "server": "b.example.com", "server_port": 443, "x-bad": true},
+                {"type": "selector", "tag": "proxy", "outbounds": ["good-1", "bad-1"]},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"rules": [
+                {"domain": "ok.example.com", "outbound": "proxy"},
+                {"domain": "bad.example.com", "outbound": "proxy", "x-bad": true}
+              ], "final": "proxy"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertFalse(outcome.floorUsed)
+        assertTrue(outcome.removedItems.any { it.contains("bad-dns") })
+        assertTrue(outcome.removedItems.any { it.contains("bad-1") })
+        assertTrue(outcome.removedItems.any { it.contains("分流规则") })
+        val root = JSONObject(outcome.content)
+        val dns = root.getJSONObject("dns")
+        assertEquals(listOf("local", "good-dns"), tagsOf(dns.getJSONArray("servers")))
+        // final pointed at the removed server: retargeted at a survivor.
+        assertEquals("local", dns.getString("final"))
+        val outs = root.getJSONArray("outbounds")
+        assertEquals(listOf("good-1", "proxy", "direct"), tagsOf(outs))
+        val members = outs.getJSONObject(1).getJSONArray("outbounds")
+        assertEquals(1, members.length())
+        assertEquals("good-1", members.getString(0))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        assertEquals("ok.example.com", rules.getJSONObject(0).getString("domain"))
+        assertEquals("proxy", root.getJSONObject("route").getString("final"))
+        // The surviving node is field-for-field intact.
+        val good = outs.getJSONObject(0)
+        assertEquals("a.example.com", good.getString("server"))
+        assertEquals(443, good.getInt("server_port"))
+    }
+
+    @Test
+    fun quarantineLeavesAcceptedConfigAlone() {
+        val content = """
+            {
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "a.example.com", "server_port": 443},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "n1"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertFalse(outcome.floorUsed)
+        assertTrue(outcome.removedItems.isEmpty())
+        val outs = JSONObject(outcome.content).getJSONArray("outbounds")
+        assertTrue(tagsOf(outs).contains("n1"))
+    }
+
+    @Test
+    fun quarantineRemovesBadLocalRuleSetAndItsRulesOnly() {
+        val content = """
+            {
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "a.example.com", "server_port": 443},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"rule_set": [
+                {"type": "local", "tag": "bad-set", "format": "source", "path": "/nonexistent.srs", "x-bad": true},
+                {"type": "remote", "tag": "good-set", "format": "binary", "url": "https://example.com/good.srs"}
+              ], "rules": [
+                {"rule_set": "bad-set", "outbound": "n1"},
+                {"rule_set": ["good-set"], "outbound": "n1"},
+                {"domain": "x.example.com", "outbound": "n1"}
+              ], "final": "n1"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertFalse(outcome.floorUsed)
+        assertTrue(outcome.removedItems.any { it.contains("bad-set") })
+        val route = JSONObject(outcome.content).getJSONObject("route")
+        assertEquals(listOf("good-set"), tagsOf(route.getJSONArray("rule_set")))
+        // Only the rule that referenced the bad set alone is gone.
+        assertEquals(2, route.getJSONArray("rules").length())
+    }
+
+    @Test
+    fun quarantineFloorWhenFaultOutsideCandidates() {
+        val content = """
+            {
+              "experimental": {"x-bad": true},
+              "dns": {"servers": [{"type": "udp", "tag": "dns1", "server": "9.9.9.9"}], "final": "dns1"},
+              "outbounds": [
+                {"type": "trojan", "tag": "t1", "server": "a.example.com", "server_port": 443, "password": "p"},
+                {"type": "vless", "tag": "v1", "server": "b.example.com", "server_port": 443},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"rules": [{"domain": "a.com", "outbound": "t1"}], "final": "t1"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertTrue(outcome.floorUsed)
+        val root = JSONObject(outcome.content)
+        assertFalse(root.has("experimental"))
+        val outs = root.getJSONArray("outbounds")
+        assertTrue(tagsOf(outs).containsAll(listOf("t1", "v1", "节点选择", "自动选择")))
+        assertEquals("节点选择", root.getJSONObject("route").getString("final"))
+        assertFalse(root.getJSONObject("route").has("rules"))
+        val dns = root.getJSONObject("dns")
+        assertEquals(listOf("dns1"), tagsOf(dns.getJSONArray("servers")))
+        assertEquals("dns1", dns.getString("final"))
+        val selector = outs.getJSONObject(tagsOf(outs).indexOf("节点选择"))
+        assertEquals("自动选择", selector.getString("default"))
+    }
+
+    @Test
+    fun quarantineFloorDropsBadLeafAndItsDetour() {
+        // Oracle rejects the marker AND any mention of the bad leaf:
+        // isolation inside the floor must remove the leaf and the
+        // surviving node's detour to it — never retarget it at direct.
+        val oracle = ConfigCheckOracle { json ->
+            if (json.contains("\"x-bad\"") || json.contains("\"bad-b\"")) "rejected" else null
+        }
+        val content = """
+            {
+              "experimental": {"x-bad": true},
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [
+                {"type": "vless", "tag": "good-a", "server": "a.example.com", "server_port": 443, "detour": "bad-b"},
+                {"type": "trojan", "tag": "bad-b", "server": "b.example.com", "server_port": 443, "password": "p"},
+                {"type": "vless", "tag": "good-c", "server": "c.example.com", "server_port": 443},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "good-a"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, oracle)
+        assertTrue(outcome != null)
+        outcome!!
+        assertTrue(outcome.floorUsed)
+        assertTrue(outcome.removedItems.any { it.contains("bad-b") })
+        val outs = JSONObject(outcome.content).getJSONArray("outbounds")
+        assertFalse(tagsOf(outs).contains("bad-b"))
+        val a = outs.getJSONObject(tagsOf(outs).indexOf("good-a"))
+        assertFalse(a.has("detour"))
+    }
+
+    @Test
+    fun quarantineFloorKeepsSurvivingDetour() {
+        val content = """
+            {
+              "experimental": {"x-bad": true},
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [
+                {"type": "vless", "tag": "good-a", "server": "a.example.com", "server_port": 443, "detour": "good-b"},
+                {"type": "trojan", "tag": "good-b", "server": "b.example.com", "server_port": 443, "password": "p"},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "good-a"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertTrue(outcome.floorUsed)
+        val outs = JSONObject(outcome.content).getJSONArray("outbounds")
+        val a = outs.getJSONObject(tagsOf(outs).indexOf("good-a"))
+        assertEquals("good-b", a.getString("detour"))
+    }
+
+    @Test
+    fun quarantineNeverReturnsUncheckedContent() {
+        // A starved budget must end in "no result", never in content
+        // the oracle has not accepted.
+        val content = """
+            {
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [
+                {"type": "vless", "tag": "bad-1", "server": "b.example.com", "server_port": 443, "x-bad": true},
+                {"type": "direct", "tag": "direct"}
+              ],
+              "route": {"final": "bad-1"}
+            }
+        """.trimIndent()
+        val starved = ConfigQuarantine.degrade(
+            content,
+            markerOracle(),
+            QuarantineBudget(maxCheckCalls = 1),
+        )
+        assertTrue(starved == null)
+    }
+
+    @Test
+    fun quarantineIsolatesOneBadNodeAmongMany() {
+        val nodes = (1..10).joinToString(",") { i ->
+            val bad = if (i == 7) ", \"x-bad\": true" else ""
+            """{"type": "vless", "tag": "n$i", "server": "s$i.example.com", "server_port": 443$bad}"""
+        }
+        val rules = (1..30).joinToString(",") { i ->
+            """{"domain": "d$i.example.com", "outbound": "n1"}"""
+        }
+        val content = """
+            {
+              "dns": {"servers": [{"type": "local", "tag": "local"}], "final": "local"},
+              "outbounds": [$nodes, {"type": "direct", "tag": "direct"}],
+              "route": {"rules": [$rules], "final": "n1"}
+            }
+        """.trimIndent()
+        val outcome = ConfigQuarantine.degrade(content, markerOracle())
+        assertTrue(outcome != null)
+        outcome!!
+        assertFalse(outcome.floorUsed)
+        assertEquals(1, outcome.removedItems.count { it.contains("节点") })
+        assertTrue(outcome.removedItems.any { it.contains("n7") })
+        val root = JSONObject(outcome.content)
+        assertEquals(30, root.getJSONObject("route").getJSONArray("rules").length())
+        assertEquals(10, root.getJSONArray("outbounds").length())
+    }
+
+    // ---------------------------------------------------------------
+    // ConfigGate: storage gate aligned with the startup heal (G4).
+    // ---------------------------------------------------------------
+
+    @Test
+    fun gateAcceptsContentOnlyHealCanFix() {
+        // Legacy DNS server "address" form: the plain check rejects
+        // it, the startup heal migrates it — the gate must accept.
+        val content = """
+            {
+              "dns": {"servers": [{"tag": "a", "address": "https://dns.example.com/dns-query"}], "final": "a"},
+              "outbounds": [
+                {"type": "vless", "tag": "n1", "server": "a.example.com", "server_port": 443}
+              ],
+              "route": {"final": "n1"}
+            }
+        """.trimIndent()
+        val check: (String) -> String? = { candidate ->
+            if (candidate.contains("\"address\"")) "unknown field address" else null
+        }
+        val result = ConfigGate.validate(content, check)
+        assertTrue(result is ConfigGate.Result.Accepted)
+        assertTrue((result as ConfigGate.Result.Accepted).healRescued)
+    }
+
+    @Test
+    fun gateAcceptsCleanContentWithoutHeal() {
+        val check: (String) -> String? = { null }
+        val result = ConfigGate.validate("{\"outbounds\": []}", check)
+        assertTrue(result is ConfigGate.Result.Accepted)
+        assertFalse((result as ConfigGate.Result.Accepted).healRescued)
+    }
+
+    @Test
+    fun gateRejectsWithReadableReasonAndStripsUrls() {
+        val check: (String) -> String? = {
+            "decode config: unknown field at https://secret.example.com/token123 end"
+        }
+        val result = ConfigGate.validate("{\"outbounds\": []}", check)
+        assertTrue(result is ConfigGate.Result.Rejected)
+        val reason = (result as ConfigGate.Result.Rejected).reason
+        assertTrue(reason.contains("内核原话"))
+        assertTrue(reason.contains("没有改成直连"))
+        assertFalse(reason.contains("secret.example.com"))
+        assertFalse(reason.contains("token123"))
+    }
+
     @Test
     fun substituteCachedRuleSetsIgnoresEmptyCacheFiles() {
         val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-sub-${System.nanoTime()}")
