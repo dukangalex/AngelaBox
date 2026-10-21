@@ -125,6 +125,14 @@ object ConfigQuicOverride {
             applyOne(warnings, "广告拦截") {
                 if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
             }
+            // A bound script owns the dns block: the bundled sample rebuilds
+            // it from scratch, which wipes the ECH query server/route the
+            // import installed — and its own HTTPS/SVCB reject then starves
+            // every ECH node. Re-assert the ECH route after any script,
+            // whatever the script emitted.
+            applyOne(warnings, "ECH 查询路由") {
+                if (scriptOn) ConfigIngest.ensureEchQueryRoute(root)
+            }
             // After scripts and chain merge: rewrite 404 remote rule-sets to
             // official testingcf geosite/geoip URLs so APP routing still
             // matches the original tags. Chain landing is untouched.

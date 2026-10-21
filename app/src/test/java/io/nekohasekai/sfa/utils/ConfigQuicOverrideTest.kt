@@ -187,6 +187,87 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun scriptRebuiltDnsKeepsEchRoute() {
+        // The bundled overlay script rebuilds dns from scratch: the ECH
+        // query server/route the import installed are wiped and its own
+        // HTTPS/SVCB reject would starve every ECH node. The startup
+        // pipeline re-asserts the route via ensureEchQueryRoute.
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "vless")
+                        .put("tag", "n")
+                        .put(
+                            "tls",
+                            JSONObject().put(
+                                "ech",
+                                JSONObject()
+                                    .put("enabled", true)
+                                    .put("query_server_name", "cloudflare-ech.com"),
+                            ),
+                        ),
+                ),
+            )
+            .put(
+                "dns",
+                JSONObject()
+                    .put(
+                        "servers",
+                        JSONArray()
+                            .put(JSONObject().put("type", "fakeip").put("tag", "dns-fakeip"))
+                            .put(JSONObject().put("type", "udp").put("tag", "dns-cn").put("server", "223.5.5.5"))
+                            .put(JSONObject().put("type", "tcp").put("tag", "dns-remote").put("server", "1.1.1.1")),
+                    )
+                    .put(
+                        "rules",
+                        JSONArray()
+                            .put(
+                                JSONObject()
+                                    .put("rule_set", JSONArray().put("geosite-cn"))
+                                    .put("server", "dns-cn"),
+                            )
+                            .put(
+                                JSONObject()
+                                    .put("query_type", JSONArray().put("HTTPS").put("SVCB"))
+                                    .put("action", "reject"),
+                            )
+                            .put(
+                                JSONObject()
+                                    .put("query_type", JSONArray().put("A").put("AAAA"))
+                                    .put("server", "dns-fakeip"),
+                            ),
+                    )
+                    .put("final", "dns-remote"),
+            )
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        val dns = root.getJSONObject("dns")
+        val servers = dns.getJSONArray("servers")
+        var echServer: JSONObject? = null
+        for (i in 0 until servers.length()) {
+            val server = servers.getJSONObject(i)
+            if (server.getString("tag") == "ech-dns") echServer = server
+        }
+        assertEquals("https", echServer!!.getString("type"))
+        assertEquals("dns.alidns.com", echServer.getString("server"))
+        assertFalse(echServer.has("detour"))
+        val rules = dns.getJSONArray("rules")
+        val first = rules.getJSONObject(0)
+        assertEquals("ech-dns", first.getString("server"))
+        assertEquals("cloudflare-ech.com", first.getJSONArray("domain").getString(0))
+        var rejectIndex = -1
+        for (i in 0 until rules.length()) {
+            if (rules.getJSONObject(i).optString("action") == "reject") rejectIndex = i
+        }
+        assertTrue(rejectIndex > 0)
+        // Idempotent: a second pass changes nothing.
+        val once = dns.toString()
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+        assertEquals(once, root.getJSONObject("dns").toString())
+    }
+
+    @Test
     fun dnsProtectRoutesEchNameForNativeProfile() {
         // A native sing-box profile (like the provider's official JSON) has
         // an ECH outbound but no ech-* DNS rule of its own: without an

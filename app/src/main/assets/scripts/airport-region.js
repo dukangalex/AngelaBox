@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 29
+ * overlay-revision: 30
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -1101,6 +1101,26 @@ function main(config) {
   }
   dnsRules.push({ query_type: ["HTTPS", "SVCB"], action: "reject" });
   dnsRules.push({ query_type: ["A", "AAAA"], server: "dns-fakeip" });
+  // ECH nodes fetch their config with an HTTPS query for
+  // tls.ech.query_server_name. This script replaces dns wholesale, so
+  // keep a dedicated ECH server and route those names to it ahead of the
+  // HTTPS/SVCB reject above — otherwise every ECH node starves.
+  var echNames = [];
+  (function (lists) {
+    for (var li = 0; li < lists.length; li++) {
+      var list = lists[li];
+      if (!isArray(list)) continue;
+      for (var oi = 0; oi < list.length; oi++) {
+        var ech = list[oi] && list[oi].tls && list[oi].tls.ech;
+        var q = ech && ech.query_server_name;
+        if (typeof q === "string" && q && echNames.indexOf(q) < 0) echNames.push(q);
+      }
+    }
+  })([config.outbounds, config.endpoints]);
+  if (echNames.length) {
+    dnsServers.push({ type: "https", tag: "ech-dns", server: "dns.alidns.com", domain_resolver: CN_DNS_TAG });
+    dnsRules.unshift({ domain: echNames, server: "ech-dns" });
+  }
   config.dns = {
     servers: dnsServers,
     rules: dnsRules,
