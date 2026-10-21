@@ -187,6 +187,53 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun dnsProtectRoutesEchNameForNativeProfile() {
+        // A native sing-box profile (like the provider's official JSON) has
+        // an ECH outbound but no ech-* DNS rule of its own: without an
+        // explicit route, the DNS-leak reject below would swallow the
+        // kernel's ECH config query and the node could never connect.
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "vless")
+                        .put("tag", "n")
+                        .put(
+                            "tls",
+                            JSONObject().put(
+                                "ech",
+                                JSONObject()
+                                    .put("enabled", true)
+                                    .put("query_server_name", "cloudflare-ech.com"),
+                            ),
+                        ),
+                ),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(
+                        JSONObject().put("type", "tls").put("tag", "dns_proxy").put("server", "8.8.8.8"),
+                    ),
+                ),
+            )
+        ConfigQuicOverride.applyDnsProtect(root)
+        val dns = root.getJSONObject("dns")
+        val rules = dns.getJSONArray("rules")
+        assertEquals("ech-dns", rules.getJSONObject(0).getString("server"))
+        assertEquals("reject", rules.getJSONObject(1).getString("action"))
+        assertEquals("dns-fakeip", rules.getJSONObject(2).getString("server"))
+        val servers = dns.getJSONArray("servers")
+        val echDns = (0 until servers.length())
+            .map { servers.getJSONObject(it) }
+            .first { it.optString("tag") == "ech-dns" }
+        assertEquals("dns.alidns.com", echDns.getString("server"))
+        assertFalse(echDns.has("detour"))
+    }
+
+    @Test
     fun strictRouteForcesTunEvenIfFalse() {
         val root = JSONObject().put(
             "inbounds",

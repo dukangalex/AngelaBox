@@ -408,15 +408,80 @@ class ConfigIngestTest {
             }
         }
         assertTrue(doh)
-        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        // Official shape: the hint DoH server stays in domain form and the
+        // query rides the default outbound — no forced direct detour.
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
         val echDns = (0 until root.getJSONObject("dns").getJSONArray("servers").length())
             .map { root.getJSONObject("dns").getJSONArray("servers").getJSONObject(it) }
             .first { it.optString("tag").startsWith("ech-") }
-        assertEquals("direct", echDns.getString("detour"))
-        assertEquals("223.5.5.5", echDns.getString("server"))
-        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+        assertEquals("dns.alidns.com", echDns.getString("server"))
+        assertFalse(echDns.has("detour"))
         root.remove("dns")
         assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        assertFalse(ConfigIngest.ensureEchQueryRoute(root))
+        val fallback = (0 until root.getJSONObject("dns").getJSONArray("servers").length())
+            .map { root.getJSONObject("dns").getJSONArray("servers").getJSONObject(it) }
+            .first { it.optString("tag").startsWith("ech-") }
+        assertEquals("dns.alidns.com", fallback.getString("server"))
+        assertFalse(fallback.has("detour"))
+    }
+
+    @Test
+    fun echQueryRouteRepairsLegacyDirectBake() {
+        // Profiles stored before 1.0.122 carry the old bake: the ECH DNS
+        // server flattened to 223.5.5.5 with an injected TLS block and a
+        // forced detour onto the direct outbound. Startup must repair it.
+        val root = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "direct").put("tag", "direct"))
+                    .put(
+                        JSONObject()
+                            .put("type", "vless")
+                            .put("tag", "n")
+                            .put(
+                                "tls",
+                                JSONObject().put(
+                                    "ech",
+                                    JSONObject().put("query_server_name", "cloudflare-ech.com"),
+                                ),
+                            ),
+                    ),
+            )
+            .put(
+                "dns",
+                JSONObject().put(
+                    "servers",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("type", "https")
+                            .put("tag", "ech-dns")
+                            .put("server", "223.5.5.5")
+                            .put("server_port", 443)
+                            .put("path", "/dns-query")
+                            .put(
+                                "tls",
+                                JSONObject()
+                                    .put("enabled", true)
+                                    .put("server_name", "dns.alidns.com"),
+                            )
+                            .put("detour", "direct"),
+                    ),
+                ),
+            )
+        assertTrue(ConfigIngest.ensureEchQueryRoute(root))
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        val echDns = (0 until servers.length())
+            .map { servers.getJSONObject(it) }
+            .first { it.optString("tag") == "ech-dns" }
+        assertEquals("dns.alidns.com", echDns.getString("server"))
+        assertFalse(echDns.has("server_port"))
+        assertFalse(echDns.has("tls"))
+        assertFalse(echDns.has("detour"))
+        assertEquals("local", echDns.getString("domain_resolver"))
+        val rules = root.getJSONObject("dns").getJSONArray("rules")
+        assertEquals("ech-dns", rules.getJSONObject(0).getString("server"))
         assertFalse(ConfigIngest.ensureEchQueryRoute(root))
     }
 

@@ -319,6 +319,10 @@ object ConfigQuicOverride {
         if (!dns.has("cache_capacity")) {
             dns.put("cache_capacity", 2048)
         }
+        // ECH 查询域名必须先有显式路由（官方同构：走订阅的远程 DNS），否则
+        // 会被 ensureFakeIpDns 里的 HTTPS/SVCB reject 吞掉——原生 sing-box
+        // 订阅自身没有 ech-* 规则时尤其如此。幂等：已有路由不动。
+        ConfigIngest.ensureEchQueryRoute(root)
         ensureFakeIpDns(dns)
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
