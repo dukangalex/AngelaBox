@@ -1,3 +1,19 @@
+• **1.0.123：**
+1. **开了脚本，带 ECH 的节点也能用了 (ECH nodes now work with overlay scripts on):** 默认脚本覆写开启时，脚本重建的 DNS 会把 ECH 配置查询的路由冲掉，整批 ECH 节点连不上。这一版在脚本跑完后按 sing-box 官方走法把 ECH 查询路由补回，默认脚本自身也会为 ECH 域名留出查询通道。
+   With an overlay script enabled, the script-rebuilt DNS dropped the route for ECH config lookups, so every ECH node failed to connect. The ECH query route is now restored after scripts run, aligned with the official sing-box arrangement, and the bundled script itself keeps a query path open for ECH domains.
+2. **网络体检不再误报「节点连不上」 (Network Checkup no longer cries wolf):** 体检的隧道探测改为两个目标、两轮探测，并用同一轮实测到的节点延迟交叉校验：偶发超时不再直接判「节点连不上」，而是如实显示「暂时测不准」并附上延迟毫秒数；延迟数字也会注明是刚刚测得还是上次测得。
+   The tunnel probe now tries two targets over two rounds and cross-checks against the node latency measured in the same run: a single timeout no longer reports "node unreachable" — it honestly reports "uncertain" with the measured latency, and latency figures say whether they are fresh or from the last test.
+3. **启动失败说人话，不再静默硬启 (Startup failures are explicit, never silent):** 配置加工中途出错时，不再拿近乎原始的订阅静默启动（可能链式和防护都没套上）；要么处理完成再启动，要么停下来把原因讲清。脚本把配置改坏也能被认出来并回退，不再出现「开着脚本跑不起来还查不出原因」。
+   If profile processing fails partway, the app no longer silently starts on the near-raw profile (which could skip chaining and protections): it either finishes processing or stops with a clear reason. A script that breaks the config is now recognised and rolled back instead of leaving the service mysteriously unable to start.
+4. **导入更宽容，坏节点不再拖垮整份订阅 (Import tolerates individual bad nodes):** 节点参数按内核能接受的形式归一（例如 flow 变体），实在不合规的单个节点只跳过它并明确告知，不再让整份订阅在启动时被内核拒绝；同名节点、规则集替换或删除也都会出声说明，不再静默发生。
+   Node parameters are normalised to what the kernel accepts (for example flow variants); a single non-compliant node is skipped with a notice instead of making the kernel reject the whole profile at startup. Same-name nodes and rule-set replacements or removals are now always reported instead of happening silently.
+5. **链式更可靠 (Chains are more reliable):** 跨配置组链时，落地配置自己绑定的脚本现在也会生效；分组嵌套里的落地节点不再自环；入口与落地双跳都是 TLS 时，每次启动按实际链路复检并给出提示。
+   When chaining across profiles, the landing profile's own bound scripts now take effect; landing nodes nested inside groups no longer loop onto themselves; and the both-hops-TLS warning is rechecked against the actually compiled chain on every start.
+6. **订阅更新更省心 (Subscription updates behave better):** 失效订阅自动退避，不再每轮硬拉；服务器限流（HTTP 429）按临时故障自动重试，不再误判为永久失效；更新落盘改为原子写入，更新中途断电也不会把配置写坏。
+   Dead subscriptions back off automatically instead of being re-fetched every round; HTTP 429 rate limiting is treated as temporary and retried, not misjudged as permanent failure; updated profiles are written atomically, so a power loss mid-update cannot corrupt them.
+7. **设置更尊重你的选择 (Settings respect your choices):** 升级迁移不再把你亲手关掉的开关重新打开；分应用代理的托管模式会明确提示它优先于手动名单，不再静默覆盖。
+   Upgrade migrations no longer turn switches back on after you deliberately turned them off, and per-app managed mode now clearly states that it takes precedence over the manual list instead of silently overriding it.
+
 • **1.0.122：**
 1. **带 ECH 的节点连不上修复（第二轮） (ECH nodes fixed, round two):** 1.0.121 修掉查询被拦截的问题后，带 ECH 的订阅节点在部分网络下仍连不上。这一版把 ECH 配置查询改成与 sing-box 官方客户端完全一致的走法；旧版本存下来的订阅会在升级后自动修复，不用删了重导。
    After the 1.0.121 fix, subscriptions with ECH nodes still could not connect on some networks. This release aligns the ECH config lookup exactly with the official sing-box client, and profiles stored by older versions are repaired automatically on upgrade — no need to delete and re-import.
