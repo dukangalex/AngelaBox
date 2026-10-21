@@ -135,6 +135,10 @@ class UpdateProfileWork {
                     profile.typed.lastUpdated = Date()
                     ProfileManager.update(profile)
                     SubscriptionUpdateHealth.recordSuccess(applicationContext, profile.id)
+                    // 规范化替代的弹药：把这份订阅的远程规则集顺手下载进
+                    // 本地缓存，启动时远程下不下来能用缓存顶上，不再只能
+                    // 跳过。尽力而为，失败不影响更新结果，受整轮预算约束。
+                    warmRuleSetCache(content, roundDeadlineMs)
                     // 更新成功但有"跳过/修正"提示：记下来，仪表盘横幅展示，不藏报错。
                     SubscriptionUpdateHealth.recordImportWarnings(
                         applicationContext,
@@ -162,6 +166,7 @@ class UpdateProfileWork {
                     Libbox.newStandaloneCommandClient().serviceReload()
                 }
             }
+
             // E-2: profiles left over by the round budget are deferred, not
             // dropped — retry re-enters doWork and the due check (their
             // lastUpdated never moved) picks them up.
@@ -169,6 +174,44 @@ class UpdateProfileWork {
                 Result.retry()
             } else {
                 Result.success()
+            }
+        }
+
+        /**
+         * Best-effort download of a freshly updated profile's remote rule
+         * sets into the shared rule-set cache (the same files the startup
+         * normalization substitute points local rule sets at). Missing or
+         * day-old entries only, at most a handful per profile, and never
+         * past the round deadline — warming must not starve real updates.
+         */
+        private fun warmRuleSetCache(content: String, deadlineMs: Long) {
+            runCatching {
+                val working = Application.application.getExternalFilesDir(null)
+                    ?: Application.application.filesDir
+                var warmed = 0
+                for (provider in io.nekohasekai.sfa.utils.RuleSetProviders.parse(content)) {
+                    if (warmed >= 8) break
+                    if (System.currentTimeMillis() > deadlineMs) break
+                    if (!provider.remote) continue
+                    val url = provider.url.trim()
+                    if (url.isEmpty()) continue
+                    val dest = io.nekohasekai.sfa.utils.RuleSetProviders.cacheFile(
+                        working, provider.tag, provider.format, url,
+                    )
+                    val stale = !dest.isFile || dest.length() == 0L ||
+                        System.currentTimeMillis() - dest.lastModified() > 24L * 60 * 60 * 1000
+                    if (!stale) continue
+                    runCatching {
+                        HTTPClient().use { client ->
+                            client.downloadToFile(
+                                url,
+                                io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
+                                dest,
+                            )
+                        }
+                        if (dest.isFile && dest.length() > 0L) warmed++
+                    }
+                }
             }
         }
     }

@@ -420,4 +420,55 @@ class ConfigNormalizeTest {
         assertTrue(domainIdx in 0 until dnsIdx)
     }
 
+    private fun ruleSetRoot(vararg sets: String): JSONObject =
+        JSONObject("""{"route":{"rule_set":[${sets.joinToString(",")}]}}""")
+
+    @Test
+    fun substituteCachedRuleSetsSwapsRemoteWithCache() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-sub-${System.nanoTime()}")
+        val cacheDir = java.io.File(dir, "rule-sets").apply { mkdirs() }
+        java.io.File(cacheDir, "geoip-cn.srs").writeBytes(byteArrayOf(1, 2, 3))
+        java.io.File(cacheDir, "geosite-cn.json").writeText("""{"rules":[]}""")
+        val root = ruleSetRoot(
+            """{"type":"remote","tag":"geoip-cn","format":"binary","url":"https://example.com/geoip-cn.srs","download_detour":"proxy","update_interval":"1d"}""",
+            """{"type":"remote","tag":"geosite-cn","format":"source","url":"https://example.com/geosite-cn.json"}""",
+            """{"type":"remote","tag":"geoip-us","format":"binary","url":"https://example.com/geoip-us.srs"}""",
+            """{"type":"local","tag":"mine","format":"binary","path":"/data/mine.srs"}""",
+        )
+        val done = ConfigNormalize.substituteCachedRuleSets(root, dir)
+        assertEquals(listOf("geoip-cn", "geosite-cn"), done)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val cn = sets.getJSONObject(0)
+        assertEquals("local", cn.getString("type"))
+        assertEquals("binary", cn.getString("format"))
+        assertTrue(cn.getString("path").endsWith("rule-sets/geoip-cn.srs"))
+        assertFalse(cn.has("url"))
+        assertFalse(cn.has("download_detour"))
+        assertFalse(cn.has("update_interval"))
+        val site = sets.getJSONObject(1)
+        assertEquals("local", site.getString("type"))
+        assertEquals("source", site.getString("format"))
+        // No cache for geoip-us: stays remote for the caller's next rung.
+        assertEquals("remote", sets.getJSONObject(2).getString("type"))
+        // Already-local sets are untouched.
+        assertEquals("/data/mine.srs", sets.getJSONObject(3).getString("path"))
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun substituteCachedRuleSetsIgnoresEmptyCacheFiles() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-sub-${System.nanoTime()}")
+        val cacheDir = java.io.File(dir, "rule-sets").apply { mkdirs() }
+        java.io.File(cacheDir, "geoip-cn.srs").writeBytes(ByteArray(0))
+        val root = ruleSetRoot(
+            """{"type":"remote","tag":"geoip-cn","format":"binary","url":"https://example.com/geoip-cn.srs"}""",
+        )
+        assertTrue(ConfigNormalize.substituteCachedRuleSets(root, dir).isEmpty())
+        assertEquals(
+            "remote",
+            root.getJSONObject("route").getJSONArray("rule_set").getJSONObject(0).getString("type"),
+        )
+        dir.deleteRecursively()
+    }
+
 }
