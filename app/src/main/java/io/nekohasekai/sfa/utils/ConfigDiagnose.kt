@@ -20,7 +20,13 @@ object ConfigDiagnose {
                 "内核刚才没起来，连接已断开。请再点一次启动。"
             }
             looksLikeStartTimeout(text) -> {
-                "内核启动超过 45 秒没有返回。可能是远程规则集下载慢，也可能是设备或网络慢。应用会跳过远程规则集再试一次。"
+                // Keep the budget number the marker actually carries (45 s
+                // standard, 90 s for the extended full-config retry) and do
+                // not promise a next step: by the time this text is shown,
+                // the ladder has already run — and a timeout alone cannot
+                // say WHICH part was slow (AB-019).
+                val seconds = Regex("""超过\s*(\d+)\s*秒""").find(text)?.groupValues?.get(1) ?: "45"
+                "内核启动超过 $seconds 秒没有返回。可能是远程规则集下载慢，也可能是设备或网络慢，仅凭超时断定不了是哪一段出了问题。"
             }
             looksLike(text, "outbound detour not found") -> {
                 val tag = extractAfter(text, "outbound detour not found:")
@@ -146,8 +152,46 @@ object ConfigDiagnose {
     /** BoxService's own start-budget marker (not a kernel rule-set error). */
     fun looksLikeStartTimeout(text: String?): Boolean {
         val t = text.orEmpty()
-        return looksLike(t, "内核启动超过 45 秒") || looksLike(t, "内核启动没有返回结果")
+        // The budget in the marker varies (45 s standard, 90 s extended
+        // retry), so match the shape, not one fixed number.
+        return (looksLike(t, "内核启动超过") && looksLike(t, "秒没有返回")) ||
+            looksLike(t, "内核启动没有返回结果")
     }
+
+    /** Why the start ladder ended up skipping the remote rule sets. */
+    enum class RuleSetSkipCause {
+        /** A stall inside this service run was remembered; this reload pre-skipped. */
+        MEMORY_PRE_SKIP,
+
+        /** The start ran past its budget; nothing proved the downloads themselves failed. */
+        START_TIMEOUT,
+
+        /** The kernel reported a rule-set download/initialise failure. */
+        DOWNLOAD_FAILED,
+    }
+
+    /**
+     * Banner text for a start that skipped the remote rule sets. The
+     * cause must be stated as what it actually is (AB-019): a bare
+     * timeout is not a download failure and must not be worded as one;
+     * a real kernel error is quoted verbatim when we have it, and when
+     * we do not, the text says no more than what is known.
+     */
+    fun ruleSetSkippedReason(cause: RuleSetSkipCause, kernelError: String?): String =
+        when (cause) {
+            RuleSetSkipCause.MEMORY_PRE_SKIP ->
+                "不久前在当前网络上，远程规则集下载卡住过。这次先跳过这些规则集快速启动，避免再等一轮。"
+            RuleSetSkipCause.START_TIMEOUT ->
+                "这次启动超时（内核在预算时间内没有启动完），已先跳过远程规则集后启动。超时本身不能证明规则集有问题，也可能是设备或网络整体慢。"
+            RuleSetSkipCause.DOWNLOAD_FAILED -> {
+                val detail = kernelError?.trim()?.takeIf { it.isNotEmpty() }
+                if (detail != null) {
+                    "远程规则集下载失败，已跳过这些规则集后启动。内核原话：${detail.take(180)}"
+                } else {
+                    "远程规则集这次没能下载下来，已跳过这些规则集后启动。"
+                }
+            }
+        }
 
     fun looksLikeDomainResolver(text: String?): Boolean {
         val t = text.orEmpty()

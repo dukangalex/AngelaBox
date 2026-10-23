@@ -116,8 +116,52 @@ object ConfigInboundCompat {
         if (rejectStaleFakeIp(root)) changed = true
         if (ensureSniff(root)) changed = true
         if (ConfigIngest.ensureEchQueryRoute(root)) changed = true
+        if (ensureDefaultDomainResolver(root)) changed = true
         if (healDanglingDomainResolvers(root)) changed = true
         return changed
+    }
+
+    /**
+     * G-11: products this app generated (Clash / share-link conversions)
+     * carried no route.default_domain_resolver, so every start popped the
+     * kernel's Deprecated Warning (the field is required since sing-box
+     * 1.12 and the implicit fallback disappears in 1.14). Fill it with
+     * what the kernel would have fallen back to, so DNS behaviour does
+     * not change: the DNS final server when one is named, else a local
+     * (system) resolver — creating that server when the product has no
+     * DNS section at all, which is the converted shape. An existing
+     * value, string or object form, is never overwritten. Only runs via
+     * applyStartupPolicy, so native sing-box files stay untouched.
+     */
+    internal fun ensureDefaultDomainResolver(root: JSONObject): Boolean {
+        val route = root.optJSONObject("route") ?: return false
+        when (val existing = route.opt("default_domain_resolver")) {
+            is String -> if (existing.isNotBlank()) return false
+            is JSONObject -> if (existing.optString("server").isNotBlank()) return false
+        }
+        val dns = root.optJSONObject("dns")
+        val servers = dns?.optJSONArray("servers")
+        val serverTags = mutableSetOf<String>()
+        var localTag: String? = null
+        if (servers != null) {
+            for (i in 0 until servers.length()) {
+                val server = servers.optJSONObject(i) ?: continue
+                val tag = server.optString("tag").trim()
+                if (tag.isEmpty()) continue
+                serverTags += tag
+                if (localTag == null && server.optString("type").equals("local", true)) {
+                    localTag = tag
+                }
+            }
+        }
+        val finalTag = dns?.optString("final")?.trim().orEmpty()
+        val pick = when {
+            finalTag.isNotEmpty() && finalTag in serverTags -> finalTag
+            localTag != null -> localTag
+            else -> ensureLocalDnsServer(root)
+        }
+        route.put("default_domain_resolver", pick)
+        return true
     }
 
     internal fun migrateLegacyInbounds(root: JSONObject): Boolean {

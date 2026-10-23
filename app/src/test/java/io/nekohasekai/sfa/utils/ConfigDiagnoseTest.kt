@@ -159,4 +159,49 @@ class ConfigDiagnoseTest {
         assertTrue(text.contains("超过 45 秒"))
         assertTrue(text.contains("可能"))
     }
+
+    @Test
+    fun startTimeoutMarkerAcceptsExtendedBudget() {
+        // AB-019: the extended full-config retry enforces a 90 s budget
+        // and its marker must still classify as a start timeout — and
+        // still not as a rule-set failure.
+        val marker = "内核启动超过 90 秒没有返回"
+        assertTrue(ConfigDiagnose.looksLikeStartTimeout(marker))
+        assertFalse(ConfigDiagnose.looksLikeRuleSetFailure(marker))
+        val text = ConfigDiagnose.explain(marker, scriptsBound = false)
+        assertTrue(text.contains("超过 90 秒"))
+        assertTrue(text.contains("可能"))
+    }
+
+    @Test
+    fun ruleSetSkippedReasonStatesTheActualCause() {
+        // AB-019 (failure must speak): the banner distinguishes a bare
+        // start timeout from a real download failure. A timeout must
+        // not be worded as a download failure; a kernel error is quoted
+        // verbatim when there is one, and not invented when there is not.
+        val timeout = ConfigDiagnose.ruleSetSkippedReason(
+            ConfigDiagnose.RuleSetSkipCause.START_TIMEOUT, null,
+        )
+        assertTrue(timeout.contains("启动超时"))
+        assertFalse(timeout.contains("下载失败"))
+
+        val kernelError = "initialize rule-set geosite-cn: Get https://example.com/x.srs: i/o timeout"
+        val failed = ConfigDiagnose.ruleSetSkippedReason(
+            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED, kernelError,
+        )
+        assertTrue(failed.contains("下载失败"))
+        assertTrue(failed.contains("内核原话"))
+        assertTrue(failed.contains("i/o timeout"))
+
+        val noDetail = ConfigDiagnose.ruleSetSkippedReason(
+            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED, null,
+        )
+        assertTrue(noDetail.contains("没能下载下来"))
+        assertFalse(noDetail.contains("内核原话"))
+
+        val memory = ConfigDiagnose.ruleSetSkippedReason(
+            ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP, null,
+        )
+        assertTrue(memory.contains("卡住过"))
+    }
 }

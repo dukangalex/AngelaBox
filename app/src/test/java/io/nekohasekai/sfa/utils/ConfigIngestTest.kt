@@ -577,6 +577,266 @@ class ConfigIngestTest {
     }
 
     @Test
+    fun clashInlineDomainProviderIsInlinedFaithfully() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              my-cn:
+                type: inline
+                behavior: domain
+                payload:
+                  - +.example-cn.com
+                  - exact.example.org
+            rules:
+              - RULE-SET,my-cn,PROXY
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        assertEquals(ConfigIngest.Format.Clash, result.format)
+        val root = JSONObject(result.content)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val inline = (0 until sets.length()).map { sets.getJSONObject(it) }
+            .first { it.getString("tag") == "my-cn" }
+        assertEquals("inline", inline.getString("type"))
+        val inlineText = inline.getJSONArray("rules").toString()
+        assertTrue(inlineText.contains("example-cn.com"))
+        assertTrue(inlineText.contains("domain_suffix"))
+        assertTrue(inlineText.contains("exact.example.org"))
+        val rulesText = root.getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(rulesText.contains("\"rule_set\":\"my-cn\""))
+        assertFalse(result.notes.any { it.contains("已替换为官方规则集") })
+    }
+
+    @Test
+    fun clashFetchedClassicalProviderIsInlinedWithGeoipExtra() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              stream:
+                type: http
+                behavior: classical
+                url: https://example.com/stream.yaml
+            rules:
+              - RULE-SET,stream,PROXY
+              - MATCH,PROXY
+        """.trimIndent()
+        val body = """
+            payload:
+              - DOMAIN-SUFFIX,video.example.com
+              - DOMAIN,api.example.com
+              - IP-CIDR,203.0.113.0/24
+              - GEOIP,CN
+              - PROCESS-NAME,SomeApp
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { url ->
+            assertEquals("https://example.com/stream.yaml", url)
+            body
+        }
+        val root = JSONObject(result.content)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val byTag = (0 until sets.length()).map { sets.getJSONObject(it) }
+            .associateBy { it.getString("tag") }
+        val inline = byTag.getValue("stream")
+        assertEquals("inline", inline.getString("type"))
+        val inlineText = inline.getJSONArray("rules").toString()
+        assertTrue(inlineText.contains("video.example.com"))
+        assertTrue(inlineText.contains("api.example.com"))
+        assertTrue(inlineText.contains("203.0.113.0/24"))
+        assertEquals("remote", byTag.getValue("geoip-cn").getString("type"))
+        val rule = root.getJSONObject("route").getJSONArray("rules").getJSONObject(0)
+        val referenced = rule.getJSONArray("rule_set")
+        val referencedTags = (0 until referenced.length()).map { referenced.getString(it) }
+        assertEquals(listOf("stream", "geoip-cn"), referencedTags)
+        assertTrue(result.notes.any { it.contains("「stream」") && it.contains("1 条") && it.contains("表达不了") })
+    }
+
+    @Test
+    fun clashFetchedIpCidrProviderIsInlined() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              cnip:
+                type: http
+                behavior: ipcidr
+                url: https://example.com/cnip.txt
+            rules:
+              - RULE-SET,cnip,DIRECT
+              - MATCH,PROXY
+        """.trimIndent()
+        val body = "# heading comment\n192.0.2.0/24\n198.51.100.7\n2001:db8::/32\nnot-an-ip\n"
+        val result = ConfigIngest.adapt(yaml) { body }
+        val root = JSONObject(result.content)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val inline = (0 until sets.length()).map { sets.getJSONObject(it) }
+            .first { it.getString("tag") == "cnip" }
+        assertEquals("inline", inline.getString("type"))
+        val inlineText = inline.getJSONArray("rules").toString()
+        assertTrue(inlineText.contains("192.0.2.0/24"))
+        assertTrue(inlineText.contains("198.51.100.7/32"))
+        assertTrue(inlineText.contains("2001:db8::/32"))
+        assertFalse(inlineText.contains("not-an-ip"))
+        assertTrue(result.notes.any { it.contains("「cnip」") && it.contains("1 条") })
+    }
+
+    @Test
+    fun clashUnreachableProviderFallsBackAndNamesTheSwap() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              reject:
+                type: http
+                behavior: domain
+                url: https://example.com/reject.yaml
+            rules:
+              - RULE-SET,reject,REJECT
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("offline") }
+        val root = JSONObject(result.content)
+        val setsText = root.getJSONObject("route").getJSONArray("rule_set").toString()
+        assertTrue(setsText.contains("geosite-category-ads-all"))
+        assertFalse(setsText.contains("\"inline\""))
+        assertTrue(
+            result.notes.any {
+                it.contains("「reject」") && it.contains("已替换为官方规则集 geosite-category-ads-all")
+            },
+        )
+    }
+
+    @Test
+    fun clashUnmappableProviderIsDroppedAndNamed() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              my-list:
+                type: http
+                behavior: domain
+                url: https://example.com/my-list.yaml
+            rules:
+              - RULE-SET,my-list,PROXY
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("offline") }
+        val root = JSONObject(result.content)
+        val route = root.getJSONObject("route")
+        // The only user rule referenced the dead provider, so no rules
+        // survive; the route itself and its final must still be intact.
+        assertFalse(route.has("rule_set"))
+        assertEquals("PROXY", route.getString("final"))
+        assertTrue(result.notes.any { it.contains("「my-list」") && it.contains("已跳过") })
+    }
+
+    @Test
+    fun clashFileProviderFallsBackAndNamesTheSwap() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rule-providers:
+              cn:
+                type: file
+                behavior: domain
+                path: ./ruleset/cn.yaml
+            rules:
+              - RULE-SET,cn,DIRECT
+              - MATCH,PROXY
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("must not fetch") }
+        val root = JSONObject(result.content)
+        val setsText = root.getJSONObject("route").getJSONArray("rule_set").toString()
+        assertTrue(setsText.contains("geosite-cn"))
+        assertTrue(
+            result.notes.any { it.contains("「cn」") && it.contains("已替换为官方规则集 geosite-cn") },
+        )
+    }
+
+    @Test
+    fun clashFallbackGroupConversionDisclosesUrltestApproximation() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: 1.2.3.4
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: 故障转移
+                type: fallback
+                url: http://www.gstatic.com/generate_204
+                interval: 300
+                proxies: [n1]
+            rules:
+              - MATCH,故障转移
+        """.trimIndent()
+        val result = ConfigIngest.adapt(yaml)
+        val root = JSONObject(result.content)
+        val group = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it) }
+            .first { it.getString("tag") == "故障转移" }
+        assertEquals("urltest", group.getString("type"))
+        assertTrue(result.notes.any { it.contains("故障转移（fallback）分组已按自动选择处理") })
+    }
+
+    @Test
     fun clashAnyTlsBecomesSingBoxAnyTls() {
         val yaml = """
             proxies:

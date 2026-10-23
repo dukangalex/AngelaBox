@@ -128,13 +128,13 @@ fun ChainPathCard(
         topology.hops.firstOrNull { it.role == ChainPathHop.Role.Entry }
     }
     val nodeName = remember(exitHop, profileName) {
-        TrafficFlowBuilder.prettyHop(
+        TrafficFlowBuilder.prettyHopFull(
             exitHop?.title?.ifBlank { exitHop.subtitle }.orEmpty(),
         ).ifBlank { profileName.ifBlank { "—" } }
     }
     val shownEntry = remember(entryHop) {
-        TrafficFlowBuilder.prettyHop(entryHop?.title.orEmpty())
-            .ifBlank { TrafficFlowBuilder.prettyHop(entryHop?.subtitle.orEmpty()) }
+        TrafficFlowBuilder.prettyHopFull(entryHop?.title.orEmpty())
+            .ifBlank { TrafficFlowBuilder.prettyHopFull(entryHop?.subtitle.orEmpty()) }
     }
     Column(
         modifier = modifier
@@ -352,12 +352,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = shownEntry.ifBlank { "—" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -371,12 +369,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = nodeName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -418,12 +414,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = nodeName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -504,6 +498,79 @@ fun ChainPathCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
+        )
+    }
+}
+
+/**
+ * Hop and node names at the same display standard as the traffic-flow
+ * labels (1.0.124): the font steps down until the whole name fits on
+ * one line. A plain ellipsis text cut medium-length names even though
+ * a slightly smaller font would have shown them whole (G-9).
+ *
+ * Names that still overflow one line at the 11sp floor wrap onto two
+ * lines instead of truncating: the font steps down again from the
+ * original size and the largest size whose wrapped text fits within
+ * two lines wins. Tail ellipsis remains only for the rare name that
+ * cannot fit two lines even at the floor.
+ */
+@Composable
+private fun ShrinkToFitNameText(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier = modifier) {
+        val budgetPx = constraints.maxWidth.coerceAtLeast(1)
+        val fitted = remember(text, budgetPx, style) {
+            val floorSp = 11f
+            val startSp = style.fontSize.value.takeIf { it.isFinite() && it > floorSp } ?: 16f
+            var sizeSp = startSp
+            var singleLineSp: Float? = null
+            while (true) {
+                val result = measurer.measure(
+                    text = text,
+                    style = style.copy(fontSize = sizeSp.sp),
+                    maxLines = 1,
+                    softWrap = false,
+                    constraints = Constraints(maxWidth = budgetPx),
+                )
+                if (!result.didOverflowWidth) {
+                    singleLineSp = sizeSp
+                    break
+                }
+                if (sizeSp <= floorSp) break
+                sizeSp = (sizeSp - 1f).coerceAtLeast(floorSp)
+            }
+            val single = singleLineSp
+            if (single != null) {
+                single to false
+            } else {
+                var wrapSp = startSp
+                var chosenWrapSp = floorSp
+                while (true) {
+                    val result = measurer.measure(
+                        text = text,
+                        style = style.copy(fontSize = wrapSp.sp),
+                        maxLines = 2,
+                        softWrap = true,
+                        constraints = Constraints(maxWidth = budgetPx),
+                    )
+                    chosenWrapSp = wrapSp
+                    if (!result.didOverflowHeight && !result.didOverflowWidth) break
+                    if (wrapSp <= floorSp) break
+                    wrapSp = (wrapSp - 1f).coerceAtLeast(floorSp)
+                }
+                chosenWrapSp to true
+            }
+        }
+        Text(
+            text = text,
+            style = style.copy(fontSize = fitted.first.sp),
+            maxLines = if (fitted.second) 2 else 1,
+            softWrap = fitted.second,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

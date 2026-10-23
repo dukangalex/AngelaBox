@@ -47,6 +47,8 @@ import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
 import io.nekohasekai.sfa.utils.QuarantineBudget
+import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
+import io.nekohasekai.sfa.utils.StartRetryPolicy
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
@@ -70,8 +72,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // Starting screen for minutes (7 attempts + repeated apply()).
         private const val LADDER_BUDGET_MS = 180_000L
         private const val TAG = "BoxService"
-        // A 45 s rule-set stall skips remote rule-sets on the next start only within
-        // 10 min and on the same default network; a start that keeps them clears it.
+        // A rule-set stall is remembered for 10 min on the same default
+        // network, but (AB-019) the memory is only consulted by reloads
+        // inside the current service run — a fresh service start always
+        // attempts the full config first. A start that keeps the sets
+        // clears the memory.
         private val ruleSetStalls = RuleSetStallMemory(clock = SystemClock::elapsedRealtime)
 
         /**
@@ -200,7 +205,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             DefaultNetworkMonitor.start()
 
-            if (!startOrReloadKernel(rawContent, selectedProfileId)) return
+            if (!startOrReloadKernel(rawContent, selectedProfileId, freshStart = true)) return
 
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
@@ -314,7 +319,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
         lastProfileName = profile.name
-        if (!startOrReloadKernel(rawContent, selectedProfileId)) return
+        if (!startOrReloadKernel(rawContent, selectedProfileId, freshStart = false)) return
 
         if (commandServer.needWIFIState()) {
             val wifiPermission =
@@ -361,10 +366,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun startOrReloadKernel(rawContent: String, profileId: Long): Boolean =
-        kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId) }
+    private suspend fun startOrReloadKernel(
+        rawContent: String,
+        profileId: Long,
+        freshStart: Boolean,
+    ): Boolean =
+        kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId, freshStart) }
 
-    private suspend fun startOrReloadKernelLocked(rawContent: String, profileId: Long): Boolean {
+    private suspend fun startOrReloadKernelLocked(
+        rawContent: String,
+        profileId: Long,
+        freshStart: Boolean,
+    ): Boolean {
         val ladderStart = SystemClock.elapsedRealtime()
         fun ladderExpired(): Boolean =
             SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
@@ -390,7 +403,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val firstApply = runCatching { ConfigQuicOverride.apply(rawContent, profileId = profileId) }
         if (firstApply.isSuccess) {
             content = firstApply.getOrThrow()
-            if (ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))) {
+            // Memory demotion (AB-019): the stall memory is consulted
+            // only on reloads inside this service run. A fresh start
+            // always attempts the full config first — pre-skipping it
+            // would punish a recovered network for a stall it did not
+            // cause, with no chance to prove otherwise.
+            if (StartRetryPolicy.mayConsultStallMemory(freshStart) &&
+                ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))
+            ) {
                 // This network + content stalled on remote rule sets before.
                 // Substitute the cached local copies first (normalization
                 // instead of skipping); only sets with no cache fall back to
@@ -456,7 +476,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         var result = attempt(content, options)
         if (result.isSuccess) {
-            if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+            if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
             if (substitutedRuleSets) noteRuleSetsSubstituted()
             return started(!droppedRuleSets)
         }
@@ -484,7 +504,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             restartCommandServer()
             result = attempt(content, options)
             if (result.isSuccess) {
-                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                 if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
@@ -511,7 +531,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         hint = "节点还在，没有改成直连。",
                     ),
                 )
-                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                 if (substitutedRuleSets) noteRuleSetsSubstituted()
                 return started(!droppedRuleSets)
             }
@@ -535,7 +555,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 content = patched
                 result = attempt(content, options)
                 if (result.isSuccess) {
-                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                     if (substitutedRuleSets) noteRuleSetsSubstituted()
                     return started(!droppedRuleSets)
                 }
@@ -585,6 +605,33 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     keep(result.exceptionOrNull()?.message)
                 }
             }
+            // Budget decoupling (AB-019): a timed-out first attempt is
+            // not proof the rule sets are at fault, so before anything
+            // degrades the config, a profile whose remote sets still
+            // have no cache copy gets ONE retry of the full config at
+            // the extended budget. Healthy-but-slow cold starts (the
+            // rule-set files total a few hundred KB) finish inside it
+            // and lose nothing; only a retry that also times out moves
+            // on to the substitute / drop rungs below.
+            if (StartRetryPolicy.shouldRetryWithExtendedBudget(
+                    timedOut = timedOut,
+                    alreadyExtended = false,
+                    uncachedRemoteRuleSets = RuleSetCacheWarmer
+                        .uncachedRemoteTags(content, ruleSetWorkingDir()).size,
+                    ladderExpired = ladderExpired(),
+                )
+            ) {
+                restartCommandServer()
+                result = attempt(content, options, StartRetryPolicy.EXTENDED_START_BUDGET_MS)
+                if (result.isSuccess) {
+                    if (droppedRuleSets && !recoveredContent) {
+                        noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
+                    }
+                    if (substitutedRuleSets) noteRuleSetsSubstituted()
+                    return started(!droppedRuleSets)
+                }
+                keep(result.exceptionOrNull()?.message)
+            }
             if (!substitutedRuleSets && !ladderExpired()) {
                 // Normalization substitute before any skipping: swap the
                 // remote sets that have a cached copy for local ones and
@@ -620,7 +667,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         // evidenced, so remembering it is fair.
                         ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
                     }
-                    noteRuleSetsSkipped()
+                    // Failure must speak (AB-019): say which cause the
+                    // evidence supports — a bare timeout is reported as a
+                    // timeout, never dressed up as a download failure;
+                    // a real kernel error is quoted verbatim (prefer the
+                    // error that actually names a rule set).
+                    noteRuleSetsSkipped(
+                        if (timedOut) {
+                            ConfigDiagnose.RuleSetSkipCause.START_TIMEOUT
+                        } else {
+                            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED
+                        },
+                        kernelDetail = listOf(firstErr, err)
+                            .firstOrNull { ConfigDiagnose.looksLikeRuleSetFailure(it) }
+                            ?: err ?: firstErr,
+                    )
                     return started(false)
                 }
                 keep(result.exceptionOrNull()?.message)
@@ -663,7 +724,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                             error = true,
                         ),
                     )
-                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                     if (substitutedRuleSets) noteRuleSetsSubstituted()
                     return started(!droppedRuleSets)
                 }
@@ -716,7 +777,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                             ),
                         )
                     }
-                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped()
+                    if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                     if (substitutedRuleSets) noteRuleSetsSubstituted()
                     return started(false)
                 }
@@ -928,8 +989,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun attempt(content: String, options: OverrideOptions): Result<Unit> {
-        val result = startWithinBudget(content, options)
+    private suspend fun attempt(
+        content: String,
+        options: OverrideOptions,
+        budgetMs: Long = START_BUDGET_MS,
+    ): Result<Unit> {
+        val result = startWithinBudget(content, options, budgetMs)
         if (result.exceptionOrNull() is StartCancelled) throw StartCancelled()
         return result
     }
@@ -940,7 +1005,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      * on the power button during the spin can give up instead of sticking
      * in Starting forever (onStartCommand ignores a start that is not Stopped).
      */
-    private fun startWithinBudget(content: String, options: OverrideOptions): Result<Unit> {
+    private fun startWithinBudget(
+        content: String,
+        options: OverrideOptions,
+        budgetMs: Long = START_BUDGET_MS,
+    ): Result<Unit> {
         if (startAbort.get()) return Result.failure(StartCancelled())
         val server = commandServer
         val holder = arrayOfNulls<Result<Unit>>(1)
@@ -949,7 +1018,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }, "kernel-start")
         worker.isDaemon = true
         worker.start()
-        val deadline = SystemClock.elapsedRealtime() + START_BUDGET_MS
+        val deadline = SystemClock.elapsedRealtime() + budgetMs
         while (true) {
             val left = deadline - SystemClock.elapsedRealtime()
             if (left <= 0L) break
@@ -970,9 +1039,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // "initialize rule-set: 远程规则集超过 45 秒还没下完" for every
         // slow start, which the ladder then read as a confirmed rule-set
         // stall — recording the memory and dropping all remote rule-sets
-        // for 10 minutes even when the sets were perfectly fine.
+        // for 10 minutes even when the sets were perfectly fine. The
+        // seconds in the message are the budget actually enforced
+        // (45 s standard, 90 s for the extended full-config retry).
         return Result.failure(
-            IllegalStateException("内核启动超过 45 秒没有返回"),
+            IllegalStateException("内核启动超过 ${budgetMs / 1000} 秒没有返回"),
         )
     }
 
@@ -996,11 +1067,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private fun noteRuleSetsSkipped() {
+    /** Same working dir the startup substitute and the cache warmer use. */
+    private fun ruleSetWorkingDir(): File =
+        runCatching { Application.application.getExternalFilesDir(null) }.getOrNull()
+            ?: Application.application.filesDir
+
+    private fun noteRuleSetsSkipped(
+        cause: ConfigDiagnose.RuleSetSkipCause,
+        kernelDetail: String? = null,
+    ) {
         OverrideStatus.add(
             OverrideNotice(
                 title = "规则集已跳过",
-                reason = "远程规则集下不下来，已跳过这些规则集后启动。",
+                reason = ConfigDiagnose.ruleSetSkippedReason(cause, kernelDetail),
                 hint = "节点和分组还在，其余分流还在。没有改成直连。",
             ),
         )

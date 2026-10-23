@@ -82,7 +82,7 @@ fun NetworkCheckupDialog(
                 when (state) {
                     is NetworkCheckupUiState.Idle -> IdleContent(onRun)
                     is NetworkCheckupUiState.Running -> RunningContent(state.step)
-                    is NetworkCheckupUiState.Done -> DoneContent(state.result, onRun, onDismiss)
+                    is NetworkCheckupUiState.Done -> DoneContent(state.result, state.profileName, onRun, onDismiss)
                 }
             }
         }
@@ -116,9 +116,21 @@ private fun RunningContent(step: NetworkCheckup.ItemId) {
 @Composable
 private fun DoneContent(
     result: NetworkCheckup.Result,
+    profileName: String,
     onRun: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // AB-011: say which profile this result belongs to. The result is
+    // bound to that profile in the state and cleared on profile switch,
+    // so what is shown here always matches the name on this line.
+    if (profileName.isNotBlank()) {
+        Text(
+            stringResource(R.string.network_checkup_for_profile, profileName),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
     VerdictBanner(result)
     Spacer(Modifier.height(8.dp))
     result.items.forEach { item ->

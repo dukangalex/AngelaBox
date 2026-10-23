@@ -293,6 +293,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                     profile.id,
                     detailed.notes,
                 )
+                // AB-019: foreground updates fill the rule-set cache too,
+                // not only the background worker.
+                io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
 
                 // Update UI state with success indicator
                 _uiState.update {
