@@ -128,13 +128,13 @@ fun ChainPathCard(
         topology.hops.firstOrNull { it.role == ChainPathHop.Role.Entry }
     }
     val nodeName = remember(exitHop, profileName) {
-        TrafficFlowBuilder.prettyHop(
+        TrafficFlowBuilder.prettyHopFull(
             exitHop?.title?.ifBlank { exitHop.subtitle }.orEmpty(),
         ).ifBlank { profileName.ifBlank { "—" } }
     }
     val shownEntry = remember(entryHop) {
-        TrafficFlowBuilder.prettyHop(entryHop?.title.orEmpty())
-            .ifBlank { TrafficFlowBuilder.prettyHop(entryHop?.subtitle.orEmpty()) }
+        TrafficFlowBuilder.prettyHopFull(entryHop?.title.orEmpty())
+            .ifBlank { TrafficFlowBuilder.prettyHopFull(entryHop?.subtitle.orEmpty()) }
     }
     Column(
         modifier = modifier

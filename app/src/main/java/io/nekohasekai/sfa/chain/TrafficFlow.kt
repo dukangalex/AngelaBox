@@ -389,23 +389,38 @@ object TrafficFlowBuilder {
     }
 
     internal fun prettyHop(raw: String): String {
-        val shown = ChainRuntimeCompiler.displayHopTag(raw).trim()
-        val base = when {
-            shown.isNotEmpty() -> shown
-            else -> {
-                val t = raw.trim()
-                if (t.isEmpty()) return ""
-                if (t.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX)) return ""
-                if (t == ChainRuntimeCompiler.LEGACY_CHAIN_TAG) return ""
-                if (t.startsWith(ChainRuntimeCompiler.LEGACY_PREFIX)) {
-                    t.removePrefix(ChainRuntimeCompiler.LEGACY_PREFIX)
-                } else {
-                    t
-                }
-            }
-        }
+        val base = hopDisplayBase(raw) ?: return ""
         if (isDirectTag(base)) return "DIRECT"
         return shortenNodeName(base)
+    }
+
+    /**
+     * Same cleaning pipeline as prettyHop (display tag, prefix stripping,
+     * DIRECT mapping, and the tidy-ups inside shortenNodeName: generated
+     * chainbox prefix removal, protocol-tail clipping, edge trimming), but
+     * without the 16-char shortening. For header rows that render the name
+     * with their own shrink-or-wrap fitting; the flow diagram keeps using
+     * prettyHop and its short labels.
+     */
+    internal fun prettyHopFull(raw: String): String {
+        val base = hopDisplayBase(raw) ?: return ""
+        if (isDirectTag(base)) return "DIRECT"
+        return shortenNodeName(base, maxChars = Int.MAX_VALUE)
+    }
+
+    /** Cleaned display base for a hop tag, or null when the tag names nothing displayable. */
+    private fun hopDisplayBase(raw: String): String? {
+        val shown = ChainRuntimeCompiler.displayHopTag(raw).trim()
+        if (shown.isNotEmpty()) return shown
+        val t = raw.trim()
+        if (t.isEmpty()) return null
+        if (t.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX)) return null
+        if (t == ChainRuntimeCompiler.LEGACY_CHAIN_TAG) return null
+        return if (t.startsWith(ChainRuntimeCompiler.LEGACY_PREFIX)) {
+            t.removePrefix(ChainRuntimeCompiler.LEGACY_PREFIX)
+        } else {
+            t
+        }
     }
 
     internal fun shortenNodeName(name: String, maxChars: Int = 16): String {
