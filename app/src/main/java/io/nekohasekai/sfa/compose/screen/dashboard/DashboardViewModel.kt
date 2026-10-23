@@ -329,6 +329,20 @@ class DashboardViewModel :
         }
     }
 
+    /** AB-025: 关闭某订阅当前批次的更新提示，随后刷新横幅。 */
+    fun dismissImportWarnings(profileId: Long) {
+        if (profileId < 0L) return
+        SubscriptionUpdateHealth.dismissImportWarnings(Application.application, profileId)
+        viewModelScope.launch(Dispatchers.IO) {
+            val issues = runCatching {
+                SubscriptionUpdateHealth.evaluate(Application.application)
+            }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) {
+                updateState { copy(healthIssues = issues) }
+            }
+        }
+    }
+
     fun reloadChainPath() {
         loadProfiles()
         viewModelScope.launch(Dispatchers.IO) {

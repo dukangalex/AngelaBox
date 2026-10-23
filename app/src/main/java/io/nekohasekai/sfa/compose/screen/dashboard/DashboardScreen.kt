@@ -104,7 +104,12 @@ fun DashboardScreen(
             contentPadding = PaddingValues(bottom = bottomPadding),
         ) {
             item { OverrideBanner() }
-            item { SubscriptionHealthBanner(uiState.healthIssues) }
+            item {
+                SubscriptionHealthBanner(
+                    uiState.healthIssues,
+                    onDismissImportWarnings = viewModel::dismissImportWarnings,
+                )
+            }
             if (uiState.showOnboardingGuide) {
                 item {
                     OnboardingGuideCard(

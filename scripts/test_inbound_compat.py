@@ -159,28 +159,75 @@ def strip_sniff_override(root: dict) -> None:
     walk((root.get("route") or {}).get("rules"))
 
 
+OFFICIAL_RULESET_MARKERS = (
+    "/gh/sagernet/sing-geosite",
+    "/gh/sagernet/sing-geoip",
+    "raw.githubusercontent.com/sagernet/sing-geosite/",
+    "raw.githubusercontent.com/sagernet/sing-geoip/",
+    "github.com/sagernet/sing-geosite/",
+    "github.com/sagernet/sing-geoip/",
+)
+
+
+def is_official_ruleset_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(m in u for m in OFFICIAL_RULESET_MARKERS)
+
+
+def proven_missing_ruleset(url: str, file: str, missing: set) -> bool:
+    # Mirror of ConfigInboundCompat.isProvenMissingAtOfficial.
+    if not is_official_ruleset_url(url):
+        return False
+    if file in missing:
+        return True
+    u = url.lower()
+    if (
+        "/gh/sagernet/sing-geosite" in u
+        or "raw.githubusercontent.com/sagernet/sing-geosite/" in u
+        or "github.com/sagernet/sing-geosite/" in u
+    ):
+        return not file.startswith("geosite-")
+    stem = file[:-4] if file.endswith(".srs") else file
+    cc = stem[len("geoip-"):] if stem.startswith("geoip-") else ""
+    return not (stem.startswith("geoip-") and len(cc) == 2 and cc.isalpha())
+
+
 def drop_missing_rulesets(root: dict) -> None:
+    # Mirror of ConfigInboundCompat.healRemoteRuleSetsWithReport
+    # after AB-025: a non-empty URL stays verbatim unless it points
+    # at the official SagerNet repos AND names a file provably
+    # absent there; a swap must stay within the same kind of set
+    # (domain list vs IP list — cross-kind successors do not count);
+    # drops are official-repo only. Simplification: bare-stem
+    # successors at official URLs (a google.srs inside sing-geosite)
+    # are covered by the Kotlin unit tests; this mirror models the
+    # MISSING / UNREPLACEABLE dispositions and third-party fidelity.
     unreplaceable = {
         "geoip-private.srs",
         "geoip-fastly.srs",
         "geoip-cloudfront.srs",
     }
-    aliases = {
-        "telegram.srs": "geosite-telegram.srs",
-        "github.srs": "geosite-github.srs",
-        "google.srs": "geosite-google.srs",
-        "gitlab.srs": "geosite-gitlab.srs",
-        "telegram-ip.srs": "geosite-telegram.srs",
-        "geoip-telegram.srs": "geosite-telegram.srs",
-        "geoip-google.srs": "geosite-google.srs",
-        "geoip-netflix.srs": "geosite-netflix.srs",
-        "geoip-facebook.srs": "geosite-facebook.srs",
-        "geoip-twitter.srs": "geosite-twitter.srs",
-        "geoip-cloudflare.srs": "geosite-cloudflare.srs",
+    missing = {
+        "geosite-biliintl.srs",
+        "geosite-apple-cn.srs",
+        "geosite-tracker.srs",
+        "geosite-category-ai!cn.srs",
+        "geoip-private.srs",
+        "geoip-fastly.srs",
+        "geoip-cloudfront.srs",
+        "geoip-google.srs",
+        "geoip-telegram.srs",
+        "geoip-netflix.srs",
+        "geoip-facebook.srs",
+        "geoip-twitter.srs",
+        "geoip-cloudflare.srs",
+    }
+    # Same-kind successors only, keyed by the absent file name.
+    successors = {
         "geosite-biliintl.srs": "geosite-bilibili.srs",
         "geosite-apple-cn.srs": "geosite-apple@cn.srs",
         "geosite-tracker.srs": "geosite-category-ads-all.srs",
-        "category-ai!cn.srs": "geosite-category-ai-!cn.srs",
+        "geosite-category-ai!cn.srs": "geosite-category-ai-!cn.srs",
     }
     geosite_base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
     route = root.get("route") or {}
@@ -198,15 +245,11 @@ def drop_missing_rulesets(root: dict) -> None:
         if not remote:
             keep.append(item)
             continue
-        mapped = aliases.get(file)
-        stem = file[:-4] if file.endswith(".srs") else file
-        if mapped is None and not stem.startswith("geosite-") and not stem.startswith("geoip-"):
-            mapped = aliases.get(f"{stem}.srs")
-        if mapped:
-            item[url_key] = geosite_base + mapped
+        if url and proven_missing_ruleset(url, file, missing) and file in successors:
+            item[url_key] = geosite_base + successors[file]
             keep.append(item)
             continue
-        if remote and file in unreplaceable:
+        if url and is_official_ruleset_url(url) and file in unreplaceable:
             if tag:
                 drop.add(tag)
             continue
@@ -604,6 +647,11 @@ def main() -> int:
                         "type": "remote",
                         "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
                     },
+                    {
+                        "tag": "tracker",
+                        "type": "remote",
+                        "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-tracker.srs",
+                    },
                 ],
                 "rules": [
                     {"rule_set": "telegram", "outbound": "proxy"},
@@ -614,16 +662,25 @@ def main() -> int:
         }
     )
     by_tag = {x["tag"]: x["url"] for x in replaced["route"]["rule_set"]}
-    official_tg = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs"
-    if by_tag.get("telegram") != official_tg:
-        errors.append(f"short telegram.srs must become official geosite-telegram: {by_tag.get('telegram')}")
-    if by_tag.get("geoip-telegram") != official_tg:
-        errors.append(f"missing geoip-telegram must become geosite-telegram: {by_tag.get('geoip-telegram')}")
+    # AB-025: a short third-party name is NOT swapped to the
+    # official address any more — filename shape is not evidence.
+    # rewrite_sets has already mirrored it to the testingcf form;
+    # heal must leave that form untouched.
+    if by_tag.get("telegram") != "https://testingcf.jsdelivr.net/gh/foo/bar@main/telegram.srs":
+        errors.append(f"third-party telegram.srs must stay verbatim, not swap to official: {by_tag.get('telegram')}")
+    # A geoip name whose only official file is a geosite domain
+    # list must not be cross-swapped either (IP list != domain list).
+    if by_tag.get("geoip-telegram") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs":
+        errors.append(f"geoip-telegram must not cross-swap to geosite-telegram: {by_tag.get('geoip-telegram')}")
     if "geoip-cn" not in by_tag:
         errors.append("working geoip-cn must be kept")
+    # The one swap that remains: an official-repo URL naming a
+    # verified-absent file with a same-kind successor.
+    if by_tag.get("tracker") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs":
+        errors.append(f"official geosite-tracker must swap to geosite-category-ads-all: {by_tag.get('tracker')}")
     refs = [r.get("rule_set") for r in replaced["route"]["rules"] if r.get("action") != "hijack-dns"]
     if "telegram" not in refs or "geoip-telegram" not in refs:
-        errors.append(f"replaced rule-sets must keep original tags in routes: {refs}")
+        errors.append(f"kept rule-sets must keep original tags in routes: {refs}")
 
     if errors:
         print("FAIL")

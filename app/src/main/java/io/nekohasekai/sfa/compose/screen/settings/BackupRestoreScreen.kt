@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -48,8 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
@@ -93,6 +98,14 @@ fun BackupRestoreScreen(navController: NavController) {
     var showWebdavEditor by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(false) }
     var restoreCompat by remember { mutableStateOf(Settings.restoreCompat) }
+    // AB-021 password flow state. Passwords live only in these transient
+    // in-memory holders for the duration of one export or restore; they
+    // are never persisted, logged or written into the backup itself.
+    var pendingExportPassword by remember { mutableStateOf<CharArray?>(null) }
+    var exportPasswordAction by remember { mutableStateOf<((CharArray?) -> Unit)?>(null) }
+    var restorePwFile by remember { mutableStateOf<File?>(null) }
+    var restorePwError by remember { mutableStateOf<String?>(null) }
+    var restoreViaWebdav by remember { mutableStateOf(false) }
 
     fun persistProbe(ok: Boolean, detail: String?) {
         val value = if (ok) 1 else 0
@@ -145,21 +158,73 @@ fun BackupRestoreScreen(navController: NavController) {
         }
     }
 
+    fun runRestore(tmp: File, password: CharArray?, viaWebdav: Boolean, fromDialog: Boolean) {
+        scope.launch {
+            busy = true
+            val result = withContext(Dispatchers.IO) {
+                BackupManager.restoreBackupFile(context, tmp, Settings.restoreCompat, password).also { restored ->
+                    // AB-020: warm the restored configs' rule sets now,
+                    // synchronously — the relaunch below would kill a
+                    // fire-and-forget warm before it downloaded anything.
+                    // Both restore entry points funnel through runRestore,
+                    // so this one call covers local files and WebDAV.
+                    if (restored.isSuccess) {
+                        io.nekohasekai.sfa.bg.RuleSetWarmup.warmRestored(
+                            System.currentTimeMillis() + 60_000L,
+                        )
+                    }
+                }
+            }
+            password?.fill(0)
+            busy = false
+            if (result.isSuccess) {
+                restorePwFile = null
+                restorePwError = null
+                snackbar.showSnackbar("恢复完成，正在重新加载…")
+                delay(400)
+                softRelaunchApp(context)
+            } else if (fromDialog) {
+                // Keep the password dialog open with the failure shown so
+                // the user can retry instead of picking the file again.
+                restorePwError = result.exceptionOrNull()?.message
+            } else {
+                val prefix = if (viaWebdav) "WebDAV 恢复失败: " else "恢复失败: "
+                snackbar.showSnackbar("$prefix${result.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
+    fun startRestore(tmp: File, viaWebdav: Boolean) {
+        restoreViaWebdav = viaWebdav
+        if (BackupManager.isEncryptedBackup(tmp)) {
+            restorePwError = null
+            restorePwFile = tmp
+        } else {
+            runRestore(tmp, null, viaWebdav, fromDialog = false)
+        }
+    }
+
     val createDoc = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        val pw = pendingExportPassword
+        pendingExportPassword = null
+        if (uri == null) {
+            pw?.fill(0)
+            return@rememberLauncherForActivityResult
+        }
         scope.launch {
             busy = true
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                    BackupManager.createBackupFile(context, tmp).getOrThrow()
+                    BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
                     context.contentResolver.openOutputStream(uri)?.use { out ->
                         FileInputStream(tmp).use { it.copyTo(out) }
                     } ?: error("无法写入文件")
                 }
             }
+            pw?.fill(0)
             busy = false
             snackbar.showSnackbar(if (result.isSuccess) "本地备份完成" else "备份失败: ${result.exceptionOrNull()?.message}")
         }
@@ -171,23 +236,20 @@ fun BackupRestoreScreen(navController: NavController) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             busy = true
-            val result = withContext(Dispatchers.IO) {
+            val copied = withContext(Dispatchers.IO) {
                 runCatching {
                     val tmp = File(context.cacheDir, "chainbox-restore.zip")
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         FileOutputStream(tmp).use { output -> input.copyTo(output) }
                     } ?: error("无法读取文件")
-                    BackupManager.restoreBackupFile(context, tmp, Settings.restoreCompat).getOrThrow()
+                    tmp
                 }
             }
             busy = false
-            if (result.isSuccess) {
-                snackbar.showSnackbar("恢复完成，正在重新加载…")
-                delay(400)
-                softRelaunchApp(context)
-            } else {
-                snackbar.showSnackbar("恢复失败: ${result.exceptionOrNull()?.message}")
-            }
+            copied.fold(
+                onSuccess = { startRestore(it, viaWebdav = false) },
+                onFailure = { snackbar.showSnackbar("恢复失败: ${it.message}") },
+            )
         }
     }
 
@@ -265,6 +327,119 @@ fun BackupRestoreScreen(navController: NavController) {
         )
     }
 
+    if (exportPasswordAction != null) {
+        var pw1 by remember { mutableStateOf("") }
+        var pw2 by remember { mutableStateOf("") }
+        val mismatch = pw1.isNotEmpty() && pw2.isNotEmpty() && pw1 != pw2
+        AlertDialog(
+            onDismissRequest = { exportPasswordAction = null },
+            title = { Text(stringResource(R.string.backup_password_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.backup_password_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                    OutlinedTextField(
+                        value = pw1,
+                        onValueChange = { pw1 = it },
+                        label = { Text(stringResource(R.string.backup_password_label)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = pw2,
+                        onValueChange = { pw2 = it },
+                        label = { Text(stringResource(R.string.backup_password_confirm_label)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    )
+                    when {
+                        mismatch -> Text(
+                            stringResource(R.string.backup_password_mismatch),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        pw1.isEmpty() -> Text(
+                            stringResource(R.string.backup_password_plaintext_warning),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        else -> Text(
+                            stringResource(R.string.backup_password_encrypted_note),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !mismatch && pw1 == pw2,
+                    onClick = {
+                        val action = exportPasswordAction
+                        exportPasswordAction = null
+                        action?.invoke(if (pw1.isEmpty()) null else pw1.toCharArray())
+                    },
+                ) { Text(stringResource(R.string.backup_password_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { exportPasswordAction = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    restorePwFile?.let { file ->
+        var pw by remember(file) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { restorePwFile = null },
+            title = { Text(stringResource(R.string.backup_restore_password_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.backup_restore_password_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                    OutlinedTextField(
+                        value = pw,
+                        onValueChange = { pw = it; restorePwError = null },
+                        label = { Text(stringResource(R.string.backup_password_label)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    restorePwError?.let { err ->
+                        Text(
+                            err,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = pw.isNotEmpty() && !busy,
+                    onClick = { runRestore(file, pw.toCharArray(), restoreViaWebdav, fromDialog = true) },
+                ) { Text(stringResource(R.string.backup_restore_action)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { restorePwFile = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
     OverrideTopBar {
         TopAppBar(
             title = { Text("备份与恢复") },
@@ -328,27 +503,30 @@ fun BackupRestoreScreen(navController: NavController) {
                     headlineContent = { Text("备份") },
                     supportingContent = { Text("备份数据到 WebDAV") },
                     modifier = Modifier.clickable(enabled = !busy) {
-                        scope.launch {
-                            if (webdavUrl.isBlank()) {
-                                snackbar.showSnackbar("请先配置 WebDAV")
-                                return@launch
-                            }
-                            busy = true
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                                    BackupManager.createBackupFile(context, tmp).getOrThrow()
-                                    BackupManager.webdavUpload(
-                                        webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
-                                    ).getOrThrow()
+                        if (webdavUrl.isBlank()) {
+                            scope.launch { snackbar.showSnackbar("请先配置 WebDAV") }
+                            return@clickable
+                        }
+                        exportPasswordAction = { pw ->
+                            scope.launch {
+                                busy = true
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val tmp = File(context.cacheDir, "chainbox-backup.zip")
+                                        BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
+                                        BackupManager.webdavUpload(
+                                            webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
+                                        ).getOrThrow()
+                                    }
                                 }
+                                pw?.fill(0)
+                                persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
+                                busy = false
+                                snackbar.showSnackbar(
+                                    if (result.isSuccess) "WebDAV 备份完成"
+                                    else "WebDAV 备份失败: ${result.exceptionOrNull()?.message}",
+                                )
                             }
-                            persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
-                            busy = false
-                            snackbar.showSnackbar(
-                                if (result.isSuccess) "WebDAV 备份完成"
-                                else "WebDAV 备份失败: ${result.exceptionOrNull()?.message}",
-                            )
                         }
                     },
                 )
@@ -362,23 +540,20 @@ fun BackupRestoreScreen(navController: NavController) {
                                 return@launch
                             }
                             busy = true
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val tmp = File(context.cacheDir, "chainbox-restore.zip")
-                                    BackupManager.webdavDownload(
-                                        webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
-                                    ).getOrThrow()
-                                    BackupManager.restoreBackupFile(context, tmp, Settings.restoreCompat).getOrThrow()
-                                }
+                            val tmp = File(context.cacheDir, "chainbox-restore.zip")
+                            val downloaded = withContext(Dispatchers.IO) {
+                                BackupManager.webdavDownload(
+                                    webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
+                                )
                             }
-                            persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
+                            persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)
                             busy = false
-                            if (result.isSuccess) {
-                                snackbar.showSnackbar("恢复完成，正在重新加载…")
-                                delay(400)
-                                softRelaunchApp(context)
+                            if (downloaded.isSuccess) {
+                                startRestore(tmp, viaWebdav = true)
                             } else {
-                                snackbar.showSnackbar("WebDAV 恢复失败: ${result.exceptionOrNull()?.message}")
+                                snackbar.showSnackbar(
+                                    "WebDAV 恢复失败: ${downloaded.exceptionOrNull()?.message}",
+                                )
                             }
                         }
                     },
@@ -404,7 +579,10 @@ fun BackupRestoreScreen(navController: NavController) {
                     headlineContent = { Text("备份") },
                     supportingContent = { Text("备份数据到本地") },
                     modifier = Modifier.clickable(enabled = !busy) {
-                        createDoc.launch("AngelaBox-backup.zip")
+                        exportPasswordAction = { pw ->
+                            pendingExportPassword = pw
+                            createDoc.launch("AngelaBox-backup.zip")
+                        }
                     },
                 )
                 ListItem(
