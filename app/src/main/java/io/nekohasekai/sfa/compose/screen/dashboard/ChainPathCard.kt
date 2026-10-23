@@ -536,7 +536,7 @@ private fun ShrinkToFitNameText(
                     softWrap = false,
                     constraints = Constraints(maxWidth = budgetPx),
                 )
-                if (result.size.width <= budgetPx) {
+                if (!result.didOverflowWidth) {
                     singleLineSp = sizeSp
                     break
                 }
