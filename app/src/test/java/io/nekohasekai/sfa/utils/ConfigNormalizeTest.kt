@@ -751,6 +751,83 @@ class ConfigNormalizeTest {
     }
 
     @Test
+    fun convertedProductGetsDefaultDomainResolverWithoutRoutingChange() {
+        val yaml = """
+            proxies:
+              - name: n1
+                type: ss
+                server: node.example.com
+                port: 443
+                cipher: aes-256-gcm
+                password: x
+            proxy-groups:
+              - name: PROXY
+                type: select
+                proxies: [n1]
+            rules:
+              - DOMAIN-SUFFIX,google.com,PROXY
+              - MATCH,PROXY
+        """.trimIndent()
+        val adapted = ConfigIngest.adapt(yaml)
+        val adaptedRoot = JSONObject(adapted.content)
+        assertFalse(adaptedRoot.getJSONObject("route").has("default_domain_resolver"))
+        val sanitized = ConfigCompat.sanitizeDetailed(yaml)
+        val root = JSONObject(sanitized.content)
+        val route = root.getJSONObject("route")
+        // G-11: our own conversion product now names its default resolver
+        // explicitly, reproducing the kernel's old implicit fallback (the
+        // system resolver) instead of tripping the deprecation warning.
+        assertEquals("local", route.getString("default_domain_resolver"))
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        val local = (0 until servers.length()).map { servers.getJSONObject(it) }
+            .first { it.getString("tag") == "local" }
+        assertEquals("local", local.getString("type"))
+        // Key routing is unchanged: apart from the startup policy's
+        // pre-existing infra rules (dns hijack / sniff / stale-fakeip
+        // reject), the user rules and final are identical to the bare
+        // conversion — the new field only names the resolver explicitly.
+        val adaptedRoute = adaptedRoot.getJSONObject("route")
+        assertEquals(adaptedRoute.getString("final"), route.getString("final"))
+        fun userRules(root: JSONObject): List<String> {
+            val rules = root.getJSONObject("route").getJSONArray("rules")
+            return (0 until rules.length()).map { rules.getJSONObject(it) }
+                .filter { rule ->
+                    val action = rule.optString("action")
+                    action != "hijack-dns" && action != "sniff" &&
+                        !(action == "reject" && rule.has("ip_cidr"))
+                }
+                .map { it.toString() }
+        }
+        assertEquals(userRules(adaptedRoot), userRules(root))
+        val adaptedTags = (0 until adaptedRoot.getJSONArray("outbounds").length())
+            .map { adaptedRoot.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        val tags = (0 until root.getJSONArray("outbounds").length())
+            .map { root.getJSONArray("outbounds").getJSONObject(it).getString("tag") }
+        assertEquals(adaptedTags, tags)
+        // Idempotent: a second sanitize keeps the same single value.
+        val again = JSONObject(ConfigCompat.sanitizeDetailed(sanitized.content).content)
+        assertEquals("local", again.getJSONObject("route").getString("default_domain_resolver"))
+    }
+
+    @Test
+    fun nativeSingBoxResolverStateIsLeftAlone() {
+        val missing = """
+            {"outbounds":[{"type":"direct","tag":"direct"}],
+             "route":{"final":"direct"},
+             "dns":{"servers":[{"type":"udp","tag":"dns-a","server":"8.8.8.8"}]}}
+        """.trimIndent()
+        val missingOut = JSONObject(ConfigCompat.sanitizeDetailed(missing).content)
+        assertFalse(missingOut.getJSONObject("route").has("default_domain_resolver"))
+        val named = """
+            {"outbounds":[{"type":"direct","tag":"direct"}],
+             "route":{"final":"direct","default_domain_resolver":"dns-a"},
+             "dns":{"servers":[{"type":"udp","tag":"dns-a","server":"8.8.8.8"}],"final":"dns-a"}}
+        """.trimIndent()
+        val namedOut = JSONObject(ConfigCompat.sanitizeDetailed(named).content)
+        assertEquals("dns-a", namedOut.getJSONObject("route").getString("default_domain_resolver"))
+    }
+
+    @Test
     fun substituteCachedRuleSetsIgnoresEmptyCacheFiles() {
         val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-sub-${System.nanoTime()}")
         val cacheDir = java.io.File(dir, "rule-sets").apply { mkdirs() }
@@ -764,6 +841,138 @@ class ConfigNormalizeTest {
             root.getJSONObject("route").getJSONArray("rule_set").getJSONObject(0).getString("type"),
         )
         dir.deleteRecursively()
+    }
+
+    // ---------------------------------------------------------------
+    // RuleSetCacheWarmer + StartRetryPolicy (AB-019): the substitute
+    // rung's ammunition supply (import-time warm-up decisions) and the
+    // start ladder's memory / budget policy.
+    // ---------------------------------------------------------------
+
+    private fun remoteSet(tag: String): String =
+        """{"type":"remote","tag":"$tag","format":"binary","url":"https://example.com/$tag.srs"}"""
+
+    @Test
+    fun warmerPendingListsOnlyMissingOrStaleRemoteSets() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-warm-${System.nanoTime()}")
+        val cacheDir = java.io.File(dir, "rule-sets").apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        // Fresh copy: not pending.
+        java.io.File(cacheDir, "geoip-cn.srs").apply {
+            writeBytes(byteArrayOf(1))
+            setLastModified(now)
+        }
+        // Day-old copy: pending again.
+        java.io.File(cacheDir, "geosite-cn.srs").apply {
+            writeBytes(byteArrayOf(1))
+            setLastModified(now - 2 * RuleSetCacheWarmer.STALE_MS)
+        }
+        val content = ruleSetRoot(
+            remoteSet("geoip-cn"),
+            remoteSet("geosite-cn"),
+            remoteSet("geoip-us"),
+            """{"type":"local","tag":"mine","format":"binary","path":"/data/mine.srs"}""",
+        ).toString()
+        val pending = RuleSetCacheWarmer.pendingDownloads(content, dir, now)
+        assertEquals(listOf("geosite-cn", "geoip-us"), pending.map { it.tag })
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun warmerPendingIsCapped() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-warm-${System.nanoTime()}")
+        val sets = (1..12).map { remoteSet("set-$it") }.toTypedArray()
+        val content = ruleSetRoot(*sets).toString()
+        val pending = RuleSetCacheWarmer.pendingDownloads(content, dir, System.currentTimeMillis())
+        assertEquals(RuleSetCacheWarmer.MAX_DOWNLOADS_PER_WARM, pending.size)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun warmerDownloadsPendingAndRespectsDeadline() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-warm-${System.nanoTime()}")
+        val content = ruleSetRoot(remoteSet("geoip-cn"), remoteSet("geosite-cn")).toString()
+        val now = 1_000_000L
+        val calls = mutableListOf<String>()
+        val warmed = RuleSetCacheWarmer.warm(
+            content, dir, deadlineMs = now + 10_000, nowMs = { now },
+        ) { url, dest ->
+            calls += url
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(byteArrayOf(7))
+            true
+        }
+        assertEquals(2, warmed)
+        assertEquals(2, calls.size)
+        // Downloaded files are real cache hits now: nothing left pending,
+        // and the extended-budget gate sees no uncached remote sets.
+        assertTrue(RuleSetCacheWarmer.pendingDownloads(content, dir, now).isEmpty())
+        assertTrue(RuleSetCacheWarmer.uncachedRemoteTags(content, dir).isEmpty())
+        // A deadline already in the past attempts nothing.
+        val late = RuleSetCacheWarmer.warm(
+            content, dir, deadlineMs = now - 1, nowMs = { now },
+        ) { url, _ -> calls += url; true }
+        assertEquals(0, late)
+        assertEquals(2, calls.size)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun warmerFailureIsSilentAndNotCounted() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-warm-${System.nanoTime()}")
+        val content = ruleSetRoot(remoteSet("geoip-cn"), remoteSet("geosite-cn")).toString()
+        val now = 1_000_000L
+        val warmed = RuleSetCacheWarmer.warm(
+            content, dir, deadlineMs = now + 10_000, nowMs = { now },
+        ) { url, _ ->
+            if (url.contains("geoip-cn")) throw RuntimeException("boom")
+            false
+        }
+        assertEquals(0, warmed)
+        // Both sets are still uncached afterwards.
+        assertEquals(
+            listOf("geoip-cn", "geosite-cn"),
+            RuleSetCacheWarmer.uncachedRemoteTags(content, dir),
+        )
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun uncachedRemoteTagsCountsStaleCopyAsHitAndEmptyFileAsMiss() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rs-warm-${System.nanoTime()}")
+        val cacheDir = java.io.File(dir, "rule-sets").apply { mkdirs() }
+        // Stale but present: a substitute hit, so not "uncached".
+        java.io.File(cacheDir, "geosite-cn.srs").apply {
+            writeBytes(byteArrayOf(1))
+            setLastModified(1L)
+        }
+        // Empty file: no usable copy.
+        java.io.File(cacheDir, "geoip-cn.srs").writeBytes(ByteArray(0))
+        val content = ruleSetRoot(
+            remoteSet("geoip-us"),
+            remoteSet("geoip-cn"),
+            remoteSet("geosite-cn"),
+        ).toString()
+        assertEquals(
+            listOf("geoip-us", "geoip-cn"),
+            RuleSetCacheWarmer.uncachedRemoteTags(content, dir),
+        )
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun startRetryPolicyGatesExtendedBudgetAndMemory() {
+        // The extended full-config retry needs every condition at once.
+        assertTrue(StartRetryPolicy.shouldRetryWithExtendedBudget(true, false, 1, false))
+        assertFalse(StartRetryPolicy.shouldRetryWithExtendedBudget(false, false, 1, false))
+        assertFalse(StartRetryPolicy.shouldRetryWithExtendedBudget(true, true, 1, false))
+        assertFalse(StartRetryPolicy.shouldRetryWithExtendedBudget(true, false, 0, false))
+        assertFalse(StartRetryPolicy.shouldRetryWithExtendedBudget(true, false, 1, true))
+        assertEquals(90_000L, StartRetryPolicy.EXTENDED_START_BUDGET_MS)
+        // Memory demotion: fresh starts never consult the stall memory,
+        // in-run reloads still do.
+        assertFalse(StartRetryPolicy.mayConsultStallMemory(freshStart = true))
+        assertTrue(StartRetryPolicy.mayConsultStallMemory(freshStart = false))
     }
 
 }

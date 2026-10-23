@@ -238,6 +238,10 @@ class ProfileImportHandler(private val context: Context) {
         configFile.writeText(content.config)
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+        // AB-019: warm the rule-set cache at import time, so the startup
+        // cache substitute has ammunition for file/QR imports too — it
+        // used to be filled only by remote subscription updates.
+        io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content.config)
         return ImportResult.Success(profile)
     }
 
@@ -359,6 +363,8 @@ class ProfileImportHandler(private val context: Context) {
             configFile.writeText(sanitized)
             typedProfile.path = configFile.path
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            // AB-019: import-time rule-set cache warm-up (see importProfile).
+            io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(sanitized)
             ImportResult.Success(profile, detailed.notes)
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "Unknown error importing JSON configuration")

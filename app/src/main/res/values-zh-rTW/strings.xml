@@ -583,6 +583,7 @@
     <string name="network_checkup_run">開始體檢</string>
     <string name="network_checkup_rerun">重新體檢</string>
     <string name="network_checkup_running">正在檢查：%1$s</string>
+    <string name="network_checkup_for_profile">所屬配置：%1$s</string>
     <string name="checkup_item_tunnel">TUN 連通性</string>
     <string name="checkup_item_dns">DNS</string>
     <string name="checkup_item_latency">節點延遲</string>

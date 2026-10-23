@@ -877,6 +877,7 @@
     <string name="network_checkup_run">Run checkup</string>
     <string name="network_checkup_rerun">Re-run</string>
     <string name="network_checkup_running">Checking: %1$s</string>
+    <string name="network_checkup_for_profile">Results for profile: %1$s</string>
     <string name="checkup_item_tunnel">TUN connectivity</string>
     <string name="checkup_item_dns">DNS</string>
     <string name="checkup_item_latency">Node latency</string>

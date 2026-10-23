@@ -22,6 +22,14 @@ package io.nekohasekai.sfa.bg
  * both [recordStall] and [shouldSkipRemote]; a hash mismatch forgets the
  * stall. Callers that pass no hash keep the legacy behaviour.
  *
+ * Call discipline (AB-019, memory demotion): BoxService consults this
+ * memory ONLY for reloads inside the current service run — that is what
+ * it is for (quick restarts must not burn the start budget over and
+ * over). A fresh service start never pre-skips: the full config gets
+ * its first attempt, so a start after the user stopped the service, or
+ * after the process died, is not punished for a stall it did not cause.
+ * The gate lives in StartRetryPolicy.mayConsultStallMemory.
+ *
  * Pure JVM (no Android types) so it can be unit tested; BoxService passes
  * SystemClock.elapsedRealtime and a string key for the default network.
  */

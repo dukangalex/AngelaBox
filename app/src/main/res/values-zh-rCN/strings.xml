@@ -777,6 +777,7 @@
     <string name="network_checkup_run">开始体检</string>
     <string name="network_checkup_rerun">重新体检</string>
     <string name="network_checkup_running">正在检查：%1$s</string>
+    <string name="network_checkup_for_profile">所属配置：%1$s</string>
     <string name="checkup_item_tunnel">TUN 连通性</string>
     <string name="checkup_item_dns">DNS</string>
     <string name="checkup_item_latency">节点延迟</string>

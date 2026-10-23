@@ -191,39 +191,14 @@ class UpdateProfileWork {
         /**
          * Best-effort download of a freshly updated profile's remote rule
          * sets into the shared rule-set cache (the same files the startup
-         * normalization substitute points local rule sets at). Missing or
-         * day-old entries only, at most a handful per profile, and never
-         * past the round deadline — warming must not starve real updates.
+         * normalization substitute points local rule sets at). The
+         * decision logic is RuleSetCacheWarmer's, shared with the
+         * import-time warm-up (AB-019) so both paths fill exactly the
+         * files the substitute looks for; bounded by the round deadline
+         * — warming must not starve real updates.
          */
         private fun warmRuleSetCache(content: String, deadlineMs: Long) {
-            runCatching {
-                val working = Application.application.getExternalFilesDir(null)
-                    ?: Application.application.filesDir
-                var warmed = 0
-                for (provider in io.nekohasekai.sfa.utils.RuleSetProviders.parse(content)) {
-                    if (warmed >= 8) break
-                    if (System.currentTimeMillis() > deadlineMs) break
-                    if (!provider.remote) continue
-                    val url = provider.url.trim()
-                    if (url.isEmpty()) continue
-                    val dest = io.nekohasekai.sfa.utils.RuleSetProviders.cacheFile(
-                        working, provider.tag, provider.format, url,
-                    )
-                    val stale = !dest.isFile || dest.length() == 0L ||
-                        System.currentTimeMillis() - dest.lastModified() > 24L * 60 * 60 * 1000
-                    if (!stale) continue
-                    runCatching {
-                        HTTPClient().use { client ->
-                            client.downloadToFile(
-                                url,
-                                io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION,
-                                dest,
-                            )
-                        }
-                        if (dest.isFile && dest.length() > 0L) warmed++
-                    }
-                }
-            }
+            runCatching { RuleSetWarmup.warmNow(content, deadlineMs) }
         }
     }
 }

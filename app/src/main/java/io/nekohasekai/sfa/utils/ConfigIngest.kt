@@ -28,6 +28,10 @@ object ConfigIngest {
 
     private val pendingEchDoh = ThreadLocal.withInitial { mutableListOf<Pair<String, String>>() }
 
+    /** Rule-provider lists are fetched through the same guarded channel as proxy providers. */
+    private const val MAX_PROVIDER_FETCHES = 8
+    private const val MAX_PROVIDER_BODY_CHARS = 2_000_000
+
     private fun finishEch(result: Result): Result {
         val hints = pendingEchDoh.get()
         if (hints.isEmpty()) return result
@@ -575,6 +579,7 @@ object ConfigIngest {
         val providers = asMap(
             mapIgnoreCase(tree, "rule-providers") ?: mapIgnoreCase(tree, "rule_providers"),
         ) ?: emptyMap<Any?, Any?>()
+        val ruleWork = RuleSetWork(providers, fetch)
         if (proxies.isEmpty() && shareFromProviders.length() == 0) {
             val sources = asMap(
                 mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
@@ -677,8 +682,10 @@ object ConfigIngest {
         )
         val groupTags = LinkedHashSet<String>()
         val groupNodes = mutableListOf<JSONObject>()
+        var sawFallback = false
         for (group in groups) {
             val converted = convertClashGroup(group, declared, pool) ?: continue
+            if (str(group["type"]).equals("fallback", ignoreCase = true)) sawFallback = true
             val tag = converted.optString("tag")
             if (tag.isBlank()) continue
             if (!tags.add(tag)) {
@@ -711,11 +718,10 @@ object ConfigIngest {
                 if (dangling.size > 5) "等" else ""
         }
         val mappedRules = JSONArray()
-        val usedSets = LinkedHashMap<String, String?>()
         var finalTag = groupTags.firstOrNull() ?: leafTags.first()
         var skippedRules = 0
         for (rawRule in rules) {
-            val parsed = parseClashRule(rawRule, tags, providers) ?: run {
+            val parsed = parseClashRule(rawRule, tags, ruleWork) ?: run {
                 skippedRules++
                 continue
             }
@@ -724,9 +730,6 @@ object ConfigIngest {
                 continue
             }
             parsed.rule?.let { mappedRules.put(it) }
-            parsed.ruleSets.forEach { (tag, url) ->
-                if (!usedSets.containsKey(tag)) usedSets[tag] = url
-            }
         }
         // `MATCH,<dropped group>` or `MATCH,REJECT` is not an outbound; sing-box refuses a dangling final.
         if (finalTag !in tags) finalTag = groupTags.firstOrNull() ?: leafTags.first()
@@ -736,15 +739,18 @@ object ConfigIngest {
         val route = JSONObject()
         if (mappedRules.length() > 0) route.put("rules", mappedRules)
         route.put("final", finalTag)
-        if (usedSets.isNotEmpty()) {
+        if (ruleWork.remote.isNotEmpty() || ruleWork.inline.isNotEmpty()) {
             val sets = JSONArray()
-            usedSets.forEach { (tag, url) -> sets.put(remoteRuleSet(tag, url)) }
+            ruleWork.remote.forEach { (tag, url) -> sets.put(remoteRuleSet(tag, url)) }
+            ruleWork.inline.values.forEach { sets.put(it) }
             route.put("rule_set", sets)
-            root.put(
-                "http_clients",
-                JSONArray().put(JSONObject().put("tag", "angela-http-direct")),
-            )
-            route.put("default_http_client", "angela-http-direct")
+            if (ruleWork.remote.isNotEmpty()) {
+                root.put(
+                    "http_clients",
+                    JSONArray().put(JSONObject().put("tag", "angela-http-direct")),
+                )
+                route.put("default_http_client", "angela-http-direct")
+            }
         }
         root.put("route", route)
         if (format == Format.Clash) {
@@ -754,6 +760,13 @@ object ConfigIngest {
             if (rules.isEmpty()) notes += "节点链接没有分流。建议开启默认脚本，应用不会自动开启。"
         }
         notes += providerNotes
+        notes += ruleWork.notes
+        if (sawFallback) {
+            // G-4: sing-box has no fallback outbound; the group became a
+            // urltest. The approximation changes which node carries the
+            // traffic (first alive vs fastest), so say it out loud.
+            notes += "故障转移（fallback）分组已按自动选择处理：原分组按顺序优先用第一个可用节点，转换后改为按延迟选最快节点"
+        }
         // G5: the Clash dns / tun / sniffer / hosts sections have no
         // counterpart in this conversion (DNS and TUN are rebuilt from
         // the app's own settings) and used to vanish without a word —
@@ -1863,11 +1876,10 @@ object ConfigIngest {
 
     private data class ClashRule(
         val rule: JSONObject? = null,
-        val ruleSets: Map<String, String?> = emptyMap(),
         val finalTag: String? = null,
     )
 
-    private fun parseClashRule(raw: String, known: Set<String>, providers: Map<*, *>): ClashRule? {
+    private fun parseClashRule(raw: String, known: Set<String>, work: RuleSetWork): ClashRule? {
         val parts = splitTopLevel(raw)
         if (parts.isEmpty()) return null
         val kind = parts[0].uppercase()
@@ -1879,7 +1891,6 @@ object ConfigIngest {
         if (fields.size < 2) return null
         val target = mapSpecialTag(fields.last())
         val payload = fields.dropLast(1).joinToString(",")
-        val sets = LinkedHashMap<String, String?>()
         val reject = target.equals("REJECT", true) || target.equals("REJECT-DROP", true)
         val outbound = when {
             reject -> null
@@ -1887,10 +1898,10 @@ object ConfigIngest {
             else -> return null
         }
         val rule = when (kind) {
-            "AND", "OR", "NOT" -> parseLogical(kind, payload, known, providers, sets)
-            "GEOIP" -> geoipCondition(payload, sets)
-            "GEOSITE" -> geositeCondition(payload, sets)
-            "RULE-SET" -> ruleSetCondition(payload, providers, sets)
+            "AND", "OR", "NOT" -> parseLogical(kind, payload, known, work)
+            "GEOIP" -> geoipCondition(payload, work)
+            "GEOSITE" -> geositeCondition(payload, work)
+            "RULE-SET" -> ruleSetCondition(payload, work)
             else -> matchField(kind, payload)
         } ?: return null
         if (reject) {
@@ -1899,26 +1910,25 @@ object ConfigIngest {
         } else {
             rule.put("outbound", outbound)
         }
-        return ClashRule(rule = rule, ruleSets = sets)
+        return ClashRule(rule = rule)
     }
 
     private fun parseLogical(
         kind: String,
         payload: String,
         known: Set<String>,
-        providers: Map<*, *>,
-        sets: MutableMap<String, String?>,
+        work: RuleSetWork,
     ): JSONObject? {
         val inner = unwrapParens(payload)
         if (kind == "NOT") {
-            val sub = parseClashCondition(inner, known, providers, sets) ?: return null
+            val sub = parseClashCondition(inner, known, work) ?: return null
             sub.put("invert", true)
             return sub
         }
         val pieces = splitTopLevel(inner)
         val rules = JSONArray()
         for (piece in pieces) {
-            val sub = parseClashCondition(unwrapParens(piece), known, providers, sets) ?: return null
+            val sub = parseClashCondition(unwrapParens(piece), known, work) ?: return null
             rules.put(sub)
         }
         if (rules.length() == 0) return null
@@ -1931,50 +1941,48 @@ object ConfigIngest {
     private fun parseClashCondition(
         body: String,
         known: Set<String>,
-        providers: Map<*, *>,
-        sets: MutableMap<String, String?>,
+        work: RuleSetWork,
     ): JSONObject? {
         val parts = splitTopLevel(body)
         if (parts.isEmpty()) return null
         val kind = parts[0].uppercase()
         if (kind == "AND" || kind == "OR" || kind == "NOT") {
-            return parseLogical(kind, parts.getOrNull(1) ?: return null, known, providers, sets)
+            return parseLogical(kind, parts.getOrNull(1) ?: return null, known, work)
         }
         if (parts.size < 2) return null
         val payload = parts[1]
         return when (kind) {
-            "GEOIP" -> geoipCondition(payload, sets)
-            "GEOSITE" -> geositeCondition(payload, sets)
-            "RULE-SET" -> ruleSetCondition(payload, providers, sets)
+            "GEOIP" -> geoipCondition(payload, work)
+            "GEOSITE" -> geositeCondition(payload, work)
+            "RULE-SET" -> ruleSetCondition(payload, work)
             else -> matchField(kind, payload)
         }
     }
 
-    private fun geoipCondition(payload: String, sets: MutableMap<String, String?>): JSONObject? {
+    private fun geoipCondition(payload: String, work: RuleSetWork): JSONObject? {
         if (payload.equals("private", true) || payload.equals("lan", true)) {
             return JSONObject().put("ip_is_private", true)
         }
         val tag = if (payload.equals("CN", true)) "geoip-cn" else "geoip-${payload.lowercase()}"
         if (ConfigInboundCompat.officialRuleSetFile(tag) == null && !tag.startsWith("geoip-")) return null
         if (tag == "geoip-private" || tag == "geoip-fastly" || tag == "geoip-cloudfront") return null
-        sets.putIfAbsent(tag, null)
+        work.remote.putIfAbsent(tag, null)
         return JSONObject().put("rule_set", tag)
     }
 
-    private fun geositeCondition(payload: String, sets: MutableMap<String, String?>): JSONObject? {
+    private fun geositeCondition(payload: String, work: RuleSetWork): JSONObject? {
         val tag = when {
             payload.equals("CN", true) -> "geosite-cn"
             payload.startsWith("geosite-") -> payload
             else -> "geosite-${payload.lowercase()}"
         }
-        sets.putIfAbsent(tag, null)
+        work.remote.putIfAbsent(tag, null)
         return JSONObject().put("rule_set", tag)
     }
 
     private fun ruleSetCondition(
         payload: String,
-        providers: Map<*, *>,
-        sets: MutableMap<String, String?>,
+        work: RuleSetWork,
     ): JSONObject? {
         if (payload.equals("private", true) ||
             payload.equals("lan", true) ||
@@ -1982,10 +1990,266 @@ object ConfigIngest {
         ) {
             return JSONObject().put("ip_is_private", true)
         }
-        val resolved = resolveRuleProvider(payload, providers) ?: return null
-        if (resolved.first == "ip-private") return JSONObject().put("ip_is_private", true)
-        sets.putIfAbsent(resolved.first, resolved.second)
-        return JSONObject().put("rule_set", resolved.first)
+        return when (val resolved = work.resolve(payload)) {
+            is ProviderResolution.PrivateIp -> JSONObject().put("ip_is_private", true)
+            is ProviderResolution.Remote -> JSONObject().put("rule_set", resolved.tag)
+            is ProviderResolution.Faithful -> {
+                val rule = JSONObject()
+                if (resolved.extraTags.isEmpty()) {
+                    rule.put("rule_set", resolved.tag)
+                } else {
+                    val tags = JSONArray().put(resolved.tag)
+                    resolved.extraTags.forEach { tags.put(it) }
+                    rule.put("rule_set", tags)
+                }
+                rule
+            }
+            null -> null
+        }
+    }
+
+    /**
+     * Per-conversion state for turning Clash `RULE-SET` references into
+     * sing-box rule sets. G-2: a rule-provider's own list used to be thrown
+     * away and silently swapped for an official geosite set. Resolution is
+     * now fidelity-first — the provider's content is inlined — and the
+     * official-set swap only happens when the content cannot be obtained,
+     * with the swap named in [notes] per provider.
+     */
+    private class RuleSetWork(
+        val providers: Map<*, *>,
+        val fetch: ((String) -> String)?,
+    ) {
+        /** Official remote sets: tag -> explicit URL (null = default mirror). */
+        val remote = LinkedHashMap<String, String?>()
+        /** Faithful inline sets: tag -> the `type: inline` rule-set object. */
+        val inline = LinkedHashMap<String, JSONObject>()
+        /** User-facing lines naming every substitution / drop / partial loss. */
+        val notes = mutableListOf<String>()
+        private val resolutions = HashMap<String, ProviderResolution?>()
+        private var fetches = 0
+
+        fun resolve(name: String): ProviderResolution? {
+            if (resolutions.containsKey(name)) return resolutions[name]
+            val resolved = resolveUncached(name)
+            resolutions[name] = resolved
+            return resolved
+        }
+
+        private fun resolveUncached(name: String): ProviderResolution? {
+            val spec = providerSpec(name)
+            val url = str(spec?.get("url"))
+            // A provider that IS a compiled sing-box set keeps pointing at
+            // the user's own file: already faithful, nothing to inline.
+            if (url.endsWith(".srs", true) || url.contains(".srs?", true)) {
+                remote.putIfAbsent(name, url)
+                return ProviderResolution.Remote(name)
+            }
+            if (spec != null) {
+                faithful(spec, name)?.let { return it }
+            }
+            // Content unobtainable (offline, file provider, unparsable):
+            // fall back to the historical official-set mapping, but name
+            // the swap — a swapped list routes differently and the user
+            // must be able to see which provider lost its own content.
+            val mapped = resolveRuleProvider(name, providers)
+            if (mapped == null) {
+                notes += "规则集「$name」的内容没能保留，也没找到官方规则集对应，用到它的分流已跳过"
+                return null
+            }
+            if (mapped.first == "ip-private") return ProviderResolution.PrivateIp
+            remote.putIfAbsent(mapped.first, mapped.second)
+            notes += "规则集「$name」的内容没能保留，已替换为官方规则集 ${mapped.first}"
+            return ProviderResolution.Remote(mapped.first)
+        }
+
+        private fun providerSpec(name: String): Map<*, *>? =
+            asMap(providers[name]) ?: providers.entries.firstOrNull { (key, _) ->
+                key is String && key.equals(name, true)
+            }?.value?.let { asMap(it) }
+
+        /** Inline the provider's own content; null when it cannot be had or parses to nothing. */
+        private fun faithful(spec: Map<*, *>, name: String): ProviderResolution? {
+            val items = providerItems(spec) ?: return null
+            val behavior = str(spec["behavior"]).lowercase().ifBlank { "classical" }
+            val parsed = parseProviderItems(behavior, items)
+            if (!parsed.hasContent) return null
+            val tag = claimInlineTag(name)
+            inline[tag] = JSONObject()
+                .put("tag", tag)
+                .put("type", "inline")
+                .put("rules", parsed.toRules())
+            parsed.geoipExtras.forEach { remote.putIfAbsent(it, null) }
+            if (parsed.unmappable > 0) {
+                notes += "规则集「$name」有 ${parsed.unmappable} 条 sing-box 表达不了的条目已跳过，其余已按原内容保留"
+            }
+            return ProviderResolution.Faithful(tag, parsed.geoipExtras.toList())
+        }
+
+        private fun claimInlineTag(name: String): String {
+            if (name !in remote && name !in inline) return name
+            var candidate = "$name-provider"
+            var n = 2
+            while (candidate in remote || candidate in inline) candidate = "$name-provider-${n++}"
+            return candidate
+        }
+
+        /**
+         * The provider's list entries, from the subscription itself
+         * (`type: inline` payload) or through the caller's fetch channel
+         * (subscription updates pass the guarded HTTP client). File
+         * providers live on another device and cannot be read here.
+         */
+        private fun providerItems(spec: Map<*, *>): List<String>? {
+            val type = str(spec["type"]).lowercase()
+            if (type == "inline") {
+                return asStringList(spec["payload"]).takeIf { it.isNotEmpty() }
+            }
+            if (type == "file") return null
+            val url = str(spec["url"])
+            if (url.isBlank()) return null
+            // Binary mihomo rule sets cannot be parsed as text lists.
+            if (url.endsWith(".mrs", true)) return null
+            if (!url.startsWith("https://", ignoreCase = true)) return null
+            val fetcher = fetch ?: return null
+            if (fetches >= MAX_PROVIDER_FETCHES) return null
+            fetches++
+            val body = try {
+                fetcher(url)
+            } catch (_: Exception) {
+                return null
+            }
+            if (body.length > MAX_PROVIDER_BODY_CHARS) return null
+            val trimmed = stripBom(body).trim()
+            if (trimmed.isEmpty() || trimmed.first() == '{') return null
+            // Airport lists are usually YAML with a payload list; plain
+            // text lists are the other common shape.
+            val tree = try {
+                MiniYaml.parse(trimmed)
+            } catch (_: Exception) {
+                null
+            }
+            if (tree is Map<*, *>) {
+                val payload = asStringList(mapIgnoreCase(tree, "payload"))
+                if (payload.isNotEmpty()) return payload
+            }
+            return trimmed.lines()
+        }
+    }
+
+    private sealed class ProviderResolution {
+        class Remote(val tag: String) : ProviderResolution()
+        class Faithful(val tag: String, val extraTags: List<String>) : ProviderResolution()
+        object PrivateIp : ProviderResolution()
+    }
+
+    /** Parsed provider content, batched into headless-rule value sets. */
+    private class ParsedProvider {
+        val domains = LinkedHashSet<String>()
+        val suffixes = LinkedHashSet<String>()
+        val keywords = LinkedHashSet<String>()
+        val regexes = LinkedHashSet<String>()
+        val cidrs = LinkedHashSet<String>()
+        var ipPrivate = false
+        val geoipExtras = LinkedHashSet<String>()
+        var unmappable = 0
+
+        val hasContent: Boolean
+            get() = domains.isNotEmpty() || suffixes.isNotEmpty() || keywords.isNotEmpty() ||
+                regexes.isNotEmpty() || cidrs.isNotEmpty() || ipPrivate || geoipExtras.isNotEmpty()
+
+        fun toRules(): JSONArray {
+            val rules = JSONArray()
+            fun batch(field: String, values: Set<String>) {
+                if (values.isEmpty()) return
+                val arr = JSONArray()
+                values.forEach { arr.put(it) }
+                rules.put(JSONObject().put(field, arr))
+            }
+            batch("domain", domains)
+            batch("domain_suffix", suffixes)
+            batch("domain_keyword", keywords)
+            batch("domain_regex", regexes)
+            batch("ip_cidr", cidrs)
+            if (ipPrivate) rules.put(JSONObject().put("ip_is_private", true))
+            return rules
+        }
+    }
+
+    private fun parseProviderItems(behavior: String, items: List<String>): ParsedProvider {
+        val parsed = ParsedProvider()
+        for (raw in items) {
+            val item = raw.trim()
+            if (item.isEmpty() || item.startsWith("#") || item.startsWith("//") || item.startsWith(";")) {
+                continue
+            }
+            when (behavior) {
+                "domain" -> parseDomainItem(item, parsed)
+                "ipcidr" -> parseCidrItem(item, parsed)
+                else -> parseClassicalItem(item, parsed)
+            }
+        }
+        return parsed
+    }
+
+    private fun parseDomainItem(item: String, parsed: ParsedProvider) {
+        when {
+            item.startsWith("+.") -> parsed.suffixes += item.substring(2).lowercase()
+            item.startsWith("*.") -> parsed.suffixes += item.substring(2).lowercase()
+            item.startsWith(".") -> parsed.suffixes += item.substring(1).lowercase()
+            item.contains("://") || item.contains('/') || item.contains(' ') -> parsed.unmappable++
+            else -> parsed.domains += item.lowercase()
+        }
+    }
+
+    private fun parseCidrItem(item: String, parsed: ParsedProvider) {
+        val cidr = normalizeCidr(item)
+        if (cidr != null) parsed.cidrs += cidr else parsed.unmappable++
+    }
+
+    /** CIDR text, or a bare IP widened to a host prefix; null when neither parses. */
+    private fun normalizeCidr(item: String): String? {
+        val slash = item.indexOf('/')
+        if (slash >= 0) {
+            val addr = item.substring(0, slash)
+            val bits = item.substring(slash + 1).toIntOrNull() ?: return null
+            val max = if (addr.contains(':')) 128 else 32
+            return if (bits in 0..max && addr.isNotEmpty()) item else null
+        }
+        if (item.contains(':')) return "$item/128"
+        val parts = item.split('.')
+        val ipv4 = parts.size == 4 && parts.all { part ->
+            part.isNotEmpty() && part.all { it.isDigit() } && part.toInt() in 0..255
+        }
+        return if (ipv4) "$item/32" else null
+    }
+
+    private fun parseClassicalItem(item: String, parsed: ParsedProvider) {
+        val parts = splitTopLevel(item)
+        if (parts.size < 2) {
+            parsed.unmappable++
+            return
+        }
+        val kind = parts[0].uppercase()
+        val payload = parts[1]
+        when (kind) {
+            "DOMAIN" -> parsed.domains += payload.lowercase()
+            "DOMAIN-SUFFIX" -> parsed.suffixes += payload.lowercase()
+            "DOMAIN-KEYWORD" -> parsed.keywords += payload
+            "DOMAIN-REGEX" -> parsed.regexes += payload
+            "IP-CIDR", "IP-CIDR6" -> parseCidrItem(payload, parsed)
+            "GEOIP" -> {
+                if (payload.equals("private", true) || payload.equals("lan", true)) {
+                    parsed.ipPrivate = true
+                } else {
+                    parsed.geoipExtras += "geoip-${payload.lowercase()}"
+                }
+            }
+            // Headless rule sets cannot express ports, processes, source
+            // ranges or nested logic; count them so the loss is disclosed
+            // in the import notes instead of vanishing silently.
+            else -> parsed.unmappable++
+        }
     }
 
     private fun resolveRuleProvider(name: String, providers: Map<*, *>): Pair<String, String?>? {

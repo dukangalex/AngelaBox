@@ -160,10 +160,16 @@ data class DashboardUiState(
 }
 
 // 一键网络体检卡片状态：Idle（一个按钮）→ Running（进度）→ Done（四项结果 + 人话结论）。
+// Done 必须绑定产生它的配置（AB-011）：结果只属于跑它的那份配置，弹窗里
+// 标明所属配置，切换配置后旧结果一律不再呈现。
 sealed interface NetworkCheckupUiState {
     data object Idle : NetworkCheckupUiState
     data class Running(val step: NetworkCheckup.ItemId) : NetworkCheckupUiState
-    data class Done(val result: NetworkCheckup.Result) : NetworkCheckupUiState
+    data class Done(
+        val result: NetworkCheckup.Result,
+        val profileId: Long,
+        val profileName: String,
+    ) : NetworkCheckupUiState
 }
 
 // DashboardViewModel now only uses UiEvent for all events
@@ -299,6 +305,21 @@ class DashboardViewModel :
                             topology = topology,
                             showOnboardingGuide = profiles.isEmpty() &&
                                 !Settings.onboardingGuideDismissed,
+                            // AB-011: the selection can also change outside
+                            // selectProfile (profile deleted elsewhere,
+                            // settings restored). A finished checkup whose
+                            // profile no longer matches the selection is
+                            // dropped instead of shown under the wrong name.
+                            checkup =
+                            when (val done = checkup) {
+                                is NetworkCheckupUiState.Done ->
+                                    if (done.profileId != selectedId) {
+                                        NetworkCheckupUiState.Idle
+                                    } else {
+                                        done
+                                    }
+                                else -> checkup
+                            },
                         )
                     }
                 }
@@ -418,6 +439,16 @@ class DashboardViewModel :
                 selectedProfileId = profileId,
                 selectedProfileName = name ?: selectedProfileName,
                 showProfilePickerSheet = false,
+                // AB-011: a finished checkup belongs to the profile it ran
+                // on; switching profiles must not present it as the new
+                // profile's result. A run still in flight is dropped at
+                // completion time instead (see runNetworkCheckup).
+                checkup =
+                if (checkup is NetworkCheckupUiState.Done) {
+                    NetworkCheckupUiState.Idle
+                } else {
+                    checkup
+                },
             )
         }
 
@@ -524,6 +555,9 @@ class DashboardViewModel :
                     profile.id,
                     detailed.notes,
                 )
+                // AB-019: foreground updates fill the rule-set cache too,
+                // not only the background worker.
+                io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
 
                 // Reload profiles
                 loadProfiles()
@@ -636,6 +670,7 @@ class DashboardViewModel :
     }
 
     fun updateServiceStatus(status: Status) {
+        val previous = _serviceStatus.value
         viewModelScope.launch {
             _serviceStatus.emit(status)
             updateState {
@@ -649,13 +684,27 @@ class DashboardViewModel :
                     },
                 )
             }
-            handleServiceStatusChange(status)
+            handleServiceStatusChange(status, previous)
         }
     }
 
-    private fun handleServiceStatusChange(status: Status) {
+    private fun handleServiceStatusChange(status: Status, previous: Status) {
         val isRemote = RemoteControlManager.remoteServer.value != null
         when (status) {
+            Status.Starting -> {
+                // A kernel-initiated stop (BoxService.serviceStop, e.g. the
+                // network interface vanished) also reports Starting, and it
+                // arrives from Started. The already-published topology still
+                // claims running then, so the dashboard kept showing Running
+                // after the service had actually died (G-12). A user-
+                // initiated start arrives from Stopped, where the topology
+                // already shows not-running. Republish so the topology's
+                // running flag always follows the real service status.
+                if (previous == Status.Started && !isRemote) {
+                    publishTopologyNow()
+                }
+            }
+
             Status.Started -> {
                 checkDeprecatedNotes()
                 requestTopologyPublish(force = true)
@@ -1040,6 +1089,10 @@ class DashboardViewModel :
     fun runNetworkCheckup() {
         if (currentState.checkup is NetworkCheckupUiState.Running) return
         val tag = currentOutboundTagForTest()
+        // AB-011: bind the run to the profile selected at start. The result
+        // describes that profile's nodes and subscription, nobody else's.
+        val profileId = currentState.selectedProfileId
+        val profileName = currentState.selectedProfileName.orEmpty()
         viewModelScope.launch(Dispatchers.IO) {
             val result = NetworkCheckup.run(
                 context = Application.application,
@@ -1055,7 +1108,19 @@ class DashboardViewModel :
                 },
             )
             withContext(Dispatchers.Main) {
-                updateState { copy(checkup = NetworkCheckupUiState.Done(result)) }
+                updateState {
+                    copy(
+                        checkup =
+                        if (selectedProfileId == profileId) {
+                            NetworkCheckupUiState.Done(result, profileId, profileName)
+                        } else {
+                            // The profile changed mid-run: the result
+                            // belongs to the old profile, so it is dropped
+                            // instead of presented under the new one.
+                            NetworkCheckupUiState.Idle
+                        },
+                    )
+                }
             }
         }
     }

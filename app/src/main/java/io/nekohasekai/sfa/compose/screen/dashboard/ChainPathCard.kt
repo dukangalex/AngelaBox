@@ -352,12 +352,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = shownEntry.ifBlank { "—" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -371,12 +369,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = nodeName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -418,12 +414,10 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
+                    ShrinkToFitNameText(
                         text = nodeName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Column(
@@ -504,6 +498,50 @@ fun ChainPathCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { GlobalEventBus.tryEmit(UiEvent.OpenLogs) },
+        )
+    }
+}
+
+/**
+ * Hop and node names at the same display standard as the traffic-flow
+ * labels (1.0.124): single line, the font steps down until the whole
+ * name fits, tail ellipsis only as the last resort. A plain ellipsis
+ * text cut medium-length names even though a slightly smaller font
+ * would have shown them whole (G-9).
+ */
+@Composable
+private fun ShrinkToFitNameText(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier = modifier) {
+        val budgetPx = constraints.maxWidth.coerceAtLeast(1)
+        val fitted = remember(text, budgetPx, style) {
+            val floorSp = 11f
+            var sizeSp = style.fontSize.value.takeIf { it.isFinite() && it > floorSp } ?: 16f
+            var chosen = sizeSp.sp
+            while (true) {
+                val result = measurer.measure(
+                    text = text,
+                    style = style.copy(fontSize = sizeSp.sp),
+                    maxLines = 1,
+                    softWrap = false,
+                    constraints = Constraints(maxWidth = budgetPx),
+                )
+                chosen = sizeSp.sp
+                if (result.size.width <= budgetPx || sizeSp <= floorSp) break
+                sizeSp = (sizeSp - 1f).coerceAtLeast(floorSp)
+            }
+            chosen
+        }
+        Text(
+            text = text,
+            style = style.copy(fontSize = fitted),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

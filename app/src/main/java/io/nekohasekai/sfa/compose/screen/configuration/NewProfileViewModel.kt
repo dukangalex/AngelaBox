@@ -272,6 +272,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         configFile.writeText(configContent)
 
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+        // AB-019: import-time rule-set cache warm-up, same as the other
+        // import paths — the startup substitute needs the ammunition.
+        io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(configContent)
 
         return CreatedProfile(profile, shareLinkHint(raw))
     }
@@ -310,6 +313,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             }
             configFile.writeText(content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            // AB-019: a subscription created by hand warms its rule-set
+            // cache right away, not only after the first periodic update.
+            io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
             io.nekohasekai.sfa.utils.SubscriptionInfoStore.capture(client, profile.id, context)
             if (state.autoUpdate) {
                 UpdateProfileWork.reconfigureUpdater()
