@@ -50,6 +50,30 @@ object RuleSetWarmup {
         }
     }
 
+    /**
+     * Synchronous warm for the whole on-disk config library, used
+     * right after a backup restore lands every profile at once
+     * (AB-020): the backup does not carry the rule-set cache (it
+     * lives in the external files dir, outside the backed-up
+     * configs), so restored profiles would otherwise start cold.
+     * This must run synchronously — the restore flow relaunches
+     * the app moments after success, which would cut a
+     * fire-and-forget warm off mid-flight. One shared deadline
+     * bounds the whole scan; best-effort like every warm path.
+     */
+    fun warmRestored(deadlineMs: Long) {
+        val dir = File(Application.application.filesDir, "configs")
+        val files = runCatching { dir.listFiles() }.getOrNull() ?: return
+        for (f in files) {
+            if (System.currentTimeMillis() > deadlineMs) return
+            if (!f.isFile || !f.name.endsWith(".json")) continue
+            val content = runCatching { f.readText() }.getOrNull() ?: continue
+            if (content.isNotBlank()) {
+                runCatching { warmNow(content, deadlineMs) }
+            }
+        }
+    }
+
     /** Synchronous warm, bounded by [deadlineMs] (the worker's round deadline). */
     fun warmNow(content: String, deadlineMs: Long) {
         val working = Application.application.getExternalFilesDir(null)

@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Base64
+import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backup.PortableCloudBackup
 import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.bg.BoxService
@@ -37,7 +38,36 @@ object BackupManager {
     /** Size and path limits always abort. Compat may skip unknown entries, not these. */
     private class BackupRejected(message: String) : IllegalStateException(message)
 
-    fun createBackupFile(context: Context, dest: File): Result<File> = runCatching {
+    /**
+     * Builds a backup archive at [dest]. With a non-empty [password] the
+     * finished zip is sealed with [BackupCrypto] (AB-021): the zip is
+     * written to a cache-dir scratch file first, encrypted as one byte
+     * stream, and the scratch plaintext is deleted. The password itself
+     * is never stored or logged. Without a password the output is the
+     * plain zip, byte-for-byte the pre-encryption behaviour.
+     */
+    fun createBackupFile(
+        context: Context,
+        dest: File,
+        password: CharArray? = null,
+    ): Result<File> = runCatching {
+        if (password == null || password.isEmpty()) {
+            writeBackupZip(context, dest)
+            return@runCatching dest
+        }
+        val plainTmp = File(context.cacheDir, "chainbox-backup-plain.zip")
+        try {
+            writeBackupZip(context, plainTmp)
+            val sealed = BackupCrypto.encrypt(plainTmp.readBytes(), password)
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(sealed)
+        } finally {
+            plainTmp.delete()
+        }
+        dest
+    }
+
+    private fun writeBackupZip(context: Context, dest: File) {
         dest.parentFile?.mkdirs()
         // Checkpoint first so the temp copies below observe the latest committed
         // state. Credentials are blanked in the temp copies only: live Settings
@@ -75,10 +105,54 @@ object BackupManager {
                 putEntry(zos, name, bytes)
             }
         }
-        dest
     }
 
-    fun restoreBackupFile(context: Context, src: File, compat: Boolean = false): Result<Unit> = runCatching {
+    /** True when [file] is a password-encrypted backup container (AB-021). */
+    fun isEncryptedBackup(file: File): Boolean {
+        if (!file.isFile || file.length() < 5L) return false
+        return FileInputStream(file).use { ins ->
+            val head = ByteArray(16)
+            val read = ins.read(head)
+            read >= 5 && BackupCrypto.isEncrypted(head.copyOf(read))
+        }
+    }
+
+    /**
+     * Restores a backup file. Encrypted containers (see [isEncryptedBackup])
+     * are recognised by content, never by file name, and decrypted with
+     * [password] before the regular zip pipeline runs on the plaintext —
+     * a wrong password or damaged file fails cleanly before anything is
+     * touched. Plain zips from older versions restore exactly as before.
+     */
+    fun restoreBackupFile(
+        context: Context,
+        src: File,
+        compat: Boolean = false,
+        password: CharArray? = null,
+    ): Result<Unit> {
+        if (!isEncryptedBackup(src)) return restoreZipFile(context, src, compat)
+        if (password == null || password.isEmpty()) {
+            return Result.failure(
+                IllegalStateException(context.getString(R.string.backup_password_required)),
+            )
+        }
+        val plainTmp = File(context.cacheDir, "chainbox-restore-plain.zip")
+        return try {
+            val plain = try {
+                BackupCrypto.decrypt(src.readBytes(), password)
+            } catch (e: BackupCrypto.BackupCryptoException) {
+                return Result.failure(
+                    IllegalStateException(context.getString(R.string.backup_decrypt_failed)),
+                )
+            }
+            plainTmp.writeBytes(plain)
+            restoreZipFile(context, plainTmp, compat)
+        } finally {
+            plainTmp.delete()
+        }
+    }
+
+    private fun restoreZipFile(context: Context, src: File, compat: Boolean = false): Result<Unit> = runCatching {
         if (!isZipFile(src)) {
             if (!compat) error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
         }
@@ -484,8 +558,8 @@ object BackupManager {
                         }
                     }
                 }
-                require(isZipFile(localFile)) {
-                    "下载内容不是 ZIP 备份（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
+                require(isZipFile(localFile) || isEncryptedBackup(localFile)) {
+                    "下载内容不是备份文件（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
                 }
                 localFile
             } finally {

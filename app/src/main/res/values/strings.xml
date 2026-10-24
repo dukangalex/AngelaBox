@@ -778,6 +778,19 @@
 
     <!-- AngelaBox -->
     <string name="backup_and_restore">Backup and Restore</string>
+    <string name="backup_password_title">Backup password (optional)</string>
+    <string name="backup_password_hint">Set a password to encrypt the whole backup file. You will need this password to restore it — if you forget it, the backup cannot be recovered.</string>
+    <string name="backup_password_label">Password</string>
+    <string name="backup_password_confirm_label">Confirm password</string>
+    <string name="backup_password_mismatch">The two passwords do not match.</string>
+    <string name="backup_password_plaintext_warning">No password set: this backup contains node passwords and UUIDs in plain text. Anyone who obtains the file can read them.</string>
+    <string name="backup_password_encrypted_note">This backup will be encrypted with the password you set.</string>
+    <string name="backup_password_continue">Continue</string>
+    <string name="backup_restore_password_title">Encrypted backup</string>
+    <string name="backup_restore_password_hint">This backup is protected by a password. Enter the password to restore it.</string>
+    <string name="backup_password_required">This backup is encrypted. Enter its password to restore it.</string>
+    <string name="backup_decrypt_failed">Incorrect password, or the backup file is corrupted.</string>
+    <string name="backup_restore_action">Restore</string>
     <string name="chain_builder">Chain Proxy</string>
     <string name="chain_builder_title">Chain proxy builder</string>
     <string name="chain_builder_subtitle">Bind entry and landing to the current profile only; other profiles stay independent</string>
@@ -867,6 +880,11 @@
     <string name="subscription_health_quota_used">Used %1$s of %2$s</string>
     <string name="subscription_health_update_failed_title">Subscription keeps failing to update: %1$s</string>
     <string name="subscription_health_import_warnings_title">Last update skipped some nodes: %1$s</string>
+    <string name="subscription_health_update_notes_title">Notes from the last update: %1$s</string>
+    <string name="subscription_health_notes_nodes">Nodes skipped</string>
+    <string name="subscription_health_notes_rulesets">Rule-set URLs switched</string>
+    <string name="subscription_health_notes_other">Other notes</string>
+    <string name="subscription_health_notes_more">and %1$d more</string>
     <string name="subscription_health_update_failed_title_multi">%1$d subscriptions keep failing to update</string>
     <string name="subscription_health_update_failed_detail">Failed %1$d times in a row (%2$s). Check whether the subscription link is still valid.</string>
     <string name="subscription_health_update_failed_detail_simple">Failed %1$d times in a row. Check whether the subscription link is still valid.</string>

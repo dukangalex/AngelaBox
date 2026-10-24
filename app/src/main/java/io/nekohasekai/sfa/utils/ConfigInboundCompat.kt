@@ -33,12 +33,29 @@ object ConfigInboundCompat {
         if (stripSniffOverrideDestination(root)) changed = true
         if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
-        if (rewriteRuleSetUrls(root)) changed = true
+        val urlRewrite = rewriteRuleSetUrlsWithReport(root)
+        if (urlRewrite.changed) changed = true
         if (ruleSetNotes != null) {
             val heal = healRemoteRuleSetsWithReport(root)
             if (heal.changed) changed = true
-            heal.swapped.forEach { ruleSetNotes += "规则集「$it」的地址已换成官方版" }
-            heal.dropped.forEach { ruleSetNotes += "规则集「$it」官方已下线，已去掉" }
+            // A set the SSRF guard stripped (its address was not a
+            // public HTTPS URL) gets a note naming that cause; the
+            // generic lines below describe sets the official repos
+            // themselves superseded or took offline.
+            heal.swapped.forEach {
+                ruleSetNotes += if (it in urlRewrite.guardStrippedTags) {
+                    "规则集「$it」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版"
+                } else {
+                    "规则集「$it」的地址已换成官方版"
+                }
+            }
+            heal.dropped.forEach {
+                ruleSetNotes += if (it in urlRewrite.guardStrippedTags) {
+                    "规则集「$it」的原地址不是公共 HTTPS 地址，未被采用，已去掉"
+                } else {
+                    "规则集「$it」官方已下线，已去掉"
+                }
+            }
         } else if (healRemoteRuleSets(root)) {
             changed = true
         }
@@ -540,12 +557,32 @@ object ConfigInboundCompat {
         }
     }
 
-    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean {
-        val route = root.optJSONObject("route") ?: return false
-        val sets = route.optJSONArray("rule_set") ?: return false
+    /** What [rewriteRuleSetUrls] did, for callers with a notes channel. */
+    internal data class RuleSetUrlRewrite(
+        val changed: Boolean,
+        /**
+         * Tags whose only address the SSRF guard removed (it was not
+         * a public HTTPS URL), leaving the set address-less. Callers
+         * naming a later heal swap/drop for one of these tags must
+         * say the original address was not adopted and why — the
+         * generic "official successor / taken offline" wording would
+         * misdescribe a set the guard, not the upstream repo, removed.
+         */
+        val guardStrippedTags: List<String>,
+    )
+
+    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean =
+        rewriteRuleSetUrlsWithReport(root).changed
+
+    internal fun rewriteRuleSetUrlsWithReport(root: JSONObject): RuleSetUrlRewrite {
+        val route = root.optJSONObject("route") ?: return RuleSetUrlRewrite(false, emptyList())
+        val sets = route.optJSONArray("rule_set") ?: return RuleSetUrlRewrite(false, emptyList())
         var changed = false
+        val stripped = mutableListOf<String>()
         for (i in 0 until sets.length()) {
             val item = sets.optJSONObject(i) ?: continue
+            val hadAddress = listOf("url", "download_url")
+                .any { item.optString(it).isNotBlank() }
             for (key in listOf("url", "download_url")) {
                 val current = item.optString(key).trim()
                 if (current.isEmpty()) continue
@@ -560,8 +597,14 @@ object ConfigInboundCompat {
                     changed = true
                 }
             }
+            if (hadAddress && listOf("url", "download_url")
+                    .all { item.optString(it).isBlank() }
+            ) {
+                val tag = item.optString("tag").trim()
+                if (tag.isNotEmpty() && tag !in stripped) stripped += tag
+            }
         }
-        return changed
+        return RuleSetUrlRewrite(changed, stripped)
     }
 
     internal fun sanitizeClashDownloadUrls(root: JSONObject): Boolean {
@@ -623,13 +666,19 @@ object ConfigInboundCompat {
     )
 
     /**
-     * Remote rule-sets that 404 on the jsDelivr testingcf mirror abort kernel
-     * start. Rewrite short / missing filenames to the official SagerNet
-     * geosite/geoip URL and keep the original tag so route rules still match.
-     * Only drop a set when there is no known replacement (e.g. geoip-fastly).
-     * Every swap/drop is recorded in the report variant: replacing a
-     * provider's self-hosted set changes routing semantics, so it must
-     * never happen silently — callers surface the names in their notes.
+     * Remote rule-sets whose address provably cannot load are pointed at
+     * the official SagerNet successor, keeping the original tag so route
+     * rules still match. "Provably" is narrow (AB-025): the URL itself
+     * points at the official SagerNet repos and names a file verified
+     * absent there, or the URL is empty and the tag names an official
+     * file of the same kind. Third-party URLs are the provider's own
+     * hosting choice and stay verbatim — a filename that merely looks unofficial
+     * (MetaCubeX-style youtube.srs, telegram-ip.srs) is not evidence.
+     * A set is dropped only when the official repos have no successor
+     * for it at all and the URL points at those repos. Every swap/drop
+     * is recorded in the report variant: replacing a provider's
+     * self-hosted set changes routing semantics, so it must never
+     * happen silently — callers surface the names in their notes.
      */
     internal fun healRemoteRuleSets(root: JSONObject): Boolean =
         healRemoteRuleSetsWithReport(root).changed
@@ -661,7 +710,14 @@ object ConfigInboundCompat {
                 continue
             }
             if (url.isEmpty()) {
-                val officialFromTag = officialRuleSetUrl(tag)
+                // Fill from the tag only with a same-kind official
+                // file (AB-025 exception revoked): an IP-list tag
+                // whose only official namesake is a domain list gets
+                // no fill at all and drops below with its name
+                // recorded — a cross-kind fill would silently change
+                // what the set's rules match, exactly what the swap
+                // path below refuses to do.
+                val officialFromTag = officialRuleSetSwapUrl(tag)
                 if (officialFromTag.isNotEmpty()) {
                     item.put("url", officialFromTag)
                     keep.put(item)
@@ -673,15 +729,31 @@ object ConfigInboundCompat {
                 }
                 continue
             }
-            val official = officialRuleSetUrl(file)
+            // AB-025: a non-empty URL is the provider's own choice and
+            // stays verbatim unless there is hard evidence against the
+            // exact address: it points at the official SagerNet repos
+            // AND names a file provably absent there (see
+            // isProvenMissingAtOfficial — the MISSING set plus the
+            // repos' verified file-naming structure). Even then the
+            // replacement must be the same kind of set — an IP list
+            // is never swapped for a domain list (see
+            // officialRuleSetSwapUrl).
+            val official = officialRuleSetSwapUrl(file)
             when {
-                official.isNotEmpty() && url != official && looksBrokenRuleSet(file, url) -> {
+                isProvenMissingAtOfficial(url, file) &&
+                    official.isNotEmpty() && url != official -> {
                     item.put(urlKey, official)
                     keep.put(item)
                     swapped += tag.ifBlank { file }
                     changed = true
                 }
-                file in UNREPLACEABLE_RULESET_FILES -> {
+                // No official successor exists at all (geoip-private,
+                // geoip-fastly, geoip-cloudfront — sing-geoip ships
+                // country codes only, verified against its listing).
+                // Drop only the official-repo form, whose 404 is
+                // proven; the same file name on a third-party host
+                // may well exist there and stays verbatim.
+                isOfficialRuleSetUrl(url) && file in UNREPLACEABLE_RULESET_FILES -> {
                     if (tag.isNotEmpty()) dropTags.add(tag)
                     changed = true
                 }
@@ -726,11 +798,17 @@ object ConfigInboundCompat {
                 keep.put(item)
                 continue
             }
-            val official = officialRuleSetUrl(file).ifBlank {
+            val candidate = officialRuleSetUrl(file).ifBlank {
                 officialRuleSetUrl(tag).ifBlank {
                     want.firstOrNull { ruleSetMatchesNeedle(tag, file, it) }?.let { officialRuleSetUrl(it) }.orEmpty()
                 }
             }
+            // AB-025: even on this kernel-404 rescue path the official
+            // successor must be the same kind of set as the one that
+            // failed; a cross-kind candidate counts as "no successor"
+            // and the set is dropped below instead of silently
+            // changing what its rules match.
+            val official = acceptSameKind(candidate, file.ifBlank { tag })
             if (official.isNotEmpty() && official != url) {
                 item.put(urlKey, official)
                 keep.put(item)
@@ -1450,10 +1528,18 @@ object ConfigInboundCompat {
         "geoip-cloudfront.srs",
     )
 
+    /**
+     * Files verified absent from the official SagerNet rule-set repos
+     * (checked against the jsDelivr listings of sing-geosite and
+     * sing-geoip, 2026-10-23: sing-geoip ships country-code files
+     * only). The set only ever convicts URLs that point at those
+     * repos; the same file name on a third-party host proves nothing.
+     */
     private val MISSING_RULESET_FILES = setOf(
         "geosite-biliintl.srs",
         "geosite-apple-cn.srs",
         "geosite-tracker.srs",
+        "geosite-category-ai!cn.srs",
         "geoip-private.srs",
         "geoip-google.srs",
         "geoip-telegram.srs",
@@ -1485,6 +1571,83 @@ object ConfigInboundCompat {
     internal fun officialRuleSetUrl(raw: String): String {
         val file = officialRuleSetFile(raw) ?: return ""
         return if (file.startsWith("geoip-")) GEOIP_BASE + file else GEOSITE_BASE + file
+    }
+
+    /** What a rule set's content matches on: CIDR lists vs domain lists. */
+    private enum class RuleSetKind { DOMAIN, IP }
+
+    /**
+     * Kind of the set a file/tag [stem] names: geoip- prefixed and
+     * -ip suffixed stems hold CIDR lists; everything else (geosite-,
+     * category-, plain domain-list stems) holds domain lists. The two
+     * kinds are not interchangeable behind a route rule, so a swap
+     * must never cross from one to the other.
+     */
+    private fun ruleSetKindOf(stem: String): RuleSetKind =
+        if (stem.startsWith("geoip-") || stem.endsWith("-ip")) {
+            RuleSetKind.IP
+        } else {
+            RuleSetKind.DOMAIN
+        }
+
+    /**
+     * [candidate] (an official URL from [officialRuleSetUrl]) accepted
+     * only when it names the same kind of set as [sourceRaw] (a file
+     * name or tag) describes; a cross-kind candidate becomes "".
+     */
+    private fun acceptSameKind(candidate: String, sourceRaw: String): String {
+        if (candidate.isEmpty()) return ""
+        val sourceKind = ruleSetKindOf(ruleSetStem(sourceRaw))
+        val candidateKind = ruleSetKindOf(ruleSetStem(candidate))
+        return if (sourceKind == candidateKind) candidate else ""
+    }
+
+    /**
+     * Official successor URL for [raw] when a swap is allowed at all:
+     * like [officialRuleSetUrl], but a successor of a different kind
+     * (a geoip name whose only official file is a geosite list)
+     * yields "" — the original address then stays as written.
+     */
+    internal fun officialRuleSetSwapUrl(raw: String): String =
+        acceptSameKind(officialRuleSetUrl(raw), raw)
+
+    /**
+     * True when [url] points at the official SagerNet rule-set repos
+     * (any jsDelivr GH mirror host, raw GitHub, or github.com), where
+     * file existence is a known, verified quantity. Any other host is
+     * a third-party mirror whose contents this app cannot judge, so
+     * its addresses are never rewritten on suspicion alone.
+     */
+    private fun isOfficialRuleSetUrl(url: String): Boolean {
+        val u = url.lowercase()
+        return u.contains("/gh/sagernet/sing-geosite") ||
+            u.contains("/gh/sagernet/sing-geoip") ||
+            u.contains("raw.githubusercontent.com/sagernet/sing-geosite/") ||
+            u.contains("raw.githubusercontent.com/sagernet/sing-geoip/") ||
+            u.contains("github.com/sagernet/sing-geosite/") ||
+            u.contains("github.com/sagernet/sing-geoip/")
+    }
+
+    /**
+     * True when [url] points at an official SagerNet repo AND [file]
+     * provably does not exist in that repo. Proof comes from the
+     * repos' actual file listings (jsDelivr data API, 2026-10-23):
+     * sing-geosite ships only geosite- prefixed files (1,681 of
+     * them), sing-geoip ships only geoip- country-code files (237),
+     * and MISSING_RULESET_FILES names the correctly-prefixed files
+     * that are absent anyway. URLs pointing anywhere else can never
+     * be "proven missing" — their host's contents are its own.
+     */
+    private fun isProvenMissingAtOfficial(url: String, file: String): Boolean {
+        if (!isOfficialRuleSetUrl(url)) return false
+        if (file in MISSING_RULESET_FILES) return true
+        val u = url.lowercase()
+        val inGeositeRepo = u.contains("/gh/sagernet/sing-geosite") ||
+            u.contains("raw.githubusercontent.com/sagernet/sing-geosite/") ||
+            u.contains("github.com/sagernet/sing-geosite/")
+        if (inGeositeRepo) return !file.startsWith("geosite-")
+        val cc = file.removeSuffix(".srs").removePrefix("geoip-")
+        return !(file.startsWith("geoip-") && cc.length == 2 && cc.all { it.isLetter() })
     }
 
     internal fun officialRuleSetFile(raw: String): String? {
@@ -1530,12 +1693,4 @@ object ConfigInboundCompat {
             n == "geosite-$f" || n == "geoip-$f"
     }
 
-    private fun looksBrokenRuleSet(file: String, url: String): Boolean {
-        val stem = ruleSetStem(file)
-        if (file in MISSING_RULESET_FILES) return true
-        if (stem.isNotEmpty() && !stem.startsWith("geosite-") && !stem.startsWith("geoip-")) return true
-        if (url.contains("sing-geosite", true) && !stem.startsWith("geosite-")) return true
-        if (url.contains("sing-geoip", true) && file in MISSING_RULESET_FILES) return true
-        return false
-    }
 }

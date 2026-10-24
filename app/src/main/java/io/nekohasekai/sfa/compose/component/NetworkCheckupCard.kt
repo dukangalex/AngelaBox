@@ -134,7 +134,23 @@ private fun DoneContent(
     VerdictBanner(result)
     Spacer(Modifier.height(8.dp))
     result.items.forEach { item ->
-        CheckupItemRow(item)
+        // AB-025: for subscription verdicts the banner already
+        // carries the subscription item's detail verbatim
+        // (NetworkCheckup.run sets verdictDetail to exactly that
+        // text), so printing it again in the item row showed the
+        // same warnings twice in one dialog. The row keeps its
+        // status icon and title; the text lives only in the banner.
+        val shown = if (
+            item.id == NetworkCheckup.ItemId.SUBSCRIPTION &&
+            (result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_BAD ||
+                result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY) &&
+            item.detail.isNotBlank() && item.detail == result.verdictDetail
+        ) {
+            item.copy(detail = "")
+        } else {
+            item
+        }
+        CheckupItemRow(shown)
     }
     Spacer(Modifier.height(12.dp))
     Row {

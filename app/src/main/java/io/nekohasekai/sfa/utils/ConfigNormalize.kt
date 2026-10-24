@@ -130,14 +130,27 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.stripSniffOverrideDestination(root), "已去掉内核不再支持的 sniff 覆盖字段")
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
-        mark(ConfigInboundCompat.rewriteRuleSetUrls(root), "规则集地址已换成可用镜像")
+        val rsRewrite = ConfigInboundCompat.rewriteRuleSetUrlsWithReport(root)
+        mark(rsRewrite.changed, "规则集地址已换成可用镜像")
         // 换官方版会改变分流语义，逐个点名，不许只留一句笼统提示。
+        // 被 SSRF 守卫剔除原地址的（原地址不是公共 HTTPS）单独成行
+        // 说明原因，不能混进“官方下线/换官方地址”的笼统口径。
         val rsHeal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
-        if (rsHeal.swapped.isNotEmpty()) {
-            notes += "无效规则集已换成官方地址：${rsHeal.swapped.take(5).joinToString("、")}"
+        val strippedSwapped = rsHeal.swapped.filter { it in rsRewrite.guardStrippedTags }
+        val plainSwapped = rsHeal.swapped - strippedSwapped.toSet()
+        if (plainSwapped.isNotEmpty()) {
+            notes += "无效规则集已换成官方地址：${plainSwapped.take(5).joinToString("、")}"
         }
-        if (rsHeal.dropped.isNotEmpty()) {
-            notes += "官方已下线的规则集已去掉：${rsHeal.dropped.take(5).joinToString("、")}"
+        if (strippedSwapped.isNotEmpty()) {
+            notes += "无效规则集已换成官方地址（原地址不是公共 HTTPS，未被采用）：${strippedSwapped.take(5).joinToString("、")}"
+        }
+        val strippedDropped = rsHeal.dropped.filter { it in rsRewrite.guardStrippedTags }
+        val plainDropped = rsHeal.dropped - strippedDropped.toSet()
+        if (plainDropped.isNotEmpty()) {
+            notes += "官方已下线的规则集已去掉：${plainDropped.take(5).joinToString("、")}"
+        }
+        if (strippedDropped.isNotEmpty()) {
+            notes += "无效规则集已去掉（原地址不是公共 HTTPS，未被采用）：${strippedDropped.take(5).joinToString("、")}"
         }
         mark(ConfigIngest.normalizeEchConfigs(root), "节点自带的 ECH 已整理成内核能读的格式")
         ConfigInboundCompat.healDownloadClients(root)

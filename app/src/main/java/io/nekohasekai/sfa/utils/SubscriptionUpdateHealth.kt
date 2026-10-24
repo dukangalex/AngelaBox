@@ -17,6 +17,8 @@ object SubscriptionUpdateHealth {
     private const val KEY_FAIL_PREFIX = "fail_"
     private const val KEY_ERROR_PREFIX = "err_"
     private const val KEY_WARN_PREFIX = "warn_"
+    private const val KEY_WARN_SEQ_PREFIX = "warnseq_"
+    private const val KEY_WARN_DISMISS_PREFIX = "warndismiss_"
     private const val KEY_ATTEMPT_PREFIX = "attempt_"
 
     /** 连续失败达到该次数后在仪表盘横幅提醒 */
@@ -129,13 +131,49 @@ object SubscriptionUpdateHealth {
         val text = warnings.filter { it.isNotBlank() }.joinToString("\n")
             .replace(Regex("https?://[^\\s\"'<>]+"), "[链接已隐藏]")
             .take(500)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit()
             .apply {
-                if (text.isBlank()) remove(KEY_WARN_PREFIX + profileId)
-                else putString(KEY_WARN_PREFIX + profileId, text)
+                if (text.isBlank()) {
+                    remove(KEY_WARN_PREFIX + profileId)
+                } else {
+                    putString(KEY_WARN_PREFIX + profileId, text)
+                    // AB-025: every update that leaves warnings is a
+                    // new batch. Bump the batch sequence so a dismissal
+                    // of the previous batch never hides this one, even
+                    // when the text happens to be identical.
+                    putLong(
+                        KEY_WARN_SEQ_PREFIX + profileId,
+                        prefs.getLong(KEY_WARN_SEQ_PREFIX + profileId, 0L) + 1L,
+                    )
+                }
             }
             .apply()
+    }
+
+    /**
+     * AB-025: 用户在横幅上关掉某订阅的这批更新提示。只记录当前批次序号，
+     * 下次更新产生新一批提示（序号递增）时会重新显示。
+     */
+    fun dismissImportWarnings(context: Context, profileId: Long) {
+        if (profileId < 0L) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Batches recorded before the sequence existed count as batch 1.
+        val batch = maxOf(prefs.getLong(KEY_WARN_SEQ_PREFIX + profileId, 0L), 1L)
+        prefs.edit()
+            .putLong(KEY_WARN_SEQ_PREFIX + profileId, batch)
+            .putLong(KEY_WARN_DISMISS_PREFIX + profileId, batch)
+            .apply()
+    }
+
+    private fun importWarningsDismissed(context: Context, profileId: Long): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val batch = prefs.getLong(KEY_WARN_SEQ_PREFIX + profileId, 0L)
+        // Batches recorded before the sequence existed (batch 0) were
+        // never dismissible; they show until the user closes them,
+        // which normalizes them to batch 1 via dismissImportWarnings.
+        if (batch <= 0L) return false
+        return prefs.getLong(KEY_WARN_DISMISS_PREFIX + profileId, 0L) >= batch
     }
 
     fun lastImportWarnings(context: Context, profileId: Long): String? {
@@ -173,6 +211,8 @@ object SubscriptionUpdateHealth {
         val profileName: String,
         val kind: IssueKind,
         val detail: String,
+        /** Owning profile; only set for IMPORT_WARNINGS (dismiss target). */
+        val profileId: Long = -1L,
     )
 
     /** 评估所有远程订阅的健康状况，供仪表盘横幅展示。 */
@@ -212,10 +252,11 @@ object SubscriptionUpdateHealth {
                     }
                 }
             }
-            // 上次更新成功但有"跳过/修正"提示：也要让用户看见
+            // 上次更新成功但有"跳过/修正"提示：也要让用户看见；
+            // 用户已关闭的这一批不再显示（AB-025），下次更新的新批次会重新出现。
             val importWarnings = lastImportWarnings(context, profile.id)
-            if (!importWarnings.isNullOrBlank()) {
-                issues.add(HealthIssue(name, IssueKind.IMPORT_WARNINGS, importWarnings))
+            if (!importWarnings.isNullOrBlank() && !importWarningsDismissed(context, profile.id)) {
+                issues.add(HealthIssue(name, IssueKind.IMPORT_WARNINGS, importWarnings, profile.id))
             }
             // 连续更新失败
             val failures = consecutiveFailures(context, profile.id)

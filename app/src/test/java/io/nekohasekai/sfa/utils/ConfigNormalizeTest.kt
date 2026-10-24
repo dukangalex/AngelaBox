@@ -262,7 +262,13 @@ class ConfigNormalizeTest {
     }
 
     @Test
-    fun healReplacesShortAndMissingGeoipWithGeosite() {
+    fun healKeepsShortThirdPartyAndCrossTypeNames() {
+        // AB-025 inverts this test's original expectations: filename
+        // shape alone no longer convicts. A short third-party name
+        // (telegram.srs at a provider repo) stays; an official-repo
+        // geoip name whose only official file is a geosite domain
+        // list is NOT cross-swapped either; only the official-repo
+        // unreplaceable file (geoip-fastly) drops, ref included.
         val root = JSONObject(
             """
             {
@@ -270,7 +276,7 @@ class ConfigNormalizeTest {
                 "rule_set": [
                   {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"},
                   {"tag": "geoip-telegram", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs"},
-                  {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
+                  {"tag": "geoip-fastly", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
                   {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
                 ],
                 "rules": [
@@ -291,11 +297,11 @@ class ConfigNormalizeTest {
             o.getString("tag") to o.getString("url")
         }
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+            "https://testingcf.jsdelivr.net/gh/foo/bar@main/telegram.srs",
             byTag["telegram"],
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs",
             byTag["geoip-telegram"],
         )
         assertFalse(byTag.containsKey("geoip-fastly"))
@@ -315,9 +321,9 @@ class ConfigNormalizeTest {
             {
               "route": {
                 "rule_set": [
-                  {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"},
+                  {"tag": "tracker", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-tracker.srs"},
                   {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
-                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                  {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"}
                 ],
                 "rules": []
               }
@@ -326,10 +332,303 @@ class ConfigNormalizeTest {
         )
         val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
         assertTrue(heal.changed)
-        // Swapping a provider-hosted set for the official one changes
-        // routing semantics; the report must name exactly what happened.
-        assertTrue(heal.swapped.contains("telegram"))
+        // The report must name exactly what happened: the official-
+        // repo missing file with a same-kind successor is swapped,
+        // the official-repo unreplaceable file is dropped, and the
+        // provider-hosted set is neither — it stays verbatim (AB-025).
+        assertTrue(heal.swapped.contains("tracker"))
         assertTrue(heal.dropped.contains("geoip-fastly"))
+        assertFalse(heal.swapped.contains("telegram"))
+        assertFalse(heal.dropped.contains("telegram"))
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+            byTag["tracker"],
+        )
+        assertEquals(
+            "https://raw.githubusercontent.com/foo/bar/main/telegram.srs",
+            byTag["telegram"],
+        )
+    }
+
+    @Test
+    fun healKeepsThirdPartyMetaCubeXNamesVerbatim() {
+        // The field regression behind AB-025: MetaCubeX-style file
+        // names hosted by the provider were swapped to official
+        // addresses without the original ever being tried. Heal
+        // alone must leave every third-party URL byte-for-byte —
+        // even a name that also appears in the official MISSING
+        // list (geoip-google), an -ip list name (telegram-ip), or
+        // an unreplaceable-at-official name (geoip-private).
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "youtube", "type": "remote", "url": "https://rules.example.net/metacubex/youtube.srs"},
+                  {"tag": "google", "type": "remote", "url": "https://rules.example.net/metacubex/google.srs"},
+                  {"tag": "telegram-ip", "type": "remote", "url": "https://rules.example.net/metacubex/telegram-ip.srs"},
+                  {"tag": "geoip-google", "type": "remote", "url": "https://rules.example.net/metacubex/geoip-google.srs"},
+                  {"tag": "geoip-private", "type": "remote", "url": "https://rules.example.net/metacubex/geoip-private.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertFalse(heal.changed)
+        assertTrue(heal.swapped.isEmpty())
+        assertTrue(heal.dropped.isEmpty())
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(5, sets.length())
+        val urls = (0 until sets.length()).map { sets.getJSONObject(it).getString("url") }
+        assertEquals(
+            listOf(
+                "https://rules.example.net/metacubex/youtube.srs",
+                "https://rules.example.net/metacubex/google.srs",
+                "https://rules.example.net/metacubex/telegram-ip.srs",
+                "https://rules.example.net/metacubex/geoip-google.srs",
+                "https://rules.example.net/metacubex/geoip-private.srs",
+            ),
+            urls,
+        )
+    }
+
+    @Test
+    fun healSwapsOfficialMissingSameKindFiles() {
+        // Official-repo URLs naming verified-absent files that have
+        // a same-kind official successor: swapped, tag kept. The
+        // last case is structural: sing-geosite ships only geosite-
+        // prefixed files, so a bare google.srs there is a proven
+        // 404 with the obvious same-kind successor.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-biliintl.srs"},
+                  {"tag": "apple-cn", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-apple-cn.srs"},
+                  {"tag": "ai", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ai!cn.srs"},
+                  {"tag": "google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/google.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertTrue(heal.changed)
+        assertEquals(listOf("biliintl", "apple-cn", "ai", "google"), heal.swapped)
+        assertTrue(heal.dropped.isEmpty())
+        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(base + "geosite-bilibili.srs", byTag["biliintl"])
+        assertEquals(base + "geosite-apple@cn.srs", byTag["apple-cn"])
+        assertEquals(base + "geosite-category-ai-!cn.srs", byTag["ai"])
+        assertEquals(base + "geosite-google.srs", byTag["google"])
+    }
+
+    @Test
+    fun healNeverCrossSwapsIpSetsToDomainLists() {
+        // geoip-google and geoip-telegram exist in the official
+        // repos only as geosite domain lists. Swapping an IP list
+        // for a domain list would silently change what its rules
+        // match, so the original official-repo URLs stay as written
+        // even though those files are verified absent there.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "geoip-google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-google.srs"},
+                  {"tag": "geoip-telegram", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertFalse(heal.changed)
+        assertTrue(heal.swapped.isEmpty())
+        assertTrue(heal.dropped.isEmpty())
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(2, sets.length())
+    }
+
+    @Test
+    fun healDropsUnreplaceableOnlyAtOfficialUrls() {
+        // geoip-private at a third-party host stays (it may exist
+        // there); the same name at the official repo drops, because
+        // sing-geoip provably has no such file and no successor.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "priv-mirror", "type": "remote", "url": "https://rules.example.net/geoip-private.srs"},
+                  {"tag": "priv-official", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-private.srs"}
+                ],
+                "rules": [
+                  {"rule_set": "priv-mirror", "outbound": "direct"},
+                  {"rule_set": "priv-official", "outbound": "direct"}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertTrue(heal.changed)
+        assertEquals(listOf("priv-official"), heal.dropped)
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(1, sets.length())
+        assertEquals("priv-mirror", sets.getJSONObject(0).getString("tag"))
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
+        assertTrue(refs.contains("priv-mirror"))
+        assertFalse(refs.contains("priv-official"))
+    }
+
+    @Test
+    fun healFillsEmptyUrlFromTagSameKindOnly() {
+        // URL-less remote sets are completed from the tag, but only
+        // with a same-kind official file: a domain-list tag fills
+        // from sing-geosite, an IP-list tag fills from sing-geoip,
+        // and an IP-list tag whose only official namesake is a
+        // domain list (geoip-telegram, geoip-google, telegram-ip)
+        // gets no fill at all — it drops with its name recorded.
+        // (This revokes the pre-AB-025 deliberate cross-kind fill:
+        // after the SSRF guard strips a non-public-HTTPS address,
+        // this branch is exactly where VERIFY-127 (a1') produced
+        // geosite sets standing in for IP sets.)
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "geosite-cn", "type": "remote"},
+                  {"tag": "geoip-cn", "type": "remote"},
+                  {"tag": "geoip-telegram", "type": "remote"},
+                  {"tag": "geoip-google", "type": "remote"},
+                  {"tag": "telegram-ip", "type": "remote"}
+                ],
+                "rules": [
+                  {"rule_set": "geosite-cn", "outbound": "direct"},
+                  {"rule_set": "geoip-telegram", "outbound": "proxy"}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertTrue(heal.changed)
+        assertEquals(listOf("geosite-cn", "geoip-cn"), heal.swapped)
+        assertEquals(
+            setOf("geoip-telegram", "geoip-google", "telegram-ip"),
+            heal.dropped.toSet(),
+        )
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(2, sets.length())
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(geositeBase + "geosite-cn.srs", byTag["geosite-cn"])
+        assertEquals(geoipBase + "geoip-cn.srs", byTag["geoip-cn"])
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
+        assertTrue(refs.contains("geosite-cn"))
+        assertFalse(refs.contains("geoip-telegram"))
+    }
+
+    @Test
+    fun kernelCompatNotesNameGuardStrippedRuleSets() {
+        // VERIFY-127 (a1'): rule-set addresses that are not public
+        // HTTPS (plain HTTP, intranet hosts) are removed by the SSRF
+        // guard before heal runs. The user-facing note for such a
+        // set must say its original address was not adopted and why
+        // — not the generic "official successor / taken offline"
+        // wording, which describes a different cause. A set swapped
+        // for a proven-missing official file keeps the generic line.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram-ip", "type": "remote", "url": "http://192.168.1.10/rules/telegram-ip.srs"},
+                  {"tag": "geosite-cn", "type": "remote", "url": "http://10.0.2.2/rules/geosite-cn.srs"},
+                  {"tag": "geosite-biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-biliintl.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val notes = mutableListOf<String>()
+        ConfigInboundCompat.applyKernelCompat(root, notes)
+        assertTrue(
+            notes.contains("规则集「telegram-ip」的原地址不是公共 HTTPS 地址，未被采用，已去掉"),
+        )
+        assertTrue(
+            notes.contains("规则集「geosite-cn」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版"),
+        )
+        assertTrue(notes.contains("规则集「geosite-biliintl」的地址已换成官方版"))
+        assertFalse(notes.any { it.contains("telegram-ip") && it.contains("官方已下线") })
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(2, byTag.size)
+        assertEquals(geositeBase + "geosite-cn.srs", byTag["geosite-cn"])
+        assertEquals(geositeBase + "geosite-bilibili.srs", byTag["geosite-biliintl"])
+    }
+
+    @Test
+    fun normalizeNotesSeparateGuardStrippedRuleSets() {
+        // The ConfigNormalize notes channel (what the dashboard
+        // shows) must separate guard-stripped sets the same way:
+        // their lines name the non-public-HTTPS cause instead of
+        // folding the names into the generic swap/drop summaries.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram-ip", "type": "remote", "url": "http://192.168.1.10/rules/telegram-ip.srs"},
+                  {"tag": "geosite-cn", "type": "remote", "url": "http://10.0.2.2/rules/geosite-cn.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val notes = ConfigNormalize.apply(root)
+        assertTrue(
+            notes.any {
+                it.startsWith("无效规则集已换成官方地址（原地址不是公共 HTTPS，未被采用）") &&
+                    it.contains("geosite-cn")
+            },
+        )
+        assertTrue(
+            notes.any {
+                it.startsWith("无效规则集已去掉（原地址不是公共 HTTPS，未被采用）") &&
+                    it.contains("telegram-ip")
+            },
+        )
+        assertFalse(notes.any { it.contains("官方已下线") && it.contains("telegram-ip") })
     }
 
     @Test
