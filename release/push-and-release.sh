@@ -133,9 +133,16 @@ if [ "$wants_beta" = 1 ] || [ "$wants_stable" = 1 ]; then
     || die "$KERNEL_FIX_BRANCH is not based on $KERNEL_BASE"
   git branch -f "$KERNEL_REL_BRANCH" "$KERNEL_FIX_BRANCH"
 
+  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+    echo "   deepening the kernel clone so the tag can be pushed"
+    [ "$DRY_RUN" = 1 ] || git fetch --unshallow origin
+  fi
+
   need_yes
   run git push -u origin "$KERNEL_REL_BRANCH"
-  run git push origin "$KERNEL_REL_BRANCH:refs/tags/$KERNEL_TAG" --force
+  # Annotated tag, matching the style of the existing v1.15.0-chain.* tags.
+  run git tag -f -a "$KERNEL_TAG" -m "chain: $(git rev-parse --short "$KERNEL_REL_BRANCH") + UDP fail-closed (audit F-01)" "$KERNEL_REL_BRANCH"
+  run git push -f origin "refs/tags/$KERNEL_TAG"
   if [ "$DRY_RUN" = 0 ]; then
     KERNEL_COMMIT="$(git rev-parse "$KERNEL_REL_BRANCH")"
     [[ "$KERNEL_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "bad kernel commit: $KERNEL_COMMIT"
