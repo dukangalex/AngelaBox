@@ -153,12 +153,23 @@ if [ "$wants_beta" = 1 ] || [ "$wants_stable" = 1 ]; then
 
   # The fix must not be lost by the next chain-dev sync, but merging it there
   # must not move the release tag onto alpha.11.
+  # Idempotent: --stage=stable re-enters this block after --stage=beta already
+  # merged the PR, and gh pr create aborts when there is nothing left to merge.
+  existing_kernel_pr=""
+  if [ "$DRY_RUN" = 0 ]; then
+    existing_kernel_pr="$(gh pr list --repo "$KERNEL_REMOTE" --head "$KERNEL_REL_BRANCH" \
+      --state all --json number,state --jq '.[0] | "\(.number) \(.state)"' 2>/dev/null || true)"
+  fi
+  if [ -n "$existing_kernel_pr" ]; then
+    echo "   kernel PR already exists ($existing_kernel_pr); not recreating it"
+  else
   run gh pr create --repo "$KERNEL_REMOTE" --base chain-dev --head "$KERNEL_REL_BRANCH" \
       --title "chain: refuse UDP on the chain outbound" \
       --body "detour only routes the TCP dial; the landing hop's ListenPacket ignores it, so UDP left from the wrong address while the UI said the landing node was the exit. Refuse instead (fail-closed). Network() deliberately keeps reporting the entry hop so urltest cannot pick an unchained member for UDP. Adds protocol/chain/outbound_test.go.
 
 Note: ${KERNEL_TAG} is tagged on this branch, which is based on ${KERNEL_BASE:0:7} (the commit 1.0.x ships), NOT on the current chain-dev head — a security release must not silently adopt the official alpha.11 merge. Chain tests: \`go test ./protocol/chain/ ./option/\`."
   run gh pr merge --repo "$KERNEL_REMOTE" "$KERNEL_REL_BRANCH" --merge
+  fi
   cd "$ROOT"
 fi
 
