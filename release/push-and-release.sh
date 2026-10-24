@@ -178,8 +178,10 @@ Ships with kernel ${KERNEL_TAG} = ${KERNEL_BASE:0:7} + the UDP fix."
   if [ "$DRY_RUN" = 1 ]; then
     echo "   [dry-run] wait for CI checks to register, then gh pr checks --watch --fail-fast"
   else
+    # gh pr checks exits non-zero while checks are pending, so test for output
+    # rather than for exit status.
     for attempt in $(seq 1 40); do
-      if gh pr checks "$APP_BRANCH" --repo "$APP_REPO" >/dev/null 2>&1; then break; fi
+      if [ -n "$(gh pr checks "$APP_BRANCH" --repo "$APP_REPO" 2>/dev/null)" ]; then break; fi
       echo "   waiting for CI checks to register ($attempt/40)…"
       sleep 15
     done

@@ -11,7 +11,12 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_CERT = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
 LEAKED_CERT = "32250a4b5f3a6733df57a3b9ec16c38d2c7fc5f2f693a9636f8f7b3be3549641"
-KERNEL_COMMIT = "9c0a0c714d7eb113cb246916292ba9438970438c"
+# The kernel pin is checked for shape, not for a literal value: this guard
+# runs at the top of the release job, so hard-coding the current commit/tag
+# made every kernel bump fail its own release (v1.15.0-chain.8, 2026-10-24).
+KERNEL_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+KERNEL_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+-chain\.\d+$")
+KERNEL_UPSTREAM_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$")
 CN_RULE_SET_TOKENS = {
     "geoip-cn",
     "geosite-cn",
@@ -162,14 +167,36 @@ def test_source_guards() -> None:
     assert "ConfigScriptOverrideTest" in release
 
     props = read("version.properties")
-    assert f"KERNEL_COMMIT={KERNEL_COMMIT}" in props
-    version_name = next((line.removeprefix("VERSION_NAME=") for line in props.splitlines() if line.startswith("VERSION_NAME=")), "")
-    version_code = next((line.removeprefix("VERSION_CODE=") for line in props.splitlines() if line.startswith("VERSION_CODE=")), "")
-    assert version_name
+
+    def prop(name: str) -> str:
+        value = next(
+            (line[len(name) + 1 :].strip() for line in props.splitlines() if line.startswith(f"{name}=")),
+            "",
+        )
+        assert value, f"{name} missing from version.properties"
+        return value
+
+    assert KERNEL_COMMIT_RE.match(prop("KERNEL_COMMIT")), prop("KERNEL_COMMIT")
+    assert KERNEL_TAG_RE.match(prop("KERNEL_TAG")), prop("KERNEL_TAG")
+    assert KERNEL_UPSTREAM_RE.match(prop("KERNEL_UPSTREAM")), prop("KERNEL_UPSTREAM")
+    version_name = prop("VERSION_NAME")
+    version_code = prop("VERSION_CODE")
     assert version_code.isdecimal() and int(version_code) >= 10000
     assert re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", version_name), version_name
-    assert "KERNEL_UPSTREAM=1.15.0-alpha.10" in props
-    assert "KERNEL_TAG=v1.15.0-chain.7" in props
+    # The release job refuses when these disagree with the dispatch input, so the
+    # beta and stable pins only have to be internally consistent.
+    for stable_props in ("version-stable.properties",):
+        stable = read(stable_props)
+        stable_commit = next(
+            (line.split("=", 1)[1].strip() for line in stable.splitlines() if line.startswith("KERNEL_COMMIT=")),
+            "",
+        )
+        assert KERNEL_COMMIT_RE.match(stable_commit), f"{stable_props}: {stable_commit}"
+        stable_tag = next(
+            (line.split("=", 1)[1].strip() for line in stable.splitlines() if line.startswith("KERNEL_TAG=")),
+            "",
+        )
+        assert KERNEL_TAG_RE.match(stable_tag), f"{stable_props}: {stable_tag}"
 
     gradle = read("app/build.gradle.kts")
     assert 'buildConfigField("String", "KERNEL_TAG"' in gradle
