@@ -43,6 +43,13 @@ android {
     defaultConfig {
         applicationId = "io.chainbox.app"
         minSdk = 24
+        // Only arm64-v8a gets a libbox.so. Without this filter the APK also
+        // advertises armeabi-v7a/x86/x86_64 (their tree-sitter, ghostty and
+        // compose libs are packaged), so a 32-bit device installs the app and
+        // then dies on System.loadLibrary("box") at startup.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
         targetSdk = 35
         versionCode = getVersionProps("VERSION_CODE").toInt()
         versionName = getVersionProps("VERSION_NAME")

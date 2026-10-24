@@ -83,6 +83,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:host="import-remote-profile" android:scheme="sing-box" />
             </intent-filter>
+            <!--
+                Core .bpf rule-sets only. A bare text/* filter (what upstream
+                ships on other flavors) lets any app push arbitrary text into
+                the import flow from its own content provider and makes this a
+                candidate handler for every text file on the device.
+            -->
             <intent-filter android:priority="999">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -91,7 +97,6 @@
                 <data android:scheme="content" />
                 <data android:host="*" />
                 <data android:mimeType="application/octet-stream" />
-                <data android:mimeType="text/*" />
                 <data android:pathPattern="/.*\\..*\\..*\\..*\\..*\\.bpf" />
                 <data android:pathPattern="/.*\\..*\\..*\\..*\\.bpf" />
                 <data android:pathPattern="/.*\\..*\\..*\\.bpf" />

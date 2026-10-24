@@ -565,7 +565,7 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
-    fun ensureAndroidTunKeepsLanSharedMixedDropsOnlyAppPort() {
+    fun ensureAndroidTunRebindsLanMixedAndDropsOnlyAppPort() {
         val root = JSONObject()
             .put(
                 "inbounds",
@@ -587,10 +587,16 @@ class ConfigQuicOverrideTest {
         val inbounds = root.getJSONArray("inbounds")
         val list = (0 until inbounds.length()).map { inbounds.getJSONObject(it) }
         val tags = list.map { it.getString("tag") }
-        // A LAN-shared proxy port the user configured on purpose is not
-        // the app's own 17890 inbound and must survive; only the app
-        // port on loopback/wildcard is dropped.
+        // The inbound survives but is no longer reachable from the LAN: the
+        // app never asks the user whether they meant to share their
+        // connection, so a 0.0.0.0 listener arriving from a subscription is an
+        // open proxy with no UI to show for it. Only the app's own 17890 port
+        // is dropped outright.
         assertTrue(tags.contains("lan-in"))
+        assertEquals(
+            "127.0.0.1",
+            list.first { it.getString("tag") == "lan-in" }.getString("listen"),
+        )
         assertFalse(tags.contains("app-in"))
         // An explicit smaller MTU is a user choice, not a defect.
         assertEquals(1280, list.first { it.getString("type") == "tun" }.getInt("mtu"))

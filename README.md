@@ -122,6 +122,8 @@ AngelaBox 采用 **正式版（stable）+ 测试版（beta）** 双轨并行：
 
 同配置链式不会改写 DNS `detour`（解析保持一跳），并对 selector/urltest 就地过滤 DIRECT，避免克隆后双重测速。
 
+**链式只带 TCP。** `detour` 只作用于 TCP 拨号；UDP 若照落地节点的 socket 发出去，源地址就不是落地，等于报了一个假的出口。所以链式开启时 UDP 直接失败（fail-closed），不会偷偷从手机网卡或入口节点发出。默认的「禁用 QUIC」已经把 UDP 443 复位，其余 UDP（游戏、语音、自建 WireGuard）在链式下不可用，需要时请关掉链式。
+
 已知上游限制：两种均启用 TLS 的协议互相 `detour`（例如 VLESS 经 Trojan）可能失败，见 [SagerNet/sing-box#3205](https://github.com/SagerNet/sing-box/issues/3205)。入口或落地一侧使用 SOCKS / HTTP / SSH 更稳妥。AngelaBox 不能在应用层绕过该限制。
 
 ## 下载

@@ -403,6 +403,34 @@ def test_no_second_publisher() -> None:
     assert not (workflows / "build-chainbox.yml").exists()
 
 
+def test_ruleset_pins() -> None:
+    """A rule-set decides proxy-vs-direct, so a mutable branch is a supply-chain hole."""
+    pins_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetPins.kt")
+    geosite = re.search(r'SING_GEOSITE_TAG: String = "([0-9]{8,14})"', pins_kt)
+    geoip = re.search(r'SING_GEOIP_TAG: String = "([0-9]{8,14})"', pins_kt)
+    assert geosite, "RuleSetPins must pin SagerNet/sing-geosite to a date tag"
+    assert geoip, "RuleSetPins must pin SagerNet/sing-geoip to a date tag"
+
+    script = read("app/src/main/assets/scripts/airport-region.js")
+    assert f"sing-geosite@{geosite.group(1)}/" in script, "default script must use the same geosite pin"
+    assert f"sing-geoip@{geoip.group(1)}/" in script, "default script must use the same geoip pin"
+
+    replica = read("scripts/test_inbound_compat.py")
+    assert f'SING_GEOSITE_TAG = "{geosite.group(1)}"' in replica, "sandbox replica must mirror the geosite pin"
+    assert f'SING_GEOIP_TAG = "{geoip.group(1)}"' in replica, "sandbox replica must mirror the geoip pin"
+
+    # No shipped source may point at the mutable branch again.
+    for rel in (
+        "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt",
+        "app/src/main/java/io/nekohasekai/sfa/utils/ConfigAdBlock.kt",
+        "app/src/main/java/io/nekohasekai/sfa/utils/ConfigIngest.kt",
+        "app/src/main/assets/scripts/airport-region.js",
+    ):
+        text = read(rel)
+        assert "SagerNet/sing-geosite@rule-set" not in text, f"{rel} reintroduced the mutable geosite branch"
+        assert "SagerNet/sing-geoip@rule-set" not in text, f"{rel} reintroduced the mutable geoip branch"
+
+
 def test_no_secret_files() -> None:
     forbidden_suffixes = {".jks", ".keystore", ".p12", ".pfx"}
     found = []
@@ -446,6 +474,7 @@ def main() -> int:
         test_china_direct_exact_tags,
         test_no_second_publisher,
         test_no_secret_files,
+        test_ruleset_pins,
         test_subscription_https_only,
     ]
     failed = 0
