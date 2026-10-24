@@ -175,7 +175,7 @@ fun BackupRestoreScreen(navController: NavController) {
                     }
                 }
             }
-            password?.fill(0)
+            password?.fill('\u0000')
             busy = false
             if (result.isSuccess) {
                 restorePwFile = null
@@ -210,7 +210,7 @@ fun BackupRestoreScreen(navController: NavController) {
         val pw = pendingExportPassword
         pendingExportPassword = null
         if (uri == null) {
-            pw?.fill(0)
+            pw?.fill('\u0000')
             return@rememberLauncherForActivityResult
         }
         scope.launch {
@@ -224,7 +224,7 @@ fun BackupRestoreScreen(navController: NavController) {
                     } ?: error("无法写入文件")
                 }
             }
-            pw?.fill(0)
+            pw?.fill('\u0000')
             busy = false
             snackbar.showSnackbar(if (result.isSuccess) "本地备份完成" else "备份失败: ${result.exceptionOrNull()?.message}")
         }
@@ -519,7 +519,7 @@ fun BackupRestoreScreen(navController: NavController) {
                                         ).getOrThrow()
                                     }
                                 }
-                                pw?.fill(0)
+                                pw?.fill('\u0000')
                                 persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
                                 busy = false
                                 snackbar.showSnackbar(
