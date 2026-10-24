@@ -173,7 +173,18 @@ if [ "$wants_beta" = 1 ]; then
       --body "Five commits from the 2026-10-24 audit: chain UDP fail-closed (app side: docs), loopback-only inbounds, pinned rule-set tags, filtered SSRF fallback, arm64-only ABI, narrower import filter, pinned actions, repo hygiene, 1.0.128 notes. Per-item write-up: audit/AngelaBox-修复说明.md.
 
 Ships with kernel ${KERNEL_TAG} = ${KERNEL_BASE:0:7} + the UDP fix."
-  run gh pr checks --repo "$APP_REPO" "$APP_BRANCH" --watch --fail-fast
+  # Checks take a moment to register after the PR opens; --watch errors out on
+  # "no checks reported" if it starts too early. Wait for them to appear first.
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "   [dry-run] wait for CI checks to register, then gh pr checks --watch --fail-fast"
+  else
+    for attempt in $(seq 1 40); do
+      if gh pr checks "$APP_BRANCH" --repo "$APP_REPO" >/dev/null 2>&1; then break; fi
+      echo "   waiting for CI checks to register ($attempt/40)…"
+      sleep 15
+    done
+    gh pr checks "$APP_BRANCH" --repo "$APP_REPO" --watch --fail-fast --interval 20
+  fi
   run gh pr merge --repo "$APP_REPO" "$APP_BRANCH" --merge
   run git fetch origin dev
   # Local dev can be ahead of origin/dev (the audit commits were authored there
