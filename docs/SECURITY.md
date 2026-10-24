@@ -57,6 +57,25 @@ GitHub Secret scanning 于 2026-09-16 报出历史提交 `446ffa4` 中的 `app/g
 
 应用内更新只认 GitHub 上的 `AngelaBox-android.apk`，必须同时通过 SHA-256 与发行证书校验。
 
+## 远程规则集
+
+规则集决定一个域名走代理还是直连，所以它的 URL 是供应链输入。`SagerNet/sing-geosite`
+与 `SagerNet/sing-geoip` 的 `rule-set` 分支是**可变**的：能推这个分支（或能改前面那层 CDN）
+的人，可以让本该走隧道的流量被静默判成直连。因此应用自己写出的规则集 URL 一律钉到发布
+tag（当前 `sing-geosite@20261024005255`、`sing-geoip@20261012`，见 `RuleSetPins.kt`，
+默认脚本与 `scripts/test_inbound_compat.py` 同步）。订阅里自带的第三方规则集不改写，
+只做 HTTPS + 公网地址检查。
+
+tag 只在读过上游 diff 之后手动升级，`scripts/test_security_guards.py` 会拦住重新写回
+`@rule-set` 的改动。
+
+## 入站
+
+导入的配置不会把手机变成局域网里的开放代理：非 `tun` 入站如果写了非回环 `listen`，
+启动前一律改回 `127.0.0.1`（unix socket 例外）。订阅里附带的 `0.0.0.0:7890` 之类原本
+会在公共 Wi-Fi 上给同网段任何人当出口，且界面上看不出来。Clash API 同理，见
+`bindLoopbackOnly`。
+
 ## Xposed 接口
 
 `XposedProvider` 只接受：

@@ -32,6 +32,8 @@
 
 出口 IP 必须是落地，不是入口。入口分组不会单独变成出口。
 
+**UDP 不沿链。** `detour` 只管 TCP；落地克隆自己的 `ListenPacket` 用默认 dialer，源地址既不是落地也不是入口。链式 outbound 的 `ListenPacket` 因此直接返回错误，不做「看起来能用」的降级——那会把用户以为在落地上的流量从手机网卡发出去。`Network()` 仍报告入口支持的协议，是为了让 urltest 选成员时看得见 UDP，否则分组会静默换一个没组链的成员来承载 UDP。
+
 ## 和 sing-box 对齐，不和 mihomo 对齐名字
 
 官方没有 `load-balance`，也没有 `fallback`。延迟挑选用 `urltest`，手选用 `selector`。不造同名空组。
