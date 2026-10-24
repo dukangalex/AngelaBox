@@ -380,13 +380,13 @@ class ConfigCompatTest {
                                 JSONObject()
                                     .put("tag", "geoip-cn")
                                     .put("type", "remote")
-                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"),
+                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-cn.srs"),
                             )
                             .put(
                                 JSONObject()
                                     .put("tag", "geoip-fastly")
                                     .put("type", "remote")
-                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"),
+                                    .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-fastly.srs"),
                             ),
                     )
                     .put(
@@ -495,7 +495,7 @@ class ConfigCompatTest {
                             .put("tag", "already-jsd")
                             .put(
                                 "url",
-                                "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+                                "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
                             ),
                     ),
             ),
@@ -507,15 +507,15 @@ class ConfigCompatTest {
             sets.getJSONObject(0).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
             sets.getJSONObject(1).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs",
             sets.getJSONObject(2).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
             sets.getJSONObject(3).getString("url"),
         )
     }

@@ -130,6 +130,15 @@ object ConfigNormalize {
         mark(ConfigInboundCompat.stripSniffOverrideDestination(root), "已去掉内核不再支持的 sniff 覆盖字段")
         mark(ConfigInboundCompat.healDirectDestinationOverride(root), "直连节点已去掉已删除字段")
         mark(ConfigInboundCompat.migrateSpecialOutbounds(root), "dns/block 出站已转为路由动作")
+        // A subscription can ship an inbound on 0.0.0.0 and turn the phone into
+        // an open proxy for the whole LAN. Rebind and say so: silently leaving
+        // it bound is the exposure, silently rewriting it is a lie.
+        val reboundInbounds = ConfigInboundCompat.rebindInboundsToLoopback(root)
+        if (reboundInbounds.isNotEmpty()) {
+            notes +=
+                "入站监听已改回本机：${reboundInbounds.take(4).joinToString("、")}" +
+                "（应用不提供局域网共享）"
+        }
         val rsRewrite = ConfigInboundCompat.rewriteRuleSetUrlsWithReport(root)
         mark(rsRewrite.changed, "规则集地址已换成可用镜像")
         // 换官方版会改变分流语义，逐个点名，不许只留一句笼统提示。

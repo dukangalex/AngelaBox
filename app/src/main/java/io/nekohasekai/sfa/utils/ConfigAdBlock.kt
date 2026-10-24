@@ -9,8 +9,8 @@ import org.json.JSONObject
  */
 object ConfigAdBlock {
     const val RULESET_TAG = "geosite-category-ads-all"
-    const val RULESET_URL =
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs"
+    // Pinned tag instead of the mutable @rule-set branch — see RuleSetPins.
+    val RULESET_URL: String = RuleSetPins.adsRuleSetUrl()
 
     fun apply(root: JSONObject) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }

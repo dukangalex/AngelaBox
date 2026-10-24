@@ -18,9 +18,9 @@ class RuleSetProvidersTest {
               "route": {
                 "rule_set": [
                   {"type": "remote", "tag": "abema", "format": "binary",
-                   "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-abema.srs"},
+                   "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-abema.srs"},
                   {"type": "remote", "tag": "amazon",
-                   "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-amazon.srs"}
+                   "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-amazon.srs"}
                 ]
               }
             }

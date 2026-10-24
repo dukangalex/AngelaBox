@@ -215,8 +215,8 @@ class ConfigNormalizeTest {
             {
               "route": {
                 "rule_set": [
-                  {"tag": "geosite-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs"},
-                  {"tag": "geosite-google", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google.srs"}
+                  {"tag": "geosite-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs"},
+                  {"tag": "geosite-google", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-google.srs"}
                 ]
               }
             }
@@ -255,7 +255,7 @@ class ConfigNormalizeTest {
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         assertEquals(2, sets.length())
         val telegram = (0 until sets.length()).map { sets.getJSONObject(it) }.first { it.getString("tag") == "telegram" }
-        assertTrue(telegram.getString("url").contains("SagerNet/sing-geosite@rule-set/geosite-telegram.srs"))
+        assertTrue(telegram.getString("url").contains("SagerNet/sing-geosite@20261024005255/geosite-telegram.srs"))
         val rules = root.getJSONObject("route").getJSONArray("rules")
         assertEquals("telegram", rules.getJSONObject(0).getString("rule_set"))
         assertEquals("n1", root.getJSONObject("route").getString("final"))
@@ -275,9 +275,9 @@ class ConfigNormalizeTest {
               "route": {
                 "rule_set": [
                   {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"},
-                  {"tag": "geoip-telegram", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs"},
-                  {"tag": "geoip-fastly", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
-                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                  {"tag": "geoip-telegram", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs"},
+                  {"tag": "geoip-fastly", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-fastly.srs"},
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-cn.srs"}
                 ],
                 "rules": [
                   {"rule_set": "telegram", "outbound": "proxy"},
@@ -301,7 +301,7 @@ class ConfigNormalizeTest {
             byTag["telegram"],
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs",
             byTag["geoip-telegram"],
         )
         assertFalse(byTag.containsKey("geoip-fastly"))
@@ -321,8 +321,8 @@ class ConfigNormalizeTest {
             {
               "route": {
                 "rule_set": [
-                  {"tag": "tracker", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-tracker.srs"},
-                  {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-fastly.srs"},
+                  {"tag": "tracker", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-tracker.srs"},
+                  {"tag": "geoip-fastly", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-fastly.srs"},
                   {"tag": "telegram", "type": "remote", "url": "https://raw.githubusercontent.com/foo/bar/main/telegram.srs"}
                 ],
                 "rules": []
@@ -346,7 +346,7 @@ class ConfigNormalizeTest {
             o.getString("tag") to o.getString("url")
         }
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs",
             byTag["tracker"],
         )
         assertEquals(
@@ -411,10 +411,10 @@ class ConfigNormalizeTest {
             {
               "route": {
                 "rule_set": [
-                  {"tag": "biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-biliintl.srs"},
-                  {"tag": "apple-cn", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-apple-cn.srs"},
-                  {"tag": "ai", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ai!cn.srs"},
-                  {"tag": "google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/google.srs"}
+                  {"tag": "biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-biliintl.srs"},
+                  {"tag": "apple-cn", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-apple-cn.srs"},
+                  {"tag": "ai", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ai!cn.srs"},
+                  {"tag": "google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/google.srs"}
                 ],
                 "rules": []
               }
@@ -425,7 +425,7 @@ class ConfigNormalizeTest {
         assertTrue(heal.changed)
         assertEquals(listOf("biliintl", "apple-cn", "ai", "google"), heal.swapped)
         assertTrue(heal.dropped.isEmpty())
-        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
@@ -449,8 +449,8 @@ class ConfigNormalizeTest {
             {
               "route": {
                 "rule_set": [
-                  {"tag": "geoip-google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-google.srs"},
-                  {"tag": "geoip-telegram", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs"}
+                  {"tag": "geoip-google", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-google.srs"},
+                  {"tag": "geoip-telegram", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs"}
                 ],
                 "rules": []
               }
@@ -476,7 +476,7 @@ class ConfigNormalizeTest {
               "route": {
                 "rule_set": [
                   {"tag": "priv-mirror", "type": "remote", "url": "https://rules.example.net/geoip-private.srs"},
-                  {"tag": "priv-official", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-private.srs"}
+                  {"tag": "priv-official", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-private.srs"}
                 ],
                 "rules": [
                   {"rule_set": "priv-mirror", "outbound": "direct"},
@@ -536,8 +536,8 @@ class ConfigNormalizeTest {
             setOf("geoip-telegram", "geoip-google", "telegram-ip"),
             heal.dropped.toSet(),
         )
-        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
-        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
+        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         assertEquals(2, sets.length())
         val byTag = (0 until sets.length()).associate {
@@ -568,7 +568,7 @@ class ConfigNormalizeTest {
                 "rule_set": [
                   {"tag": "telegram-ip", "type": "remote", "url": "http://192.168.1.10/rules/telegram-ip.srs"},
                   {"tag": "geosite-cn", "type": "remote", "url": "http://10.0.2.2/rules/geosite-cn.srs"},
-                  {"tag": "geosite-biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-biliintl.srs"}
+                  {"tag": "geosite-biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-biliintl.srs"}
                 ],
                 "rules": []
               }
@@ -585,7 +585,7 @@ class ConfigNormalizeTest {
         )
         assertTrue(notes.contains("规则集「geosite-biliintl」的地址已换成官方版"))
         assertFalse(notes.any { it.contains("telegram-ip") && it.contains("官方已下线") })
-        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
@@ -639,7 +639,7 @@ class ConfigNormalizeTest {
               "route": {
                 "rule_set": [
                   "not-an-object",
-                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"}
+                  {"tag": "geoip-cn", "type": "remote", "url": "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-cn.srs"}
                 ],
                 "rules": []
               }

@@ -298,6 +298,8 @@ object ConfigInboundCompat {
                 }
                 if (normalizeTun(ib)) changed = true
                 keptTun = true
+            } else if (bindListenToLoopback(ib)) {
+                changed = true
             }
             val tag = ib.optString("tag").trim()
             if (tag.isNotEmpty()) usedTags += tag
@@ -328,12 +330,54 @@ object ConfigInboundCompat {
         return changed
     }
 
+    /**
+     * A config that arrives from a subscription must not turn the phone into an
+     * unauthenticated proxy for everyone on the same network. sing-box already
+     * defaults to loopback when `listen` is absent, so only an explicit
+     * non-loopback address is rewritten; a unix-socket path is left alone.
+     *
+     * Same reasoning as [bindLoopbackOnly] for the Clash API: the kernel binds
+     * what the JSON says, and nothing in the import path asks the user whether
+     * they meant to share their connection with the LAN.
+     */
+    private fun bindListenToLoopback(ib: JSONObject): Boolean {
+        if (!ib.has("listen")) return false
+        val current = ib.optString("listen").trim()
+        if (current.isEmpty() || current.startsWith("/") || isLoopbackHost(current)) return false
+        ib.put("listen", "127.0.0.1")
+        return true
+    }
+
+    /**
+     * Same policy as [bindListenToLoopback] for every non-tun inbound, with the
+     * rebound entries named so the caller can tell the user. Returns
+     * "<listen>:<port>" for each inbound that was rewritten.
+     */
+    fun rebindInboundsToLoopback(root: JSONObject): List<String> {
+        val inbounds = root.optJSONArray("inbounds") ?: return emptyList()
+        val rebound = mutableListOf<String>()
+        for (i in 0 until inbounds.length()) {
+            val ib = inbounds.optJSONObject(i) ?: continue
+            if (ib.optString("type").trim().lowercase() == "tun") continue
+            val before = ib.optString("listen").trim()
+            if (!bindListenToLoopback(ib)) continue
+            val port = ib.optInt("listen_port", 0)
+            rebound += if (port > 0) "$before:$port" else before
+        }
+        return rebound
+    }
+
+    private fun isLoopbackHost(host: String): Boolean {
+        val h = host.trim().trimStart('[').trimEnd(']').lowercase()
+        return h == "127.0.0.1" || h == "localhost" || h == "::1" || h.startsWith("127.")
+    }
+
     private fun isLoopbackListen(ib: JSONObject): Boolean {
         // Only a mixed inbound that would actually bind the app's own
-        // 127.0.0.1:17890 listener collides. A LAN-shared mixed on
-        // 0.0.0.0:7890 (or a loopback mixed on any other port) binds
-        // nothing of ours — deleting it silently breaks the shared
-        // proxy the user configured on purpose.
+        // 127.0.0.1:17890 listener collides, so only that one is dropped.
+        // Any other inbound is kept but rebound to loopback by
+        // [bindListenToLoopback]; the user never asked for LAN sharing, so
+        // there is nothing to preserve by leaving it on 0.0.0.0.
         if (ib.optInt("listen_port") != 17890) return false
         val listen = ib.optString("listen").trim().lowercase()
         return listen.isEmpty() || listen == "127.0.0.1" || listen == "localhost" ||
@@ -630,8 +674,15 @@ object ConfigInboundCompat {
         val trimmed = url.trim()
         val jsd = JSDELIVR.matchEntire(trimmed)
         if (jsd != null) {
-            if (jsd.groupValues[1].equals(JSDELIVR_HOST, true)) return trimmed
-            return "https://$JSDELIVR_HOST/gh/${jsd.groupValues[2]}"
+            // Keep a mirror the caller already chose, but pin the ref: the
+            // mutable branch is the supply-chain hole, not the CDN hostname.
+            val mirror =
+                if (jsd.groupValues[1].equals(JSDELIVR_HOST, true)) {
+                    trimmed
+                } else {
+                    "https://$JSDELIVR_HOST/gh/${jsd.groupValues[2]}"
+                }
+            return RuleSetPins.pin(mirror)
         }
         val raw = RAW_GITHUB.matchEntire(trimmed)
         if (raw != null) {
@@ -639,7 +690,7 @@ object ConfigInboundCompat {
             val repo = raw.groupValues[2]
             val ref = raw.groupValues[3]
             val path = raw.groupValues[4]
-            return "https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path"
+            return RuleSetPins.pin("https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path")
         }
         val gh = GITHUB_RAW.matchEntire(trimmed)
         if (gh != null) {
@@ -650,7 +701,7 @@ object ConfigInboundCompat {
             if (slash > 0) {
                 val ref = rest.substring(0, slash)
                 val path = rest.substring(slash + 1)
-                return "https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path"
+                return RuleSetPins.pin("https://$JSDELIVR_HOST/gh/$owner/$repo@$ref/$path")
             }
         }
         return trimmed
@@ -1511,10 +1562,11 @@ object ConfigInboundCompat {
     }
 
     private const val JSDELIVR_HOST = "testingcf.jsdelivr.net"
-    private const val GEOSITE_BASE =
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
-    private const val GEOIP_BASE =
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
+
+    // Pinned tags, not the mutable @rule-set branch: a rule-set decides
+    // proxy-vs-direct, so its URL is a supply-chain input. See RuleSetPins.
+    private val GEOSITE_BASE = RuleSetPins.geositeBase()
+    private val GEOIP_BASE = RuleSetPins.geoipBase()
     private val JSDELIVR =
         Regex("^https?://([^/]*jsdelivr\\.net)/gh/(.+)$")
     private val RAW_GITHUB =

@@ -437,11 +437,14 @@ object RemoteUrlGuard {
             if (outside.isNotEmpty()) return outside
             // 绕过隧道的 DNS 被墙时，回退到走隧道 DNS（原生体验优先）。
             // 订阅内容走 HTTPS，TLS 本身防劫持，DNS 绕过只是纵深防御。
+            // 兜底答案仍然过一遍策略：假 IP 放行（隧道会把它还原成真目标），
+            // 其余必须通过 isAddressAllowed，否则这个分支就成了绕过
+            // 「返回的地址必须全部合法」这条契约的后门。
             return try {
                 InetAddress.getAllByName(host)?.toList().orEmpty()
             } catch (_: Exception) {
                 emptyList()
-            }
+            }.filter(::keepTunnelAnswer)
         }
         if (!allowPublicDnsFallback()) return emptyList()
         if (!canQueryDns(host)) return emptyList()
@@ -452,6 +455,16 @@ object RemoteUrlGuard {
         }
         return emptyList()
     }
+
+    /**
+     * Tunnel answers may be fake-ip (the tunnel maps them back by name), so
+     * those are kept even though [isAddressAllowed] rejects them while the
+     * tunnel is up. Everything else must pass the same policy as any other
+     * answer, which is what keeps the "returned addresses are all allowed"
+     * contract true on every path.
+     */
+    internal fun keepTunnelAnswer(addr: InetAddress): Boolean =
+        isFakeIp(addr.address) || isAddressAllowed(addr, Kind.SUBSCRIPTION)
 
     private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true): List<InetAddress> {
         return try {

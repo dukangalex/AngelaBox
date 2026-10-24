@@ -15,8 +15,13 @@ def main() -> int:
     block = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigAdBlock.kt")
     if 'RULESET_TAG = "geosite-category-ads-all"' not in block:
         errors.append("ad block must use geosite-category-ads-all")
-    if "testingcf.jsdelivr.net" not in block:
-        errors.append("ad block rule-set URL must use testingcf jsDelivr")
+    pins = read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetPins.kt")
+    if "testingcf.jsdelivr.net" not in pins:
+        errors.append("rule-set base URL must use testingcf jsDelivr")
+    if "RuleSetPins.adsRuleSetUrl()" not in block:
+        errors.append("ad block rule-set URL must come from RuleSetPins (pinned tag)")
+    if "@rule-set/geosite-category-ads-all.srs" not in pins:
+        errors.append("RuleSetPins must define the ads rule-set it pins")
     if 'put("action", "reject")' not in block:
         errors.append("ad block must reject matching traffic")
     if "alreadyRoutesAds" not in block or "ruleSetMentioned" not in block:

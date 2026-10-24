@@ -75,6 +75,55 @@ class ConfigInboundCompatLoopbackTest {
     }
 
     @Test
+    fun lanInboundIsReboundToLoopback() {
+        val root = JSONObject().put(
+            "inbounds",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("type", "mixed")
+                        .put("tag", "lan")
+                        .put("listen", "0.0.0.0")
+                        .put("listen_port", 7890),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "socks")
+                        .put("tag", "lan6")
+                        .put("listen", "::")
+                        .put("listen_port", 1080),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "http")
+                        .put("tag", "sock")
+                        .put("listen", "/data/user/0/io.chainbox.app/run/http.sock"),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "http")
+                        .put("tag", "already")
+                        .put("listen", "127.0.0.1")
+                        .put("listen_port", 8080),
+                ),
+        )
+        assertTrue(ConfigInboundCompat.ensureAndroidTun(root))
+        val inbounds = root.getJSONArray("inbounds")
+        val byTag = (0 until inbounds.length()).associate { inbounds.getJSONObject(it).getString("tag") to inbounds.getJSONObject(it) }
+        assertEquals("127.0.0.1", byTag.getValue("lan").getString("listen"))
+        assertEquals("127.0.0.1", byTag.getValue("lan6").getString("listen"))
+        assertEquals(7890, byTag.getValue("lan").getInt("listen_port"))
+        // A unix socket path is not a network address: leave it alone.
+        assertEquals(
+            "/data/user/0/io.chainbox.app/run/http.sock",
+            byTag.getValue("sock").getString("listen"),
+        )
+        assertEquals("127.0.0.1", byTag.getValue("already").getString("listen"))
+        // A tun inbound is always injected, and rebinding is idempotent.
+        assertTrue(byTag.containsKey("tun-in"))
+    }
+
+    @Test
     fun remoteRuleSetHttpAndMetadataDropped() {
         val root = JSONObject().put(
             "route",
@@ -97,7 +146,7 @@ class ConfigInboundCompatLoopbackTest {
                         JSONObject()
                             .put("tag", "geosite-cn")
                             .put("type", "remote")
-                            .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs"),
+                            .put("url", "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs"),
                     ),
             ),
         )

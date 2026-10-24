@@ -65,6 +65,14 @@ class ApkDownloader : Closeable {
      * (Samsung One UI in particular). SHA-256 of the file already matched
      * the GitHub sidecar; the certificate pin must still be read from the
      * APK Signing Block the same way CI does.
+     *
+     * What this checks is the certificate the signing block *names*, not that
+     * the block's signatures verify against it — ApkSigningCerts parses the
+     * certificate list only. The JAR signature is authenticated later by
+     * PackageManager at install time; before that, the pin is backed by the
+     * exact-match SHA-256 from the GitHub release sidecar plus the
+     * github.com-only fetch policy. Do not read this as "the APK is verified
+     * here": it answers "is this file the AngelaBox release key's app?".
      */
     private fun verifyReleaseIdentity(file: File) {
         val cert = signingCertDer(file) ?: run {

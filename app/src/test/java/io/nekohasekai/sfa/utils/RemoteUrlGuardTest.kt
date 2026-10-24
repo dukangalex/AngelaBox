@@ -85,6 +85,19 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun tunnelFallbackKeepsOnlyAllowedOrFakeIpAnswers() {
+        // The tunnel-DNS fallback must not become a hole in the
+        // "every returned address is allowed" contract.
+        assertFalse(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("127.0.0.1")))
+        assertFalse(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("10.0.0.5")))
+        assertFalse(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("169.254.169.254")))
+        assertFalse(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("192.168.1.8")))
+        assertTrue(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("1.1.1.1")))
+        // fake-ip is the tunnel's own mapping and stays usable.
+        assertTrue(RemoteUrlGuard.keepTunnelAnswer(InetAddress.getByName("198.18.0.7")))
+    }
+
+    @Test
     fun subscriptionAllowsHttpsPublicHost() {
         RemoteUrlGuard.requireAllowed("https://example.com/sub.yaml", RemoteUrlGuard.Kind.SUBSCRIPTION, publicResolve)
     }
@@ -235,7 +248,7 @@ class RemoteUrlGuardTest {
     @Test
     fun publicHttpsAllowsGithubMirror() {
         RemoteUrlGuard.requireHttpsPublic(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
         )
     }
 
