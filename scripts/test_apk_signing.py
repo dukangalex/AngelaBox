@@ -16,6 +16,25 @@ def read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
+def test_apk_is_signed_with_every_scheme() -> None:
+    """A v2-only APK is uninstallable on Android 6 and on OEM installers that
+    validate JAR signatures: they report INSTALL_PARSE_FAILED_NO_CERTIFICATES,
+    which the user sees as "该安装包未包含任何证书". 1.0.130-beta shipped that
+    way (minSdk 24 makes apksigner skip v1 by default)."""
+    gradle = read("app/build.gradle.kts")
+    for flag in ("enableV1Signing = true", "enableV2Signing = true", "enableV3Signing = true"):
+        if flag not in gradle:
+            raise AssertionError(f"release signing must set '{flag}'")
+    for wf in (".github/workflows/release-chainbox.yml", ".github/workflows/release-stable.yml"):
+        text = read(wf)
+        if "Verified using v1 scheme (JAR signing): true" not in text:
+            raise AssertionError(f"{wf} must refuse a package without a v1 signature")
+        if "Verified using v3 scheme (APK Signature Scheme v3): true" not in text:
+            raise AssertionError(f"{wf} must refuse a package without a v3 signature")
+        if "--require-schemes" not in text:
+            raise AssertionError(f"{wf} must run verify_apk_signature.py --require-schemes")
+
+
 def load_verify():
     spec = importlib.util.spec_from_file_location(
         "verify_apk_signature", ROOT / "scripts" / "verify_apk_signature.py"

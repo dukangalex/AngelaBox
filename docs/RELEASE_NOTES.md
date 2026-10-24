@@ -1,3 +1,11 @@
+• **1.0.131：**
+1. **修一个装不上的问题：安装包现在带全套签名（Installability fix — the APK now carries every signature scheme）：** 之前所有版本的安装包只有 v2 签名。Android 6 以及部分定制 ROM 的安装器只认 JAR 签名，遇到只有 v2 的包会报「该安装包未包含任何证书」而拒绝安装。现在同时带 v1 / v2 / v3，任何安装器都能装。
+   Every earlier build was signed with the v2 scheme only. Android 6, and some OEM installers that validate JAR signatures, reject such a package with INSTALL_PARSE_FAILED_NO_CERTIFICATES, which the user sees as "该安装包未包含任何证书". This build carries v1, v2 and v3, so any installer accepts it.
+2. **发版门禁加了一道检查：** 以后但凡打出的包不是 v1+v2+v3 全套签名，发版工作流会直接拒绝发布，不会再无声上线。
+   The release workflow now refuses to publish a package unless apksigner reports all three schemes as verified.
+3. **内核与上一版相同：** `v1.15.0-chain.9`（官方 v1.15.0-alpha.13）。除签名方式外没有功能改动，已装 1.0.130-beta 的可以直接覆盖升级。
+   Same kernel as 1.0.130-beta, `v1.15.0-chain.9` (official v1.15.0-alpha.13). Nothing changed but the signing, so 1.0.130-beta installs over it.
+
 • **1.0.130：**
 1. **内核跟进官方上游 v1.15.0-alpha.13（Kernel now tracks upstream v1.15.0-alpha.13）：** 从 alpha.11 跨到 alpha.13，共 209 个上游提交。核心变化：TUN 栈重写并去掉 gVisor 依赖、HTTP 代理协议重写、新增 MASQUE 与 tailcat、anytls 迁到独立库、按目的地做背压。用户可感知的部分是长连接更稳、切换网络后内存占用下降。
    Two hundred and nine upstream commits since alpha.11: a rewritten TUN stack with gVisor gone, a rewritten HTTP proxy protocol, MASQUE and tailcat, anytls moved into its own library, and per-destination backpressure. Expect steadier long-lived connections and a smaller resident size after switching networks.

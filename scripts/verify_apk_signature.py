@@ -10,6 +10,7 @@ from pathlib import Path
 
 APK_SIG_BLOCK_MAGIC = b"APK Sig Block 42"
 V2_ID = 0x7109871A
+V3_ID = 0xF05368C0
 RELEASE_CERT_SHA256 = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
 LEAKED_SFA_CERT_SHA256 = "32250a4b5f3a6733df57a3b9ec16c38d2c7fc5f2f693a9636f8f7b3be3549641"
 
@@ -103,10 +104,56 @@ def cert_sha256(cert: bytes) -> str:
     return hashlib.sha256(cert).hexdigest()
 
 
+def _signing_block_ids(data: bytes) -> set[int]:
+    eocd = find_eocd(data)
+    cd_off = _u32(data, eocd + 16)
+    footer = data[cd_off - 24 : cd_off]
+    if footer[8:] != APK_SIG_BLOCK_MAGIC:
+        return set()
+    size2 = _u64(footer, 0)
+    start = cd_off - 8 - size2
+    pairs = data[start + 8 : cd_off - 24]
+    off = 0
+    ids: set[int] = set()
+    while off + 12 <= len(pairs):
+        pair_len = _u64(pairs, off)
+        off += 8
+        if pair_len < 4 or off + pair_len > len(pairs):
+            break
+        ids.add(_u32(pairs, off))
+        off += pair_len
+    return ids
+
+
+def schemes(apk_path: Path) -> dict[str, bool]:
+    """Which APK signature schemes this package carries.
+
+    v1 matters beyond Android 6: installers that validate JAR signatures (some
+    OEM ROMs) reject a v2-only package with INSTALL_PARSE_FAILED_NO_CERTIFICATES,
+    which surfaces to the user as "该安装包未包含任何证书". v3 is what newer
+    platform versions prefer.
+    """
+    import zipfile
+
+    data = apk_path.read_bytes()
+    names = zipfile.ZipFile(apk_path).namelist()
+    has_sf = any(n.startswith("META-INF/") and n.endswith(".SF") for n in names)
+    has_block = any(
+        n.startswith("META-INF/") and n.endswith((".RSA", ".DSA", ".EC")) for n in names
+    )
+    ids = _signing_block_ids(data)
+    return {"v1": has_sf and has_block, "v2": V2_ID in ids, "v3": V3_ID in ids}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("apk", nargs="+", type=Path)
     parser.add_argument("--require-release", action="store_true")
+    parser.add_argument(
+        "--require-schemes",
+        action="store_true",
+        help="fail unless the APK is signed with v1, v2 and v3",
+    )
     args = parser.parse_args()
     status = 0
     for apk in args.apk:
@@ -117,7 +164,17 @@ def main() -> int:
             status = 1
             continue
         digest = cert_sha256(certs[0])
-        print(f"{apk}: {digest}")
+        carried = schemes(apk)
+        label = " ".join(f"{name}={'yes' if ok else 'NO'}" for name, ok in carried.items())
+        print(f"{apk}: {digest} [{label}]")
+        if args.require_schemes and not all(carried.values()):
+            missing = [name for name, ok in carried.items() if not ok]
+            print(
+                f"{apk}: missing signature scheme(s): {', '.join(missing)} — "
+                "installers that require them will report no certificates",
+                file=sys.stderr,
+            )
+            status = 1
         if digest == LEAKED_SFA_CERT_SHA256:
             print(f"{apk}: signed with leaked SagerNet JKS", file=sys.stderr)
             status = 1
