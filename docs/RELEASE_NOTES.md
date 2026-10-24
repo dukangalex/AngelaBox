@@ -1,3 +1,13 @@
+• **1.0.130：**
+1. **内核跟进官方上游 v1.15.0-alpha.13（Kernel now tracks upstream v1.15.0-alpha.13）：** 从 alpha.11 跨到 alpha.13，共 209 个上游提交。核心变化：TUN 栈重写并去掉 gVisor 依赖、HTTP 代理协议重写、新增 MASQUE 与 tailcat、anytls 迁到独立库、按目的地做背压。用户可感知的部分是长连接更稳、切换网络后内存占用下降。
+   Two hundred and nine upstream commits since alpha.11: a rewritten TUN stack with gVisor gone, a rewritten HTTP proxy protocol, MASQUE and tailcat, anytls moved into its own library, and per-destination backpressure. Expect steadier long-lived connections and a smaller resident size after switching networks.
+2. **链式代理的三个行为原样保留（The chain behaviour is unchanged）：** 上游这版自己实现了「解析真实出站链」（`resolveOutbound` / `OutboundChain`），与本仓库的链式编译契合，所以这一层改用上游实现；本仓库独有的部分（`protocol/chain/`、`option/chain_compile.go`）保持不动，UDP 仍然明确失败。
+   Upstream now resolves the real outbound chain itself, which is what the chain compiler relied on, so that layer is upstream's code now. The fork-only pieces stay as they were, and UDP is still refused loudly.
+3. **urltest 的三个自有修复重新落到上游代码上（The three urltest fixes were re-applied）：** 选中节点失败时按延迟换下一个（单连接最多试 3 个）、记住成功的节点与失败清空、未使用的地区组不在启动和网络切换时把整组节点叫醒。
+   First-available dialing (at most three members per connection, the sticky winner first), failure memory, and no probe pass for an unused region group on startup or on an interface change.
+4. **签名与包不变：** 同一把证书（`CN=ChainBox`），只带 arm64，内核 pin 为 `v1.15.0-chain.9`。
+   Same signing certificate (`CN=ChainBox`), arm64 only, kernel pinned to `v1.15.0-chain.9`.
+
 • **1.0.129：**
 1. **链式代理只带 TCP，UDP 明确失败不再偷跑 (Chained profiles carry TCP only — UDP fails loudly instead of leaking):** 内核的 `detour` 只作用于 TCP 拨号，落地节点自己建的 UDP 连接不经过链路，源地址既不是入口也不是落地。以前链式开启时这类流量照常发出，出口地址与界面上显示的落地节点不一致。现在链式出站拒绝 UDP，连接直接失败，不会再有包从你没选的地址出去；QUIC（UDP 443）仍由默认开关复位，日常浏览无感。
    The kernel's `detour` only routes the TCP dial, so a UDP socket created by the landing hop never passes through the chain and its source address was neither the entry nor the landing node. That traffic used to go out anyway, reporting an exit that did not match the landing node shown in the UI. The chain outbound now refuses UDP, so the connection fails visibly and no packet leaves from an address you did not pick; QUIC (UDP 443) is still reset by the default toggle, so ordinary browsing is unaffected.

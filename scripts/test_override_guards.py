@@ -533,8 +533,19 @@ def main() -> int:
         errors.append("JSON import must sanitize (legacy fakeip) before checkConfig")
 
     readme = read("README.md")
-    if "1.15.0-alpha.10" not in readme:
-        errors.append("README must state the synced upstream kernel version (1.15.0-alpha.10)")
+    # The synced upstream version is a moving target: assert that the README
+    # names whatever version.properties pins, instead of the literal that was
+    # current when this guard was written. Hard-coding it made every kernel
+    # bump fail this guard (same bug as test_security_guards, 2026-10-24).
+    props = read("version.properties")
+    upstream = next(
+        (line.removeprefix("KERNEL_UPSTREAM=").strip() for line in props.splitlines() if line.startswith("KERNEL_UPSTREAM=")),
+        "",
+    )
+    if not upstream.startswith("1.15."):
+        errors.append(f"version.properties must pin a 1.15.x upstream kernel, got '{upstream}'")
+    elif upstream not in readme:
+        errors.append(f"README must state the synced upstream kernel version ({upstream})")
     if "公开说明" not in readme:
         errors.append("README must include the 2026-09-18 public security notice")
     if "docs/WINDOWS.md" not in readme:
@@ -555,9 +566,6 @@ def main() -> int:
         errors.append("USER_GUIDE must document official detour TLS limitation #3205")
     if "DNS" not in read("docs/USER_GUIDE.md") or "一跳" not in read("docs/USER_GUIDE.md"):
         errors.append("USER_GUIDE must say DNS stays one hop")
-    props = read("version.properties")
-    if "KERNEL_UPSTREAM=1.15.0-alpha.10" not in props:
-        errors.append("version.properties must record KERNEL_UPSTREAM")
     if "KERNEL_BRANCH=chain-dev" not in props:
         errors.append("version.properties must record KERNEL_BRANCH")
     dash = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt")
