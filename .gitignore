@@ -5,6 +5,7 @@ coverage/
 *.log
 .env*
 !.env.example
+!tools/web-configurator/.env.example
 
 *.iml
 .gradle
@@ -29,3 +30,6 @@ key.properties
 /CLAUDE.md
 /.claude/
 scripts/__pycache__/
+
+# web tool build output
+tools/web-configurator/.env.local
