@@ -33,12 +33,29 @@ object ConfigInboundCompat {
         if (stripSniffOverrideDestination(root)) changed = true
         if (healDirectDestinationOverride(root)) changed = true
         if (migrateSpecialOutbounds(root)) changed = true
-        if (rewriteRuleSetUrls(root)) changed = true
+        val urlRewrite = rewriteRuleSetUrlsWithReport(root)
+        if (urlRewrite.changed) changed = true
         if (ruleSetNotes != null) {
             val heal = healRemoteRuleSetsWithReport(root)
             if (heal.changed) changed = true
-            heal.swapped.forEach { ruleSetNotes += "规则集「$it」的地址已换成官方版" }
-            heal.dropped.forEach { ruleSetNotes += "规则集「$it」官方已下线，已去掉" }
+            // A set the SSRF guard stripped (its address was not a
+            // public HTTPS URL) gets a note naming that cause; the
+            // generic lines below describe sets the official repos
+            // themselves superseded or took offline.
+            heal.swapped.forEach {
+                ruleSetNotes += if (it in urlRewrite.guardStrippedTags) {
+                    "规则集「$it」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版"
+                } else {
+                    "规则集「$it」的地址已换成官方版"
+                }
+            }
+            heal.dropped.forEach {
+                ruleSetNotes += if (it in urlRewrite.guardStrippedTags) {
+                    "规则集「$it」的原地址不是公共 HTTPS 地址，未被采用，已去掉"
+                } else {
+                    "规则集「$it」官方已下线，已去掉"
+                }
+            }
         } else if (healRemoteRuleSets(root)) {
             changed = true
         }
@@ -540,12 +557,32 @@ object ConfigInboundCompat {
         }
     }
 
-    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean {
-        val route = root.optJSONObject("route") ?: return false
-        val sets = route.optJSONArray("rule_set") ?: return false
+    /** What [rewriteRuleSetUrls] did, for callers with a notes channel. */
+    internal data class RuleSetUrlRewrite(
+        val changed: Boolean,
+        /**
+         * Tags whose only address the SSRF guard removed (it was not
+         * a public HTTPS URL), leaving the set address-less. Callers
+         * naming a later heal swap/drop for one of these tags must
+         * say the original address was not adopted and why — the
+         * generic "official successor / taken offline" wording would
+         * misdescribe a set the guard, not the upstream repo, removed.
+         */
+        val guardStrippedTags: List<String>,
+    )
+
+    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean =
+        rewriteRuleSetUrlsWithReport(root).changed
+
+    internal fun rewriteRuleSetUrlsWithReport(root: JSONObject): RuleSetUrlRewrite {
+        val route = root.optJSONObject("route") ?: return RuleSetUrlRewrite(false, emptyList())
+        val sets = route.optJSONArray("rule_set") ?: return RuleSetUrlRewrite(false, emptyList())
         var changed = false
+        val stripped = mutableListOf<String>()
         for (i in 0 until sets.length()) {
             val item = sets.optJSONObject(i) ?: continue
+            val hadAddress = listOf("url", "download_url")
+                .any { item.optString(it).isNotBlank() }
             for (key in listOf("url", "download_url")) {
                 val current = item.optString(key).trim()
                 if (current.isEmpty()) continue
@@ -560,8 +597,14 @@ object ConfigInboundCompat {
                     changed = true
                 }
             }
+            if (hadAddress && listOf("url", "download_url")
+                    .all { item.optString(it).isBlank() }
+            ) {
+                val tag = item.optString("tag").trim()
+                if (tag.isNotEmpty() && tag !in stripped) stripped += tag
+            }
         }
-        return changed
+        return RuleSetUrlRewrite(changed, stripped)
     }
 
     internal fun sanitizeClashDownloadUrls(root: JSONObject): Boolean {
@@ -628,8 +671,8 @@ object ConfigInboundCompat {
      * rules still match. "Provably" is narrow (AB-025): the URL itself
      * points at the official SagerNet repos and names a file verified
      * absent there, or the URL is empty and the tag names an official
-     * file. Third-party URLs are the provider's own hosting choice and
-     * stay verbatim — a filename that merely looks unofficial
+     * file of the same kind. Third-party URLs are the provider's own
+     * hosting choice and stay verbatim — a filename that merely looks unofficial
      * (MetaCubeX-style youtube.srs, telegram-ip.srs) is not evidence.
      * A set is dropped only when the official repos have no successor
      * for it at all and the URL points at those repos. Every swap/drop
@@ -667,7 +710,14 @@ object ConfigInboundCompat {
                 continue
             }
             if (url.isEmpty()) {
-                val officialFromTag = officialRuleSetUrl(tag)
+                // Fill from the tag only with a same-kind official
+                // file (AB-025 exception revoked): an IP-list tag
+                // whose only official namesake is a domain list gets
+                // no fill at all and drops below with its name
+                // recorded — a cross-kind fill would silently change
+                // what the set's rules match, exactly what the swap
+                // path below refuses to do.
+                val officialFromTag = officialRuleSetSwapUrl(tag)
                 if (officialFromTag.isNotEmpty()) {
                     item.put("url", officialFromTag)
                     keep.put(item)

@@ -499,35 +499,136 @@ class ConfigNormalizeTest {
     }
 
     @Test
-    fun healFillsEmptyUrlFromTag() {
-        // URL-less remote sets are completed from the tag, unchanged
-        // by AB-025: a fill overrides nothing the provider chose,
-        // because an empty URL names no provider content at all.
-        // The geoip-telegram fill lands on the geosite list — the
-        // one deliberate cross-kind fill, kept from before AB-025.
+    fun healFillsEmptyUrlFromTagSameKindOnly() {
+        // URL-less remote sets are completed from the tag, but only
+        // with a same-kind official file: a domain-list tag fills
+        // from sing-geosite, an IP-list tag fills from sing-geoip,
+        // and an IP-list tag whose only official namesake is a
+        // domain list (geoip-telegram, geoip-google, telegram-ip)
+        // gets no fill at all — it drops with its name recorded.
+        // (This revokes the pre-AB-025 deliberate cross-kind fill:
+        // after the SSRF guard strips a non-public-HTTPS address,
+        // this branch is exactly where VERIFY-127 (a1') produced
+        // geosite sets standing in for IP sets.)
         val root = JSONObject(
             """
             {
               "route": {
                 "rule_set": [
                   {"tag": "geosite-cn", "type": "remote"},
-                  {"tag": "geoip-telegram", "type": "remote"}
+                  {"tag": "geoip-cn", "type": "remote"},
+                  {"tag": "geoip-telegram", "type": "remote"},
+                  {"tag": "geoip-google", "type": "remote"},
+                  {"tag": "telegram-ip", "type": "remote"}
                 ],
-                "rules": []
+                "rules": [
+                  {"rule_set": "geosite-cn", "outbound": "direct"},
+                  {"rule_set": "geoip-telegram", "outbound": "proxy"}
+                ]
               }
             }
             """.trimIndent(),
         )
         val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
         assertTrue(heal.changed)
-        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        assertEquals(listOf("geosite-cn", "geoip-cn"), heal.swapped)
+        assertEquals(
+            setOf("geoip-telegram", "geoip-google", "telegram-ip"),
+            heal.dropped.toSet(),
+        )
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
+        val sets = root.getJSONObject("route").getJSONArray("rule_set")
+        assertEquals(2, sets.length())
+        val byTag = (0 until sets.length()).associate {
+            val o = sets.getJSONObject(it)
+            o.getString("tag") to o.getString("url")
+        }
+        assertEquals(geositeBase + "geosite-cn.srs", byTag["geosite-cn"])
+        assertEquals(geoipBase + "geoip-cn.srs", byTag["geoip-cn"])
+        val rules = root.getJSONObject("route").getJSONArray("rules")
+        val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
+        assertTrue(refs.contains("geosite-cn"))
+        assertFalse(refs.contains("geoip-telegram"))
+    }
+
+    @Test
+    fun kernelCompatNotesNameGuardStrippedRuleSets() {
+        // VERIFY-127 (a1'): rule-set addresses that are not public
+        // HTTPS (plain HTTP, intranet hosts) are removed by the SSRF
+        // guard before heal runs. The user-facing note for such a
+        // set must say its original address was not adopted and why
+        // — not the generic "official successor / taken offline"
+        // wording, which describes a different cause. A set swapped
+        // for a proven-missing official file keeps the generic line.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram-ip", "type": "remote", "url": "http://192.168.1.10/rules/telegram-ip.srs"},
+                  {"tag": "geosite-cn", "type": "remote", "url": "http://10.0.2.2/rules/geosite-cn.srs"},
+                  {"tag": "geosite-biliintl", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-biliintl.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val notes = mutableListOf<String>()
+        ConfigInboundCompat.applyKernelCompat(root, notes)
+        assertTrue(
+            notes.contains("规则集「telegram-ip」的原地址不是公共 HTTPS 地址，未被采用，已去掉"),
+        )
+        assertTrue(
+            notes.contains("规则集「geosite-cn」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版"),
+        )
+        assertTrue(notes.contains("规则集「geosite-biliintl」的地址已换成官方版"))
+        assertFalse(notes.any { it.contains("telegram-ip") && it.contains("官方已下线") })
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
             o.getString("tag") to o.getString("url")
         }
-        assertEquals(base + "geosite-cn.srs", byTag["geosite-cn"])
-        assertEquals(base + "geosite-telegram.srs", byTag["geoip-telegram"])
+        assertEquals(2, byTag.size)
+        assertEquals(geositeBase + "geosite-cn.srs", byTag["geosite-cn"])
+        assertEquals(geositeBase + "geosite-bilibili.srs", byTag["geosite-biliintl"])
+    }
+
+    @Test
+    fun normalizeNotesSeparateGuardStrippedRuleSets() {
+        // The ConfigNormalize notes channel (what the dashboard
+        // shows) must separate guard-stripped sets the same way:
+        // their lines name the non-public-HTTPS cause instead of
+        // folding the names into the generic swap/drop summaries.
+        val root = JSONObject(
+            """
+            {
+              "route": {
+                "rule_set": [
+                  {"tag": "telegram-ip", "type": "remote", "url": "http://192.168.1.10/rules/telegram-ip.srs"},
+                  {"tag": "geosite-cn", "type": "remote", "url": "http://10.0.2.2/rules/geosite-cn.srs"}
+                ],
+                "rules": []
+              }
+            }
+            """.trimIndent(),
+        )
+        val notes = ConfigNormalize.apply(root)
+        assertTrue(
+            notes.any {
+                it.startsWith("无效规则集已换成官方地址（原地址不是公共 HTTPS，未被采用）") &&
+                    it.contains("geosite-cn")
+            },
+        )
+        assertTrue(
+            notes.any {
+                it.startsWith("无效规则集已去掉（原地址不是公共 HTTPS，未被采用）") &&
+                    it.contains("telegram-ip")
+            },
+        )
+        assertFalse(notes.any { it.contains("官方已下线") && it.contains("telegram-ip") })
     }
 
     @Test
