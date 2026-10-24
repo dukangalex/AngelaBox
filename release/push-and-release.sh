@@ -14,6 +14,11 @@
 # commit the shipped app already uses (9c0a0c7) plus the UDP fix only, so a
 # security release does not drag the official v1.15.0-alpha.11 merge in.
 # chain-dev keeps the fix through its own PR and is otherwise untouched.
+# HISTORICAL — written for the 1.0.128-beta / 1.0.129-stable security release
+# on kernel v1.15.0-chain.8, and it hard-codes that tag, that kernel commit and
+# that stable version. It is kept as the record of how that release was cut.
+# For any new release use release/cut-release.sh, which reads the pin from
+# version.properties / version-stable.properties.
 set -euo pipefail
 
 STAGE="beta"
