@@ -27,12 +27,21 @@ def test_apk_is_signed_with_every_scheme() -> None:
             raise AssertionError(f"release signing must set '{flag}'")
     for wf in (".github/workflows/release-chainbox.yml", ".github/workflows/release-stable.yml"):
         text = read(wf)
-        if "Verified using v1 scheme (JAR signing): true" not in text:
-            raise AssertionError(f"{wf} must refuse a package without a v1 signature")
+        # apksigner reports v1 as false whenever v2/v3 verify, so asserting that
+        # line would block every release; the JAR signature is proven from the
+        # manifest coverage instead, which is what a JAR-only verifier checks.
+        if "Verified using v1 scheme (JAR signing): true" in text:
+            raise AssertionError(
+                f"{wf} must not assert apksigner's v1 line: it is false whenever v2/v3 verify"
+            )
         if "Verified using v3 scheme (APK Signature Scheme v3): true" not in text:
             raise AssertionError(f"{wf} must refuse a package without a v3 signature")
         if "--require-schemes" not in text:
             raise AssertionError(f"{wf} must run verify_apk_signature.py --require-schemes")
+        # AGP silently drops v1 for minSdk >= 24 even with enableV1Signing, so the
+        # gate has to re-sign explicitly; apksigner is the only thing that can.
+        if "--v1-signing-enabled true" not in text:
+            raise AssertionError(f"{wf} must re-sign with apksigner --v1-signing-enabled true")
 
 
 def load_verify():

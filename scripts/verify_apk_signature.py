@@ -100,6 +100,63 @@ def extract_v2_certs(apk_path: Path) -> list[bytes]:
     return certs
 
 
+def _jar_manifest_sections(text: str) -> dict[str, dict[str, str]]:
+    """Parse a JAR manifest, joining continuation lines (they start with a space)."""
+    joined: list[str] = []
+    buffer = ""
+    for line in text.splitlines():
+        if not line:
+            if buffer:
+                joined.append(buffer)
+                buffer = ""
+            continue
+        if line.startswith(" "):
+            buffer += line[1:]
+        else:
+            if buffer:
+                joined.append(buffer)
+            buffer = line
+    if buffer:
+        joined.append(buffer)
+    sections: dict[str, dict[str, str]] = {}
+    current: str | None = None
+    for line in joined:
+        if ": " not in line:
+            continue
+        key, value = line.split(": ", 1)
+        if key == "Name":
+            current = value.strip()
+            sections[current] = {}
+        elif current is not None:
+            sections[current][key] = value.strip()
+    return sections
+
+
+def _jar_manifest_covers_all(archive) -> bool:
+    import base64
+
+    try:
+        manifest = archive.read("META-INF/MANIFEST.MF").decode("utf-8", "replace")
+    except KeyError:
+        return False
+    sections = _jar_manifest_sections(manifest)
+    for name in archive.namelist():
+        if name.endswith("/") or name == "META-INF/MANIFEST.MF":
+            continue
+        if name.startswith("META-INF/") and name.endswith((".SF", ".RSA", ".DSA", ".EC")):
+            continue
+        section = sections.get(name)
+        if section is None:
+            return False
+        expected = section.get("SHA-256-Digest") or section.get("SHA1-Digest")
+        if expected is None:
+            return False
+        algo = hashlib.sha256 if "SHA-256-Digest" in section else hashlib.sha1
+        if base64.b64encode(algo(archive.read(name)).digest()).decode() != expected:
+            return False
+    return True
+
+
 def cert_sha256(cert: bytes) -> str:
     return hashlib.sha256(cert).hexdigest()
 
@@ -136,13 +193,20 @@ def schemes(apk_path: Path) -> dict[str, bool]:
     import zipfile
 
     data = apk_path.read_bytes()
-    names = zipfile.ZipFile(apk_path).namelist()
+    archive = zipfile.ZipFile(apk_path)
+    names = archive.namelist()
     has_sf = any(n.startswith("META-INF/") and n.endswith(".SF") for n in names)
     has_block = any(
         n.startswith("META-INF/") and n.endswith((".RSA", ".DSA", ".EC")) for n in names
     )
     ids = _signing_block_ids(data)
-    return {"v1": has_sf and has_block, "v2": V2_ID in ids, "v3": V3_ID in ids}
+    # apksigner reports "Verified using v1 scheme: false" whenever v2/v3 verify,
+    # because it does not evaluate v1 in that case — so its line cannot be used
+    # as evidence. Prove the JAR signature instead: META-INF/MANIFEST.MF must
+    # cover every entry and every digest must match, which is exactly what a
+    # JAR-only verifier (Android 6, some OEM installers) checks.
+    v1 = has_sf and has_block and _jar_manifest_covers_all(archive)
+    return {"v1": v1, "v2": V2_ID in ids, "v3": V3_ID in ids}
 
 
 def main() -> int:

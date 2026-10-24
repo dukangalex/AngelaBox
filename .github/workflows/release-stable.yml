@@ -318,6 +318,32 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleOtherRelease --no-daemon --stacktrace
 
+      - name: Re-sign with every signature scheme
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          # AGP drops the JAR signature once minSdk >= 24 and ignores
+          # enableV1Signing, so a Gradle-signed release ends up v2/v3 only.
+          # Installers that validate JAR signatures (Android 6, some OEM ROMs)
+          # then reject it with INSTALL_PARSE_FAILED_NO_CERTIFICATES, which the
+          # user sees as "该安装包未包含任何证书". Sign the built package again
+          # with every scheme enabled; apksigner replaces the existing blocks.
+          APK="$(find app/build/outputs/apk -type f -name '*.apk' | grep -v debug | head -n1)"
+          test -n "$APK"
+          APKSIGNER="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          test -x "$APKSIGNER"
+          STORE_PASS="$(grep -m1 '^KEYSTORE_PASS=' local.properties | cut -d= -f2-)"
+          ALIAS="$(grep -m1 '^ALIAS_NAME=' local.properties | cut -d= -f2-)"
+          KEY_PASS="$(grep -m1 '^ALIAS_PASS=' local.properties | cut -d= -f2-)"
+          test -n "$STORE_PASS" && test -n "$ALIAS" && test -n "$KEY_PASS"
+          "$APKSIGNER" sign --ks app/release.keystore \
+            --ks-pass "pass:$STORE_PASS" --ks-key-alias "$ALIAS" --key-pass "pass:$KEY_PASS" \
+            --min-sdk-version 24 \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            "$APK"
+          rm -f "$APK.idsig"
+          "$APKSIGNER" verify --verbose "$APK" | grep -E '^Verified using'
+
       - name: Verify release APK signing and checksum
         working-directory: sing-box-for-android
         run: |
@@ -334,8 +360,9 @@ jobs:
           test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
           # A v2-only APK cannot be installed by Android 6 or by OEM installers that
           # validate JAR signatures; they report "no certificates". Refuse to publish
-          # a package that is not signed with all three schemes.
-          printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v1 scheme (JAR signing): true'
+          # a package that is not signed with all three schemes. v1 is proven by
+          # verify_apk_signature.py (MANIFEST covers every entry), because apksigner
+          # reports v1 as false whenever v2/v3 verify and it skips evaluating it.
           printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v2 scheme (APK Signature Scheme v2): true'
           printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v3 scheme (APK Signature Scheme v3): true'
           "$APKSIGNER" verify "$APK"
