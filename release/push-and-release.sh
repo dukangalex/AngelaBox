@@ -169,8 +169,10 @@ Ships with kernel ${KERNEL_TAG} = ${KERNEL_BASE:0:7} + the UDP fix."
   run gh pr checks --repo "$APP_REPO" "$APP_BRANCH" --watch --fail-fast
   run gh pr merge --repo "$APP_REPO" "$APP_BRANCH" --merge
   run git fetch origin dev
-  run git checkout dev
-  run git pull --ff-only origin dev
+  # Local dev can be ahead of origin/dev (the audit commits were authored there
+  # before the branch was cut). They are on the remote branch by now, so a hard
+  # sync to origin/dev is the only thing that cannot silently re-publish them.
+  run git checkout -B dev origin/dev
 
   say "app: pin the kernel and bump beta to $BETA_VERSION"
   if [ "$DRY_RUN" = 1 ]; then
@@ -203,9 +205,9 @@ fi
 if [ "$wants_stable" = 1 ]; then
   say "stable: add the 1.0.129 changelog section"
   need_yes
-  git fetch origin dev
-  git checkout dev
-  git pull --ff-only origin dev
+  run git fetch origin dev
+  run git checkout dev
+  run git pull --ff-only origin dev
   if [ "$DRY_RUN" = 1 ]; then
     echo "   [dry-run] prepend release/notes-1.0.129-stable.md to docs/RELEASE_NOTES.md"
   else
