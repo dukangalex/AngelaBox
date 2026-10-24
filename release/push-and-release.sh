@@ -102,10 +102,10 @@ fi
 
 say "guard suite"
 if [ "$DRY_RUN" = 1 ]; then
-  echo "   [dry-run] python3 scripts/test_*.py (8 guards)"
+  echo "   [dry-run] python3 scripts/test_*.py (9 guards)"
 else
   for g in override_guards china_direct_overlay dns_migrate inbound_compat \
-           adblock_overlay security_guards apk_signing unit_test_whitelist; do
+           adblock_overlay security_guards apk_signing unit_test_whitelist pin_guards; do
     printf '   %-28s ' "$g"
     python3 "scripts/test_$g.py" >/tmp/ab-guard.log 2>&1 && echo OK \
       || { echo FAIL; tail -5 /tmp/ab-guard.log; die "guard $g failed"; }
