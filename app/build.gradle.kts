@@ -81,6 +81,14 @@ android {
                 storePassword = releasePass
                 keyAlias = releaseAlias
                 keyPassword = releaseKeyPass
+                // minSdk 24 makes apksigner skip the JAR signature by default, which
+                // left every release v2-only. Installers that validate JAR signatures
+                // — Android 6 and some OEM ROMs — then reject the package with
+                // INSTALL_PARSE_FAILED_NO_CERTIFICATES ("该安装包未包含任何证书").
+                // Sign with all three schemes so any installer accepts it.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }

@@ -332,8 +332,14 @@ jobs:
           echo "$CERT_SHA256" | grep -Eq '^[0-9a-f]{64}$'
           test "$CERT_SHA256" = "$RELEASE_CERT_SHA256"
           test "$CERT_SHA256" = "e7041217f276a7cd860b2e210f6f7d91590f263730e09fbf73bae929d6994151"
+          # A v2-only APK cannot be installed by Android 6 or by OEM installers that
+          # validate JAR signatures; they report "no certificates". Refuse to publish
+          # a package that is not signed with all three schemes.
+          printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v1 scheme (JAR signing): true'
+          printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          printf '%s\n' "$SIGNING_INFO" | grep -qx 'Verified using v3 scheme (APK Signature Scheme v3): true'
           "$APKSIGNER" verify "$APK"
-          python3 scripts/verify_apk_signature.py --require-release "$APK"
+          python3 scripts/verify_apk_signature.py --require-release --require-schemes "$APK"
           cp -f "$APK" AngelaBox-stable-android.apk
           sha256sum AngelaBox-stable-android.apk > AngelaBox-stable-android.apk.sha256
           test -s AngelaBox-stable-android.apk.sha256
