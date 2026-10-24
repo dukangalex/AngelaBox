@@ -39,6 +39,7 @@ jobs:
           python3 scripts/test_security_guards.py
           python3 scripts/test_apk_signing.py
           python3 scripts/test_unit_test_whitelist.py
+          python3 scripts/test_pin_guards.py
 
       - name: Read kernel pin
         id: pin
