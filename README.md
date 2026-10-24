@@ -54,10 +54,10 @@ AngelaBox 是基于 [sing-box](https://github.com/SagerNet/sing-box) 内核的�
 
 | 项目 | 值 |
 |------|-----|
-| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.10** |
+| 官方上游 | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) **v1.15.0-alpha.13** |
 | 本项目内核 | [dukangalex/sing-box](https://github.com/dukangalex/sing-box) 分支 **`chain-dev`** |
-| 已同步基线 | 官方 **sing-box 1.15.0-alpha.10**（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5。含 MASQUE 端点、HTTP 代理重写、证书 SHA-256 锁定、DNS 服务器地址规则） |
-| 内核型号 / tag | `v1.15.0-chain.7`（已打在 `chain-dev` 的 `9c0a0c71`；设置 → 核心显示 `1.15.0-chain.7（官方 1.15.0-alpha.10）`） |
+| 已同步基线 | 官方 **sing-box 1.15.0-alpha.13**（`go.mod` 1.25.5；官方 CI 1.26.10；本仓库发版 Go 1.25.5。含 TUN 栈重写与 gVisor 移除、HTTP 代理重写、MASQUE、tailcat、anytls 迁库、按目的地背压） |
+| 内核型号 / tag | `v1.15.0-chain.9`（打在 `chain/upstream-alpha.13` 的 `9efb7914`；设置 → 核心显示 `1.15.0-chain.9（官方 1.15.0-alpha.13）`） |
 | 客户端版本 | 双轨并行：正式版见 `version-stable.properties`（当前 **1.0.114-stable**）；测试版见 `version.properties` |
 
 ### 双轨发布说明
@@ -82,7 +82,7 @@ AngelaBox 采用 **正式版（stable）+ 测试版（beta）** 双轨并行：
 2. **内核：** `git fetch` 官方 `SagerNet/sing-box`，merge 进 `chain-dev`，只解决与 Chain outbound 相关的冲突。
 3. **App：** `git fetch` 官方 `SagerNet/sing-box-for-android`，merge 进本仓库 `dev`。冲突以 AngelaBox 为准（包名、组链、覆盖层、备份、更新检查、发版工作流）。
 4. **Fail Closed：** 链路失败必须报错并停止启动，不得静默落到 DIRECT。
-5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；**不跟进 v1.14.1**。官方 v1.14.1 到 v1.15.0-alpha.10 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器是 Go 1.26.8；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26.8 gomobile 上验证）。当前测试内核对齐官方 **v1.15.0-alpha.10**。正式版内核选用经过充分验证的版本（当前 `v1.15.0-chain.7`），"稳定"来自验证而非版本号老。
+5. **先验证再合入。** 官方新版本发布后，先把 App 兼容层（DNS / inbound / rule-set）和链式出站做稳，**验证 Chain outbound 之后**再合入更新的官方提交，避免未验证的整包快进。官方 1.14.1（2026-09-15）仅为修补、无新协议类型；**不跟进 v1.14.1**。官方 v1.14.1 到 v1.15.0-alpha.13 的 `go.mod` 都是 `go 1.25.5`，官方 CI 编译器是 Go 1.26.10；AngelaBox 发版仍用 Go 1.25.5（libbox `oomprofile` / `runtimeinfo` 的 `go:linkname` 尚未在 1.26 线 gomobile 上验证；本机已确认 `go build -tags …./experimental/libbox` 在 1.25.5 与 1.26.10 都能编过，但 Android/gomobile 只在 1.25.5 上跑过）。当前测试内核对齐官方 **v1.15.0-alpha.13**。正式版内核选用经过充分验证的版本（当前稳定版仍为 `1.0.129-stable` / `v1.15.0-chain.8`，测试线为 `v1.15.0-chain.9`），"稳定"来自验证而非版本号老。
 6. **发版核对官方功能。** 每次发布会拉取 `version.properties` 中的官方 tag，确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`；缺失则拒绝发版。Release 说明记录内核 commit SHA。
 7. **功能范围。** 本项目增加的能力只为降低日常操作成本，不改变官方配置模型。
 

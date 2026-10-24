@@ -117,11 +117,11 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 
 | 项目 | 值 |
 |------|-----|
-| 官方上游 | SagerNet/sing-box **v1.15.0-alpha.10** |
+| 官方上游 | SagerNet/sing-box **v1.15.0-alpha.13** |
 | 本仓库 | dukangalex/sing-box 分支 `chain-dev` |
-| 已对齐基线 | 官方 1.15.0-alpha.10（`go.mod` 1.25.5；官方 CI 1.26.8；本仓库发版 Go 1.25.5） |
-| 内核 tag | v1.15.0-chain.7 |
-| 发版钉死的 commit | `9c0a0c714d7eb113cb246916292ba9438970438c`（`version.properties` 的 `KERNEL_COMMIT`） |
+| 已对齐基线 | 官方 1.15.0-alpha.13（`go.mod` 1.25.5；官方 CI 1.26.10；本仓库发版 Go 1.25.5） |
+| 内核 tag | v1.15.0-chain.9（正式版仍为 v1.15.0-chain.8） |
+| 发版钉死的 commit | `9efb79143f95b9e5a47260f45e29a48e82bce165`（`version.properties` 的 `KERNEL_COMMIT`） |
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。**不跟进 v1.14.1**：稳定安装包钉的是 1.14.0；测试线已在 1.15，没有产品理由再回头吃一版修补。官方 1.15.0-alpha.6（2026-09-17）同样是修补、无新类型，测试线跟进。
 
@@ -130,12 +130,12 @@ Go 版本（2026-09-17 核对）：
 | 项目 | 值 |
 |------|-----|
 | `go.mod` 语言版本 | 官方 v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6、本 fork `chain-dev` 均为 **`go 1.25.5`** |
-| 官方 CI 编译器 | v1.14.1、v1.15.0-alpha.5、v1.15.0-alpha.6 的 `.github/workflows/build.yml` 均为 **`go-version: 1.26.8`** |
+| 官方 CI 编译器 | v1.15.0-alpha.13 的 `.github/workflows/build.yml` 为 **`go-version: 1.26.10`**（1.14.1 至 alpha.6 曾为 1.26.8） |
 | AngelaBox 发版编译器 | **Go 1.25.5**（`release-chainbox.yml` / `ci.yml`）。Windows CLI 工作流已停，不要再为它升编译器 |
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.10**（2026-10-02）：在 alpha.6 之后合入 MASQUE 客户端/服务端、HTTP 代理的 HTTP/2、HTTP/3 与 UDP、整张证书的 SHA-256 锁定，以及 DNS 服务器地址和搜索域规则。`go.mod` 仍是 1.25.5；官方 CI 仍用 Go 1.26.8，AngelaBox 发版仍用 Go 1.25.5。`chain-dev` 现为 `9c0a0c71`（`v1.15.0-chain.7`）。官方 tag 仍不是 `chain-dev` 的 git 祖先，所以按 alpha.6 到 alpha.10 的文件接入，Chain、urltest 失败换人和网卡回退留在原处。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 29`。**Windows：** 图形端工作流可以构建；配了 `WINDOWS_PFX_*` 才签名发版。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核为官方 **1.15.0-alpha.13**（2026-10-24）：自 alpha.11 起 209 个上游提交，含 TUN 栈重写与 gVisor 依赖移除、HTTP 代理协议重写、MASQUE、tailcat、anytls 迁到 sing-anytls、按目的地背压。`go.mod` 仍是 1.25.5；官方 CI 升到 Go 1.26.10，AngelaBox 发版仍用 Go 1.25.5。`chain/upstream-alpha.13` 现为 `9efb7914`（`v1.15.0-chain.9`）。上游这一版自己实现了真实出站链解析（`resolveOutbound` / `metadata.OutboundChain` / `registerInterrupt`），所以 `route/` 一层直接采用上游实现，fork 独有的 `protocol/chain/` 与 `option/chain_compile.go` 保持不动；Chain、urltest 失败换人（`dialFirstAvailable` / `dialCandidates`）与空闲组不测速都重新落到上游代码上。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 29`。**Windows：** 图形端工作流可以构建；配了 `WINDOWS_PFX_*` 才签名发版。见 [WINDOWS.md](WINDOWS.md)。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 
