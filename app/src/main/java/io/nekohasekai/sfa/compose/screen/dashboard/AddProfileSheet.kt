@@ -54,8 +54,22 @@ fun AddProfileSheet(
     var showQRScanSheet by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var pendingImportName by remember { mutableStateOf<String?>(null) }
+    var pendingImportDetail by remember { mutableStateOf<String?>(null) }
+    var pendingImportSshWarning by remember { mutableStateOf<String?>(null) }
     var pendingQrsData by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingImportSnapshot by remember { mutableStateOf<ProfileImportHandler.ImportSnapshot?>(null) }
+    var pendingQrCodeData by remember { mutableStateOf<String?>(null) }
+
+    fun clearPendingImport() {
+        pendingImportName = null
+        pendingImportDetail = null
+        pendingImportSshWarning = null
+        pendingQrsData = null
+        pendingImportUri = null
+        pendingImportSnapshot = null
+        pendingQrCodeData = null
+    }
 
     val importFromFileLauncher =
         rememberLauncherForActivityResult(
@@ -67,7 +81,10 @@ fun AddProfileSheet(
                         is ProfileImportHandler.UriParseResult.Success -> {
                             withContext(Dispatchers.Main) {
                                 pendingImportName = parseResult.name
+                                pendingImportDetail = parseResult.detail
+                                pendingImportSshWarning = parseResult.sshWarning
                                 pendingImportUri = uri
+                                pendingImportSnapshot = parseResult.snapshot
                                 showImportConfirmDialog = true
                             }
                         }
@@ -161,52 +178,62 @@ fun AddProfileSheet(
         AlertDialog(
             onDismissRequest = {
                 showImportConfirmDialog = false
-                pendingImportName = null
-                pendingQrsData = null
-                pendingImportUri = null
+                clearPendingImport()
             },
             title = { Text(stringResource(R.string.import_profile_confirm_title)) },
-            text = { Text(stringResource(R.string.import_profile_confirm_message, pendingImportName!!)) },
+            text = {
+                // P3-6 / P1-1 / P0-1: beyond the name, disclose the decoded
+                // type (+ remote URL and auto-update state) and name an
+                // ssh_server endpoint when the content carries one.
+                val baseMessage = stringResource(R.string.import_profile_confirm_message, pendingImportName!!)
+                val message = buildString {
+                    append(baseMessage)
+                    pendingImportDetail?.let {
+                        append("\n\n")
+                        append(it)
+                    }
+                    pendingImportSshWarning?.let {
+                        append("\n\n")
+                        append(it)
+                    }
+                }
+                Text(message)
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showImportConfirmDialog = false
                         val qrsData = pendingQrsData
+                        val qrCodeData = pendingQrCodeData
                         val importUri = pendingImportUri
-                        pendingImportName = null
-                        pendingQrsData = null
-                        pendingImportUri = null
+                        val importSnapshot = pendingImportSnapshot
+                        val importName = pendingImportName!!
+                        clearPendingImport()
                         coroutineScope.launch {
-                            if (qrsData != null) {
-                                when (val result = importHandler.importFromQRSData(qrsData)) {
-                                    is ProfileImportHandler.ImportResult.Success -> {
-                                        withContext(Dispatchers.Main) {
-                                            onDismiss()
-                                            onProfileImported(result.profile)
-                                            ProfileImportHandler.showImportWarningsDialog(context, result.warnings)
-                                        }
-                                    }
-                                    is ProfileImportHandler.ImportResult.Error -> {
-                                        withContext(Dispatchers.Main) {
-                                            context.errorDialogBuilder(Exception(result.message)).show()
-                                        }
-                                    }
-                                }
-                            } else if (importUri != null) {
-                                when (val result = importHandler.importFromUri(importUri)) {
-                                    is ProfileImportHandler.ImportResult.Success -> {
-                                        withContext(Dispatchers.Main) {
-                                            onDismiss()
-                                            onProfileImported(result.profile)
-                                            ProfileImportHandler.showImportWarningsDialog(context, result.warnings)
-                                        }
-                                    }
-                                    is ProfileImportHandler.ImportResult.Error -> {
-                                        withContext(Dispatchers.Main) {
-                                            context.errorDialogBuilder(Exception(result.message)).show()
-                                        }
+                            val result = when {
+                                qrsData != null -> importHandler.importFromQRSData(qrsData)
+                                qrCodeData != null -> importHandler.importFromQRCode(qrCodeData)
+                                // P3-4: import the snapshot bytes that were
+                                // classified for this confirmation, not a
+                                // fresh read of the URI.
+                                importSnapshot != null -> importHandler.importFromSnapshot(importSnapshot, importName)
+                                importUri != null -> importHandler.importFromUri(importUri)
+                                else -> null
+                            }
+                            when (result) {
+                                is ProfileImportHandler.ImportResult.Success -> {
+                                    withContext(Dispatchers.Main) {
+                                        onDismiss()
+                                        onProfileImported(result.profile)
+                                        ProfileImportHandler.showImportWarningsDialog(context, result.warnings)
                                     }
                                 }
+                                is ProfileImportHandler.ImportResult.Error -> {
+                                    withContext(Dispatchers.Main) {
+                                        context.errorDialogBuilder(Exception(result.message)).show()
+                                    }
+                                }
+                                null -> {}
                             }
                         }
                     },
@@ -218,9 +245,7 @@ fun AddProfileSheet(
                 TextButton(
                     onClick = {
                         showImportConfirmDialog = false
-                        pendingImportName = null
-                        pendingQrsData = null
-                        pendingImportUri = null
+                        clearPendingImport()
                     },
                 ) {
                     Text(stringResource(R.string.cancel))
@@ -241,6 +266,8 @@ fun AddProfileSheet(
                                 is ProfileImportHandler.QRSParseResult.Success -> {
                                     withContext(Dispatchers.Main) {
                                         pendingImportName = parseResult.name
+                                        pendingImportDetail = parseResult.detail
+                                        pendingImportSshWarning = parseResult.sshWarning
                                         pendingQrsData = result.data
                                         showImportConfirmDialog = true
                                     }
@@ -268,19 +295,16 @@ fun AddProfileSheet(
                                     }
                                 }
                                 is ProfileImportHandler.QRCodeParseResult.LocalProfile -> {
-                                    when (val importResult = importHandler.importFromQRCode(result.uri.toString())) {
-                                        is ProfileImportHandler.ImportResult.Success -> {
-                                            withContext(Dispatchers.Main) {
-                                                onDismiss()
-                                                onProfileImported(importResult.profile)
-                                                ProfileImportHandler.showImportWarningsDialog(context, importResult.warnings)
-                                            }
-                                        }
-                                        is ProfileImportHandler.ImportResult.Error -> {
-                                            withContext(Dispatchers.Main) {
-                                                context.errorDialogBuilder(Exception(importResult.message)).show()
-                                            }
-                                        }
+                                    // P3-6: this branch used to import with no
+                                    // confirmation at all. Route it through the
+                                    // same confirmation dialog as file/QRS,
+                                    // with the decoded type disclosed.
+                                    withContext(Dispatchers.Main) {
+                                        pendingImportName = parseResult.name
+                                        pendingImportDetail = parseResult.detail
+                                        pendingImportSshWarning = parseResult.sshWarning
+                                        pendingQrCodeData = result.uri.toString()
+                                        showImportConfirmDialog = true
                                     }
                                 }
                                 is ProfileImportHandler.QRCodeParseResult.Error -> {

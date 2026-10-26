@@ -253,6 +253,17 @@ class HTTPClient : Closeable {
         ): HttpsURLConnection {
             if (route == Route.PROXY) {
                 val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
+                if (!TunnelGate.up) {
+                    // Route.PROXY with our tunnel down is not a tunnel
+                    // dial: openNamed resolves through the system
+                    // resolver on the ambient network (UPDATE's first
+                    // ladder step, so another VPN can route GitHub by
+                    // name). Those answers were the one set never
+                    // classified (audit P3-3); check every connection,
+                    // redirect hops included. Tunnel-up by-name dials
+                    // are routed by the tunnel and stay unchecked here.
+                    checkDirectByNameTarget(url, kind)
+                }
                 return openNamed(url, endpoint, kind, headers)
             }
             if (route == Route.TUNNEL_IP || route == Route.DIRECT_DNS) {
@@ -265,6 +276,44 @@ class HTTPClient : Closeable {
                 )
             }
             return openPinned(url, kind, headers, bypassTunnel = TunnelGate.up)
+        }
+
+        /**
+         * P3-3: classification for the one by-name dial that leaves the
+         * device directly — Route.PROXY while our own tunnel is down.
+         * The hostname is resolved once here and every answer must pass
+         * [RemoteUrlGuard.isAddressAllowed], the same policy the pinned
+         * routes enforce. That policy already carries the fake-ip
+         * exemption (198.18/15 is refused only while OUR tunnel is up),
+         * so another VPN's fake-ip answers keep working while poisoned
+         * private/loopback/metadata answers are refused. The refusal
+         * reuses the guard's resolution-failure wording, which the route
+         * ladder treats as transient, so DIRECT_DNS (public resolvers)
+         * still gets its chance instead of the update dying here.
+         * Tunnel-up by-name dials never reach this: the tunnel routes
+         * them by name and fake-ip answers are legitimate there.
+         */
+        internal fun checkDirectByNameTarget(url: String, kind: RemoteUrlGuard.Kind) {
+            val host = try {
+                URI(url).host
+            } catch (_: Exception) {
+                null
+            } ?: return
+            val normalized = RemoteUrlGuard.normalizeHost(host)
+            // Literal IPs were already classified inside validateWithoutDns.
+            if (RemoteUrlGuard.isLiteralIp(normalized)) return
+            val answers = try {
+                InetAddress.getAllByName(normalized)?.toList().orEmpty()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            // No answer at all: the dial fails on its own and the ladder
+            // treats that as transient, same as a pinned route's empty
+            // resolution. Only a resolved-but-forbidden answer is refused.
+            if (answers.isEmpty()) return
+            if (answers.any { !RemoteUrlGuard.isAddressAllowed(it, kind) }) {
+                throw IllegalArgumentException("无法解析主机，已拒绝")
+            }
         }
 
         internal fun explainProfileUpdate(error: Throwable): String =

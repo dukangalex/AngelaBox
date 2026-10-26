@@ -186,6 +186,16 @@
     <string name="import_profile_confirm_title">Import Profile</string>
     <string name="import_warnings_title">Import finished with %1$d notices</string>
     <string name="import_profile_confirm_message">Import profile \"%s\"?</string>
+    <string name="import_profile_detail_type_local">Type: Local profile</string>
+    <string name="import_profile_detail_type_remote">Type: Remote subscription</string>
+    <string name="import_profile_detail_url">Address: %1$s</string>
+    <string name="import_profile_detail_auto_update_on">Auto-update: on (every %1$d min)</string>
+    <string name="import_profile_detail_auto_update_off">Auto-update: off</string>
+    <string name="import_profile_ssh_server_warning">This configuration enables a remote shell (Tailscale SSH); the login policy is decided by its tailnet control plane.</string>
+    <string name="error_import_snapshot_mismatch">The file changed after it was checked; import refused.</string>
+    <string name="import_fetch_confirm_title">Fetch remote providers?</string>
+    <string name="import_fetch_confirm_message">This file references remote proxy providers. Finishing the import will connect to these addresses:</string>
+    <string name="import_fetch_confirm_action">Fetch and import</string>
     <string name="import_action">Import</string>
 
     <!-- Groups -->

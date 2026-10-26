@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import java.util.Date
 
 class ProfileImportHandler(private val context: Context) {
@@ -41,19 +42,45 @@ class ProfileImportHandler(private val context: Context) {
         data class Error(val message: String) : ImportResult()
     }
 
+    /** Content bytes captured once at parse time, with their SHA-256 (P3-4). */
+    class ImportSnapshot(val bytes: ByteArray, val sha256: String)
+
     sealed class QRCodeParseResult {
         data class RemoteProfile(val name: String, val host: String, val url: String) : QRCodeParseResult()
-        data class LocalProfile(val name: String) : QRCodeParseResult()
+
+        /**
+         * [detail] discloses the decoded profile type (and, for remote
+         * profiles, the full URL + auto-update state) to the confirmation
+         * (P3-6 / P1-1); [sshWarning] names an ssh_server endpoint found in
+         * the original content (P0-1).
+         */
+        data class LocalProfile(
+            val name: String,
+            val detail: String? = null,
+            val sshWarning: String? = null,
+        ) : QRCodeParseResult()
+
         data class Error(val message: String) : QRCodeParseResult()
     }
 
     sealed class QRSParseResult {
-        data class Success(val name: String) : QRSParseResult()
+        data class Success(
+            val name: String,
+            val detail: String? = null,
+            val sshWarning: String? = null,
+        ) : QRSParseResult()
+
         data class Error(val message: String) : QRSParseResult()
     }
 
     sealed class UriParseResult {
-        data class Success(val name: String) : UriParseResult()
+        data class Success(
+            val name: String,
+            val detail: String? = null,
+            val sshWarning: String? = null,
+            val snapshot: ImportSnapshot? = null,
+        ) : UriParseResult()
+
         data class Error(val message: String) : UriParseResult()
     }
 
@@ -62,35 +89,82 @@ class ProfileImportHandler(private val context: Context) {
             io.nekohasekai.sfa.utils.ImportPathGuard.requireContentScheme(uri.scheme)
             val data = readUriBytes(uri)
                 ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
-
-            val filename = getFileNameFromUri(uri)
-            val dataString = String(data)
-            if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
-                return@withContext importJsonConfiguration(dataString, filename)
-            }
-
-            val content = try {
-                Libbox.decodeProfileContent(data)
-            } catch (e: Exception) {
-                if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
-                    return@withContext importJsonConfiguration(dataString, filename)
-                }
-                return@withContext ImportResult.Error(
-                    context.getString(R.string.error_decode_profile, e.message),
-                )
-            }
-
-            importProfile(content)
+            importFromBytes(data, getFileNameFromUri(uri))
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "Unknown error")
         }
     }
 
+    /**
+     * P3-4: imports the exact bytes [parseUri] captured and classified
+     * before the confirmation was shown, instead of re-reading the provider
+     * URI — the provider could otherwise swap the content after the user
+     * confirmed. The hash is re-verified here so a mutated snapshot is
+     * refused rather than imported.
+     */
+    suspend fun importFromSnapshot(snapshot: ImportSnapshot, fallbackName: String): ImportResult {
+        if (sha256Hex(snapshot.bytes) != snapshot.sha256) {
+            return ImportResult.Error(context.getString(R.string.error_import_snapshot_mismatch))
+        }
+        return importFromBytes(snapshot.bytes, fallbackName)
+    }
+
+    private suspend fun importFromBytes(data: ByteArray, filename: String): ImportResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val dataString = String(data)
+                if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
+                    return@withContext importJsonConfiguration(dataString, filename)
+                }
+
+                val content = try {
+                    Libbox.decodeProfileContent(data)
+                } catch (e: Exception) {
+                    if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
+                        return@withContext importJsonConfiguration(dataString, filename)
+                    }
+                    return@withContext ImportResult.Error(
+                        context.getString(R.string.error_decode_profile, e.message),
+                    )
+                }
+
+                importProfile(content)
+            } catch (e: Exception) {
+                ImportResult.Error(e.message ?: "Unknown error")
+            }
+        }
+
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
             io.nekohasekai.sfa.utils.ImportPathGuard.requireContentScheme(uri.scheme)
             val filename = getFileNameFromUri(uri)
-            UriParseResult.Success(filename)
+            // P3-4: read and classify the content NOW, at confirmation time,
+            // instead of trusting the provider-controlled file name alone.
+            // The snapshot binds the confirmation to these exact bytes; the
+            // import later consumes the snapshot (see importFromSnapshot).
+            val data = readUriBytes(uri)
+                ?: return@withContext UriParseResult.Success(filename)
+            val snapshot = ImportSnapshot(data, sha256Hex(data))
+            val dataString = String(data)
+            if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
+                return@withContext UriParseResult.Success(
+                    name = filename,
+                    detail = context.getString(R.string.import_profile_detail_type_local),
+                    sshWarning = sshWarningForConfig(dataString),
+                    snapshot = snapshot,
+                )
+            }
+            val content = try {
+                Libbox.decodeProfileContent(data)
+            } catch (e: Exception) {
+                return@withContext UriParseResult.Success(filename, snapshot = snapshot)
+            }
+            UriParseResult.Success(
+                name = filename,
+                detail = describeDecodedProfile(content),
+                sshWarning = sshWarningForConfig(content.config),
+                snapshot = snapshot,
+            )
         } catch (e: Exception) {
             UriParseResult.Error(e.message ?: "Unknown error")
         }
@@ -115,7 +189,11 @@ class ProfileImportHandler(private val context: Context) {
 
             // Node links, a base64 node list or a pasted Clash / JSON node: same detection as file import.
             if (io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(data)) {
-                return@withContext QRCodeParseResult.LocalProfile(name = nodeProfileName(data))
+                return@withContext QRCodeParseResult.LocalProfile(
+                    name = nodeProfileName(data),
+                    detail = context.getString(R.string.import_profile_detail_type_local),
+                    sshWarning = sshWarningForConfig(data),
+                )
             }
 
             if (data.startsWith("https://", ignoreCase = true)) {
@@ -137,7 +215,11 @@ class ProfileImportHandler(private val context: Context) {
                     context.getString(R.string.error_decode_profile, e.message),
                 )
             }
-            QRCodeParseResult.LocalProfile(name = content.name)
+            QRCodeParseResult.LocalProfile(
+                name = content.name,
+                detail = describeDecodedProfile(content),
+                sshWarning = sshWarningForConfig(content.config),
+            )
         } catch (e: Exception) {
             QRCodeParseResult.Error(e.message ?: "Unknown error")
         }
@@ -189,7 +271,11 @@ class ProfileImportHandler(private val context: Context) {
                     context.getString(R.string.error_decode_profile, e.message),
                 )
             }
-            QRSParseResult.Success(content.name)
+            QRSParseResult.Success(
+                name = content.name,
+                detail = describeDecodedProfile(content),
+                sshWarning = sshWarningForConfig(content.config),
+            )
         } catch (e: Exception) {
             QRSParseResult.Error(e.message ?: "Unknown error")
         }
@@ -227,22 +313,45 @@ class ProfileImportHandler(private val context: Context) {
                 typedProfile.type = TypedProfile.Type.Remote
                 typedProfile.remoteURL = content.remotePath
                 typedProfile.autoUpdate = content.autoUpdate
-                typedProfile.autoUpdateInterval = content.autoUpdateInterval
+                // P1-1: same 15-minute floor as every other creation path
+                // (unit is minutes, cf. NewProfileViewModel / BackupManager).
+                typedProfile.autoUpdateInterval = content.autoUpdateInterval.coerceAtLeast(15)
                 typedProfile.lastUpdated = Date(content.lastUpdated)
             }
+        }
+
+        // P1-3: the decoded blob used to be stored verbatim, skipping the
+        // sanitize + gate every sibling import path applies. Mirror
+        // importJsonConfiguration exactly: same sanitizeDetailed call, same
+        // gate, same rejection surface. Sanitize also drops kernel-honored
+        // file targets the blob author controls (log.output, see
+        // ConfigCompat.stripLogFileOutput). Non-object configs (e.g. the
+        // empty placeholder a remote blob carries) have nothing to sanitize.
+        var storedConfig = content.config
+        var importNotes: List<String> = emptyList()
+        if (storedConfig.trimStart().startsWith("{")) {
+            val detailed = ConfigCompat.sanitizeDetailed(storedConfig)
+            val gate = ConfigGate.validate(detailed.content, ConfigGate::libboxCheck)
+            if (gate is ConfigGate.Result.Rejected) {
+                return ImportResult.Error(
+                    context.getString(R.string.error_invalid_configuration, gate.reason),
+                )
+            }
+            storedConfig = detailed.content
+            importNotes = detailed.notes
         }
 
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText(content.config)
+        configFile.writeText(storedConfig)
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         // AB-019: warm the rule-set cache at import time, so the startup
         // cache substitute has ammunition for file/QR imports too — it
         // used to be filled only by remote subscription updates.
-        io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content.config)
-        return ImportResult.Success(profile)
+        io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(storedConfig)
+        return ImportResult.Success(profile, importNotes)
     }
 
     private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
@@ -370,4 +479,77 @@ class ProfileImportHandler(private val context: Context) {
             ImportResult.Error(e.message ?: "Unknown error importing JSON configuration")
         }
     }
+
+    /**
+     * Disclosure lines for a decoded blob profile (P3-6 / P1-1): the type
+     * always, and for remote profiles the full URL plus the auto-update
+     * state that will be stored (interval already floored, as in
+     * [importProfile]).
+     */
+    private fun describeDecodedProfile(content: ProfileContent): String? {
+        return when (content.type) {
+            Libbox.ProfileTypeRemote -> buildString {
+                append(context.getString(R.string.import_profile_detail_type_remote))
+                append('\n')
+                append(context.getString(R.string.import_profile_detail_url, content.remotePath))
+                append('\n')
+                append(
+                    if (content.autoUpdate) {
+                        context.getString(
+                            R.string.import_profile_detail_auto_update_on,
+                            content.autoUpdateInterval.coerceAtLeast(15),
+                        )
+                    } else {
+                        context.getString(R.string.import_profile_detail_auto_update_off)
+                    },
+                )
+            }
+
+            Libbox.ProfileTypeLocal -> context.getString(R.string.import_profile_detail_type_local)
+            else -> null
+        }
+    }
+
+    /**
+     * P0-1 (confirmation half): returns the warning to name in the import
+     * confirmation when the config enables a Tailscale SSH server, else null.
+     *
+     * This MUST be given the original imported content: normalization
+     * (ConfigCompat / ConfigIngest, applied later at store/start time)
+     * strips `ssh_server` from tailscale endpoints, so a check on the
+     * normalized text would never see it. All call sites here pass
+     * pre-normalization text — the raw file/QR bytes, or the decoded blob's
+     * `content.config`, neither of which has been normalized yet — so the
+     * warning (this check) and the strip (normalization) compose: the user
+     * is told, and the stored/started config no longer carries the flag.
+     */
+    private fun sshWarningForConfig(configJson: String): String? {
+        if (!configEnablesTailscaleSsh(configJson)) return null
+        return context.getString(R.string.import_profile_ssh_server_warning)
+    }
+
+    private fun configEnablesTailscaleSsh(configJson: String): Boolean {
+        val root = try {
+            JSONObject(configJson)
+        } catch (e: Exception) {
+            return false
+        }
+        val endpoints = root.optJSONArray("endpoints") ?: return false
+        for (i in 0 until endpoints.length()) {
+            val endpoint = endpoints.optJSONObject(i) ?: continue
+            if (endpoint.optString("type") != "tailscale") continue
+            // The kernel accepts a bare boolean or an options object.
+            val enabled = when (val sshServer = endpoint.opt("ssh_server")) {
+                is Boolean -> sshServer
+                is JSONObject -> sshServer.optBoolean("enabled", true)
+                else -> false
+            }
+            if (enabled) return true
+        }
+        return false
+    }
+
+    private fun sha256Hex(data: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(data)
+            .joinToString("") { "%02x".format(it) }
 }

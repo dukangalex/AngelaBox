@@ -1,6 +1,12 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.database.Settings
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import org.json.JSONObject
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
@@ -82,6 +88,21 @@ object ConfigScriptOverride {
         private val deadline = ThreadLocal<Long>()
 
         /**
+         * Watchdog pool for [run]. The instruction observer only fires
+         * between interpreted instructions, so a single native builtin
+         * call (a 100 MB JSON.parse, a giant stringify) sails straight
+         * past the 5 s deadline while the caller — often the service
+         * start path — stays blocked. Evaluation therefore runs on a
+         * worker and the caller waits with a hard [TIMEOUT_MS] bound.
+         * Threads are daemons and the pool is cached, so a script stuck
+         * in an uninterruptible native call is abandoned, never waited
+         * on, and does not wedge later runs behind it.
+         */
+        private val watchdogExecutor: ExecutorService = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "overlay-script-watchdog").apply { isDaemon = true }
+        }
+
+        /**
          * Dedicated factory, never the process-global one: the 5 s
          * deadline lives in [factory]'s instruction observer, and the
          * old lazy global install silently never happened when another
@@ -120,11 +141,33 @@ object ConfigScriptOverride {
             if (!code.contains("function main")) {
                 throw IllegalStateException("脚本需要 function main(config)")
             }
-            deadline.set(System.currentTimeMillis() + TIMEOUT_MS)
-            try {
-                return factory.call { cx -> runWithContext(cx, code, configJson, name, overlayJson) }
-            } finally {
-                deadline.remove()
+            // The deadline ThreadLocal must live on the executing thread:
+            // the factory's observer reads it there.
+            val future = watchdogExecutor.submit(
+                Callable {
+                    deadline.set(System.currentTimeMillis() + TIMEOUT_MS)
+                    try {
+                        factory.call { cx -> runWithContext(cx, code, configJson, name, overlayJson) }
+                    } finally {
+                        deadline.remove()
+                    }
+                },
+            )
+            return try {
+                future.get(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            } catch (e: TimeoutException) {
+                // One native call outran the observer. Abandon the worker
+                // (cancel is best-effort; the daemon thread is never joined)
+                // and report the same timeout the observer path produces.
+                future.cancel(true)
+                throw IllegalStateException("脚本执行超时")
+            } catch (e: ExecutionException) {
+                throw (e.cause as? Exception)
+                    ?: IllegalStateException(e.cause?.message ?: "脚本执行失败", e.cause)
+            } catch (e: InterruptedException) {
+                future.cancel(true)
+                Thread.currentThread().interrupt()
+                throw IllegalStateException("脚本执行被中断", e)
             }
         }
 

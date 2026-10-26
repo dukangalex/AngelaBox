@@ -12,6 +12,7 @@ import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.marshall
@@ -37,6 +38,22 @@ object BackupManager {
 
     /** Size and path limits always abort. Compat may skip unknown entries, not these. */
     private class BackupRejected(message: String) : IllegalStateException(message)
+
+    /** A Remote profile a restore created, carried in [RestoreReport] for disclosure. */
+    data class RestoredRemoteProfile(val name: String, val url: String)
+
+    /**
+     * What a restore did that the user should see afterwards: the Remote
+     * subscriptions it created (stored with auto-update off — a restore
+     * never confirms them per URL, see restoreZipFile) and the sensitive
+     * portable items it skipped (see [PortableCloudBackup.applyPortableSettings]).
+     */
+    data class RestoreReport(
+        val remoteProfiles: List<RestoredRemoteProfile> = emptyList(),
+        val skippedScriptNames: List<String> = emptyList(),
+        val skippedChainBindingCount: Int = 0,
+        val skippedScriptBindingCount: Int = 0,
+    )
 
     /**
      * Builds a backup archive at [dest]. With a non-empty [password] the
@@ -123,14 +140,20 @@ object BackupManager {
      * [password] before the regular zip pipeline runs on the plaintext —
      * a wrong password or damaged file fails cleanly before anything is
      * touched. Plain zips from older versions restore exactly as before.
+     * [includeSensitiveItems] opts in to the portable backup's sensitive
+     * items (overlay scripts / chain bindings); see
+     * [PortableCloudBackup.applyPortableSettings]. The returned
+     * [RestoreReport] lists what the restore created or skipped so the
+     * caller can disclose it.
      */
     fun restoreBackupFile(
         context: Context,
         src: File,
         compat: Boolean = false,
         password: CharArray? = null,
-    ): Result<Unit> {
-        if (!isEncryptedBackup(src)) return restoreZipFile(context, src, compat)
+        includeSensitiveItems: Boolean = false,
+    ): Result<RestoreReport> {
+        if (!isEncryptedBackup(src)) return restoreZipFile(context, src, compat, includeSensitiveItems)
         if (password == null || password.isEmpty()) {
             return Result.failure(
                 IllegalStateException(context.getString(R.string.backup_password_required)),
@@ -146,18 +169,28 @@ object BackupManager {
                 )
             }
             plainTmp.writeBytes(plain)
-            restoreZipFile(context, plainTmp, compat)
+            restoreZipFile(context, plainTmp, compat, includeSensitiveItems)
         } finally {
             plainTmp.delete()
         }
     }
 
-    private fun restoreZipFile(context: Context, src: File, compat: Boolean = false): Result<Unit> = runCatching {
+    private fun restoreZipFile(
+        context: Context,
+        src: File,
+        compat: Boolean = false,
+        includeSensitiveItems: Boolean = false,
+    ): Result<RestoreReport> = runCatching {
         if (!isZipFile(src)) {
             if (!compat) error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
         }
         val keepDav = Settings.webdavPassword
         val keepTok = Settings.githubToken
+        // M3 snapshot: the pre-restore WebDAV endpoint is the only one the
+        // preserved password may ever be paired with (see the repair at the
+        // end of the overwrite path).
+        val keepDavUrl = Settings.webdavUrl
+        val keepDavUser = Settings.webdavUser
         val staging = File(context.cacheDir, "restore-staging").also {
             it.deleteRecursively()
             it.mkdirs()
@@ -229,7 +262,7 @@ object BackupManager {
         val hasPortable = portableProfiles.isFile
 
         if (compat) {
-            if (hasPortable) {
+            val restoredRemote = if (hasPortable) {
                 mergePortableProfiles(
                     context,
                     portableProfiles.readText(),
@@ -243,7 +276,7 @@ object BackupManager {
                 )
             }
             staging.deleteRecursively()
-            return@runCatching
+            return@runCatching RestoreReport(remoteProfiles = restoredRemote)
         }
 
         runCatching { BoxService.stop() }
@@ -253,20 +286,23 @@ object BackupManager {
 
         val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
         val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
-        if (settingsDb.isFile) {
+        val settingsDbRestored = settingsDb.isFile
+        val profilesDbRestored = profilesDb.isFile
+        if (settingsDbRestored) {
             val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
             dest.parentFile?.mkdirs()
             deleteSidecars(dest)
             settingsDb.copyTo(dest, overwrite = true)
             deleteSidecars(dest)
         }
-        if (profilesDb.isFile) {
+        if (profilesDbRestored) {
             val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
             dest.parentFile?.mkdirs()
             deleteSidecars(dest)
             profilesDb.copyTo(dest, overwrite = true)
             deleteSidecars(dest)
             pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
+            repairRestoredRemoteServers(dest)
         }
         val stagedConfigs = File(staging, "configs")
         val live = File(context.filesDir, "configs").also { it.mkdirs() }
@@ -284,13 +320,15 @@ object BackupManager {
         if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
         if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
 
+        var portableOutcome: PortableRestoreOutcome? = null
         if (hasPortable) {
-            if (!File(staging, Path.PROFILES_DATABASE_PATH).isFile) {
-                restorePortableOverwrite(
+            if (!profilesDbRestored) {
+                portableOutcome = restorePortableOverwrite(
                     context,
                     portableProfiles.readText(),
                     if (portableSettings.isFile) portableSettings.readText() else "{}",
                     File(staging, "configs"),
+                    includeSensitiveItems,
                 )
             } else {
                 runCatching {
@@ -314,7 +352,48 @@ object BackupManager {
         }
         if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
         if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
+        // M3 (same rule the portable path applies in applyPortableSettings):
+        // a backup carries no WebDAV password by design, so the URL/user its
+        // settings.db restored must never be paired with the password
+        // preserved above — the first probe would send that password to the
+        // backup's server as Basic Auth. Keep the pre-restore endpoint
+        // whenever the backup's differs. Gated on the DB actually having
+        // been replaced: without one, the endpoint is either untouched or
+        // came through the portable path, whose M3 gate already ran.
+        // (Every WebDAV use still re-validates the URL through
+        // RemoteUrlGuard in requireHttps before connecting.)
+        if (settingsDbRestored) {
+            if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
+            if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
+        }
+        // A restored activeRemoteServerId points into the backup's server
+        // list, whose rows were just re-validated by
+        // repairRestoredRemoteServers. Never auto-connect on the next
+        // launch: the user re-selects the server in the UI.
+        if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
+
+        val report = if (portableOutcome != null) {
+            RestoreReport(
+                remoteProfiles = portableOutcome.remoteProfiles,
+                skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
+                skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
+                skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
+            )
+        } else {
+            RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
+        }
         staging.deleteRecursively()
+        report
+    }
+
+    /** Remote profiles the wholesale DB restore just installed, read back for the [RestoreReport]. */
+    private fun restoredDbRemoteProfiles(profilesDbRestored: Boolean): List<RestoredRemoteProfile> {
+        if (!profilesDbRestored) return emptyList()
+        return runCatching {
+            runBlocking { ProfileManager.list() }
+                .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.remoteURL.isNotBlank() }
+                .map { RestoredRemoteProfile(it.name, it.typed.remoteURL) }
+        }.getOrDefault(emptyList())
     }
 
     /**
@@ -322,6 +401,12 @@ object BackupManager {
      * backup (the WebDAV server holds it) could point them at settings.db or
      * any other app file, which subscription updates and the editor then
      * overwrite. Keep only the file name and re-anchor it under configs/.
+     *
+     * The same pass normalises the update policy of wholesale-restored
+     * profiles: a Remote profile installed this way was never confirmed
+     * per URL, so it must not fetch unattended — auto-update is stored off
+     * (the restore result discloses it) — and the interval gets the same
+     * 15-minute floor every other import path applies.
      */
     internal fun pinProfilePathsToConfigs(profilesDb: File, liveConfigs: File) {
         if (!profilesDb.isFile) return
@@ -335,12 +420,23 @@ object BackupManager {
                         val id = c.getLong(0)
                         val blob = c.getBlob(1) ?: continue
                         val typed = runCatching { convertor.unmarshall(blob) }.getOrNull() ?: continue
+                        var changed = false
                         val current = runCatching { File(typed.path).canonicalFile }.getOrNull()
-                        if (current != null && current.parentFile == root) continue
-                        val name = File(typed.path).name
-                        val safe = if (name.isBlank() || name.contains("..")) "$id.json" else name
-                        typed.path = File(root, safe).path
-                        fixes += id to convertor.marshall(typed)
+                        if (current == null || current.parentFile != root) {
+                            val name = File(typed.path).name
+                            val safe = if (name.isBlank() || name.contains("..")) "$id.json" else name
+                            typed.path = File(root, safe).path
+                            changed = true
+                        }
+                        if (typed.type == TypedProfile.Type.Remote && typed.autoUpdate) {
+                            typed.autoUpdate = false
+                            changed = true
+                        }
+                        if (typed.autoUpdateInterval < 15) {
+                            typed.autoUpdateInterval = 15
+                            changed = true
+                        }
+                        if (changed) fixes += id to convertor.marshall(typed)
                     }
                 }
                 fixes.forEach { (id, bytes) ->
@@ -352,14 +448,61 @@ object BackupManager {
         }
     }
 
+    /**
+     * A restored profiles.db can plant `remote_servers` rows the UI would
+     * refuse — validateURL is only enforced on the edit screen, while the
+     * launch-time RemoteControlManager.restore() connects to whatever
+     * Settings.activeRemoteServerId names. Validate every restored row
+     * with that same gate, drop the rows that fail, and blank secrets:
+     * exports always blank them, so a secret in a backup is planted, not
+     * restored data. The caller clears the active server id separately.
+     */
+    internal fun repairRestoredRemoteServers(profilesDb: File) {
+        if (!profilesDb.isFile) return
+        runCatching {
+            SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                val hasTable = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
+                    null,
+                ).use { it.moveToFirst() }
+                if (hasTable) {
+                    val rows = mutableListOf<Pair<Long, String>>()
+                    db.rawQuery("SELECT id, url FROM remote_servers", null).use { c ->
+                        while (c.moveToNext()) rows += c.getLong(0) to (c.getString(1) ?: "")
+                    }
+                    rows.forEach { (id, url) ->
+                        val valid = RemoteServer.validateURL(url)
+                        if (valid == null) {
+                            db.delete("remote_servers", "id = ?", arrayOf(id.toString()))
+                        } else {
+                            val cv = ContentValues()
+                            cv.put("url", valid)
+                            cv.put("secret", "")
+                            db.update("remote_servers", cv, "id = ?", arrayOf(id.toString()))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** What [restorePortableOverwrite] produced, for the [RestoreReport]. */
+    private class PortableRestoreOutcome(
+        val remoteProfiles: List<RestoredRemoteProfile>,
+        val sensitive: PortableCloudBackup.SensitiveItemsOutcome,
+    )
+
     private fun restorePortableOverwrite(
         context: Context,
         profilesJson: String,
         settingsJson: String,
         backupConfigs: File,
-    ) {
+        includeSensitiveItems: Boolean,
+    ): PortableRestoreOutcome {
         val (selected, profiles) = PortableCloudBackup.parseProfiles(profilesJson)
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
+        var sensitive = PortableCloudBackup.SensitiveItemsOutcome()
+        val remoteProfiles = mutableListOf<RestoredRemoteProfile>()
         runBlocking {
             ProfileManager.list().toList().forEach { existing ->
                 runCatching { ProfileManager.delete(existing) }
@@ -368,9 +511,12 @@ object BackupManager {
             profiles.forEach { portable ->
                 val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
                 uuidToLocal[portable.id] = created.id
+                if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
+                    remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
+                }
             }
             PortableCloudBackup.importStableIds(profiles, uuidToLocal)
-            PortableCloudBackup.applyPortableSettings(settingsJson, uuidToLocal)
+            sensitive = PortableCloudBackup.applyPortableSettings(settingsJson, uuidToLocal, includeSensitiveItems)
             val selectedLocal = selected?.let { ProfileStableIds.localId(it) }
             if (selectedLocal != null) {
                 Settings.selectedProfile = selectedLocal
@@ -378,11 +524,17 @@ object BackupManager {
                 Settings.selectedProfile = uuidToLocal.values.first()
             }
         }
+        return PortableRestoreOutcome(remoteProfiles, sensitive)
     }
 
-    private fun mergePortableProfiles(context: Context, profilesJson: String, backupConfigs: File) {
+    private fun mergePortableProfiles(
+        context: Context,
+        profilesJson: String,
+        backupConfigs: File,
+    ): List<RestoredRemoteProfile> {
         val (_, profiles) = PortableCloudBackup.parseProfiles(profilesJson)
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
+        val remoteProfiles = mutableListOf<RestoredRemoteProfile>()
         runBlocking {
             val existing = ProfileManager.list()
             val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
@@ -396,8 +548,12 @@ object BackupManager {
                 ProfileStableIds.put(created.id, portable.id)
                 names.add(name)
                 if (url.isNotEmpty()) urls.add(url)
+                if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
+                    remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
+                }
             }
         }
+        return remoteProfiles
     }
 
     private suspend fun importPortableProfile(
@@ -429,7 +585,12 @@ object BackupManager {
             type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
             remoteURL = url
             lastUpdated = Date(portable.lastUpdated)
-            autoUpdate = portable.autoUpdate
+            // A restore never confirms a subscription per URL, so a profile
+            // it creates must not fetch unattended: auto-update is stored
+            // off (the restore result discloses the profile) and turned
+            // back on by the user if wanted. The interval keeps the
+            // 15-minute floor every import path applies.
+            autoUpdate = false
             autoUpdateInterval = portable.autoUpdateIntervalMinutes.coerceAtLeast(15)
         }
         return ProfileManager.create(
@@ -442,8 +603,13 @@ object BackupManager {
      * 兼容模式：把备份里的配置追加到当前列表。同名或同一远程 URL 的现有配置保留，
      * 不替换 settings / 不覆盖已有 JSON。
      */
-    internal fun mergeProfilesFromBackup(context: Context, backupProfilesDb: File, backupConfigs: File) {
-        if (!backupProfilesDb.isFile) return
+    internal fun mergeProfilesFromBackup(
+        context: Context,
+        backupProfilesDb: File,
+        backupConfigs: File,
+    ): List<RestoredRemoteProfile> {
+        if (!backupProfilesDb.isFile) return emptyList()
+        val remoteProfiles = mutableListOf<RestoredRemoteProfile>()
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
         val convertor = TypedProfile.Convertor()
         SQLiteDatabase.openDatabase(backupProfilesDb.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
@@ -456,7 +622,7 @@ object BackupManager {
                 val nameIdx = c.getColumnIndex("name")
                 val iconIdx = c.getColumnIndex("icon")
                 val typedIdx = c.getColumnIndex("typed")
-                if (nameIdx < 0 || typedIdx < 0) return
+                if (nameIdx < 0 || typedIdx < 0) return emptyList()
                 runBlocking {
                     val existing = ProfileManager.list()
                     val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
@@ -492,8 +658,12 @@ object BackupManager {
                             type = typed.type
                             remoteURL = typed.remoteURL
                             lastUpdated = typed.lastUpdated
-                            autoUpdate = typed.autoUpdate
-                            autoUpdateInterval = typed.autoUpdateInterval
+                            // Same restore policy as importPortableProfile:
+                            // never confirmed per URL, so no unattended
+                            // fetching until the user opts in; interval
+                            // gets the usual 15-minute floor.
+                            autoUpdate = false
+                            autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
                         }
                         val icon = if (iconIdx >= 0 && !c.isNull(iconIdx)) c.getString(iconIdx) else null
                         ProfileManager.create(
@@ -502,10 +672,14 @@ object BackupManager {
                         )
                         names.add(name)
                         if (url.isNotEmpty()) urls.add(url)
+                        if (typed.type == TypedProfile.Type.Remote && url.isNotEmpty()) {
+                            remoteProfiles += RestoredRemoteProfile(name, url)
+                        }
                     }
                 }
             }
         }
+        return remoteProfiles
     }
 
     fun webdavUpload(baseUrl: String, username: String, password: String, remoteName: String, localFile: File): Result<Unit> = runCatching {

@@ -38,12 +38,25 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 if (Settings.startedByUser) {
                     CrashReportManager.refresh()
-                    if (CrashReportManager.unreadCount.value > 0) {
-                        // Skip this boot only. The report may be an old,
-                        // unrelated one; clearing startedByUser here used to
-                        // turn auto start off for good with no explanation
-                        // (audit F-9). The flag stays on, and the user is
-                        // told why this boot did not start.
+                    val unreadIds = CrashReportManager.reports.value
+                        .filter { !it.isRead }
+                        .map { it.id }
+                    val consumed = Settings.bootSkipConsumedReports
+                    if (unreadIds.any { it !in consumed }) {
+                        // Skip this boot only — and only once per report.
+                        // The report may be an old, unrelated one; clearing
+                        // startedByUser here used to turn auto start off for
+                        // good with no explanation (audit F-9), and skipping
+                        // on every boot while the report stayed unread had
+                        // the same effect in practice. So the flag stays on,
+                        // the user is told why this boot did not start, and
+                        // every currently-unread report is recorded as
+                        // consumed: later boots start normally, and only a
+                        // NEW report skips again. Consumed ids are pruned
+                        // to reports that still exist (retention keeps the
+                        // newest 10 / 30 days), so the set stays bounded.
+                        val existingIds = CrashReportManager.reports.value.map { it.id }.toSet()
+                        Settings.bootSkipConsumedReports = (consumed intersect existingIds) + unreadIds
                         Log.w("BootReceiver", "auto start skipped: unread crash report")
                         notifyAutoStartSkipped(context)
                         return@launch

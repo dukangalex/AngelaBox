@@ -44,8 +44,12 @@ object ConfigCompat {
     fun sanitize(content: String, fetch: ((String) -> String)? = null): String =
         sanitizeDetailed(content, fetch).content
 
-    fun sanitizeDetailed(content: String, fetch: ((String) -> String)? = null): SanitizeResult {
-        val ingested = ConfigIngest.adapt(content, fetch)
+    fun sanitizeDetailed(
+        content: String,
+        fetch: ((String) -> String)? = null,
+        deadlineMs: Long = 0L,
+    ): SanitizeResult {
+        val ingested = ConfigIngest.adapt(content, fetch, deadlineMs)
         if (!ingested.fatal.isNullOrBlank()) {
             throw IllegalArgumentException(ingested.fatal)
         }
@@ -114,9 +118,14 @@ object ConfigCompat {
     /** Import and subscription refresh. HTTPS proxy-providers are pulled here. */
     fun sanitizeRemote(content: String): String = sanitizeRemoteDetailed(content).content
 
-    fun sanitizeRemoteDetailed(content: String): SanitizeResult = sanitizeDetailed(content) { url ->
-        HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
-    }
+    fun sanitizeRemoteDetailed(content: String, deadlineMs: Long = 0L): SanitizeResult =
+        sanitizeDetailed(
+            content,
+            fetch = { url ->
+                HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
+            },
+            deadlineMs = deadlineMs,
+        )
 
     fun sanitizeOutbound(o: JSONObject): Boolean {
         var changed = coerceKeepAliveField(o)

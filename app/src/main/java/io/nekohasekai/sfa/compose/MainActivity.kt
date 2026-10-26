@@ -173,6 +173,9 @@ class MainActivity :
     private var showImportLocalProfileDialog by mutableStateOf(false)
     private var pendingImportLocalProfileName by mutableStateOf<String?>(null)
     private var pendingImportLocalProfileUri by mutableStateOf<Uri?>(null)
+    private var pendingImportLocalProfileDetail by mutableStateOf<String?>(null)
+    private var pendingImportLocalProfileSshWarning by mutableStateOf<String?>(null)
+    private var pendingImportLocalProfileSnapshot by mutableStateOf<ProfileImportHandler.ImportSnapshot?>(null)
     private var newProfileArgs by mutableStateOf(NewProfileArgs())
     private var parseImportLocalProfileJob: Job? = null
     private var pendingIntentErrorMessage by mutableStateOf<String?>(null)
@@ -308,6 +311,13 @@ class MainActivity :
                             withContext(Dispatchers.Main) {
                                 pendingImportLocalProfileName = result.name
                                 pendingImportLocalProfileUri = uri
+                                // P3-4: parseUri has already read, hashed
+                                // and classified the content; the dialog
+                                // discloses that classification and the
+                                // import consumes the same snapshot bytes.
+                                pendingImportLocalProfileDetail = result.detail
+                                pendingImportLocalProfileSshWarning = result.sshWarning
+                                pendingImportLocalProfileSnapshot = result.snapshot
                                 showImportLocalProfileDialog = true
                             }
                         }
@@ -550,21 +560,56 @@ class MainActivity :
         if (showImportLocalProfileDialog && pendingImportLocalProfileUri != null && pendingImportLocalProfileName != null) {
             val importName = pendingImportLocalProfileName!!
             val importUri = pendingImportLocalProfileUri!!
+            val importDetail = pendingImportLocalProfileDetail
+            val importSshWarning = pendingImportLocalProfileSshWarning
+            val importSnapshot = pendingImportLocalProfileSnapshot
             AlertDialog(
                 onDismissRequest = {
                     showImportLocalProfileDialog = false
                     pendingImportLocalProfileName = null
                     pendingImportLocalProfileUri = null
+                    pendingImportLocalProfileDetail = null
+                    pendingImportLocalProfileSshWarning = null
+                    pendingImportLocalProfileSnapshot = null
                 },
                 title = { Text(stringResource(R.string.import_profile_confirm_title)) },
-                text = { Text(stringResource(R.string.import_profile_confirm_message, importName)) },
+                text = {
+                    // P3-4 / P3-6 / P0-1: disclose the decoded type (+ host
+                    // for remote profiles) and name an ssh_server endpoint,
+                    // not just the provider-supplied file name.
+                    val baseMessage = stringResource(R.string.import_profile_confirm_message, importName)
+                    val message = buildString {
+                        append(baseMessage)
+                        importDetail?.let {
+                            append("\n\n")
+                            append(it)
+                        }
+                        importSshWarning?.let {
+                            append("\n\n")
+                            append(it)
+                        }
+                    }
+                    Text(message)
+                },
                 confirmButton = {
                     TextButton(onClick = {
                         showImportLocalProfileDialog = false
                         pendingImportLocalProfileName = null
                         pendingImportLocalProfileUri = null
+                        pendingImportLocalProfileDetail = null
+                        pendingImportLocalProfileSshWarning = null
+                        pendingImportLocalProfileSnapshot = null
                         scope.launch {
-                            when (val result = importHandler.importFromUri(importUri)) {
+                            // P3-4: import the snapshot bytes that were
+                            // hashed and classified for this confirmation;
+                            // only fall back to reading the URI when no
+                            // snapshot could be taken.
+                            val result = if (importSnapshot != null) {
+                                importHandler.importFromSnapshot(importSnapshot, importName)
+                            } else {
+                                importHandler.importFromUri(importUri)
+                            }
+                            when (result) {
                                 is ProfileImportHandler.ImportResult.Success -> {
                                     navController.navigate(ProfileRoutes.editProfile(result.profile.id)) {
                                         launchSingleTop = true
@@ -589,6 +634,9 @@ class MainActivity :
                         showImportLocalProfileDialog = false
                         pendingImportLocalProfileName = null
                         pendingImportLocalProfileUri = null
+                        pendingImportLocalProfileDetail = null
+                        pendingImportLocalProfileSshWarning = null
+                        pendingImportLocalProfileSnapshot = null
                     }) {
                         Text(stringResource(R.string.cancel))
                     }

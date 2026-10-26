@@ -109,12 +109,16 @@ class UpdateProfileWork {
                 }
                 SubscriptionUpdateHealth.recordAttempt(applicationContext, profile.id)
                 try {
+                    // E-2: the round deadline is also threaded into adapt,
+                    // so provider fetches inside one profile are bounded by
+                    // it too, not only the between-profile check above.
                     val detailed = ConfigCompat.sanitizeRemoteDetailed(
                         io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
                             profile.typed.remoteURL,
                             profile.id,
                             applicationContext,
                         ),
+                        deadlineMs = roundDeadlineMs,
                     )
                     val content = detailed.content
                     // G4: the update gate is aligned with the startup

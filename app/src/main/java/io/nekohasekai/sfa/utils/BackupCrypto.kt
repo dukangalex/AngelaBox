@@ -37,6 +37,14 @@ object BackupCrypto {
 
     const val DEFAULT_ITERATIONS: Int = 210_000
 
+    /**
+     * Highest iteration count [decrypt] will honour from a container
+     * header: 10x [DEFAULT_ITERATIONS], far above anything [encrypt]
+     * writes, so a crafted header cannot make decryption burn unbounded
+     * CPU in PBKDF2 before GCM authentication gets to reject it.
+     */
+    private const val MAX_ITERATIONS: Int = 2_100_000
+
     private val MAGIC = byteArrayOf(0x41, 0x42, 0x4B, 0x45) // "ABKE"
     private const val VERSION: Byte = 1
     private const val SALT_BYTES = 16
@@ -119,6 +127,7 @@ object BackupCrypto {
             (container[offset + 3].toInt() and 0xFF)
         offset += 4
         if (iterations <= 0) throw BackupCryptoException(Failure.DECRYPT_FAILED)
+        if (iterations > MAX_ITERATIONS) throw BackupCryptoException(Failure.DECRYPT_FAILED)
         val saltLen = container[offset].toInt() and 0xFF
         offset += 1
         if (saltLen <= 0 || offset + saltLen + 1 > container.size) {

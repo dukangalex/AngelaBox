@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -146,6 +148,37 @@ fun NewProfileScreen(
             onDismiss = {
                 showErrorDialog = false
                 viewModel.clearError()
+            },
+        )
+    }
+
+    // Provider-fetch disclosure: a local import pauses before contacting
+    // any provider URL embedded in the picked file; the user approves or
+    // cancels the fetch here.
+    if (uiState.pendingFetchUrls.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelPendingFetch() },
+            title = { Text(stringResource(R.string.import_fetch_confirm_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.import_fetch_confirm_message))
+                    uiState.pendingFetchUrls.forEach { url ->
+                        Text(
+                            text = url,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmPendingFetch() }) {
+                    Text(stringResource(R.string.import_fetch_confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelPendingFetch() }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }

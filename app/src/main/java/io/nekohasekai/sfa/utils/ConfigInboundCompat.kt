@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.utils
 
+import java.net.InetAddress
+import java.net.URI
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -63,6 +65,15 @@ object ConfigInboundCompat {
         if (healDownloadClients(root)) changed = true
         if (healMissingOutboundRefs(root)) changed = true
         if (bindLoopbackOnly(root)) changed = true
+        if (ruleSetNotes != null) {
+            val sshStrip = stripTailscaleSshServerWithReport(root)
+            if (sshStrip.changed) changed = true
+            sshStrip.enabledTags.forEach {
+                ruleSetNotes += "Tailscale 端点「$it」带有 ssh_server（远程 SSH 的登录策略由其 tailnet 控制端决定），已移除"
+            }
+        } else if (stripTailscaleSshServer(root)) {
+            changed = true
+        }
         return changed
     }
 
@@ -636,6 +647,11 @@ object ConfigInboundCompat {
                     changed = true
                     continue
                 }
+                if (ruleSetUrlResolvesBlocked(rewritten)) {
+                    item.remove(key)
+                    changed = true
+                    continue
+                }
                 if (rewritten != current) {
                     item.put(key, rewritten)
                     changed = true
@@ -649,6 +665,32 @@ object ConfigInboundCompat {
             }
         }
         return RuleSetUrlRewrite(changed, stripped)
+    }
+
+    /**
+     * Resolution half of the rule-set guard above: [RemoteUrlGuard.isPublicHttpsUrl]
+     * never resolves, so a public-looking hostname whose answers are private
+     * / loopback would still be handed to the kernel, which fetches it with
+     * no address policy of its own. Resolve the host here and classify every
+     * answer with the same policy — one blocked answer strips the URL just
+     * like a syntactic failure (and lands the tag in the same guard-stripped
+     * report). Literal IPs are already classified by the syntactic check.
+     * A host that does not resolve at all keeps its URL: this runs at
+     * startup too, and an offline start must not strip sets it cannot judge.
+     */
+    private fun ruleSetUrlResolvesBlocked(url: String): Boolean {
+        val host = try {
+            URI(url).host
+        } catch (_: Exception) {
+            null
+        }?.trim().orEmpty()
+        if (host.isEmpty() || RemoteUrlGuard.isLiteralIp(host)) return false
+        val addresses = try {
+            InetAddress.getAllByName(host)?.toList().orEmpty()
+        } catch (_: Exception) {
+            return false
+        }
+        return addresses.any { !RemoteUrlGuard.isAddressAllowed(it, RemoteUrlGuard.Kind.SCRIPT) }
     }
 
     internal fun sanitizeClashDownloadUrls(root: JSONObject): Boolean {
@@ -1518,6 +1560,48 @@ object ConfigInboundCompat {
     private fun replaceArray(target: JSONArray, keep: JSONArray) {
         while (target.length() > 0) target.remove(0)
         for (i in 0 until keep.length()) target.put(keep.get(i))
+    }
+
+    /** What [stripTailscaleSshServer] did, for callers with a notes channel. */
+    internal data class SshServerStrip(
+        val changed: Boolean,
+        /** Tags of endpoints whose `ssh_server` was enabled (anything but an explicit `false`). */
+        val enabledTags: List<String>,
+    )
+
+    internal fun stripTailscaleSshServer(root: JSONObject): Boolean =
+        stripTailscaleSshServerWithReport(root).changed
+
+    /**
+     * A tailscale endpoint's `ssh_server` makes the kernel run a Tailscale
+     * SSH server on this device. Who may log in — and which local user a
+     * login maps to, `root` included — is decided entirely by the tailnet
+     * control plane the profile itself enrolls the device into, i.e. by
+     * whoever wrote the profile. The app has no feature that needs the
+     * server and no UI that shows it running, so the key is removed at
+     * normalization, whatever its value; an explicit `false` goes too
+     * (the kernel default is off, so nothing changes for it). Endpoints
+     * that had it enabled are named in the report variant so the caller
+     * can tell the user what was taken out.
+     */
+    internal fun stripTailscaleSshServerWithReport(root: JSONObject): SshServerStrip {
+        val endpoints = root.optJSONArray("endpoints") ?: return SshServerStrip(false, emptyList())
+        var changed = false
+        val enabled = mutableListOf<String>()
+        for (i in 0 until endpoints.length()) {
+            val ep = endpoints.optJSONObject(i) ?: continue
+            if (!ep.optString("type").equals("tailscale", true)) continue
+            if (!ep.has("ssh_server")) continue
+            val was = ep.opt("ssh_server")
+            ep.remove("ssh_server")
+            changed = true
+            if (was != false && was != JSONObject.NULL) {
+                enabled += ep.optString("tag").trim()
+                    .ifBlank { ep.optString("hostname").trim() }
+                    .ifBlank { "tailscale" }
+            }
+        }
+        return SshServerStrip(changed, enabled)
     }
 
     internal fun bindLoopbackOnly(root: JSONObject): Boolean {

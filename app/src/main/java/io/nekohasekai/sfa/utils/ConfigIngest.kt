@@ -28,6 +28,9 @@ object ConfigIngest {
 
     private val pendingEchDoh = ThreadLocal.withInitial { mutableListOf<Pair<String, String>>() }
 
+    /** DoH hosts [installEchDoh] refused under the address policy, for the note in [finishEch]. */
+    private val rejectedEchDohHosts = ThreadLocal.withInitial { mutableListOf<String>() }
+
     /** Rule-provider lists are fetched through the same guarded channel as proxy providers. */
     private const val MAX_PROVIDER_FETCHES = 8
     private const val MAX_PROVIDER_BODY_CHARS = 2_000_000
@@ -42,18 +45,25 @@ object ConfigIngest {
         } catch (_: Exception) {
             return result
         }
-        if (!installEchDoh(root, hints)) return result
-        val notes = result.notes + "节点的 ECH 会按链接里的 DNS 地址查询"
-        return result.copy(content = root.toString(), notes = notes)
+        val installed = installEchDoh(root, hints)
+        val rejected = rejectedEchDohHosts.get().distinct()
+        if (!installed && rejected.isEmpty()) return result
+        var notes = result.notes
+        if (installed) notes = notes + "节点的 ECH 会按链接里的 DNS 地址查询"
+        if (rejected.isNotEmpty()) {
+            notes = notes + "ECH 提示里的 DNS 地址 ${rejected.joinToString("、")} 未通过地址策略检查，没有采用"
+        }
+        return result.copy(content = if (installed) root.toString() else result.content, notes = notes)
     }
 
     /** Format conversion only. China Direct / ads / QUIC are not written here. */
-    fun adapt(content: String, fetch: ((String) -> String)? = null): Result {
+    fun adapt(content: String, fetch: ((String) -> String)? = null, deadlineMs: Long = 0L): Result {
         pendingEchDoh.get().clear()
-        return finishEch(adaptUnlocked(content, fetch))
+        rejectedEchDohHosts.get().clear()
+        return finishEch(adaptUnlocked(content, fetch, deadlineMs))
     }
 
-    private fun adaptUnlocked(content: String, fetch: ((String) -> String)?): Result {
+    private fun adaptUnlocked(content: String, fetch: ((String) -> String)?, deadlineMs: Long = 0L): Result {
         val trimmed = stripBom(content).trim()
         if (trimmed.isEmpty()) return Result(content, emptyList(), Format.Unknown)
         if (trimmed.length > ConfigCompat.MAX_CONFIG_CHARS) return Result(content)
@@ -61,7 +71,7 @@ object ConfigIngest {
         val opened = openJsonDocument(trimmed)
         val jsonish = opened.first() == '{' || opened.first() == '['
         if (jsonish) {
-            parseSingBox(opened, fetch)?.let { return it }
+            parseSingBox(opened, fetch, deadlineMs)?.let { return it }
             parseVmessJsonBlob(trimmed)?.let { return it }
         }
         decodeSharePayload(trimmed)?.let { payload ->
@@ -72,13 +82,13 @@ object ConfigIngest {
             if (links.isNotEmpty()) {
                 // Links pasted next to a Clash file: keep both.
                 val tree = MiniYaml.parse(rest) as? Map<*, *>
-                if (tree != null) return convertClashTree(tree, fetch, links.mapNotNull { convertShareLine(it) })
+                if (tree != null) return convertClashTree(tree, fetch, links.mapNotNull { convertShareLine(it) }, deadlineMs = deadlineMs)
             }
-            return convertClash(trimmed, fetch)
+            return convertClash(trimmed, fetch, deadlineMs)
                 ?: unsupported("Clash 配置无法解析，没有改成直连。")
         }
         decodeClashPayload(trimmed)?.let { yaml ->
-            convertClash(yaml, fetch)?.let { return it }
+            convertClash(yaml, fetch, deadlineMs)?.let { return it }
         }
         convertFragments(trimmed)?.let { return it }
         convertShareLinks(trimmed)?.let { return it }
@@ -189,7 +199,7 @@ object ConfigIngest {
         return trimmed
     }
 
-    private fun parseSingBox(raw: String, fetch: ((String) -> String)?): Result? {
+    private fun parseSingBox(raw: String, fetch: ((String) -> String)?, deadlineMs: Long = 0L): Result? {
         val root = try {
             if (raw.first() == '[') {
                 val arr = JsonConfig.arrayOrNull(raw) ?: return null
@@ -199,7 +209,7 @@ object ConfigIngest {
                     convertXrayOutbounds(arr)
                 } else if (first.has("name") && first.has("type") && !first.has("tag")) {
                     // Clash proxies as a JSON array.
-                    convertClashTree(mapOf("proxies" to jsonTree(arr)), fetch, format = Format.ShareLinks)
+                    convertClashTree(mapOf("proxies" to jsonTree(arr)), fetch, format = Format.ShareLinks, deadlineMs = deadlineMs)
                 } else if (!first.has("type") && !first.has("tag")) {
                     null
                 } else if (hasGroups(arr)) {
@@ -211,7 +221,7 @@ object ConfigIngest {
                 val parsed = JsonConfig.objectOrNull(raw) ?: return null
                 val outs = parsed.optJSONArray("outbounds")
                 if (isClashDocument(parsed)) {
-                    convertClashTree(jsonTree(parsed) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch)
+                    convertClashTree(jsonTree(parsed) as? Map<*, *> ?: emptyMap<String, Any?>(), fetch, deadlineMs = deadlineMs)
                 } else if (outs != null && isXrayOutbounds(outs)) {
                     convertXrayOutbounds(outs)
                 } else if (parsed.has("protocol") && (parsed.has("settings") || parsed.has("streamSettings"))) {
@@ -557,9 +567,9 @@ object ConfigIngest {
         return obj.has("mixed-port") && !obj.has("outbounds")
     }
 
-    private fun convertClash(text: String, fetch: ((String) -> String)?): Result? {
+    private fun convertClash(text: String, fetch: ((String) -> String)?, deadlineMs: Long = 0L): Result? {
         val tree = MiniYaml.parse(text) as? Map<*, *> ?: return null
-        return convertClashTree(tree, fetch)
+        return convertClashTree(tree, fetch, deadlineMs = deadlineMs)
     }
 
     private fun convertClashTree(
@@ -567,13 +577,14 @@ object ConfigIngest {
         fetch: ((String) -> String)?,
         extraNodes: List<JSONObject> = emptyList(),
         format: Format = Format.Clash,
+        deadlineMs: Long = 0L,
     ): Result {
         val proxies = asMapList(mapIgnoreCase(tree, "proxies")).toMutableList()
         val shareFromProviders = JSONArray()
         extraNodes.forEach { shareFromProviders.put(it) }
         val providerMembers = LinkedHashMap<String, List<String>>()
         val providerNotes = mutableListOf<String>()
-        pullProxyProviders(tree, fetch, proxies, shareFromProviders, providerMembers, providerNotes)
+        pullProxyProviders(tree, fetch, proxies, shareFromProviders, providerMembers, providerNotes, deadlineMs)
         val groups = asMapList(mapIgnoreCase(tree, "proxy-groups") ?: mapIgnoreCase(tree, "proxy_groups"))
         val rules = asStringList(mapIgnoreCase(tree, "rules"))
         val providers = asMap(
@@ -1724,11 +1735,17 @@ object ConfigIngest {
         shareNodes: JSONArray,
         providerMembers: MutableMap<String, List<String>>,
         notes: MutableList<String>,
+        deadlineMs: Long = 0L,
     ) {
         val sources = asMap(
             mapIgnoreCase(tree, "proxy-providers") ?: mapIgnoreCase(tree, "proxy_providers"),
         ) ?: return
-        var pulled = 0
+        // Attempts, not successes: a provider that fails to download still
+        // cost a full fetch (in the update path a fresh route deadline
+        // each), so it spends from the same budget — counting only
+        // successes let a file full of dead providers burn one fetch per
+        // entry. Same counting as RuleSetWork.providerItems below.
+        var attempts = 0
         for ((key, value) in sources) {
             val spec = asMap(value) ?: continue
             val name = key?.toString()?.trim().orEmpty()
@@ -1739,7 +1756,6 @@ object ConfigIngest {
                 asMapList(spec["payload"]) to emptyList()
             } else {
                 if (fetch == null) continue
-                if (pulled >= 8) break
                 val url = str(spec["url"])
                 if (!url.startsWith("https://", ignoreCase = true)) {
                     notes += if (kind == "file" && url.isEmpty()) {
@@ -1749,13 +1765,21 @@ object ConfigIngest {
                     }
                     continue
                 }
+                if (attempts >= MAX_PROVIDER_FETCHES) break
+                // The update round's deadline used to be checked only
+                // between profiles, so one conversion could eat the
+                // whole round here; check it per provider too.
+                if (deadlineMs > 0L && System.currentTimeMillis() > deadlineMs) {
+                    notes += "拉取节点源已超时，剩余节点源已跳过"
+                    break
+                }
+                attempts++
                 val body = try {
                     fetch(url)
                 } catch (_: Exception) {
                     notes += "节点源「$name」没拉下来"
                     continue
                 }
-                pulled++
                 readProviderBody(body)
             }
             val filters = clashFilters(spec["filter"])
@@ -3107,6 +3131,17 @@ object ConfigIngest {
             }
             val host = uri.host?.trim().orEmpty()
             if (host.isEmpty()) continue
+            // The kernel dials this server through the local resolver
+            // (domain_resolver below) whose answers get no address-class
+            // filtering at dial time, so the hint has to pass the same
+            // policy as every other remote fetch before it is written:
+            // resolve and classify every resulting address. A hint that
+            // fails — private / loopback / link-local answer, blocked
+            // host, unresolvable — is not installed.
+            if (!echDohAllowed(doh)) {
+                rejectedEchDohHosts.get() += host
+                continue
+            }
             val tag = "ech-" + host.lowercase().replace('.', '-').take(40)
             if (!dnsServerHas(servers, tag)) {
                 val server = JSONObject()
@@ -3123,6 +3158,14 @@ object ConfigIngest {
             if (prependEchRule(dns, name, tag)) changed = true
         }
         return changed
+    }
+
+    /** Same gate as a subscription URL: [RemoteUrlGuard] with resolution. */
+    private fun echDohAllowed(doh: String): Boolean = try {
+        RemoteUrlGuard.requireAllowed(doh, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     /** Domain names that ECH-enabled outbounds/endpoints query HTTPS records for. */
@@ -3928,7 +3971,7 @@ internal object MiniYaml {
         if (line.indent < minIndent) return null
         if (isFlowStart(line.raw) && flowDepth(line.raw) == 0 && pairColon(line.raw) < 0) {
             index[0]++
-            return parseFlow(line.raw)
+            return parseFlow(line.raw, depth)
         }
         if (line.raw.startsWith("&") || line.raw.startsWith("*")) {
             index[0]++
@@ -3960,7 +4003,7 @@ internal object MiniYaml {
             val value: Any? = when {
                 rest.isEmpty() -> parseNode(lines, index, indent + 1, depth + 1)
                 rest.startsWith("*") -> alias(rest)
-                isFlowStart(rest) && pairColon(rest) < 0 -> parseFlow(rest)
+                isFlowStart(rest) && pairColon(rest) < 0 -> parseFlow(rest, depth)
                 isItem(rest) -> {
                     // `- - a` nested sequence on one line: rare, keep the inner item text.
                     listOf(parseScalar(rest.substring(1).trim()))
@@ -4064,7 +4107,7 @@ internal object MiniYaml {
         }
         val result: Any? = when {
             v.startsWith("*") -> alias(v)
-            v.isNotEmpty() -> if (isFlowStart(v)) parseFlow(v) else parseScalar(v)
+            v.isNotEmpty() -> if (isFlowStart(v)) parseFlow(v, depth) else parseScalar(v)
             index[0] >= lines.size -> emptyMap<String, Any?>()
             else -> {
                 val next = lines[index[0]]
@@ -4191,16 +4234,24 @@ internal object MiniYaml {
         return sb.toString()
     }
 
-    private fun parseFlow(raw: String): Any? {
+    /**
+     * Flow collections share the block parser's depth budget: [depth] is the
+     * block nesting depth the flow value sits at, every nested flow list/map
+     * adds one, and past [MAX_DEPTH] the same [YamlDepthException] is thrown.
+     * Without this a `[[[[…` value recursed until StackOverflowError, which
+     * callers cannot catch (it is an Error, not an Exception).
+     */
+    private fun parseFlow(raw: String, depth: Int = 0): Any? {
+        if (depth > MAX_DEPTH) throw YamlDepthException("YAML nesting too deep (>$MAX_DEPTH)")
         val s = raw.trim()
         return when {
-            s.startsWith("{") -> parseFlowMap(s)
-            s.startsWith("[") -> parseFlowList(s)
-            else -> flowScalar(s)
+            s.startsWith("{") -> parseFlowMap(s, depth)
+            s.startsWith("[") -> parseFlowList(s, depth)
+            else -> flowScalar(s, depth)
         }
     }
 
-    private fun flowScalar(raw: String): Any? {
+    private fun flowScalar(raw: String, depth: Int = 0): Any? {
         val p = raw.trim()
         var v = p
         var anchor: String? = null
@@ -4210,7 +4261,7 @@ internal object MiniYaml {
         }
         val result = when {
             v.startsWith("*") -> alias(v)
-            isFlowStart(v) -> parseFlow(v)
+            isFlowStart(v) -> parseFlow(v, depth + 1)
             else -> parseScalar(v)
         }
         if (anchor != null) anchors.get()[anchor] = result
@@ -4225,7 +4276,7 @@ internal object MiniYaml {
         return s.trim()
     }
 
-    private fun parseFlowMap(raw: String): Map<String, Any?> {
+    private fun parseFlowMap(raw: String, depth: Int = 0): Map<String, Any?> {
         val inner = closeFlow(raw, '{', '}')
         val map = LinkedHashMap<String, Any?>()
         splitFlow(inner).forEach { part ->
@@ -4234,7 +4285,7 @@ internal object MiniYaml {
             if (colon < 0) {
                 map[unquoteKey(part.trim())] = null
             } else {
-                map[unquoteKey(part.substring(0, colon).trim())] = flowScalar(part.substring(colon + 1))
+                map[unquoteKey(part.substring(0, colon).trim())] = flowScalar(part.substring(colon + 1), depth)
             }
         }
         return applyMerge(map)
@@ -4265,7 +4316,7 @@ internal object MiniYaml {
         return -1
     }
 
-    private fun parseFlowList(raw: String): List<Any?> {
+    private fun parseFlowList(raw: String, depth: Int = 0): List<Any?> {
         val inner = closeFlow(raw, '[', ']')
         if (inner.isEmpty()) return emptyList()
         return splitFlow(inner).filter { it.isNotBlank() }.map { part ->
@@ -4273,9 +4324,9 @@ internal object MiniYaml {
             if (!isFlowStart(p) && !p.startsWith("\"") && !p.startsWith("'") && pairColon(p) >= 0) {
                 // `[a: 1]` single-pair map inside a flow list.
                 val (k, v) = splitPair(p)
-                mapOf(k to flowScalar(v))
+                mapOf(k to flowScalar(v, depth))
             } else {
-                flowScalar(p)
+                flowScalar(p, depth)
             }
         }
     }

@@ -92,6 +92,7 @@ object SettingsKey {
     const val TAILSCALE_SSH_FONT_FOLLOW_THEME = "tailscale_ssh_font_follow_theme"
 
     const val STARTED_BY_USER = "started_by_user"
+    const val BOOT_SKIP_CONSUMED_REPORTS = "boot_skip_consumed_reports"
     const val CACHED_UPDATE_INFO = "cached_update_info"
     const val CACHED_APK_PATH = "cached_apk_path"
     const val LAST_SHOWN_UPDATE_VERSION = "last_shown_update_version"
