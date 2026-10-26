@@ -68,5 +68,5 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
-          go test ./option/ -run TestChain -v
+          go test ./option/ -run TestCompileChainOutbounds -v
           go test ./protocol/group/ -v
