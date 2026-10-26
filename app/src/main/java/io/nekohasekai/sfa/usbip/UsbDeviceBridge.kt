@@ -129,7 +129,11 @@ class UsbDeviceBridge private constructor(
             return
         }
         if (setup.directionIn) {
-            val buffer = ByteArray(request.transferBufferLength)
+            // Cross-check the peer-declared length against the setup
+            // packet's wLength: a control read can never legitimately
+            // move more than wLength bytes, while transferBufferLength
+            // is entirely peer-controlled (audit P3-1).
+            val buffer = ByteArray(minOf(request.transferBufferLength, setup.length))
             val transferred =
                 connection.controlTransfer(
                     setup.requestType,
@@ -183,7 +187,10 @@ class UsbDeviceBridge private constructor(
             return
         }
         if (request.directionIn) {
-            val buffer = ByteArray(request.transferBufferLength)
+            // Hold the module's wire cap app-side as well: sing-usbip
+            // refuses transferBufferLength above 16 MiB at parse time,
+            // and the allocation here must never exceed it (audit P3-1).
+            val buffer = ByteArray(minOf(request.transferBufferLength, MAX_IN_TRANSFER_BYTES))
             val transferred = connection.bulkTransfer(endpoint, buffer, buffer.size, TRANSFER_TIMEOUT_MS)
             applyResult(response, transferred, buffer)
         } else {
@@ -229,6 +236,18 @@ class UsbDeviceBridge private constructor(
             }
         }
         claimedInterfaces.clear()
+    }
+
+    /**
+     * Peer-initiated abort (CMD_UNLINK): interrupt the endpoint's
+     * in-flight transfer and drop its queued URBs. The executor is
+     * removed from the map first, so a later [submit] on the same
+     * endpoint starts a fresh one instead of queueing behind the aborted
+     * work — the same remove-then-shutdownNow shape as [close].
+     */
+    fun cancel(endpoint: Int) {
+        if (closed) return
+        executors.remove(endpoint and 0x0f)?.shutdownNow()
     }
 
     fun close() {
@@ -281,6 +300,10 @@ class UsbDeviceBridge private constructor(
         }
 
         private const val CONTROL_TIMEOUT_MS = 5000
+
+        // sing-usbip's parse-layer cap on transferBufferLength; the app
+        // holds the same line for its IN allocations.
+        private const val MAX_IN_TRANSFER_BYTES = 16 * 1024 * 1024
 
         // Block until the endpoint completes; detach closes the fd to unblock waiters.
         private const val TRANSFER_TIMEOUT_MS = 0

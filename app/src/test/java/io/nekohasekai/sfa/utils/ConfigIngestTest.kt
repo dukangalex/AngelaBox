@@ -648,10 +648,13 @@ class ConfigIngestTest {
               - GEOIP,CN
               - PROCESS-NAME,SomeApp
         """.trimIndent()
-        val result = ConfigIngest.adapt(yaml) { url ->
-            assertEquals("https://example.com/stream.yaml", url)
-            body
-        }
+        val result = ConfigIngest.adapt(
+            yaml,
+            fetch = { url ->
+                assertEquals("https://example.com/stream.yaml", url)
+                body
+            },
+        )
         val root = JSONObject(result.content)
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).map { sets.getJSONObject(it) }
@@ -694,7 +697,7 @@ class ConfigIngestTest {
               - MATCH,PROXY
         """.trimIndent()
         val body = "# heading comment\n192.0.2.0/24\n198.51.100.7\n2001:db8::/32\nnot-an-ip\n"
-        val result = ConfigIngest.adapt(yaml) { body }
+        val result = ConfigIngest.adapt(yaml, fetch = { body })
         val root = JSONObject(result.content)
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val inline = (0 until sets.length()).map { sets.getJSONObject(it) }
@@ -731,7 +734,7 @@ class ConfigIngestTest {
               - RULE-SET,reject,REJECT
               - MATCH,PROXY
         """.trimIndent()
-        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("offline") }
+        val result = ConfigIngest.adapt(yaml, fetch = { throw RuntimeException("offline") })
         val root = JSONObject(result.content)
         val setsText = root.getJSONObject("route").getJSONArray("rule_set").toString()
         assertTrue(setsText.contains("geosite-category-ads-all"))
@@ -766,7 +769,7 @@ class ConfigIngestTest {
               - RULE-SET,my-list,PROXY
               - MATCH,PROXY
         """.trimIndent()
-        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("offline") }
+        val result = ConfigIngest.adapt(yaml, fetch = { throw RuntimeException("offline") })
         val root = JSONObject(result.content)
         val route = root.getJSONObject("route")
         // The only user rule referenced the dead provider, so no rules
@@ -799,7 +802,7 @@ class ConfigIngestTest {
               - RULE-SET,cn,DIRECT
               - MATCH,PROXY
         """.trimIndent()
-        val result = ConfigIngest.adapt(yaml) { throw RuntimeException("must not fetch") }
+        val result = ConfigIngest.adapt(yaml, fetch = { throw RuntimeException("must not fetch") })
         val root = JSONObject(result.content)
         val setsText = root.getJSONObject("route").getJSONArray("rule_set").toString()
         assertTrue(setsText.contains("geosite-cn"))
@@ -955,7 +958,7 @@ class ConfigIngestTest {
                 cipher: aes-256-gcm
                 password: secret
         """.trimIndent()
-        val result = ConfigIngest.adapt(yaml) { provider }
+        val result = ConfigIngest.adapt(yaml, fetch = { provider })
         assertEquals(ConfigIngest.Format.Clash, result.format)
         assertTrue(result.fatal == null)
         val node = outbound(result.content, "us-ss")

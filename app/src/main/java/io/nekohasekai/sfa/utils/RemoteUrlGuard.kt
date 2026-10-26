@@ -17,8 +17,8 @@ data class ValidatedEndpoint(
 /**
  * SSRF / fetch policy for every URL the app downloads.
  *
- * All kinds require HTTPS. Loopback, RFC1918, ULA, CGNAT, link-local,
- * multicast, and cloud metadata are blocked. [Kind.UPDATE] is additionally
+ * All kinds require HTTPS. Loopback, 0.0.0.0/8, RFC1918, ULA, CGNAT,
+ * link-local, multicast, and cloud metadata are blocked. [Kind.UPDATE] is additionally
  * pinned to GitHub. Every address [validate] returns is allowed: a resolver
  * passed in must return only allowed addresses (mixed public+private is
  * rejected), while the default system resolver drops disallowed answers
@@ -202,14 +202,14 @@ object RemoteUrlGuard {
         if (isMetadataAddress(bytes)) return false
         val embedded = embeddedIpv4(bytes)
         if (embedded != null) {
-            if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded)) return false
+            if (isMetadataAddress(embedded) || isLinkLocalV4(embedded) || isLoopbackV4(embedded) || isZeroPrefixV4(embedded)) return false
             if (isRfc1918(embedded) || isCgnat(embedded)) return false
             // 198.18/15 fake-ip：自家隧道开着时拦（自家 fake-ip DNS 漏进旁路拨号）；
             // 隧道没开时只可能来自别家 VPN 的 fake-ip（经由该 VPN 可达）或投毒
             // （连不上，自然失败），不再拦。否则开着别家 VPN 永远导不进订阅。
             if (isFakeIp(embedded) && TunnelGate.up) return false
         }
-        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes)) return false
+        if (isRfc1918(bytes) || isUniqueLocalIpv6(bytes) || isCgnat(bytes) || isZeroPrefixV4(bytes)) return false
         if (isFakeIp(bytes) && TunnelGate.up) return false
         return true
     }
@@ -363,6 +363,17 @@ object RemoteUrlGuard {
     private fun isLoopbackV4(bytes: ByteArray): Boolean {
         if (bytes.size != 4) return false
         return (bytes[0].toInt() and 0xff) == 127
+    }
+
+    /**
+     * 0.0.0.0/8 ("this network", RFC 1122): only the exact address 0.0.0.0 is
+     * [java.net.InetAddress.isAnyLocalAddress]; 0.0.0.1 and friends are not
+     * loopback / link-local / RFC1918 either, so without this the whole /8
+     * sails through — and platforms route it to local services.
+     */
+    private fun isZeroPrefixV4(bytes: ByteArray): Boolean {
+        if (bytes.size != 4) return false
+        return (bytes[0].toInt() and 0xff) == 0
     }
 
     /**

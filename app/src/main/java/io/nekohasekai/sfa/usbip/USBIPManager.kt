@@ -147,7 +147,14 @@ object USBIPManager {
 
         override fun onURBRequest(request: USBURBRequest) = dispatchUrb(serverTag, request)
 
-        override fun onAbort(deviceID: String, endpoint: Int) {}
+        override fun onAbort(deviceID: String, endpoint: Int) {
+            // The daemon re-issues the abort until the endpoint drains.
+            // Actually dropping the in-flight transfer and its queued URBs
+            // is what lets it drain; this used to be a no-op, so an unlink
+            // of a stuck transfer wedged the endpoint for good (audit P3-1).
+            val bridge = synchronized(access) { sessions[serverTag]?.bridges?.get(deviceID) } ?: return
+            bridge.cancel(endpoint)
+        }
 
         override fun onError(deviceID: String, message: String) = onProviderError(serverTag, deviceID, message)
     }

@@ -98,6 +98,9 @@ fun BackupRestoreScreen(navController: NavController) {
     var showWebdavEditor by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(false) }
     var restoreCompat by remember { mutableStateOf(Settings.restoreCompat) }
+    // Opt-in for the portable backup's sensitive items (overlay scripts /
+    // bindings). Deliberately not persisted: every visit starts at "skip".
+    var restoreSensitiveItems by remember { mutableStateOf(false) }
     // AB-021 password flow state. Passwords live only in these transient
     // in-memory holders for the duration of one export or restore; they
     // are never persisted, logged or written into the backup itself.
@@ -162,7 +165,9 @@ fun BackupRestoreScreen(navController: NavController) {
         scope.launch {
             busy = true
             val result = withContext(Dispatchers.IO) {
-                BackupManager.restoreBackupFile(context, tmp, Settings.restoreCompat, password).also { restored ->
+                BackupManager.restoreBackupFile(
+                    context, tmp, Settings.restoreCompat, password, restoreSensitiveItems,
+                ).also { restored ->
                     // AB-020: warm the restored configs' rule sets now,
                     // synchronously — the relaunch below would kill a
                     // fire-and-forget warm before it downloaded anything.
@@ -180,8 +185,23 @@ fun BackupRestoreScreen(navController: NavController) {
             if (result.isSuccess) {
                 restorePwFile = null
                 restorePwError = null
-                snackbar.showSnackbar("恢复完成，正在重新加载…")
-                delay(400)
+                val summary = result.getOrNull()?.let { report ->
+                    buildString {
+                        if (report.remoteProfiles.isNotEmpty()) {
+                            append(" · ${report.remoteProfiles.size} 个远程订阅已恢复（自动更新已关闭）")
+                        }
+                        if (report.skippedScriptNames.isNotEmpty()) {
+                            append(" · 已跳过 ${report.skippedScriptNames.size} 个叠加脚本")
+                        }
+                        val skippedBindings =
+                            report.skippedChainBindingCount + report.skippedScriptBindingCount
+                        if (skippedBindings > 0) {
+                            append(" · 已跳过 $skippedBindings 条绑定")
+                        }
+                    }
+                }.orEmpty()
+                snackbar.showSnackbar("恢复完成，正在重新加载…$summary")
+                delay(if (summary.isEmpty()) 400 else 1600)
                 softRelaunchApp(context)
             } else if (fromDialog) {
                 // Keep the password dialog open with the failure shown so
@@ -624,6 +644,27 @@ fun BackupRestoreScreen(navController: NavController) {
                     modifier = Modifier.clickable {
                         restoreCompat = !restoreCompat
                         Settings.restoreCompat = restoreCompat
+                    },
+                )
+                ListItem(
+                    headlineContent = { Text("恢复脚本与绑定") },
+                    trailingContent = {
+                        Text(
+                            if (restoreSensitiveItems) "包含" else "跳过",
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            if (restoreSensitiveItems) {
+                                "同时恢复备份里的叠加脚本与链式绑定；脚本绑定不预置，恢复后需在配置里逐个手动绑定"
+                            } else {
+                                "默认跳过备份里的叠加脚本、脚本绑定与链式绑定，避免恢复后立即生效"
+                            },
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        restoreSensitiveItems = !restoreSensitiveItems
                     },
                 )
             }

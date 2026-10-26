@@ -51,6 +51,16 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
         val decodedBlocks: Array<ByteArray?> = arrayOfNulls(totalBlocks)
         var decodedCount: Int = 0
 
+        /**
+         * Set once retained pending state would exceed the session budget
+         * (see MAX_PENDING_BLOCKS / MAX_PENDING_BYTES in LubyCodec); the
+         * session is poisoned and QRSDecoder aborts it.
+         */
+        var budgetExceeded: Boolean = false
+
+        /** Modelled retained bytes of the blocks held in [blockKeyMap]. */
+        internal var pendingRetainedBytes: Long = 0
+
         internal val blockKeyMap: MutableMap<IntArrayKey, PendingBlock> = mutableMapOf()
         internal val blockSubkeyMap: MutableMap<IntArrayKey, MutableSet<PendingBlock>> = mutableMapOf()
         val blockIndexMap: MutableMap<Int, MutableSet<PendingBlock>> = mutableMapOf()
@@ -155,8 +165,21 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
 
         // Still pending: store and register for future matching
         if (indices.size > 1) {
+            val cost = pendingCost(pending)
+            if (state.budgetExceeded ||
+                state.blockKeyMap.size >= MAX_PENDING_BLOCKS ||
+                state.pendingRetainedBytes + cost > MAX_PENDING_BYTES
+            ) {
+                // Refuse to retain more state: this session can no longer
+                // finish within budget, so QRSDecoder aborts it instead of
+                // letting pending blocks accumulate until the heap is gone.
+                state.budgetExceeded = true
+                return
+            }
             val newKey = indicesToKey(indices)
-            state.blockKeyMap[newKey] = pending
+            val replaced = state.blockKeyMap.put(newKey, pending)
+            if (replaced != null) state.pendingRetainedBytes -= pendingCost(replaced)
+            state.pendingRetainedBytes += cost
 
             // Register for single-index lookups
             for (idx in indices) {
@@ -179,7 +202,9 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
                 for (superblock in supersets.toList()) {
                     // Remove old registrations before modifying
                     val oldKey = indicesToKey(superblock.indices)
-                    state.blockKeyMap.remove(oldKey)
+                    state.blockKeyMap.remove(oldKey)?.let {
+                        state.pendingRetainedBytes -= pendingCost(it)
+                    }
                     for (idx in superblock.indices) {
                         state.blockIndexMap[idx]?.remove(superblock)
                     }
@@ -203,6 +228,19 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
 
     private fun indicesToKey(indices: List<Int>): IntArrayKey = IntArrayKey(indices.sorted().toIntArray())
 
+    /**
+     * Modelled retained bytes of one stored pending block: its data clone,
+     * the sorted key array, one index-set registration per index, and — for
+     * degree > 2 — two (degree-1)-element arrays per index (the subkey map
+     * key plus the second copy captured by its dispose closure).
+     */
+    private fun pendingCost(block: DecodingState.PendingBlock): Long {
+        val degree = block.indices.size
+        var cost = block.data.size.toLong() + degree * 4L + degree * 64L
+        if (degree > 2) cost += degree.toLong() * (degree - 1) * 4L * 2L
+        return cost
+    }
+
     private fun propagateDecoding(state: DecodingState, decodedIdx: Int, queue: ArrayDeque<DecodingState.PendingBlock>) {
         val toProcess = ArrayDeque<Int>()
         toProcess.add(decodedIdx)
@@ -218,7 +256,9 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
             val blocks = state.blockIndexMap.remove(idx) ?: continue
             for (pending in blocks) {
                 val oldKey = indicesToKey(pending.indices)
-                state.blockKeyMap.remove(oldKey)
+                state.blockKeyMap.remove(oldKey)?.let {
+                    state.pendingRetainedBytes -= pendingCost(it)
+                }
 
                 xorInPlace(pending.data, decodedData)
                 pending.indices.remove(idx)
@@ -317,5 +357,21 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
             dest[i] = (dest[i].toInt() xor src[i].toInt()).toByte()
             i++
         }
+    }
+
+    private companion object {
+        // Pending-state budget for one decoding session. Frames are gated
+        // upstream to degree <= 1000 and totalBlocks <= 100000
+        // (QRSDecoder.MAX_BLOCKS and the scan ViewModel), and a stored
+        // block's retained state is dominated by its subkey registrations:
+        // ~107 KB measured for a degree-100 block, ~8 MB worst case at
+        // degree 1000 (see pendingCost). A conforming fountain stream
+        // resolves blocks in cascade, so its unresolved frontier stays in
+        // the tens; 4096 blocks and 64 MiB sit orders of magnitude above
+        // any legitimate frontier, while the unbounded behaviour measured
+        // in the audit (~4,700 degree-100 frames to exhaust a 512 MB heap)
+        // now trips the byte budget after a few hundred frames.
+        const val MAX_PENDING_BLOCKS = 4096
+        const val MAX_PENDING_BYTES = 64L * 1024 * 1024
     }
 }

@@ -81,6 +81,21 @@ class QRSDecoder {
         val currentState = state!!
         val complete = codec!!.processBlock(currentState, block)
 
+        // A hostile stream can keep its blocks mutually unresolvable
+        // forever; when the codec's pending-state budget trips, abort the
+        // session through the same error surface as a checksum failure
+        // instead of accumulating state until the process runs out of heap.
+        if (!complete && currentState.budgetExceeded) {
+            val aborted = DecodeProgress(
+                currentState.decodedCount,
+                currentState.totalBlocks,
+                true,
+                error = "Decoding state budget exceeded",
+            )
+            reset()
+            return aborted
+        }
+
         return if (complete) {
             val assembledData = codec!!.assembleData(currentState)
             val compressedData = assembledData.copyOf(currentState.compressedSize)

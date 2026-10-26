@@ -169,6 +169,16 @@
     <string name="import_profile_confirm_title">导入配置</string>
     <string name="import_warnings_title">导入完成，有 %1$d 条提醒</string>
     <string name="import_profile_confirm_message">导入配置「%s」？</string>
+    <string name="import_profile_detail_type_local">类型：本地配置</string>
+    <string name="import_profile_detail_type_remote">类型：远程订阅</string>
+    <string name="import_profile_detail_url">地址：%1$s</string>
+    <string name="import_profile_detail_auto_update_on">自动更新：开（每 %1$d 分钟）</string>
+    <string name="import_profile_detail_auto_update_off">自动更新：关</string>
+    <string name="import_profile_ssh_server_warning">此配置会开启远程 shell（Tailscale SSH），登录策略由其 tailnet 控制端决定</string>
+    <string name="error_import_snapshot_mismatch">文件在检查后已被更改，已拒绝导入。</string>
+    <string name="import_fetch_confirm_title">获取远程提供方？</string>
+    <string name="import_fetch_confirm_message">此文件引用了远程代理提供方，完成导入将连接以下地址：</string>
+    <string name="import_fetch_confirm_action">获取并导入</string>
     <string name="import_action">导入</string>
     <string name="group_selected_title">选中</string>
     <string name="log_level">日志级别</string>

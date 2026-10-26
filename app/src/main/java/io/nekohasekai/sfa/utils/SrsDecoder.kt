@@ -428,7 +428,13 @@ object SrsDecoder {
         fun strings(): List<String> {
             val n = uvarint().toInt()
             if (n < 0) return emptyList()
-            val out = ArrayList<String>(n)
+            // Every entry costs at least its 1-byte uvarint length prefix
+            // (a zero-length string), so a count above the remaining bytes
+            // can never decode: reject it like a truncated file instead of
+            // presizing an allocation from the attacker's number.
+            val remaining = buf.size - i
+            if (n > remaining) error("srs string count too large")
+            val out = ArrayList<String>(minOf(n, remaining))
             repeat(n) {
                 out += String(byteSlice(), StandardCharsets.UTF_8)
             }

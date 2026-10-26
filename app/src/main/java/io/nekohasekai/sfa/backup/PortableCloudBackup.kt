@@ -63,6 +63,25 @@ object PortableCloudBackup {
         val landingTag: String,
     )
 
+    /**
+     * What [applyPortableSettings] did with the backup's sensitive items
+     * (overlay scripts, script bindings, chain bindings), so the restore
+     * result can disclose what was skipped instead of staying silent.
+     */
+    data class SensitiveItemsOutcome(
+        /** Names of overlay scripts not installed (no opt-in). */
+        val skippedScriptNames: List<String> = emptyList(),
+        /** Chain bindings not installed (no opt-in). */
+        val skippedChainBindingCount: Int = 0,
+        /**
+         * Per-profile script bindings not installed. Bindings are never
+         * restored preset — not even on opt-in — because a binding is what
+         * makes a script run at service start; the user binds restored
+         * scripts per profile, like any newly added script.
+         */
+        val skippedScriptBindingCount: Int = 0,
+    )
+
     data class Archive(
         val writtenBy: String,
         val time: Long,
@@ -233,11 +252,25 @@ object PortableCloudBackup {
             .put("webdav", webdav)
     }
 
-    fun applyPortableSettings(raw: String, uuidToLocal: Map<String, Long>) {
+    /**
+     * Applies a portable backup's settings. [includeSensitiveItems] gates
+     * the sensitive items — overlay scripts, script bindings and chain
+     * bindings: a restored script runs at service start and can rewrite
+     * the whole kernel config, so they are never installed silently. By
+     * default they are skipped (live values left untouched) and reported
+     * in the returned [SensitiveItemsOutcome]. On opt-in the scripts and
+     * chain bindings install, but script bindings still do not: scripts
+     * land unbound and are bound per profile by the user.
+     */
+    fun applyPortableSettings(
+        raw: String,
+        uuidToLocal: Map<String, Long>,
+        includeSensitiveItems: Boolean = false,
+    ): SensitiveItemsOutcome {
         val root = try {
             JSONObject(raw)
         } catch (_: Exception) {
-            return
+            return SensitiveItemsOutcome()
         }
         fun bool(key: String, fallback: Boolean): Boolean =
             if (root.has(key)) root.optBoolean(key, fallback) else fallback
@@ -264,12 +297,36 @@ object PortableCloudBackup {
             if (remote.isNotEmpty()) Settings.webdavRemoteFile = remote
         }
 
-        val scripts = root.optJSONArray("overlay_scripts")
-        if (scripts != null) {
-            Settings.overlayScriptsJson = scripts.toString()
+        val scriptArray = root.optJSONArray("overlay_scripts")
+        val chainArray = root.optJSONArray("chain_bindings") ?: JSONArray()
+        val scriptBindings = root.optJSONObject("overlay_script_bindings") ?: JSONObject()
+        var scriptBindingCount = 0
+        run {
+            val keys = scriptBindings.keys()
+            while (keys.hasNext()) {
+                scriptBindingCount += scriptBindings.optJSONArray(keys.next())?.length() ?: 0
+            }
         }
 
-        val chainArray = root.optJSONArray("chain_bindings") ?: JSONArray()
+        if (!includeSensitiveItems) {
+            // Sensitive items stay out entirely: the live scripts, bindings
+            // and chain state are left exactly as they were, and the skip is
+            // reported so the restore result can disclose it.
+            return SensitiveItemsOutcome(
+                skippedScriptNames = if (scriptArray != null) {
+                    OverlayScripts.decode(scriptArray.toString()).map { it.name }
+                } else {
+                    emptyList()
+                },
+                skippedChainBindingCount = chainArray.length(),
+                skippedScriptBindingCount = scriptBindingCount,
+            )
+        }
+
+        if (scriptArray != null) {
+            Settings.overlayScriptsJson = scriptArray.toString()
+        }
+
         val chain = linkedMapOf<Long, ChainBinding>()
         for (i in 0 until chainArray.length()) {
             val item = chainArray.optJSONObject(i) ?: continue
@@ -287,22 +344,10 @@ object PortableCloudBackup {
         Settings.chainBindingsJson = ChainBindingCodec.encode(chain)
         Settings.chainEnabled = chain.isNotEmpty()
 
-        val scriptBindings = root.optJSONObject("overlay_script_bindings") ?: JSONObject()
-        val localBindings = linkedMapOf<Long, List<String>>()
-        val keys = scriptBindings.keys()
-        while (keys.hasNext()) {
-            val uuid = keys.next()
-            val local = uuidToLocal[uuid] ?: continue
-            val array = scriptBindings.optJSONArray(uuid) ?: continue
-            val ids = buildList {
-                for (i in 0 until array.length()) {
-                    val id = array.optString(i).trim()
-                    if (id.isNotEmpty()) add(id)
-                }
-            }
-            localBindings[local] = ids
-        }
-        Settings.overlayScriptBindingsJson = OverlayScripts.encodeBindings(localBindings)
+        // Even on opt-in, script bindings are not preset: the scripts above
+        // land unbound, and binding one to a profile stays a deliberate
+        // per-profile action in the UI.
+        return SensitiveItemsOutcome(skippedScriptBindingCount = scriptBindingCount)
     }
 
     fun importStableIds(profiles: List<PortableProfile>, uuidToLocal: Map<String, Long>) {

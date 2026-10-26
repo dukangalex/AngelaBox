@@ -44,6 +44,9 @@ data class NewProfileUiState(
     val nameError: String? = null,
     val remoteUrlError: String? = null,
     val importError: String? = null,
+    // Remote provider URLs an import is about to fetch, disclosed to the
+    // user before any of them is contacted (see the gate in createLocalProfile).
+    val pendingFetchUrls: List<String> = emptyList(),
 )
 
 enum class ProfileType {
@@ -63,6 +66,11 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(NewProfileUiState())
     val uiState: StateFlow<NewProfileUiState> = _uiState.asStateFlow()
+
+    // Provider URLs approved through confirmPendingFetch(); disclosure via
+    // uiState.pendingFetchUrls covers the re-tap path. Reset whenever the
+    // picked file changes.
+    private var approvedFetchUrls: List<String> = emptyList()
 
     fun initializeFromQRImport(name: String?, url: String?) {
         if (name != null && url != null) {
@@ -128,11 +136,13 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun setImportUri(uri: Uri, fileName: String?) {
+        approvedFetchUrls = emptyList()
         _uiState.update {
             it.copy(
                 importUri = uri,
                 importFileName = fileName,
                 importError = null,
+                pendingFetchUrls = emptyList(),
                 name =
                 if (it.name.isEmpty()) {
                     fileName?.substringBeforeLast(".") ?: "Imported Profile"
@@ -145,6 +155,19 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    /** Approve the disclosed provider URLs and continue the import. */
+    fun confirmPendingFetch() {
+        val state = _uiState.value
+        if (state.pendingFetchUrls.isEmpty()) return
+        approvedFetchUrls = state.pendingFetchUrls
+        _uiState.update { it.copy(pendingFetchUrls = emptyList()) }
+        createProfile()
+    }
+
+    fun cancelPendingFetch() {
+        _uiState.update { it.copy(pendingFetchUrls = emptyList()) }
     }
 
     fun validateAndCreateProfile(): Boolean {
@@ -203,12 +226,27 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                         }
                     }
 
+                approvedFetchUrls = emptyList()
                 _uiState.update {
                     it.copy(
                         isSaving = false,
                         isSuccess = true,
                         createdProfile = created.profile,
                         importHint = created.importHint,
+                        pendingFetchUrls = emptyList(),
+                    )
+                }
+            } catch (e: ProviderFetchConfirmationRequired) {
+                // Not an error: the import is paused before any fetch so
+                // the user can see (and approve) the URLs it would contact.
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        pendingFetchUrls = e.urls,
+                        errorMessage =
+                        "这份配置里有需要联网抓取的远程节点源，导入时会访问以下地址：\n" +
+                            e.urls.joinToString("\n") +
+                            "\n确认信任这些地址后，再次点「创建」继续导入。",
                     )
                 }
             } catch (e: Exception) {
@@ -258,6 +296,24 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                         readImportText(context, uri)
                     } ?: "{}"
                 }
+            }
+        }
+        // P3-4: a picked file can embed remote proxy-providers (and rule
+        // providers) that sanitizeRemote below would fetch without ever
+        // naming them — a "local" import silently making network requests
+        // to file-chosen hosts. Probe first with the converter's own
+        // detection (embeddedFetchUrls performs no network I/O): the
+        // first attempt only discloses the URLs, and creation proceeds
+        // once they have been disclosed (pendingFetchUrls in the state
+        // this attempt was launched with) or explicitly approved via
+        // confirmPendingFetch().
+        if (state.importUri != null) {
+            val fetchUrls = embeddedFetchUrls(raw)
+            if (fetchUrls.isNotEmpty() &&
+                fetchUrls != approvedFetchUrls &&
+                fetchUrls != state.pendingFetchUrls
+            ) {
+                throw ProviderFetchConfirmationRequired(fetchUrls)
             }
         }
         val configContent = ConfigCompat.sanitizeRemote(raw)
@@ -336,6 +392,31 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         return "这份订阅是节点链接，里面没有分流规则。建议在这个配置上开启「默认脚本」，国内直连和国外代理才会分开。应用不会自动开启。"
     }
 
+    /**
+     * Enumerate the remote URLs converting [raw] would fetch, using the
+     * converter's own detection: this runs the real sanitize conversion
+     * with a fetch channel that only records the URL and then aborts.
+     * The converter swallows the abort per provider, so every URL it
+     * would attempt is recorded — and nothing touches the network.
+     */
+    private fun embeddedFetchUrls(raw: String): List<String> {
+        val urls = LinkedHashSet<String>()
+        try {
+            ConfigCompat.sanitizeDetailed(
+                raw,
+                fetch = { url ->
+                    urls += url
+                    throw FetchProbeAbort
+                },
+            )
+        } catch (_: Exception) {
+            // A file the real pass will reject anyway: the scan only
+            // needs the URLs recorded up to the failure; the real error
+            // surfaces unchanged when the import actually runs.
+        }
+        return urls.toList()
+    }
+
     private fun readImportText(context: Application, uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
             ?: throw Exception("Unable to open imported profile")
@@ -350,3 +431,10 @@ private data class CreatedProfile(
     val profile: Profile,
     val importHint: String? = null,
 )
+
+/** Thrown by the probe fetch channel to stop a dry-run conversion fetch. */
+private object FetchProbeAbort : Exception("fetch probe")
+
+/** The import is paused before any fetch: these URLs need disclosure first. */
+private class ProviderFetchConfirmationRequired(val urls: List<String>) :
+    Exception("provider fetch confirmation required")
