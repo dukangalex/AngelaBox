@@ -238,7 +238,11 @@ def test_source_guards() -> None:
     assert "Compress-Archive" in desktop
     assert "AngelaBox-v" in desktop
     assert "dukangalex/sing-box-for-desktop" in desktop
-    assert "ref: angelabox" in desktop
+    # 覆盖层检出必须钉在 version.properties 的 DESKTOP_OVERLAY_COMMIT 并在构建前
+    # 校验 HEAD，不许回到可变分支 ref（安全审计 P3-2）。
+    assert "ref: angelabox" not in desktop
+    assert "ref: ${{ steps.pin.outputs.dcommit }}" in desktop
+    assert 'test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.dcommit }}"' in desktop
     assert "Rebrand desktop" not in desktop
     assert "Replace('productName: sing-box'" not in desktop
     assert "sing-box/clients/desktop" not in desktop
