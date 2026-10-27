@@ -116,8 +116,26 @@ fun ClashModeCard(modes: List<String>, selectedMode: String, onModeSelected: (St
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // A5: one line per mode saying what actually happens to
+            // rules / chain / system-explicit under it — previously the
+            // segmented control was three bare labels.
+            Text(
+                text = clashModeExplanation(selectedMode),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
+}
+
+@Composable
+private fun clashModeExplanation(mode: String): String = when (mode.trim().lowercase()) {
+    "direct", "直连" -> "全部流量直连，链式代理与系统显式分流不生效（防泄漏的拒绝类规则仍生效）"
+    "global", "全局" -> "全部流量走全局出口，规则分流不生效"
+    else -> "按规则分流：订阅规则、链式代理与系统显式开关照常生效"
 }
 
 @Composable

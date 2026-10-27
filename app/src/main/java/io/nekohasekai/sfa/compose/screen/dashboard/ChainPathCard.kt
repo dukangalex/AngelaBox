@@ -374,6 +374,15 @@ fun ChainPathCard(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // B3: a D3-invalidated landing must read as broken
+                    // here too, not as a normal exit name.
+                    if (topology.landingInvalidated) {
+                        Text(
+                            text = "已失效",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
                 Column(
                     horizontalAlignment = Alignment.End,

@@ -174,10 +174,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private var lastProfileName = ""
 
+    /**
+     * Foreground-notification title. With privacyProtect on, the profile
+     * name (often a subscription/airport name) is replaced by the app name —
+     * the notification is visible on the lock screen to anyone looking.
+     */
+    private fun notificationLabel(): String =
+        if (Settings.privacyProtect) "AngelaBox" else lastProfileName
+
     private suspend fun startService() {
         try {
             withContext(Dispatchers.Main) {
-                notification.show(lastProfileName, R.string.status_starting)
+                notification.show(notificationLabel(), R.string.status_starting)
             }
 
             val selectedProfileId = Settings.selectedProfile
@@ -200,7 +208,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             lastProfileName = profile.name
             withContext(Dispatchers.Main) {
-                notification.show(lastProfileName, R.string.status_starting)
+                notification.show(notificationLabel(), R.string.status_starting)
             }
 
             DefaultNetworkMonitor.start()
@@ -238,7 +246,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             notePrivateDns()
             withContext(Dispatchers.Main) {
-                notification.show(lastProfileName, R.string.status_started)
+                notification.show(notificationLabel(), R.string.status_started)
             }
             notification.start()
         } catch (e: Exception) {
@@ -335,7 +343,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
 
         withContext(Dispatchers.Main) {
-            notification.show(lastProfileName, R.string.status_started)
+            notification.show(notificationLabel(), R.string.status_started)
         }
     }
 
@@ -1233,7 +1241,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // "did not then call Service.startForeground()". Satisfy it right away.
         runCatching {
             notification.show(
-                lastProfileName,
+                notificationLabel(),
                 if (status.value == Status.Started) R.string.status_started else R.string.status_starting,
             )
         }

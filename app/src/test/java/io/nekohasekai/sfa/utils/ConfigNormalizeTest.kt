@@ -267,8 +267,11 @@ class ConfigNormalizeTest {
         // shape alone no longer convicts. A short third-party name
         // (telegram.srs at a provider repo) stays; an official-repo
         // geoip name whose only official file is a geosite domain
-        // list is NOT cross-swapped either; only the official-repo
-        // unreplaceable file (geoip-fastly) drops, ref included.
+        // list is NOT cross-swapped either. The official-repo
+        // unreplaceable file (geoip-fastly) used to drop, ref included;
+        // design v2 keeps it because a rule still references it —
+        // dropping the definition would dangle the reference and the
+        // kernel would refuse to start.
         val root = JSONObject(
             """
             {
@@ -290,7 +293,9 @@ class ConfigNormalizeTest {
             """.trimIndent(),
         )
         ConfigInboundCompat.rewriteRuleSetUrls(root)
-        assertTrue(ConfigInboundCompat.healRemoteRuleSets(root))
+        val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
+        assertFalse(heal.changed)
+        assertEquals(listOf("geoip-fastly"), heal.keptReferenced)
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
@@ -304,13 +309,13 @@ class ConfigNormalizeTest {
             "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs",
             byTag["geoip-telegram"],
         )
-        assertFalse(byTag.containsKey("geoip-fastly"))
+        assertTrue(byTag["geoip-fastly"]!!.contains("geoip-fastly.srs"))
         assertTrue(byTag["geoip-cn"]!!.contains("geoip-cn.srs"))
         val rules = root.getJSONObject("route").getJSONArray("rules")
         val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
         assertTrue(refs.contains("telegram"))
         assertTrue(refs.contains("geoip-telegram"))
-        assertFalse(refs.contains("geoip-fastly"))
+        assertTrue(refs.contains("geoip-fastly"))
         assertTrue(refs.contains("geoip-cn"))
     }
 
@@ -468,15 +473,20 @@ class ConfigNormalizeTest {
     @Test
     fun healDropsUnreplaceableOnlyAtOfficialUrls() {
         // geoip-private at a third-party host stays (it may exist
-        // there); the same name at the official repo drops, because
-        // sing-geoip provably has no such file and no successor.
+        // there); the same name at the official repo is unreplaceable,
+        // because sing-geoip provably has no such file and no successor.
+        // Design v2 (system-explicit step 5): a set still referenced by a
+        // rule is KEPT and reported via keptReferenced — dropping it would
+        // leave a dangling rule_set reference the kernel refuses to start
+        // with. Only the unreferenced official copy drops.
         val root = JSONObject(
             """
             {
               "route": {
                 "rule_set": [
                   {"tag": "priv-mirror", "type": "remote", "url": "https://rules.example.net/geoip-private.srs"},
-                  {"tag": "priv-official", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-private.srs"}
+                  {"tag": "priv-official", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-private.srs"},
+                  {"tag": "priv-unref", "type": "remote", "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-private.srs"}
                 ],
                 "rules": [
                   {"rule_set": "priv-mirror", "outbound": "direct"},
@@ -488,14 +498,17 @@ class ConfigNormalizeTest {
         )
         val heal = ConfigInboundCompat.healRemoteRuleSetsWithReport(root)
         assertTrue(heal.changed)
-        assertEquals(listOf("priv-official"), heal.dropped)
+        assertEquals(listOf("priv-unref"), heal.dropped)
+        assertEquals(listOf("priv-official"), heal.keptReferenced)
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
-        assertEquals(1, sets.length())
-        assertEquals("priv-mirror", sets.getJSONObject(0).getString("tag"))
+        assertEquals(2, sets.length())
+        val tags = (0 until sets.length()).map { sets.getJSONObject(it).getString("tag") }
+        assertTrue(tags.contains("priv-mirror"))
+        assertTrue(tags.contains("priv-official"))
         val rules = root.getJSONObject("route").getJSONArray("rules")
         val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
         assertTrue(refs.contains("priv-mirror"))
-        assertFalse(refs.contains("priv-official"))
+        assertTrue(refs.contains("priv-official"))
     }
 
     @Test
@@ -505,7 +518,10 @@ class ConfigNormalizeTest {
         // from sing-geosite, an IP-list tag fills from sing-geoip,
         // and an IP-list tag whose only official namesake is a
         // domain list (geoip-telegram, geoip-google, telegram-ip)
-        // gets no fill at all — it drops with its name recorded.
+        // gets no fill at all. Unreferenced ones drop with their name
+        // recorded; geoip-telegram is still referenced by a rule, so
+        // design v2 keeps it and reports it via keptReferenced instead
+        // (a dropped definition would dangle the reference).
         // (This revokes the pre-AB-025 deliberate cross-kind fill:
         // after the SSRF guard strips a non-public-HTTPS address,
         // this branch is exactly where VERIFY-127 (a1') produced
@@ -533,23 +549,26 @@ class ConfigNormalizeTest {
         assertTrue(heal.changed)
         assertEquals(listOf("geosite-cn", "geoip-cn"), heal.swapped)
         assertEquals(
-            setOf("geoip-telegram", "geoip-google", "telegram-ip"),
+            setOf("geoip-google", "telegram-ip"),
             heal.dropped.toSet(),
         )
+        assertEquals(listOf("geoip-telegram"), heal.keptReferenced)
         val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
         val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
-        assertEquals(2, sets.length())
+        assertEquals(3, sets.length())
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
-            o.getString("tag") to o.getString("url")
+            o.getString("tag") to o.optString("url")
         }
         assertEquals(geositeBase + "geosite-cn.srs", byTag["geosite-cn"])
         assertEquals(geoipBase + "geoip-cn.srs", byTag["geoip-cn"])
+        // The kept referenced set stays URL-less (no same-kind fill exists).
+        assertEquals("", byTag["geoip-telegram"])
         val rules = root.getJSONObject("route").getJSONArray("rules")
         val refs = (0 until rules.length()).map { rules.getJSONObject(it).optString("rule_set") }
         assertTrue(refs.contains("geosite-cn"))
-        assertFalse(refs.contains("geoip-telegram"))
+        assertTrue(refs.contains("geoip-telegram"))
     }
 
     @Test

@@ -63,26 +63,51 @@ object ConfigScriptOverride {
         }
     }
 
-    /** Live 配置覆盖 flags. Missing keys default ON so a script can stay switch-driven. */
-    internal fun overlayFlags(): JSONObject = JSONObject()
-        .put("chinaDirect", Settings.chinaDirect)
-        .put("adsBlock", Settings.adsBlock)
-        .put("webrtcProtect", Settings.webrtcProtect)
-        .put("disableQuic", Settings.disableQuic)
-        .put("excludeCnQuic", Settings.excludeCnQuic)
-        .put("disableIpv6", Settings.disableIpv6)
-        .put("dnsProtect", Settings.dnsProtect)
-        .put("strictRoute", Settings.strictRoute)
+    /**
+     * One switch in the script `overlay` contract: its JS key name, how
+     * to read the live value, and the fallback [defaultOverlayFlags]
+     * reports. This table is the single source for both flag builders
+     * (design v2 §2.2: the mapping is shared with the 系统显式 page /
+     * migration — same keys, same declared defaults). Existing key
+     * names and semantics never change; new switches only append.
+     */
+    private data class OverlaySwitch(
+        val name: String,
+        val read: () -> Boolean,
+        val defaultValue: Boolean,
+    )
 
-    internal fun defaultOverlayFlags(): JSONObject = JSONObject()
-        .put("chinaDirect", true)
-        .put("adsBlock", true)
-        .put("webrtcProtect", true)
-        .put("disableQuic", true)
-        .put("excludeCnQuic", true)
-        .put("disableIpv6", true)
-        .put("dnsProtect", true)
-        .put("strictRoute", true)
+    private val overlaySwitches: List<OverlaySwitch> = listOf(
+        // Legacy umbrella key, kept for scripts written against the old
+        // contract. chinaDirect was split into three switches; the
+        // umbrella now tracks the IP/domain one (design v2 §2.2).
+        OverlaySwitch("chinaDirect", { Settings.chinaIpDomainDirect }, true),
+        OverlaySwitch("chinaIpDomainDirect", { Settings.chinaIpDomainDirect }, true),
+        OverlaySwitch("chinaPublicDnsDirect", { Settings.chinaPublicDnsDirect }, true),
+        OverlaySwitch("lanDirect", { Settings.lanDirect }, true),
+        OverlaySwitch("privacyProtect", { Settings.privacyProtect }, false),
+        OverlaySwitch("vpnLeakProtect", { Settings.vpnLeakProtect }, true),
+        OverlaySwitch("adsBlock", { Settings.adsBlock }, true),
+        OverlaySwitch("webrtcProtect", { Settings.webrtcProtect }, true),
+        OverlaySwitch("disableQuic", { Settings.disableQuic }, true),
+        OverlaySwitch("excludeCnQuic", { Settings.excludeCnQuic }, true),
+        OverlaySwitch("disableIpv6", { Settings.disableIpv6 }, true),
+        OverlaySwitch("dnsProtect", { Settings.dnsProtect }, true),
+        OverlaySwitch("strictRoute", { Settings.strictRoute }, true),
+    )
+
+    /** Live 系统显式 flags. Missing keys default ON so a script can stay switch-driven. */
+    internal fun overlayFlags(): JSONObject {
+        val flags = JSONObject()
+        for (switch in overlaySwitches) flags.put(switch.name, switch.read())
+        return flags
+    }
+
+    internal fun defaultOverlayFlags(): JSONObject {
+        val flags = JSONObject()
+        for (switch in overlaySwitches) flags.put(switch.name, switch.defaultValue)
+        return flags
+    }
 
     internal object ScriptEngine {
         private val deadline = ThreadLocal<Long>()

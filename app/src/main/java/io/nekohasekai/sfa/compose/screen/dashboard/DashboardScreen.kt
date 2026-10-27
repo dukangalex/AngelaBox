@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.compose.screen.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,12 +12,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -169,7 +173,7 @@ fun DashboardScreen(
                                 onProfileSelected = viewModel::selectProfile,
                                 onProfileEdit = viewModel::editProfile,
                                 onProfileProviders = viewModel::openProviders,
-                                onProfileDelete = viewModel::deleteProfile,
+                                onProfileDelete = viewModel::requestDeleteProfile,
                                 onProfileShare = viewModel::shareProfile,
                                 onProfileShareURL = viewModel::shareProfileURL,
                                 onProfileUpdate = viewModel::updateProfile,
@@ -207,7 +211,7 @@ fun DashboardScreen(
                             onProfileSelected = viewModel::selectProfile,
                             onProfileEdit = viewModel::editProfile,
                             onProfileProviders = viewModel::openProviders,
-                            onProfileDelete = viewModel::deleteProfile,
+                            onProfileDelete = viewModel::requestDeleteProfile,
                             onProfileShare = viewModel::shareProfile,
                             onProfileShareURL = viewModel::shareProfileURL,
                             onProfileUpdate = viewModel::updateProfile,
@@ -236,7 +240,7 @@ fun DashboardScreen(
             onProfileSelected = { profile -> viewModel.selectProfile(profile.id) },
             onProfileEdit = viewModel::editProfile,
             onProfileProviders = viewModel::openProviders,
-            onProfileDelete = viewModel::deleteProfile,
+            onProfileDelete = viewModel::requestDeleteProfile,
             onProfileMove = viewModel::moveProfile,
             onAddProfile = viewModel::showAddProfileFromPicker,
             onDismiss = viewModel::hideProfilePickerSheet,
@@ -262,6 +266,53 @@ fun DashboardScreen(
             onClose = { showCheckupDialog = false },
         )
     }
+
+    // B1: only shown when the pending delete affects chain bindings;
+    // plain deletions never reach this state.
+    uiState.pendingChainDelete?.let { pending ->
+        ChainDeleteConfirmDialog(
+            pending = pending,
+            onConfirm = viewModel::confirmPendingChainDelete,
+            onDismiss = viewModel::dismissPendingChainDelete,
+        )
+    }
+}
+
+/**
+ * B1 delete confirmation, shared by the dashboard (picker sheet entry)
+ * and the profiles page: names every binding the deletion would mark
+ * 已失效 before anything is deleted.
+ */
+@Composable
+internal fun ChainDeleteConfirmDialog(
+    pending: DashboardUiState.PendingChainDelete,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("删除配置") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "删除「${pending.profile.name}」会让以下链式绑定的落地失效" +
+                        "（绑定会保留并标记为已失效，可在链式代理页重新选择落地）：",
+                )
+                pending.affectedLines.forEach { line ->
+                    Text("• $line")
+                }
+                Text("仍要删除吗？")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 fun processCardsForRendering(

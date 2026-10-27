@@ -169,7 +169,7 @@
     <string name="profile_add_import_file">Import from file</string>
     <string name="profile_add_scan_qr_code">Scan QR code</string>
     <string name="profile_add_create_manually">Create Manually</string>
-    <string name="profile_override">Profile Override</string>
+    <string name="profile_override">System Explicit</string>
     <string name="basic_information">Basic Information</string>
     <string name="remote_configuration">Remote Configuration</string>
     <string name="last_updated_format">Last updated: %s</string>
@@ -879,7 +879,7 @@
     <string name="overlay_scripts_failed">Could not save the script</string>
     <string name="overlay_scripts_empty_file">The file is empty</string>
     <string name="overlay_scripts_profile_enable">Enable scripts for this profile</string>
-    <string name="overlay_scripts_profile_hint">Off by default. When on, the script replaces this profile\'s groups, routing, and matching app switches (China Direct, ad block) so only one ruleset runs. Nodes are kept. When both are enabled, scripts prepare the entry profile first and chain then connects that entry to the landing node.</string>
+    <string name="overlay_scripts_profile_hint">Off by default. When on, the script runs first over this profile\'s groups and routing (nodes are kept); afterwards the System Explicit switches under Settings apply and override the script\'s matching settings (China IP/Domain Direct, ad block, and the other toggles on that page), so only one final result takes effect. When chain is also enabled, the script prepares the entry profile first and the chain then connects that entry to the landing node.</string>
     <string name="overlay_scripts_profile_empty">No scripts yet. Import some from Tools → Scripts.</string>
     <string name="overlay_scripts_bound_on">On for this profile</string>
     <string name="overlay_scripts_bound_off">Off for this profile</string>

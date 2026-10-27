@@ -316,8 +316,14 @@ def main() -> int:
         errors.append("ECH DNS overlay must stay removed from ConfigChinaDirect")
     if "applyCnDns" in china or '.put("server", "223.5.5.5")' in china:
         errors.append("China direct must not inject a DNS server (empty-direct detour crash)")
-    if '.put("detour", directTag)' in china or 'put("detour", direct' in china:
-        errors.append("China DNS must not set detour to empty direct (sing-box 1.12 rejects it)")
+    # Design v2 (NF-18) supersedes the blanket detour ban: sys-cn-dns may
+    # detour, but only to the direct outbound ensureDetourableDirect made
+    # non-empty, and the segment must wire exactly that pair.
+    if "ensureDetourableDirect" not in china or "ensureSysCnDns" not in china:
+        errors.append("sys-cn-dns must be injected together with its guaranteed direct (NF-18)")
+    segment_src = read("app/src/main/java/io/nekohasekai/sfa/utils/SystemExplicitSegment.kt")
+    if "ensureDetourableDirect(root)" not in segment_src or "ensureSysCnDns(root, direct)" not in segment_src:
+        errors.append("segment must detour sys-cn-dns to the guaranteed direct only")
     if "dropLegacyChinaDns" not in china:
         errors.append("China direct must drop leftover chainbox-cn-dns from older overlays")
     if "DIRECT_FALLBACK_TAG" not in china:
@@ -354,8 +360,8 @@ def main() -> int:
         errors.append("compat overlay must document 1.13 inbound field removal")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    if "Settings.chinaDirect" not in override:
-        errors.append("ConfigQuicOverride must apply china direct")
+    if "Settings.chinaIpDomainDirect" not in override:
+        errors.append("ConfigQuicOverride must wire the china split keys into the system-explicit segment")
     if "echDns" in override or "applyEchDns" in override:
         errors.append("ECH overlay must stay removed from ConfigQuicOverride")
     if "applyLogLevel" not in override or '"info"' not in override:
@@ -385,8 +391,8 @@ def main() -> int:
         errors.append("unknown-app-sources should toast instead of throwing")
 
     ui_override = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/ProfileOverrideScreen.kt")
-    if "ConfigAdBlock.apply" not in override:
-        errors.append("ConfigQuicOverride must apply ad block")
+    if "ConfigAdBlock.applyBlock" not in read("app/src/main/java/io/nekohasekai/sfa/utils/SystemExplicitSegment.kt"):
+        errors.append("system-explicit segment must apply ad block")
     if "广告拦截" not in ui_override:
         errors.append("Profile override UI must expose 广告拦截")
     if "中国直连" not in ui_override:
@@ -874,8 +880,8 @@ def main() -> int:
         errors.append("default script must replace original groups, not merge a second set")
     if "for (var o = 0; o < oldRules.length; o++) merged.push(oldRules[o])" in sample:
         errors.append("default script must not keep the original route strategy alongside the overlay")
-    if "overlay-revision: 31" not in sample:
-        errors.append("default script must stamp overlay-revision: 31 so stale copies refresh")
+    if "overlay-revision: 33" not in sample:
+        errors.append("default script must stamp overlay-revision: 33 so stale copies refresh")
     claude = sample.find('name: "ClaudeAI"')
     ai = sample.find('name: "AI"')
     if claude < 0 or ai < 0 or claude > ai:
@@ -883,7 +889,7 @@ def main() -> int:
     if "geosite-anthropic" not in sample:
         errors.append("ClaudeAI must use the official anthropic rule set")
     overlay_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/OverlayScripts.kt")
-    if 'SAMPLE_REVISION = "overlay-revision: 31"' not in overlay_kt:
+    if 'SAMPLE_REVISION = "overlay-revision: 33"' not in overlay_kt:
         errors.append("OverlayScripts.SAMPLE_REVISION must match the bundled script stamp")
     if "⚖️ 负载均衡" in sample or "🛡️ 故障转移" in sample:
         errors.append("default script must not fake load-balance or failover groups")
@@ -1043,15 +1049,20 @@ def main() -> int:
         errors.append("startup must replace the specific rule-set named in a kernel 404")
     if "needle in blob" in inbound:
         errors.append("rule-set matching must not substring-match URLs (that wipes github/google/1)")
-    ads_idx = override.find("ConfigAdBlock.apply")
+    # Design v2 inverts the old order on purpose: the rule-set rungs run
+    # first and the system-explicit segment is the LAST route/dns stage, so
+    # its blocks land after everything the rungs produced. (Segment-injected
+    # sets use RuleSetPins URLs — the same source the heal path trusts —
+    # and applyBlock re-ensures the definition at segment time.)
+    ads_idx = override.find('applyOne(warnings, "广告拦截")')
     drop_idx = max(
         override.rfind("ConfigInboundCompat.apply"),
         override.rfind("healRemoteRuleSets"),
         override.rfind("replaceRemoteRuleSetsMatching"),
         override.rfind("dropMissingRemoteRuleSets"),
     )
-    if ads_idx < 0 or drop_idx < ads_idx:
-        errors.append("404 rule-sets must be healed after chain merge and later overlays")
+    if ads_idx < 0 or ads_idx < drop_idx:
+        errors.append("system-explicit segment must run after the rule-set rungs (design v2: segment is last)")
     settings_ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/settings/SettingsScreen.kt")
     if "OverrideTopBar" not in settings_ui:
         errors.append("SettingsScreen must use OverrideTopBar so the title is not flush with the status bar")
@@ -1357,16 +1368,26 @@ def main() -> int:
     if "testingStartedAt" not in read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/groups/GroupsViewModel.kt"):
         errors.append("url test must track per-group start time so nodes can show progress")
     quic = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    if "scriptOn" not in quic or "&& !scriptOn" not in quic:
-        errors.append("China Direct and ad block must not write when a script is already running")
-    if "Settings.webrtcProtect && !scriptOn" not in quic:
-        errors.append("WebRTC must not double-write when a script is already running")
-    if "Settings.dnsProtect && !scriptOn" not in quic:
-        errors.append("DNS protect must not double-write when a script is already running")
-    if "Settings.disableIpv6 && !scriptOn" not in quic:
-        errors.append("IPv6 overlay must not double-write when a script is already running")
+    # Design v2 §2.2 supersedes the script-gate pins below their old form:
+    # the system-explicit segment applies AFTER scripts, unconditionally —
+    # previously any bound script silently switched all seven route-class
+    # toggles off. Pin the new shape so the gates cannot creep back.
+    for gated in (
+        "Settings.chinaDirect && !scriptOn",
+        "Settings.webrtcProtect && !scriptOn",
+        "Settings.dnsProtect && !scriptOn",
+        "Settings.disableIpv6 && !scriptOn",
+        "Settings.disableQuic && !scriptOn",
+        "Settings.adsBlock && !scriptOn",
+    ):
+        if gated in quic:
+            errors.append(f"system-explicit toggles must not be script-gated: {gated}")
+    if "ConfigChinaDirect.apply(root)" in quic:
+        errors.append("pipeline must use the split china blocks via the segment, not the legacy monolith")
+    if "SystemExplicitSegment(" not in quic:
+        errors.append("ConfigQuicOverride must run the system-explicit segment as its last stage")
     if "applyStrictRoute(root, Settings.strictRoute)" not in quic:
-        errors.append("strict route must follow the switch both ways and must not double-write when a script is running")
+        errors.append("strict route must follow the switch both ways")
     if "fun applyQuic" not in quic or 'put("port", 443)' not in quic:
         errors.append("disable QUIC must reject UDP 443 when no script is bound")
     if 'put("method", "drop")' in quic.split("fun applyQuic", 1)[-1].split("fun applyStrictRoute", 1)[0]:

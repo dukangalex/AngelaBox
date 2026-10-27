@@ -278,6 +278,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
             --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
             --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ChinaDirectSplitMigrationTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
@@ -287,6 +288,9 @@ jobs:
             --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingRobustnessTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingReferencingTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerGuardrailTest \
             --tests io.nekohasekai.sfa.chain.ChainPathTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerBacklogTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerNestedGroupTest \
@@ -297,6 +301,7 @@ jobs:
                         --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
             --tests io.nekohasekai.sfa.utils.ConfigIngestFormatsTest \
             --tests io.nekohasekai.sfa.utils.ConfigNormalizeTest \
+            --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
             --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \

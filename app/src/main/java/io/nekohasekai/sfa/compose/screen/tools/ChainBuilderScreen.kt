@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.chain.ChainBinding
+import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.compat.menuAnchorCompat
@@ -135,8 +136,21 @@ fun ChainBuilderScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var entry by remember { mutableStateOf<HopRef?>(null) }
     var exit by remember { mutableStateOf<HopRef?>(null) }
+    // Truthful stale states: a saved hop that no longer resolves is shown
+    // as 「已失效」 instead of being silently replaced (entry) or displayed
+    // through a fabricated HopRef (landing, the old behaviour).
+    var savedEntryStale by remember { mutableStateOf<String?>(null) }
+    var savedLandingStale by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var chainActive by remember { mutableStateOf(false) }
+    // B4/B5: the binding as last loaded/saved, kept whole (not just the
+    // chainActive boolean) so the page can diff the current picks
+    // against it (dirty state) and fork the entry-stale banner on
+    // binding.materialized (D2 fail-closed).
+    var savedBinding by remember { mutableStateOf<ChainBinding?>(null) }
+    // B9: whether the profile being edited is the selected (running)
+    // one — saving it applies immediately only then.
+    var isSelectedProfile by remember { mutableStateOf(false) }
     var otherBound by remember { mutableStateOf(0) }
     var otherBoundLines by remember { mutableStateOf<List<String>>(emptyList()) }
     var showOtherBound by remember { mutableStateOf(false) }
@@ -213,22 +227,42 @@ fun ChainBuilderScreen(
                     otherBound = othersBound.size
                     otherBoundLines = othersBoundLines
                     chainActive = binding != null
+                    savedBinding = binding
+                    isSelectedProfile = current.id == Settings.selectedProfile
                     val savedEntry = binding?.entryTag.orEmpty()
                     entry = hops.find { it.tag == savedEntry }
                         ?: hops.find { it.tag == suggested }
                         ?: hops.firstOrNull { !ChainRuntimeCompiler.isFinalLike(it.tag) }
+                    // Display only: the fallback selection above is unchanged,
+                    // but the user is told the saved entry is gone.
+                    savedEntryStale = if (binding != null && savedEntry.isNotEmpty() &&
+                        hops.none { it.tag == savedEntry }
+                    ) {
+                        savedEntry
+                    } else {
+                        null
+                    }
                     if (binding != null) {
                         val found = others.flatMap { it.hops }.find {
                             it.profileId == binding.landingProfileId && it.tag == binding.landingTag
                         }
-                        exit = found ?: HopRef(
-                            binding.landingProfileId,
-                            profiles.find { it.id == binding.landingProfileId }?.name ?: "落地",
-                            binding.landingTag,
-                            "selector",
-                        )
+                        exit = found
+                        savedLandingStale = if (found == null) {
+                            val landProfileName = profiles.find { it.id == binding.landingProfileId }?.name
+                            when {
+                                binding.invalidated ->
+                                    "原落地「${binding.landingTag}」已失效：${binding.invalidReason.ifBlank { "落地配置不可用" }}，请重新选择落地。"
+                                landProfileName != null ->
+                                    "原落地「$landProfileName / ${binding.landingTag}」已失效（订阅更新或改名），请重新选择落地。"
+                                else ->
+                                    "原落地「${binding.landingTag}」已失效（落地配置不存在），请重新选择落地。"
+                            }
+                        } else {
+                            null
+                        }
                     } else {
                         exit = null
+                        savedLandingStale = null
                     }
                 }
             } catch (e: Exception) {
@@ -302,6 +336,14 @@ fun ChainBuilderScreen(
             busy = false
             if (result.isSuccess) {
                 chainActive = true
+                savedBinding = ChainBinding(
+                    profileId = boundId,
+                    entryTag = main.tag,
+                    landingProfileId = landing.profileId,
+                    landingTag = landing.tag,
+                )
+                savedEntryStale = null
+                savedLandingStale = null
                 if (boundId == Settings.selectedProfile) {
                     notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
                 }
@@ -331,7 +373,10 @@ fun ChainBuilderScreen(
             busy = false
             if (result.isSuccess) {
                 exit = null
+                savedEntryStale = null
+                savedLandingStale = null
                 chainActive = false
+                savedBinding = null
                 if (boundId == Settings.selectedProfile) {
                     notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
                 }
@@ -344,6 +389,15 @@ fun ChainBuilderScreen(
 
     val scheme = MaterialTheme.colorScheme
     val canSave = !busy && entry != null && exit != null
+    // B4: dirty = current picks differ from the saved binding (or a
+    // landing was picked with no binding yet). The entry's automatic
+    // fallback selection alone does not count when nothing is bound.
+    val chainDirty = when (val saved = savedBinding) {
+        null -> exit != null
+        else -> entry?.tag != saved.entryTag ||
+            exit?.profileId != saved.landingProfileId ||
+            exit?.tag != saved.landingTag
+    }
 
     OverrideTopBar {
         TopAppBar(
@@ -379,7 +433,11 @@ fun ChainBuilderScreen(
                 Text("加载失败: $loadError", color = scheme.error)
             }
 
-            StatusPill(active = chainActive, bound = chainActive && entry != null && exit != null)
+            StatusPill(
+                active = chainActive,
+                bound = chainActive && entry != null && exit != null,
+                dirty = chainDirty,
+            )
 
             Text(
                 "配置选择",
@@ -425,6 +483,9 @@ fun ChainBuilderScreen(
                                     currentProfileId = profile.id
                                     entry = null
                                     exit = null
+                                    savedEntryStale = null
+                                    savedLandingStale = null
+                                    savedBinding = null
                                     reload(profile.id)
                                 }
                             },
@@ -432,6 +493,14 @@ fun ChainBuilderScreen(
                     }
                 }
             }
+
+            // B9: say whether edits here hit the running profile or only
+            // take effect after switching to this profile.
+            Text(
+                if (isSelectedProfile) "当前配置" else "非当前配置，切换到它时生效",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
 
             Surface(
                 shape = RoundedCornerShape(24.dp),
@@ -473,6 +542,37 @@ fun ChainBuilderScreen(
                 }
             }
 
+            // B10 (fallback): a group's live "currently selected member"
+            // is only streamed to the dashboard's command-client
+            // handlers while the service runs — this page has no such
+            // feed, so instead of inventing a value we say where the
+            // member is actually switched.
+            entry?.let { e ->
+                if (e.type == "selector" || e.type == "urltest") {
+                    Text(
+                        "入口组「${e.tag}」的当前成员在仪表盘「分组」面板里切换，即时生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            // A10: a group landing is flattened by the kernel into a
+            // synthetic group (D1) — members carry over, the source
+            // group's default / saved selection does not.
+            exit?.let { x ->
+                if (x.type == "selector" || x.type == "urltest") {
+                    Text(
+                        "落地组「${x.tag}」会由内核展平为合成组：成员原样带入，但原组的默认选择与已保存选择不会带过来，连接后可在仪表盘「分组」面板切换成员。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
             if (otherBound > 0) {
                 Text(
                     "已有 $otherBound 个链式代理配置，点此查看",
@@ -484,6 +584,37 @@ fun ChainBuilderScreen(
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(enabled = !busy) { showOtherBound = true }
                         .padding(vertical = 4.dp),
+                )
+            }
+
+            if (savedLandingStale != null) {
+                Text(
+                    savedLandingStale!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+
+            if (savedEntryStale != null) {
+                // B5: fork on the same D2 predicate the startup gate
+                // uses. A materialized binding does NOT silently fall
+                // back to another entry at startup — the banner must
+                // not claim it was "自动改用" in that case.
+                val entryFailsClosed = savedBinding?.let {
+                    ChainBindingCodec.entryDisappearanceFailsClosed(it, entryMissing = true)
+                } ?: false
+                Text(
+                    if (entryFailsClosed) {
+                        "保存的入口「$savedEntryStale」已失效。该绑定上次已成功生效，为防泄漏不会自动改走其它入口，启动将停止并报错，请重新选择入口后保存。"
+                    } else {
+                        "保存的入口「$savedEntryStale」已失效（订阅更新或改名），下方显示的是自动改用的入口，请确认或重新选择入口。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
 
@@ -525,13 +656,33 @@ fun ChainBuilderScreen(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        "「$currentProfileName」链式，入口 → 落地",
+                        // B4/B9: the subtitle carries both the dirty
+                        // marker and whether saving applies immediately
+                        // (selected profile) or on switch.
+                        buildString {
+                            append("「$currentProfileName」链式，入口 → 落地")
+                            append(if (isSelectedProfile) "（保存即生效）" else "（切换到该配置后生效）")
+                            if (chainDirty) append(" · 有未保存修改")
+                        },
                         color = scheme.onPrimary.copy(alpha = 0.82f),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+
+            // B6 back-reference: the precedence sentence also lives on
+            // the 系统显式 side (防 VPN 泄露 subtitle); state it here at
+            // the point of saving the chain.
+            if (chainActive || exit != null) {
+                Text(
+                    "系统显式「防 VPN 泄露」不会覆盖此配置链固定的 final。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             TextButton(
@@ -603,7 +754,13 @@ fun ChainBuilderScreen(
                             items(hops, key = { "${it.profileId}:${it.tag}" }) { hop ->
                                 Column(
                                     modifier = Modifier.fillMaxWidth().clickable {
-                                        if (picker == "entry") entry = hop else exit = hop
+                                        if (picker == "entry") {
+                                            entry = hop
+                                            savedEntryStale = null
+                                        } else {
+                                            exit = hop
+                                            savedLandingStale = null
+                                        }
                                         picker = null
                                     }.padding(vertical = 10.dp),
                                 ) {
@@ -653,10 +810,10 @@ fun ChainBuilderScreen(
                     "1. 入口：当前配置里流量先走的分组或节点（前置）。不要依赖「漏网之鱼」。前置只作为链式第一跳，不会单独成为出口。\n" +
                         "2. 落地：下一跳，出口 IP 应该是落地节点，不是前置。可来自当前或其他配置。\n" +
                         "3. 保存后只绑定当前配置。每个配置可以各绑不同落地。切换配置时各自使用自己保存的落地，互不影响。\n" +
-                        "4. 绑定存在本地，不写进订阅 JSON。远程订阅更新只换节点列表，不会清掉绑定；入口改名会自动改用主分组。\n" +
+                        "4. 绑定存在本地，不写进订阅 JSON。远程订阅更新只换节点列表，不会清掉绑定；入口改名会先自动匹配，彻底消失时：从未成功生效过的绑定自动改用主分组，已生效过的绑定会停止启动并提示重选，不会悄悄换路。删除被用作落地的配置不会连带清掉其它绑定，只会把它们标记为已失效。\n" +
                         "5. 使用 sing-box 原生 Chain outbound，按你选的顺序串联现有 outbound：入口 → 落地 → 目标。不绑定机场或协议。\n" +
                         "6. Fail Closed：链路失败会明确报错并停止启动，不会偷偷改走 DIRECT。\n" +
-                        "7. 链式代理模式下，所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国直连开关仍可让国内与局域网走 DIRECT。\n" +
+                        "7. 链式代理模式下，「防 VPN 泄露」开启时所有非中国流量不可直连，必须经链式代理后从落地节点出口。中国 IP/域名直连、局域网直连仍可让国内与局域网走 DIRECT。Clash 模式若切到「直连」，全部流量直连，链与分流都不生效。\n" +
                         "8. 链式与脚本可同时启用：先对当前（前置）订阅运行脚本，再把脚本生成的入口串到落地。脚本不能删除已选入口或把它改成 DIRECT，否则启动会明确报错。\n" +
                         "9. 保存后会回到仪表。指向前置的路由规则会被改写到 Chain，避免前置泄漏。DNS detour 保持一跳。节点服务器域名若被指到会绕进代理或 fake-ip 的解析，会改走直连解析。\n" +
                         "10. 入口和落地的节点都带 TLS 时，这条链可能没有网。一边改用 SOCKS、HTTP 或 SSH 更稳。",
@@ -668,14 +825,19 @@ fun ChainBuilderScreen(
 }
 
 @Composable
-private fun StatusPill(active: Boolean, bound: Boolean) {
+private fun StatusPill(active: Boolean, bound: Boolean, dirty: Boolean = false) {
     val scheme = MaterialTheme.colorScheme
     val label = when {
+        dirty -> "有未保存修改"
         bound -> "已绑定链路"
         active -> "已绑定"
         else -> "未绑定"
     }
-    val color = if (bound) scheme.primary else scheme.onSurfaceVariant
+    val color = when {
+        dirty -> scheme.error
+        bound -> scheme.primary
+        else -> scheme.onSurfaceVariant
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

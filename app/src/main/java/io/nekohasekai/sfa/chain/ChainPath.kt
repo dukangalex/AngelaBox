@@ -22,6 +22,8 @@ data class ChainPath(
     val landingTag: String = "",
     val landingProfileName: String = "",
     val profileName: String = "",
+    /** B3: the saved binding's landing is gone (D3 invalidation). */
+    val landingInvalidated: Boolean = false,
 ) {
     companion object {
         fun regular(profileName: String = "", exitTag: String = ""): ChainPath {
@@ -53,6 +55,8 @@ data class LiveTopology(
     val running: Boolean = false,
     val chained: Boolean = false,
     val mode: String = "",
+    /** B3: carried from the planned path so the card can mark the exit. */
+    val landingInvalidated: Boolean = false,
     val hops: List<LiveHop> = emptyList(),
     val destinations: List<String> = emptyList(),
     val activeConnections: Int = 0,
@@ -122,6 +126,7 @@ object ChainPathBuilder {
             landingTag = binding.landingTag.trim(),
             landingProfileName = landingName,
             profileName = profile,
+            landingInvalidated = binding.invalidated,
         )
     }
 }
@@ -162,6 +167,7 @@ object LiveTopologyBuilder {
             running = running,
             chained = chained,
             mode = modeNorm,
+            landingInvalidated = path.landingInvalidated,
             hops = hops,
             destinations = destinations,
             activeConnections = activeConnections,

@@ -58,6 +58,9 @@ object ConfigInboundCompat {
                     "规则集「$it」官方已下线，已去掉"
                 }
             }
+            heal.keptReferenced.forEach {
+                ruleSetNotes += "规则集「$it」仍被规则引用，已保留（官方已下线或无可用地址）"
+            }
         } else if (healRemoteRuleSets(root)) {
             changed = true
         }
@@ -756,6 +759,14 @@ object ConfigInboundCompat {
         val swapped: List<String>,
         /** Tags dropped because the official repo no longer ships the file. */
         val dropped: List<String>,
+        /**
+         * Tags that would have dropped but are still referenced by route or
+         * DNS rules, so the definition was kept instead: dropping it would
+         * leave a dangling rule_set reference the kernel refuses to start
+         * with. Callers surface these in their notes (the keep is a routing
+         * semantics decision, never silent).
+         */
+        val keptReferenced: List<String> = emptyList(),
     )
 
     /**
@@ -782,8 +793,16 @@ object ConfigInboundCompat {
         val sets = route.optJSONArray("rule_set") ?: return none
         val dropTags = mutableSetOf<String>()
         val swapped = mutableListOf<String>()
+        val keptReferenced = mutableListOf<String>()
         val keep = JSONArray()
         var changed = false
+        // A set whose tag is still referenced by any route/DNS rule is never
+        // dropped here: the reference would dangle and the kernel refuses
+        // to start. The definition is kept (and reported) instead; if its
+        // address really cannot load, the startup ladder (replace / cached
+        // substitute / drop rungs, which strip references as they drop)
+        // remains the deliberate degradation path.
+        val referenced = referencedRuleSetTags(root)
         for (i in 0 until sets.length()) {
             val rawItem = sets.get(i)
             val item = rawItem as? JSONObject
@@ -816,6 +835,9 @@ object ConfigInboundCompat {
                     keep.put(item)
                     swapped += tag.ifBlank { file }
                     changed = true
+                } else if (tag.isNotEmpty() && tag in referenced) {
+                    keep.put(item)
+                    keptReferenced += tag
                 } else {
                     if (tag.isNotEmpty()) dropTags.add(tag)
                     changed = true
@@ -847,19 +869,48 @@ object ConfigInboundCompat {
                 // proven; the same file name on a third-party host
                 // may well exist there and stays verbatim.
                 isOfficialRuleSetUrl(url) && file in UNREPLACEABLE_RULESET_FILES -> {
-                    if (tag.isNotEmpty()) dropTags.add(tag)
-                    changed = true
+                    if (tag.isNotEmpty() && tag in referenced) {
+                        keep.put(item)
+                        keptReferenced += tag
+                    } else {
+                        if (tag.isNotEmpty()) dropTags.add(tag)
+                        changed = true
+                    }
                 }
                 else -> keep.put(item)
             }
         }
-        if (!changed && dropTags.isEmpty()) return none
+        if (!changed && dropTags.isEmpty()) {
+            return if (keptReferenced.isEmpty()) none
+            else RuleSetHeal(false, swapped, emptyList(), keptReferenced)
+        }
         replaceArray(sets, keep)
         if (dropTags.isNotEmpty()) {
             stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
             stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
         }
-        return RuleSetHeal(true, swapped, dropTags.toList())
+        return RuleSetHeal(true, swapped, dropTags.toList(), keptReferenced)
+    }
+
+    /** Every rule_set tag still referenced by route or DNS rules, nested logical rules included. */
+    private fun referencedRuleSetTags(root: JSONObject): Set<String> {
+        val tags = mutableSetOf<String>()
+        fun scan(rules: JSONArray?) {
+            if (rules == null) return
+            for (i in 0 until rules.length()) {
+                val rule = rules.optJSONObject(i) ?: continue
+                scan(rule.optJSONArray("rules"))
+                when (val raw = rule.opt("rule_set")) {
+                    is String -> raw.trim().takeIf { it.isNotEmpty() }?.let { tags += it }
+                    is JSONArray -> for (j in 0 until raw.length()) {
+                        raw.optString(j).trim().takeIf { it.isNotEmpty() }?.let { tags += it }
+                    }
+                }
+            }
+        }
+        scan(root.optJSONObject("route")?.optJSONArray("rules"))
+        scan(root.optJSONObject("dns")?.optJSONArray("rules"))
+        return tags
     }
 
     /** @deprecated Name kept so older tests still compile; delegates to [healRemoteRuleSets]. */

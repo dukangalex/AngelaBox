@@ -105,6 +105,13 @@ private fun ProfileScriptBinderBody(profileId: Long) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // A11: point at where the switches the script reads actually
+        // live, and where the overlay key names are documented.
+        Text(
+            text = "脚本读取的开关在「设置 → 系统显式」里改；overlay 键名见示例脚本顶部注释。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

@@ -84,9 +84,20 @@ object ProfileManager {
         }
     }
 
+    /**
+     * How many chain bindings the most recent delete() marked invalidated
+     * because their landing profile was deleted (D3). The bindings are
+     * kept and fail closed at startup; this count lets the delete flow
+     * surface the impact. UI surfacing reads this after delete returns.
+     */
+    @Volatile
+    var lastDeleteChainInvalidated: Int = 0
+        private set
+
     suspend fun delete(profile: Profile): Int {
         try {
-            runCatching { ChainBindings.removeProfile(profile.id) }
+            lastDeleteChainInvalidated =
+                runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
             runCatching { OverlayScripts.removeProfile(profile.id) }
             runCatching { ProfileStableIds.remove(profile.id) }
             return database().profileDao().delete(profile)
@@ -99,11 +110,13 @@ object ProfileManager {
 
     suspend fun delete(profiles: List<Profile>): Int {
         try {
+            var invalidated = 0
             profiles.forEach { p ->
-                runCatching { ChainBindings.removeProfile(p.id) }
+                invalidated += runCatching { ChainBindings.onProfileDeleted(p.id) }.getOrDefault(0)
                 runCatching { OverlayScripts.removeProfile(p.id) }
                 runCatching { ProfileStableIds.remove(p.id) }
             }
+            lastDeleteChainInvalidated = invalidated
             return database().profileDao().delete(profiles)
         } finally {
             for (callback in callbacks.toList()) {

@@ -667,6 +667,13 @@ object ConfigCompat {
         var changed = false
         for (i in 0 until servers.length()) {
             val server = servers.optJSONObject(i) ?: continue
+            // App-owned servers (sys-cn-dns / sys-dns-remote) are written by
+            // the system-explicit segment together with the detour target it
+            // guarantees (a defined direct outbound the segment makes
+            // non-empty). Their detour is never "broken" by the criteria
+            // below — stripping it would silently reroute the app's own DNS
+            // through the default outbound and defeat the explicit policy.
+            if (server.optString("tag").trim().startsWith("sys-")) continue
             val detour = server.optString("detour").trim()
             if (detour.isEmpty()) continue
             if (detour !in tags || detour in emptyDirect) {

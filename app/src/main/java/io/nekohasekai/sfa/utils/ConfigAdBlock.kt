@@ -31,6 +31,23 @@ object ConfigAdBlock {
         route.put("rules", merged)
     }
 
+    /**
+     * Block-collecting variant for the system-explicit segment: ensures the
+     * rule-set definition and returns the reject rule for the segment's
+     * ordered block, or an empty array when the config already rejects the
+     * ads set somewhere (same coverage test as [apply]).
+     */
+    fun applyBlock(root: JSONObject): JSONArray {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val tag = ensureRuleSet(route)
+        if (alreadyRoutesAds(route, tag)) return JSONArray()
+        return JSONArray().put(
+            JSONObject()
+                .put("rule_set", tag)
+                .put("action", "reject"),
+        )
+    }
+
     private fun alreadyRoutesAds(route: JSONObject, tag: String): Boolean {
         // "Routes ads" only counts when the ads set is actually REJECTED.
         // A rule that merely mentions the set — e.g. one that sends it to
