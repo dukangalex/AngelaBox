@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 31
+ * overlay-revision: 33
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -781,6 +781,17 @@ function main(config) {
   var defaultMembers = minimal ? copyTags(leafTags) : head;
   var defaultGroup = selector("默认代理", defaultMembers.length ? defaultMembers : leafTags);
   var chinaDirect = on("chinaDirect");
+  // chinaDirect was split into three switches on the 系统显式 page.
+  // Prefer the split keys; overlays from older app versions only carry
+  // the chinaDirect umbrella, which then drives all three.
+  function onSplit(key) {
+    var ov = (typeof overlay === "object" && overlay) ? overlay : null;
+    if (ov && typeof ov[key] !== "undefined") return on(key);
+    return chinaDirect;
+  }
+  var chinaIpDomainDirect = onSplit("chinaIpDomainDirect");
+  var chinaPublicDnsDirect = onSplit("chinaPublicDnsDirect");
+  var lanDirect = onSplit("lanDirect");
   var adsBlock = on("adsBlock");
   var webrtcProtect = on("webrtcProtect");
   var disableQuic = on("disableQuic");
@@ -796,9 +807,11 @@ function main(config) {
   rules.push({ clash_mode: "Global", outbound: "默认代理" });
   rules.push({ clash_mode: "Direct", outbound: directTag });
   if (disableIpv6) rules.push({ ip_version: 6, action: "reject" });
-  rules.push({ ip_is_private: true, outbound: "直连" });
-  if (chinaDirect) {
+  if (lanDirect) rules.push({ ip_is_private: true, outbound: "直连" });
+  if (lanDirect) {
     useSet(sets, rules, "geosite-private", "geosite-private.srs", false, "直连");
+  }
+  if (chinaIpDomainDirect) {
     useSet(sets, rules, "geoip-cn", "geoip-cn.srs", true, "直连");
     useSet(sets, rules, "geosite-geolocation-cn", "geosite-geolocation-cn.srs", false, "直连");
     useSet(sets, rules, "geosite-cn", "geosite-cn.srs", false, "直连");
@@ -1002,9 +1015,9 @@ function main(config) {
         }
       ]
     });
-    if (chinaDirect) ensureSet(sets, "geoip-cn", "geoip-cn.srs", true);
+    if (chinaIpDomainDirect) ensureSet(sets, "geoip-cn", "geoip-cn.srs", true);
     useSet(sets, rules, "geosite-geolocation-!cn", "geosite-geolocation-!cn.srs", false, "默认代理");
-    if (chinaDirect) {
+    if (chinaIpDomainDirect) {
       var alreadyGeoip = false;
       for (var gx = 0; gx < rules.length; gx++) {
         if (rules[gx].rule_set === "geoip-cn") alreadyGeoip = true;
@@ -1088,17 +1101,23 @@ function main(config) {
   ];
   var dnsRules = [];
   if (!disableIpv6) {
+    // Bootstrap hosts pins stay unconditional (pre-split behavior): the
+    // dns-cn server below is always written, and these pins only keep its
+    // endpoint resolvable without the tunnel — they are infrastructure,
+    // not the chinaPublicDnsDirect feature rules.
+    var bootstrapPredefined = {
+      "dns.alidns.com": ["223.5.5.5", "2400:3200::1"],
+      "dns.google": ["8.8.8.8", "2001:4860:4860::8888"]
+    };
+    var bootstrapDomains = ["dns.alidns.com", "dns.google"];
     dnsServers.unshift({
       type: "hosts",
       tag: "dns-hosts",
-      predefined: {
-        "dns.alidns.com": ["223.5.5.5", "2400:3200::1"],
-        "dns.google": ["8.8.8.8", "2001:4860:4860::8888"]
-      }
+      predefined: bootstrapPredefined
     });
-    dnsRules.push({ domain: ["dns.alidns.com", "dns.google"], server: "dns-hosts" });
+    dnsRules.push({ domain: bootstrapDomains, server: "dns-hosts" });
   }
-  if (chinaDirect) {
+  if (chinaIpDomainDirect) {
     dnsRules.push({ rule_set: ["geosite-cn", "geosite-geolocation-cn"], server: "dns-cn" });
   }
   dnsRules.push({ query_type: ["HTTPS", "SVCB"], action: "reject" });

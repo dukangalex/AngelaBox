@@ -23,11 +23,26 @@ object ConfigChainReapply {
     var lastBothHopsTls: Boolean = false
         private set
 
+    /** NF-8: one-line summary of members discarded by the latest compile. */
+    @Volatile
+    var lastDiscardedSummary: String? = null
+        private set
+
     suspend fun apply(content: String, profileId: Long = Settings.selectedProfile): String {
         lastLandingNotes = emptyList()
         lastBothHopsTls = false
+        lastDiscardedSummary = null
         val currentProfileId = profileId
         val binding = ChainBindings.get(currentProfileId) ?: return content
+        // D3: an invalidated binding (its landing profile was deleted) is
+        // kept on purpose — fail closed here with the recorded reason
+        // instead of the profile silently starting without its chain.
+        if (binding.invalidated) {
+            error(
+                "链式落地已失效：${binding.invalidReason.ifBlank { "落地配置不可用" }}，" +
+                    "请到「工具 → 链式代理」重新选择落地",
+            )
+        }
         val landingId = binding.landingProfileId
         val landingTag = binding.landingTag.trim()
         require(landingId >= 0L && landingTag.isNotEmpty()) { "未选择链式落地出口" }
@@ -62,7 +77,22 @@ object ConfigChainReapply {
         val chain = ChainRuntimeCompiler.compiledChain(compiled)
         lastBothHopsTls = chain != null &&
             ChainRuntimeCompiler.bothHopsAreTls(compiled, chain.entryTag, compiled, chain.landingTag)
+        lastDiscardedSummary = summarizeDiscards(ChainRuntimeCompiler.lastDiscarded)
+        // D2: this binding has now materialized successfully at startup;
+        // from here on a disappearing saved entry fails closed instead of
+        // silently falling back to the main group.
+        ChainBindings.markMaterialized(currentProfileId)
         return compiled
+    }
+
+    /** NF-8: fold the compiler's discard records into ONE diagnostic line. */
+    private fun summarizeDiscards(list: List<ChainRuntimeCompiler.DiscardedMember>): String? {
+        if (list.isEmpty()) return null
+        val shown = list.take(6).joinToString("；") {
+            "分组「${it.groupTag}」的成员「${it.memberTag}」（${it.reason}）"
+        }
+        val more = if (list.size > 6) "；等共 ${list.size} 处" else ""
+        return "组链时丢弃了不兼容成员：$shown$more"
     }
 
     /**

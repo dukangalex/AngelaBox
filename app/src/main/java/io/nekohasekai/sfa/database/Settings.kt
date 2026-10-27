@@ -97,6 +97,22 @@ object Settings {
     var disableIpv6 by dataStore.boolean(SettingsKey.DISABLE_IPV6) { true }
     var webrtcProtect by dataStore.boolean(SettingsKey.WEBRTC_PROTECT) { true }
     var chinaDirect by dataStore.boolean(SettingsKey.CHINA_DIRECT) { true }
+    var chinaIpDomainDirect by dataStore.boolean(SettingsKey.CHINA_IP_DOMAIN_DIRECT) { true }
+    var chinaPublicDnsDirect by dataStore.boolean(SettingsKey.CHINA_PUBLIC_DNS_DIRECT) { true }
+    var lanDirect by dataStore.boolean(SettingsKey.LAN_DIRECT) { true }
+    var privacyProtect by dataStore.boolean(SettingsKey.PRIVACY_PROTECT) { false }
+    var vpnLeakProtect by dataStore.boolean(SettingsKey.VPN_LEAK_PROTECT) { true }
+    // One-release fallback for the dnsProtect semantic change (fill-only
+    // instead of forced overwrite). Scheduled for removal in the next
+    // release; the 系统显式 page carries the same note.
+    var dnsProtectLegacyFillOnly by dataStore.boolean(SettingsKey.DNS_PROTECT_LEGACY_FILL_ONLY) { false }
+    var dnsProtectNoticeDismissed by dataStore.boolean(SettingsKey.DNS_PROTECT_NOTICE_DISMISSED) { false }
+    // B8: versioned form of the dismissal above. The 系统显式 page treats
+    // the notice as dismissed when this rev reaches its current notice
+    // revision (or the legacy boolean is set), so a future copy change
+    // can re-show the notice by bumping the page's revision constant
+    // instead of shipping a new key.
+    var dnsProtectNoticeDismissedRev by dataStore.int(SettingsKey.DNS_PROTECT_NOTICE_DISMISSED_REV) { 0 }
     var adsBlock by dataStore.boolean(SettingsKey.ADS_BLOCK) { true }
     var configNormalize by dataStore.boolean(SettingsKey.CONFIG_NORMALIZE) { true }
     var chinaDefaultsRev by dataStore.int(SettingsKey.CHINA_DEFAULTS_REV) { 0 }
@@ -192,6 +208,45 @@ object Settings {
         }
         writes.forEach { (key, value) -> dataStore.putBoolean(key, value) }
         if (newRev != chinaDefaultsRev) chinaDefaultsRev = newRev
+    }
+
+    /** The three switches the legacy [chinaDirect] was split into (design v2 §2.2). */
+    internal val CHINA_DIRECT_SPLIT_KEYS: List<String> = listOf(
+        SettingsKey.CHINA_IP_DOMAIN_DIRECT,
+        SettingsKey.CHINA_PUBLIC_DNS_DIRECT,
+        SettingsKey.LAN_DIRECT,
+    )
+
+    /**
+     * Pure seeding planner for the chinaDirect split: every split key
+     * that was never written inherits [storedChinaDirect] — the user's
+     * actual stored value, supplied by the caller. This deliberately
+     * does NOT reuse [chinaDefaultsMigration]'s fill-with-default
+     * pattern: a user who turned chinaDirect off on purpose must get
+     * all three split switches off, not silently re-opened with the on
+     * defaults (design v2 NF-5).
+     */
+    internal fun chinaDirectSplitSeedMigration(
+        isSet: (String) -> Boolean,
+        storedChinaDirect: Boolean,
+    ): List<Pair<String, Boolean>> =
+        CHINA_DIRECT_SPLIT_KEYS.filter { !isSet(it) }.map { it to storedChinaDirect }
+
+    /**
+     * One-shot: seed the chinaDirect split switches from the stored
+     * chinaDirect value. Must run after [applyChinaUserDefaultsIfNeeded]
+     * so a never-set chinaDirect has already settled to its safeguarded
+     * value before the split keys inherit it. The legacy key itself is
+     * left untouched; pipeline consumption flips to the split keys in a
+     * later change.
+     */
+    fun applyChinaDirectSplitSeedIfNeeded() {
+        val storedChinaDirect = dataStore.getBoolean(SettingsKey.CHINA_DIRECT) ?: true
+        val writes = chinaDirectSplitSeedMigration(
+            { key -> dataStore.getBoolean(key) != null },
+            storedChinaDirect,
+        )
+        writes.forEach { (key, value) -> dataStore.putBoolean(key, value) }
     }
 
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }

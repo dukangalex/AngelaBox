@@ -61,6 +61,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +73,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.compose.component.PullToPopContainer
 import io.nekohasekai.sfa.compose.component.qr.QRCodeDialog
 import io.nekohasekai.sfa.compose.navigation.NewProfileArgs
@@ -176,7 +178,7 @@ fun ProfilesScreen(
                                     qrCodeProfile = profile
                                     showQRCodeDialog = true
                                 },
-                                onDelete = { viewModel.deleteProfile(profile) },
+                                onDelete = { viewModel.requestDeleteProfile(profile) },
                             )
                         }
                     }
@@ -232,6 +234,16 @@ fun ProfilesScreen(
             profileId = bindTarget.id,
             profileName = bindTarget.name,
             onDismiss = { scriptProfile = null },
+        )
+    }
+
+    // B1: chain-affected deletions confirm here first (see
+    // DashboardViewModel.requestDeleteProfile); plain ones never set it.
+    uiState.pendingChainDelete?.let { pending ->
+        ChainDeleteConfirmDialog(
+            pending = pending,
+            onConfirm = viewModel::confirmPendingChainDelete,
+            onDismiss = viewModel::dismissPendingChainDelete,
         )
     }
 }
@@ -369,6 +381,41 @@ private fun ProfileListCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // B2: chain relationship badges — previously the
+                    // list showed nothing about bindings, so users met
+                    // them only via a start failure or an after-the-fact
+                    // toast. Same store the chain page reads.
+                    val ownBinding = remember(profile.id) { ChainBindings.get(profile.id) }
+                    val referencedBy = remember(profile.id) {
+                        ChainBindings.bindingsLandingOn(profile.id).size
+                    }
+                    val badges = buildList {
+                        when {
+                            ownBinding?.invalidated == true -> add("落地已失效" to true)
+                            ownBinding != null -> add("已绑链" to false)
+                        }
+                        if (referencedBy > 0) add("被 $referencedBy 个绑定引用" to false)
+                    }
+                    if (badges.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            badges.forEach { (label, isError) ->
+                                val tint = if (isError) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = tint,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(tint.copy(alpha = 0.12f))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
+                    }
                 }
                 ProfileOverflowMenu(
                     profile = profile,

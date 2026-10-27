@@ -19,6 +19,20 @@ object ChainRuntimeCompiler {
     const val MAX_MERGE_DEPTH = 24
     const val MAX_GROUP_MEMBERS = 512
 
+    // NF-8 guardrails for group expansion/materialization. Exceeding any
+    // of them is a hard error (fail-closed), never a silent truncation.
+    const val MAX_GROUP_EXPANSION_DEPTH = 4
+    const val MAX_CHAIN_LEAVES = 64
+    const val MAX_MATERIALIZED_OUTBOUNDS = 512
+
+    /** A group member dropped during chain materialization, with why. */
+    data class DiscardedMember(val groupTag: String, val memberTag: String, val reason: String)
+
+    /** Discards recorded by the most recent [apply] (NF-8 diagnostics). */
+    @Volatile
+    var lastDiscarded: List<DiscardedMember> = emptyList()
+        private set
+
     private val forbiddenTypes = setOf("direct", "block", "dns", NATIVE_CHAIN_TYPE)
     private val forbiddenTags = setOf("direct", "block", "dns")
     private val groupTypes = setOf("selector", "urltest")
@@ -68,6 +82,8 @@ object ChainRuntimeCompiler {
 
     fun apply(req: ApplyRequest): String {
         require(req.landingTag.isNotEmpty()) { "未选择链式落地出口" }
+        val discards = mutableListOf<DiscardedMember>()
+        lastDiscarded = emptyList()
         val root = parseConfig(req.content, "当前配置")
         val outs = cleanGeneratedOutbounds(root.optJSONArray("outbounds") ?: JSONArray())
         root.put("outbounds", outs)
@@ -90,12 +106,12 @@ object ChainRuntimeCompiler {
             require(landingSourceTag != main) { "入口与落地不能是同一个 outbound" }
             require(landingSourceTag !in endpoints) { "WireGuard/WARP 等 endpoint 不能作为链式落地：$landingSourceTag" }
             find(outs, landingSourceTag) ?: error("落地 outbound 不存在：$landingSourceTag")
-            prepareGroupHop(outs, landingSourceTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true, endpoints = endpoints)
+            prepareGroupHop(outs, landingSourceTag, setOf(main), "$LANDING_PREFIX${req.currentProfileId}-", inPlace = true, endpoints = endpoints, discards = discards)
         } else {
             val landingRoot = parseConfig(req.landingContent!!, "落地配置")
             val landingOuts = landingRoot.optJSONArray("outbounds") ?: error("落地配置没有 outbounds")
             landingSourceTag = matchExistingTag(landingOuts, req.landingTag) ?: req.landingTag
-            mergeLandingGraph(outs, landingOuts, req.landingProfileId, landingSourceTag, endpointTags(landingRoot))
+            mergeLandingGraph(outs, landingOuts, req.landingProfileId, landingSourceTag, endpointTags(landingRoot), discards)
         }
 
         val entryExclude = buildSet {
@@ -116,9 +132,16 @@ object ChainRuntimeCompiler {
             prepareGroupHop(
                 outs, main, entryExclude, ENTRY_PREFIX, inPlace = true,
                 endpoints = endpoints, allowEndpoints = true, excludeLeaves = landingLeaves,
+                discards = discards,
             )
         }.getOrElse {
-            prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true, endpoints = endpoints, allowEndpoints = true)
+            prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true, endpoints = endpoints, allowEndpoints = true, discards = discards)
+        }
+        // NF-8: the two hops together may not expand to an unbounded leaf
+        // set. Hard error, not truncation.
+        val totalLeaves = leafTags(outs, entryHop).size + leafTags(outs, landingMergedTag).size
+        require(totalLeaves <= MAX_CHAIN_LEAVES) {
+            "链式两跳展开后的叶子节点过多（$totalLeaves > $MAX_CHAIN_LEAVES），请缩小入口或落地分组成员"
         }
         val chainTag = chainTag(req.currentProfileId, req.landingProfileId)
         removeOutbound(outs, chainTag)
@@ -128,6 +151,11 @@ object ChainRuntimeCompiler {
         root.put("outbounds", outs)
         pinTrafficToChain(root, chainTag, landingMergedTag, setOf(main, entryHop))
         pinHopServerResolvers(root, entryHop, landingMergedTag)
+        // NF-8: materialization must stay bounded overall, clones included.
+        require(outs.length() <= MAX_MATERIALIZED_OUTBOUNDS) {
+            "组链后 outbound 总数过多（${outs.length()} > $MAX_MATERIALIZED_OUTBOUNDS），已拒绝组链"
+        }
+        lastDiscarded = discards.distinct()
         return root.toString()
     }
 
@@ -439,6 +467,7 @@ object ChainRuntimeCompiler {
         endpoints: Set<String> = emptySet(),
         allowEndpoints: Boolean = false,
         excludeLeaves: Set<String> = emptySet(),
+        discards: MutableList<DiscardedMember> = mutableListOf(),
     ): String {
         val visiting = mutableSetOf<String>()
         val rewritten = mutableMapOf<String, String>()
@@ -448,6 +477,7 @@ object ChainRuntimeCompiler {
         // the parent drops it instead of failing the whole chain.
         fun sanitize(currentTag: String, depth: Int): String? {
             require(depth <= MAX_MERGE_DEPTH) { "链式入口分组嵌套过深：$currentTag" }
+            require(depth <= MAX_GROUP_EXPANSION_DEPTH) { "链式分组嵌套过深（>${MAX_GROUP_EXPANSION_DEPTH} 层）：$currentTag" }
             require(currentTag !in visiting) { "链式入口分组存在循环：$currentTag" }
             rewritten[currentTag]?.let { return it }
             if (currentTag in emptied) return null
@@ -465,17 +495,28 @@ object ChainRuntimeCompiler {
             val mapped = JSONArray()
             for (i in 0 until members.length()) {
                 val member = members.optString(i).trim()
-                if (member.isEmpty() || member in forbiddenTags || member in extraExclude) continue
+                if (member.isEmpty() || member in extraExclude) continue
                 if (member in excludeLeaves) continue
+                if (member in forbiddenTags) {
+                    discards += DiscardedMember(currentTag, member, "保留名称（direct/block/dns）不可作链跳")
+                    continue
+                }
                 if (member in endpoints && find(outs, member) == null) {
                     if (allowEndpoints) mapped.put(member)
                     continue
                 }
                 val child = find(outs, member) ?: error("分组 $currentTag 引用了不存在的 outbound：$member")
                 val childType = child.optString("type").trim()
-                if (childType in forbiddenTypes) continue
+                if (childType in forbiddenTypes) {
+                    discards += DiscardedMember(currentTag, member, "类型 $childType 不可作链跳")
+                    continue
+                }
                 val hop = if (childType in groupTypes) sanitize(member, depth + 1) else member
-                if (hop != null) mapped.put(hop)
+                if (hop != null) {
+                    mapped.put(hop)
+                } else if (childType in groupTypes) {
+                    discards += DiscardedMember(currentTag, member, "嵌套分组过滤后无可用成员")
+                }
             }
             if (mapped.length() == 0 && depth > 0) {
                 visiting.remove(currentTag)
@@ -552,7 +593,7 @@ object ChainRuntimeCompiler {
         return out
     }
 
-    private fun mergeLandingGraph(dst: JSONArray, src: JSONArray, profileId: Long, rootTag: String, endpoints: Set<String> = emptySet()): String {
+    private fun mergeLandingGraph(dst: JSONArray, src: JSONArray, profileId: Long, rootTag: String, endpoints: Set<String> = emptySet(), discards: MutableList<DiscardedMember> = mutableListOf()): String {
         val visiting = mutableSetOf<String>()
         val merged = mutableMapOf<String, String>()
         val emptied = mutableSetOf<String>()
@@ -561,6 +602,7 @@ object ChainRuntimeCompiler {
         fun merge(tag: String, depth: Int = 0): String? {
             require(tag.isNotBlank()) { "落地 outbound 为空" }
             require(depth <= MAX_MERGE_DEPTH) { "落地配置分组嵌套过深" }
+            require(depth <= MAX_GROUP_EXPANSION_DEPTH) { "落地配置分组嵌套过深（>${MAX_GROUP_EXPANSION_DEPTH} 层）：$tag" }
             require(tag !in visiting) { "落地配置拓扑存在循环：$tag" }
             merged[tag]?.let { return it }
             if (tag in emptied) return null
@@ -580,12 +622,24 @@ object ChainRuntimeCompiler {
                 val mapped = JSONArray()
                 for (i in 0 until members.length()) {
                     val member = members.optString(i)
-                    if (member in forbiddenTags) continue
+                    if (member in forbiddenTags) {
+                        discards += DiscardedMember(tag, member, "保留名称（direct/block/dns）不可作链跳")
+                        continue
+                    }
                     // Endpoint members cannot be cloned onto the landing hop.
                     if (member in endpoints && find(src, member) == null) continue
                     val child = find(src, member) ?: error("落地分组引用不存在的 outbound：$member")
-                    if (child.optString("type") in forbiddenTypes) continue
-                    merge(member, depth + 1)?.let { mapped.put(it) }
+                    val childType = child.optString("type").trim()
+                    if (childType in forbiddenTypes) {
+                        discards += DiscardedMember(tag, member, "类型 $childType 不可作链跳")
+                        continue
+                    }
+                    val mergedChild = merge(member, depth + 1)
+                    if (mergedChild != null) {
+                        mapped.put(mergedChild)
+                    } else if (childType in groupTypes) {
+                        discards += DiscardedMember(tag, member, "嵌套分组过滤后无可用成员")
+                    }
                 }
                 if (mapped.length() == 0 && depth > 0) {
                     merged.remove(tag)

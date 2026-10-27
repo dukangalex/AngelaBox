@@ -30,8 +30,11 @@ def main() -> int:
         errors.append("ad block must inject a remote rule-set when missing")
 
     override = read("app/src/main/java/io/nekohasekai/sfa/utils/ConfigQuicOverride.kt")
-    if "ConfigAdBlock.apply" not in override:
-        errors.append("runtime overlay must apply ConfigAdBlock")
+    # Design v2: the ads toggle is collected by the system-explicit segment
+    # (block form), not prepended by ConfigQuicOverride directly.
+    segment = read("app/src/main/java/io/nekohasekai/sfa/utils/SystemExplicitSegment.kt")
+    if "ConfigAdBlock.applyBlock" not in segment:
+        errors.append("system-explicit segment must apply ConfigAdBlock")
     if 'applyOne(warnings, "广告拦截")' not in override:
         errors.append("ad block must apply in isolation")
     webrtc = override.find('applyOne(warnings, "防 WebRTC 泄露")')

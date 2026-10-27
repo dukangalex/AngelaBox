@@ -161,6 +161,9 @@ object ConfigNormalize {
         if (strippedDropped.isNotEmpty()) {
             notes += "无效规则集已去掉（原地址不是公共 HTTPS，未被采用）：${strippedDropped.take(5).joinToString("、")}"
         }
+        if (rsHeal.keptReferenced.isNotEmpty()) {
+            notes += "规则集仍被规则引用，已保留：${rsHeal.keptReferenced.take(5).joinToString("、")}"
+        }
         mark(ConfigIngest.normalizeEchConfigs(root), "节点自带的 ECH 已整理成内核能读的格式")
         ConfigInboundCompat.healDownloadClients(root)
         // 改指必须出声：把失效引用改到了哪个分组，写进提示里。

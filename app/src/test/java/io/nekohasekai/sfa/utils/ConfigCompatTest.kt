@@ -368,7 +368,14 @@ class ConfigCompatTest {
     }
 
     @Test
-    fun dropsMissingRemoteRuleSetsAndDanglingRules() {
+    fun keepsReferencedRemoteRuleSetsAndTheirRules() {
+        // Design v2 (system-explicit step 5) supersedes the old
+        // drop-and-strip behavior for REFERENCED sets: geoip-fastly's file
+        // is unreplaceable at the official repo, but a route rule still
+        // references it, so the definition and the rule are both kept (and
+        // reported via keptReferenced in the report path) instead of being
+        // dropped. Unreferenced dead sets still drop — see
+        // ConfigNormalizeTest.healDropsUnreplaceableOnlyAtOfficialUrls.
         val src = JSONObject()
             .put(
                 "route",
@@ -398,12 +405,13 @@ class ConfigCompatTest {
             )
         val out = JSONObject(ConfigCompat.sanitize(src.toString()))
         val sets = out.getJSONObject("route").getJSONArray("rule_set")
-        assertEquals(1, sets.length())
+        assertEquals(2, sets.length())
         assertEquals("geoip-cn", sets.getJSONObject(0).getString("tag"))
+        assertEquals("geoip-fastly", sets.getJSONObject(1).getString("tag"))
         val rules = out.getJSONObject("route").getJSONArray("rules")
         val kept = ruleWithRuleSet(rules, "geoip-cn")
         assertEquals("direct", kept.getString("outbound"))
-        assertEquals(false, hasRuleSet(rules, "geoip-fastly"))
+        assertEquals(true, hasRuleSet(rules, "geoip-fastly"))
     }
 
     @Test

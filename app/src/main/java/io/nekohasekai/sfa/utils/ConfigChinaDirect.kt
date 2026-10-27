@@ -15,17 +15,34 @@ import org.json.JSONObject
  * 5. LAN IPs
  * 6. LAN domains
  *
- * Does **not** inject a DNS server. Earlier builds added
+ * The legacy [apply] does **not** inject a DNS server. Earlier builds added
  * `chainbox-cn-dns` with `detour: "direct"`, which sing-box 1.12+ rejects
  * ("detour to an empty direct outbound makes no sense") and kills reload
- * with RPC EOF. Omitting detour still uses the default outbound — often the
- * proxy or a generated chain — so China DNS would go through the tunnel and
- * fight the bypass. The six items above are "绕过" (route direct), not
- * "改用国内 DNS".
+ * with RPC EOF. The system-explicit segment (SystemExplicitSegment) instead
+ * uses the split builders below plus [SYS_CN_DNS_TAG], whose detour target
+ * is the guaranteed direct from [ensureDetourableDirect] — see NF-18.
  */
 object ConfigChinaDirect {
     const val CN_DNS_TAG = "chainbox-cn-dns"
     const val DIRECT_FALLBACK_TAG = "chainbox-direct"
+
+    /**
+     * App-owned China DNS server (design v2 §2.2 item 4, NF-18). Unlike the
+     * legacy [CN_DNS_TAG] — which pointed at an empty direct and crashed
+     * 1.12+ kernels — this server is always written together with a detour
+     * to the direct outbound [ensureDetourableDirect] guarantees, and the
+     * `sys-` prefix exempts it from broken-detour stripping
+     * (ConfigCompat.stripBrokenDnsDetours).
+     */
+    const val SYS_CN_DNS_TAG = "sys-cn-dns"
+    const val SYS_CN_DNS_ADDRESS = "223.5.5.5"
+
+    /** Pinned definitions the system-explicit segment self-injects. */
+    private val CN_RULE_SET_URLS: List<Pair<String, String>> = listOf(
+        "geosite-cn" to (RuleSetPins.geositeBase() + "rule-set/geosite-cn.srs"),
+        "geoip-cn" to (RuleSetPins.geoipBase() + "rule-set/geoip-cn.srs"),
+        "geosite-geolocation-!cn" to (RuleSetPins.geositeBase() + "rule-set/geosite-geolocation-!cn.srs"),
+    )
 
     val LAN_DOMAIN_SUFFIXES: List<String> = listOf(
         "local", "lan", "localhost", "home.arpa", "localdomain",
@@ -89,7 +106,7 @@ object ConfigChinaDirect {
     }
 
     /** Key-order-insensitive canonical form, for rule comparison only. */
-    private fun fingerprint(value: Any?): String = when (value) {
+    internal fun fingerprint(value: Any?): String = when (value) {
         is JSONObject -> {
             val keys = mutableListOf<String>()
             val iter = value.keys()
@@ -168,6 +185,227 @@ object ConfigChinaDirect {
             outs.put(JSONObject().put("type", "direct").put("tag", tag))
         }
         return tag
+    }
+
+    // ---- System-explicit split blocks (design v2 §2.2 items 4/5/6) ----
+    // The pipeline no longer calls the monolithic [apply]: each split switch
+    // (chinaIpDomainDirect / chinaPublicDnsDirect / lanDirect) registers its
+    // own block with SystemExplicitSegment, which prepends them as one
+    // ordered block. [apply] stays as the legacy all-on composition.
+
+    /** LAN direct block (order table #7). */
+    fun lanRouteRules(directTag: String): JSONArray {
+        val rules = JSONArray()
+        rules.put(
+            JSONObject()
+                .put("ip_is_private", true)
+                .put("outbound", directTag),
+        )
+        // ip_is_private's exact range table lives in sagernet/sing (not
+        // vendored in the pinned kernel tree), so CGNAT and the mDNS
+        // multicast address are written out explicitly instead of assumed.
+        rules.put(
+            JSONObject()
+                .put("ip_cidr", JSONArray().put("100.64.0.0/10").put("224.0.0.251/32"))
+                .put("outbound", directTag),
+        )
+        rules.put(
+            JSONObject()
+                .put("domain_suffix", toArray(LAN_DOMAIN_SUFFIXES))
+                .put("domain", JSONArray().put("localhost"))
+                .put("outbound", directTag),
+        )
+        return rules
+    }
+
+    /** China public DNS direct block (order table #8). */
+    fun publicDnsRouteRules(directTag: String): JSONArray {
+        val rules = JSONArray()
+        rules.put(
+            JSONObject()
+                .put("ip_cidr", toArray(CHINA_DNS_IPS))
+                .put("outbound", directTag),
+        )
+        rules.put(
+            JSONObject()
+                .put("domain", toArray(CHINA_DNS_DOMAINS))
+                .put("domain_suffix", toArray(CHINA_DNS_DOMAIN_SUFFIXES))
+                .put("outbound", directTag),
+        )
+        return rules
+    }
+
+    /** China IP/domain direct block (order table #9); needs [ensureCnRuleSets]. */
+    fun chinaIpDomainRouteRules(directTag: String): JSONArray {
+        val rules = JSONArray()
+        rules.put(
+            JSONObject()
+                .put("rule_set", JSONArray().put("geosite-cn").put("geoip-cn"))
+                .put("outbound", directTag),
+        )
+        // The hardcoded CN suffix list stays as the domain-side fallback:
+        // if the geosite-cn download fails at startup, these still catch
+        // the major CN domains (the set itself is the recovery ladder's
+        // problem, not this block's).
+        rules.put(
+            JSONObject()
+                .put("domain_suffix", ConfigNormalize.cnDomainSuffixArray())
+                .put("outbound", directTag),
+        )
+        return rules
+    }
+
+    /**
+     * DNS mirror rules for the China item (official "Without DNS leaks"
+     * shape): CN domains resolve through [SYS_CN_DNS_TAG] so their CDN
+     * answers are domestic, everything else keeps the protected final.
+     * Woven ahead of the fakeip rule by ConfigQuicOverride.ensureFakeIpDns —
+     * behind it, A/AAAA queries would be answered with fake addresses first
+     * and the mirror would never fire.
+     */
+    fun cnDnsMirrorRules(): JSONArray {
+        val rules = JSONArray()
+        rules.put(
+            JSONObject()
+                .put("rule_set", "geosite-cn")
+                .put("server", SYS_CN_DNS_TAG),
+        )
+        rules.put(
+            JSONObject()
+                .put("type", "logical")
+                .put("mode", "and")
+                .put(
+                    "rules",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("rule_set", "geosite-geolocation-!cn")
+                                .put("invert", true),
+                        )
+                        .put(JSONObject().put("rule_set", "geoip-cn")),
+                )
+                .put("server", SYS_CN_DNS_TAG),
+        )
+        return rules
+    }
+
+    /**
+     * Self-inject the pinned CN rule-set definitions (runtime config only;
+     * the stored profile is untouched). A same-tag entry the subscription
+     * already carries is replaced by the app pinned definition — the design
+     * makes the pinned definition win so heal pins and this injection can
+     * never disagree. Returns the tags whose definition was replaced, for
+     * the caller's OverrideNotice.
+     */
+    fun ensureCnRuleSets(root: JSONObject): List<String> {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val sets = route.optJSONArray("rule_set") ?: JSONArray().also { route.put("rule_set", it) }
+        val replaced = mutableListOf<String>()
+        for ((tag, url) in CN_RULE_SET_URLS) {
+            var existing: JSONObject? = null
+            for (i in 0 until sets.length()) {
+                val item = sets.optJSONObject(i) ?: continue
+                if (item.optString("tag") == tag) {
+                    existing = item
+                    break
+                }
+            }
+            if (existing == null) {
+                sets.put(
+                    JSONObject()
+                        .put("tag", tag)
+                        .put("type", "remote")
+                        .put("format", "binary")
+                        .put("url", url),
+                )
+            } else if (!existing.optString("type").equals("remote", true) ||
+                existing.optString("format") != "binary" ||
+                existing.optString("url") != url
+            ) {
+                existing.put("type", "remote")
+                existing.put("format", "binary")
+                existing.put("url", url)
+                existing.remove("path")
+                existing.remove("download_url")
+                existing.remove("download_detour")
+                replaced += tag
+            }
+        }
+        return replaced
+    }
+
+    /**
+     * Inject (or align) the app-owned China DNS server. Its detour always
+     * points at [directTag] from [ensureDetourableDirect], so the pair can
+     * never reproduce the legacy empty-direct crash.
+     */
+    fun ensureSysCnDns(root: JSONObject, directTag: String) {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("tag") != SYS_CN_DNS_TAG) continue
+            server.put("type", "udp")
+            server.put("server", SYS_CN_DNS_ADDRESS)
+            server.put("detour", directTag)
+            return
+        }
+        servers.put(
+            JSONObject()
+                .put("type", "udp")
+                .put("tag", SYS_CN_DNS_TAG)
+                .put("server", SYS_CN_DNS_ADDRESS)
+                .put("detour", directTag),
+        )
+    }
+
+    /**
+     * The direct outbound DNS detours may point at: [findOrCreateDirect]
+     * plus the guarantee that it is not an *empty* direct. The kernel
+     * rejects a detour to an empty direct (its DialerOptions are all
+     * default); a `domain_resolver` makes the options non-default in both
+     * the kernel's DeepEqual check and keeps the intent explicit. The
+     * resolver named is the route default resolver when it points at a
+     * defined DNS server (the same fallback the chain compiler uses),
+     * otherwise a local server — created with the exact shape
+     * ConfigIngest.ensureLocalDns writes.
+     */
+    fun ensureDetourableDirect(root: JSONObject): String {
+        val outs = root.optJSONArray("outbounds") ?: JSONArray().also { root.put("outbounds", it) }
+        val tag = findOrCreateDirect(outs)
+        val direct = find(outs, tag) ?: return tag
+        if (!direct.has("domain_resolver") && ConfigCompat.isEmptyDirect(direct)) {
+            direct.put("domain_resolver", directResolverTag(root))
+        }
+        return tag
+    }
+
+    private fun directResolverTag(root: JSONObject): String {
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        val named = when (val raw = root.optJSONObject("route")?.opt("default_domain_resolver")) {
+            is String -> raw.trim()
+            is JSONObject -> raw.optString("server").trim()
+            else -> ""
+        }
+        if (named.isNotEmpty() && findServer(servers, named) != null) return named
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val tag = server.optString("tag").trim()
+            if (tag.isNotEmpty() && server.optString("type").equals("local", true)) return tag
+        }
+        if (findServer(servers, "local") == null) {
+            servers.put(JSONObject().put("type", "local").put("tag", "local"))
+        }
+        return "local"
+    }
+
+    private fun findServer(servers: JSONArray, tag: String): JSONObject? {
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("tag") == tag) return server
+        }
+        return null
     }
 
     /**

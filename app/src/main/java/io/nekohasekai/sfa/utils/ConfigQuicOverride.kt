@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.BuildConfig
@@ -32,15 +33,19 @@ object ConfigQuicOverride {
         // Pipeline (one set of rules at a time, no overlapping routing):
         // 1. 配置规范化 / sanitize — kernel syntax only, keep nodes/groups/routes.
         //    Banner only if heal actually rewrote the config (已修正 + notes).
-        // 2. overlay script — if bound, it owns routing AND overlay-gated
-        //    features (China/ads/QUIC/WebRTC/DNS/IPv6/strict). Switches are
-        //    passed into the script as `overlay`; the App does not write a
-        //    second copy.
+        // 2. overlay script — if bound, it rewrites routing from the raw
+        //    config. Switches are passed into the script as `overlay` so a
+        //    cooperative script can honor them, but since the system-explicit
+        //    rework (design v2 §2.2) the script no longer owns the final word:
+        //    step 5 applies after it, unconditionally.
         // 3. chain — if bound, compile the script-produced entry graph into
         //    the native entry → landing path. Scripts and chain are intentionally
         //    composable; a script never mutates the saved subscription.
-        // 4. China Direct / ads / QUIC / WebRTC / DNS / IPv6 / strict —
-        //    App writes these only when no script is bound
+        // 4. kernel compat / clash modes / per-rung rule-set handling.
+        // 5. system explicit (SystemExplicitSegment) — the LAST route/dns
+        //    stage: China family / VPN-leak final policy / strict / QUIC /
+        //    DNS / IPv6 / privacy / WebRTC / ads, written over whatever the
+        //    subscription or a script produced, as one ordered rule block.
         val healed = if (Settings.configNormalize) {
             ConfigNormalize.heal(content)
         } else {
@@ -82,6 +87,19 @@ object ConfigQuicOverride {
                 ChainRuntimeCompiler.savedEntryMatches(out, savedEntry) == null
             if (binding != null) {
                 try {
+                    // D2 (scoped, NF-3): only a binding that has already
+                    // materialized successfully fails closed when its saved
+                    // entry disappears — never-materialized bindings keep
+                    // the graceful fallback notice below. The policy lives
+                    // here at the startup caller; resolveMainTag itself and
+                    // its UI/dashboard callers are untouched.
+                    if (ChainBindingCodec.entryDisappearanceFailsClosed(binding, entryMissing)) {
+                        error(
+                            "保存的入口「$savedEntry」在当前生效配置里不存在（订阅更新或脚本改名都可能）。" +
+                                "这条链式绑定此前已成功生效过，为避免流量被悄悄改走其它分组，已停止启动。" +
+                                "请到「工具 → 链式代理」重新选择入口。",
+                        )
+                    }
                     out = ConfigChainReapply.apply(out, profileId)
                     if (ConfigChainReapply.lastLandingNotes.isNotEmpty()) {
                         warnings += OverrideNotice(
@@ -102,6 +120,13 @@ object ConfigQuicOverride {
                             title = "链式入口已失效",
                             reason = "保存的入口「$savedEntry」在当前生效配置里不存在（订阅更新或脚本改名都可能），已自动改用当前配置的主分组。落地绑定仍有效。",
                             hint = "不必重新配链式。若入口不对，到「工具 → 链式代理」重选一次即可。",
+                        )
+                    }
+                    ConfigChainReapply.lastDiscardedSummary?.let { summary ->
+                        warnings += OverrideNotice(
+                            title = "链式成员已过滤",
+                            reason = summary,
+                            hint = "被丢弃的成员不进入链路，其余成员照常组链。若其中有特意放的 direct/block 成员，它在链里不生效。",
                         )
                     }
                 } catch (e: Exception) {
@@ -143,30 +168,6 @@ object ConfigQuicOverride {
             // content and the service "started" with none of this applied).
             applyOne(warnings, "TUN 入站") {
                 ConfigInboundCompat.ensureAndroidTun(root)
-            }
-            // Script already honored overlay.* . Writing the same blocks
-            // here would be a second rule set and can break routing.
-            applyOne(warnings, "中国直连") {
-                if (Settings.chinaDirect && !scriptOn) ConfigChinaDirect.apply(root)
-            }
-            applyOne(warnings, "严格路由") {
-                if (!scriptOn) applyStrictRoute(root, Settings.strictRoute)
-            }
-            applyOne(warnings, "禁用 QUIC") {
-                if (Settings.disableQuic && !scriptOn) applyQuic(root)
-            }
-            applyOne(warnings, "DNS 防泄漏") {
-                if (Settings.dnsProtect && !scriptOn) applyDnsProtect(root)
-            }
-            applyOne(warnings, "禁用 IPv6") {
-                if (Settings.disableIpv6 && !scriptOn) applyDisableIpv6(root)
-            }
-            // WebRTC last so reject rules prepend in front of China Direct.
-            applyOne(warnings, "防 WebRTC 泄露") {
-                if (Settings.webrtcProtect && !scriptOn) applyWebrtc(root)
-            }
-            applyOne(warnings, "广告拦截") {
-                if (Settings.adsBlock && !scriptOn) ConfigAdBlock.apply(root)
             }
             // A bound script owns the dns block: the bundled sample rebuilds
             // it from scratch, which wipes the ECH query server/route the
@@ -226,6 +227,50 @@ object ConfigQuicOverride {
                     ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
                 }
             }
+            // System-explicit segment: the last route/dns-mutating stage.
+            // No script gate — the toggles apply over subscription and script
+            // output alike (design v2 §2.2; the pre-v2 behavior yielded all
+            // seven route-class toggles to any script that ran). Stage order
+            // below is execution order only; the route rules land as ONE
+            // ordered block in assembleRouteRules.
+            val segment = SystemExplicitSegment(
+                root,
+                SystemExplicitSegment.Config(
+                    chinaIpDomainDirect = Settings.chinaIpDomainDirect,
+                    chinaPublicDnsDirect = Settings.chinaPublicDnsDirect,
+                    lanDirect = Settings.lanDirect,
+                    privacyProtect = Settings.privacyProtect,
+                    vpnLeakProtect = Settings.vpnLeakProtect,
+                    disableQuic = Settings.disableQuic,
+                    excludeCnQuic = Settings.excludeCnQuic,
+                    dnsProtect = Settings.dnsProtect,
+                    dnsProtectLegacyFillOnly = Settings.dnsProtectLegacyFillOnly,
+                    disableIpv6 = Settings.disableIpv6,
+                    webrtcProtect = Settings.webrtcProtect,
+                    adsBlock = Settings.adsBlock,
+                ),
+                chainTag = binding?.let {
+                    ChainRuntimeCompiler.chainTag(profileId, it.landingProfileId)
+                },
+            )
+            applyOne(warnings, "中国直连") { segment.applyChinaFamily() }
+            applyOne(warnings, "防 VPN 泄露") { segment.applyVpnLeakProtect() }
+            // B7: strictRoute is a TRUE sub-item of vpnLeakProtect (same
+            // rule as the other sub-items): the stage registers only when
+            // the parent is on. The stored strictRoute value itself is
+            // never rewritten here — parent off simply leaves the
+            // subscription's own strict_route untouched.
+            if (Settings.vpnLeakProtect) {
+                applyOne(warnings, "严格路由") { applyStrictRoute(root, Settings.strictRoute) }
+            }
+            applyOne(warnings, "禁用 QUIC") { segment.applyQuicToggle() }
+            applyOne(warnings, "DNS 防泄漏") { segment.applyDnsProtectToggle() }
+            applyOne(warnings, "禁用 IPv6") { segment.applyDisableIpv6Toggle() }
+            applyOne(warnings, "防隐私") { segment.applyPrivacyToggle() }
+            applyOne(warnings, "防 WebRTC 泄露") { segment.applyWebrtcToggle() }
+            applyOne(warnings, "广告拦截") { segment.applyAdsToggle() }
+            applyOne(warnings, "系统显式") { segment.assembleRouteRules() }
+            warnings += segment.notices
             out = root.toString()
         } catch (e: ChainApplyException) {
             throw e
@@ -267,29 +312,35 @@ object ConfigQuicOverride {
         log.put("level", "info")
     }
 
-    private fun applyWebrtc(root: JSONObject) {
-        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val old = route.optJSONArray("rules") ?: JSONArray()
-        val merged = JSONArray()
-        val extra = ConfigNormalize.webrtcRejectRules()
-        for (i in 0 until extra.length()) merged.put(extra.get(i))
-        for (i in 0 until old.length()) merged.put(old.get(i))
-        route.put("rules", merged)
+    /**
+     * The WebRTC reject block for the system-explicit segment: the existing
+     * port/keyword set plus the kernel-native STUN protocol match (design
+     * v2 §2.2 item 1). The protocol rule only fires after the flow was
+     * sniffed — the segment puts a sniff-all rule at the head of this block
+     * when it assembles (NF-20).
+     */
+    internal fun webrtcRouteRules(): JSONArray {
+        val rules = ConfigNormalize.webrtcRejectRules()
+        rules.put(
+            JSONObject()
+                .put("protocol", JSONArray().put("stun"))
+                .put("action", "reject"),
+        )
+        return rules
     }
 
     /**
      * Mihomo REJECT, not REJECT-DROP. Default reject resets the flow so
      * HTTP/3 clients fall back to TCP. method drop blackholes UDP 443 and
-     * looks like a hang. China UDP 443 is routed direct first when that
-     * switch is on and the China rule-sets exist.
+     * looks like a hang. China UDP 443 is routed direct first when
+     * [excludeCnQuic] is on and the China rule-sets exist.
      */
-    internal fun applyQuic(root: JSONObject) {
+    internal fun quicRouteRules(root: JSONObject, excludeCnQuic: Boolean): JSONArray {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val old = route.optJSONArray("rules") ?: JSONArray()
         val direct = firstDirectTag(root)
         val sets = ruleSetTags(route)
         val extra = JSONArray()
-        if (Settings.excludeCnQuic && direct != null) {
+        if (excludeCnQuic && direct != null) {
             if ("geoip-cn" in sets) {
                 extra.put(
                     JSONObject()
@@ -318,6 +369,14 @@ object ConfigQuicOverride {
                 .put("port", 443)
                 .put("action", "reject"),
         )
+        return extra
+    }
+
+    /** Historical entry point: prepend the QUIC block to the current rules. */
+    internal fun applyQuic(root: JSONObject) {
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val extra = quicRouteRules(root, Settings.excludeCnQuic)
         val merged = JSONArray()
         for (i in 0 until extra.length()) merged.put(extra.get(i))
         for (i in 0 until old.length()) merged.put(old.get(i))
@@ -384,15 +443,26 @@ object ConfigQuicOverride {
      * 3. HTTPS/SVCB 查询直接拒绝（防 ECH/DNS 旁路）；节点自身的 ECH 查询域名
      *    除外——放行到专用 ech-* DNS 服务器（见 ensureFakeIpDns 的规则排序），
      *    否则内核取不到 ECH 配置，带 ECH 的节点永远连不上。
-     * 幂等：重复调用不会叠加。已有用户配置（servers/final/strategy）只做加法不覆盖。
+     * 幂等：重复调用不会叠加。strategy 与韧性默认值只做加法不覆盖；final 的
+     * 处理分两档（design v2 §2.2 第 2 条）：默认覆盖模式把 final 强制改到
+     * 受保护服务器（第一个远程类型服务器，没有则新建 sys-dns-remote）并把
+     * 其 detour 强制为当前出站，覆盖了订阅/脚本的设置时发 OverrideNotice
+     * (NF-7)；dnsProtectLegacyFillOnly 开启时回到旧行为——只补空白。
      *
      * DNS 韧性默认值（1.14+ 内核均支持；已有用户配置只做加法不覆盖）：
      * - optimistic：过期缓存先返回、后台刷新，弱网/断网瞬间解析成功率更高；
      * - timeout：单查询 5s（内核默认 10s），弱网下 fallback 更快；
      * - cache_capacity：LRU 2048（小于 1024 会被内核忽略），提升命中率、省电省流量。
      */
-    internal fun applyDnsProtect(root: JSONObject) {
+    internal fun applyDnsProtect(
+        root: JSONObject,
+        cnMirrorRules: JSONArray = JSONArray(),
+        overwriteFinal: Boolean = true,
+        egressTag: String? = null,
+        notices: MutableList<OverrideNotice>? = null,
+    ) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val finalBefore = dns.optString("final")
         if (dns.optString("strategy").isBlank()) {
             dns.put("strategy", "prefer_ipv4")
         }
@@ -409,13 +479,76 @@ object ConfigQuicOverride {
         // 会被 ensureFakeIpDns 里的 HTTPS/SVCB reject 吞掉——原生 sing-box
         // 订阅自身没有 ech-* 规则时尤其如此。幂等：已有路由不动。
         ConfigIngest.ensureEchQueryRoute(root)
-        ensureFakeIpDns(dns)
+        ensureFakeIpDns(dns, cnMirrorRules)
+        if (overwriteFinal) {
+            applyProtectedDnsFinal(root, egressTag, finalBefore, notices)
+        }
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
         ConfigInboundCompat.ensureHijackDns(root)
     }
 
-    private fun ensureFakeIpDns(dns: JSONObject) {
+    /** First server whose type can actually carry queries off-device. */
+    private fun firstProtectedDnsServer(dns: JSONObject): JSONObject? {
+        val servers = dns.optJSONArray("servers") ?: return null
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            if (server.optString("tag").isBlank()) continue
+            // sys-cn-dns is the China mirror target, not a general resolver.
+            if (server.optString("tag") == ConfigChinaDirect.SYS_CN_DNS_TAG) continue
+            val type = server.optString("type").lowercase()
+            if (type in setOf("https", "tls", "udp", "tcp", "quic")) return server
+        }
+        return null
+    }
+
+    private fun applyProtectedDnsFinal(
+        root: JSONObject,
+        egressTag: String?,
+        finalBefore: String,
+        notices: MutableList<OverrideNotice>?,
+    ) {
+        val dns = root.optJSONObject("dns") ?: return
+        val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
+        var protected = firstProtectedDnsServer(dns)
+        if (protected == null) {
+            protected = JSONObject()
+                .put("type", "https")
+                .put("tag", "sys-dns-remote")
+                .put("server", "8.8.8.8")
+            servers.put(protected)
+        }
+        val protectedTag = protected.optString("tag")
+        if (egressTag != null) {
+            val oldDetour = protected.optString("detour")
+            if (oldDetour != egressTag) {
+                protected.put("detour", egressTag)
+                if (oldDetour.isNotBlank()) {
+                    notices?.add(
+                        OverrideNotice(
+                            title = "系统显式",
+                            reason = "DNS 服务器「$protectedTag」的 detour 由「$oldDetour」改为当前出站「$egressTag」",
+                            hint = "DNS 防泄漏要求解析出站与流量出站一致，否则查询仍从原 detour 泄露。",
+                        ),
+                    )
+                }
+            }
+        }
+        if (dns.optString("final") != protectedTag) {
+            dns.put("final", protectedTag)
+            if (finalBefore.isNotBlank()) {
+                notices?.add(
+                    OverrideNotice(
+                        title = "系统显式",
+                        reason = "DNS 最终解析由「$finalBefore」覆盖为「$protectedTag」",
+                        hint = "DNS 防泄漏开启时，未匹配 dns.rules 的查询走受保护的远程服务器。如需保留订阅原值，在「系统显式」里打开「DNS 仅补齐空白」。",
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun ensureFakeIpDns(dns: JSONObject, cnMirrorRules: JSONArray = JSONArray()) {
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
         var hasFakeIp = false
         var firstRealTag: String? = null
@@ -451,10 +584,12 @@ object ConfigQuicOverride {
             dns.put("final", firstRealTag)
         }
         // 规则顺序（内核按序首命中）固定为：ECH 查询路由 → HTTPS/SVCB reject →
-        // A/AAAA fakeip → 其余原规则。ECH 规则必须在 reject 之前：内核为节点取
-        // ECH 配置发的正是 HTTPS 查询，先命中 reject 就永远轮不到 ECH 规则。
-        // ECH 规则按域名精确匹配（ConfigIngest.prependEchRule），只有 ECH 查询
-        // 域名放行到专用 ech-* DNS，其它域名的 HTTPS/SVCB 照旧拒绝。
+        // 中国镜像（仅中国直连开启时）→ A/AAAA fakeip → 其余原规则。ECH 规则
+        // 必须在 reject 之前：内核为节点取 ECH 配置发的正是 HTTPS 查询，先命中
+        // reject 就永远轮不到 ECH 规则。ECH 规则按域名精确匹配
+        // （ConfigIngest.prependEchRule），只有 ECH 查询域名放行到专用 ech-*
+        // DNS，其它域名的 HTTPS/SVCB 照旧拒绝。中国镜像必须在 fakeip 之前：
+        // A/AAAA 查询先被 fakeip 规则命中就只会拿到假地址，镜像永不触发。
         val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
         val echRules = JSONArray()
         val rest = JSONArray()
@@ -464,6 +599,10 @@ object ConfigQuicOverride {
             val r = rules.optJSONObject(i) ?: continue
             when {
                 r.optString("server").startsWith("ech-") -> echRules.put(r)
+                // Stale mirror rules from an earlier pass are dropped here;
+                // the canonical set is woven back in below.
+                cnMirrorRules.length() > 0 &&
+                    r.optString("server") == ConfigChinaDirect.SYS_CN_DNS_TAG -> Unit
                 rejectRule == null && r.optString("action") == "reject" &&
                     queryTypesContain(r, "HTTPS") -> rejectRule = r
                 fakeIpRule == null && r.optString("server") == "dns-fakeip" -> fakeIpRule = r
@@ -477,6 +616,7 @@ object ConfigQuicOverride {
                 .put("query_type", JSONArray().put("HTTPS").put("SVCB"))
                 .put("action", "reject"),
         )
+        for (i in 0 until cnMirrorRules.length()) merged.put(cnMirrorRules.get(i))
         merged.put(
             fakeIpRule ?: JSONObject()
                 .put("query_type", JSONArray().put("A").put("AAAA"))
@@ -496,18 +636,28 @@ object ConfigQuicOverride {
         return false
     }
 
-    internal fun applyDisableIpv6(root: JSONObject) {
+    /** The IPv6 reject rule (order table #4), built for the segment. */
+    internal fun disableIpv6RouteRule(): JSONObject =
+        JSONObject().put("ip_version", 6).put("action", "reject")
+
+    /** The non-route-rule parts of IPv6 disabling: DNS strategy + TUN v6 strip. */
+    internal fun applyDisableIpv6Mutations(root: JSONObject) {
         val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
         dns.put("strategy", "ipv4_only")
-        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val old = route.optJSONArray("rules") ?: JSONArray()
-        val merged = JSONArray().put(JSONObject().put("ip_version", 6).put("action", "reject"))
-        for (i in 0 until old.length()) merged.put(old.get(i))
-        route.put("rules", merged)
         val inbounds = root.optJSONArray("inbounds") ?: return
         for (i in 0 until inbounds.length()) {
             val ib = inbounds.optJSONObject(i) ?: continue
             if (ib.optString("type") == "tun") ib.remove("inet6_address")
         }
+    }
+
+    /** Historical entry point: mutations + reject rule prepended. */
+    internal fun applyDisableIpv6(root: JSONObject) {
+        applyDisableIpv6Mutations(root)
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val old = route.optJSONArray("rules") ?: JSONArray()
+        val merged = JSONArray().put(disableIpv6RouteRule())
+        for (i in 0 until old.length()) merged.put(old.get(i))
+        route.put("rules", merged)
     }
 }

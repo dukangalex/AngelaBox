@@ -78,6 +78,7 @@ class Application : Application() {
         GlobalScope.launch(Dispatchers.IO) {
             initialize(baseDir, workingDir, tempDir)
             Settings.applyChinaUserDefaultsIfNeeded()
+            Settings.applyChinaDirectSplitSeedIfNeeded()
             UpdateProfileWork.reconfigureUpdater()
             HookModuleUpdateNotifier.sync(this@Application)
             TaildropFiles.cleanCache()

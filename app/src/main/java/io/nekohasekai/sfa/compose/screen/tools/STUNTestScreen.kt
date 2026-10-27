@@ -51,6 +51,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.RemoteControlManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,6 +122,17 @@ fun STUNTestScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // A8: with 防 WebRTC 泄露 on, STUN is rejected at the route
+        // layer and this page cannot succeed — say so up front instead
+        // of letting the failure read as a network fault.
+        val webrtcProtectOn = remember { Settings.webrtcProtect }
+        if (webrtcProtectOn) {
+            Text(
+                text = "「防 WebRTC 泄露」开着：STUN 在路由层被拒绝，这里测不通是预期，不是故障。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(

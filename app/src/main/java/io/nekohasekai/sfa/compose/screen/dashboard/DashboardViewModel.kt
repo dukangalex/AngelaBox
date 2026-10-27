@@ -155,8 +155,16 @@ data class DashboardUiState(
             CardGroup.Profiles to CardWidth.Full,
         ),
     val showCardSettingsDialog: Boolean = false,
+    // B1: set only when a delete would invalidate other profiles' chain
+    // bindings; the UI confirms with the affected list before deleting.
+    val pendingChainDelete: PendingChainDelete? = null,
 ) {
     data class DeprecatedNote(val message: String, val migrationLink: String?)
+
+    data class PendingChainDelete(
+        val profile: Profile,
+        val affectedLines: List<String>,
+    )
 }
 
 // 一键网络体检卡片状态：Idle（一个按钮）→ Running（进度）→ Done（四项结果 + 人话结论）。
@@ -489,6 +497,40 @@ class DashboardViewModel :
         sendGlobalEvent(UiEvent.OpenProviders(profile.id))
     }
 
+    /**
+     * B1 entry point for every delete affordance (profiles page menu and
+     * the dashboard picker sheet alike): if other profiles use this one
+     * as their chain landing, ask first and list the bindings that would
+     * be marked 已失效 (kept, per D3). Plain deletions keep the old
+     * one-tap flow — no confirmation is added for them.
+     */
+    fun requestDeleteProfile(profile: Profile) {
+        val affected = ChainBindings.bindingsLandingOn(profile.id)
+        if (affected.isEmpty()) {
+            deleteProfile(profile)
+            return
+        }
+        val byId = currentState.profiles.associateBy { it.id }
+        val lines = affected.map { b ->
+            val src = byId[b.profileId]?.name?.ifBlank { null } ?: "配置 ${b.profileId}"
+            val dst = byId[b.landingProfileId]?.name?.ifBlank { null }
+            if (dst != null) "$src → $dst / ${b.landingTag}" else "$src → ${b.landingTag}"
+        }
+        updateState {
+            copy(pendingChainDelete = DashboardUiState.PendingChainDelete(profile, lines))
+        }
+    }
+
+    fun confirmPendingChainDelete() {
+        val pending = currentState.pendingChainDelete ?: return
+        updateState { copy(pendingChainDelete = null) }
+        deleteProfile(pending.profile)
+    }
+
+    fun dismissPendingChainDelete() {
+        updateState { copy(pendingChainDelete = null) }
+    }
+
     fun deleteProfile(profile: Profile) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -500,7 +542,10 @@ class DashboardViewModel :
                         )
                     }
                 }
-                // Then delete from database
+                // Then delete from database. Chain fallout (dependent
+                // bindings marked invalidated, D3) was already surfaced
+                // and confirmed in requestDeleteProfile — the old
+                // after-the-fact toast is gone (B1).
                 ProfileManager.delete(profile)
             } catch (e: Exception) {
                 // Reload profiles if deletion fails

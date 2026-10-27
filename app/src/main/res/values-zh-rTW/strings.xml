@@ -164,7 +164,7 @@
     <string name="profile_add_import_file">從檔案匯入</string>
     <string name="profile_add_scan_qr_code">掃描二維碼</string>
     <string name="profile_add_create_manually">手動建立</string>
-    <string name="profile_override">設定覆寫</string>
+    <string name="profile_override">系統顯式</string>
     <string name="basic_information">基本資訊</string>
     <string name="remote_configuration">遠端設定</string>
     <string name="last_updated_format">最後更新：%s</string>
@@ -814,7 +814,7 @@
     <string name="overlay_scripts_failed">無法儲存腳本</string>
     <string name="overlay_scripts_empty_file">檔案是空的</string>
     <string name="overlay_scripts_profile_enable">為此設定檔啟用腳本</string>
-    <string name="overlay_scripts_profile_hint">預設不套用。打開後腳本覆蓋此設定的分組與分流，只保留節點。鏈式開啟時前置腳本仍然會跑（先腳本後組鏈），不會互相關掉。</string>
+    <string name="overlay_scripts_profile_hint">預設不套用。打開後腳本先處理此設定的分組與分流（節點保留）；之後「設定 → 系統顯式」的開關再覆蓋腳本的同名設定（中國 IP/域名直連、廣告攔截等），最終只按一套結果生效。鏈式開啟時同樣先腳本後組鏈，不會互相關掉。</string>
     <string name="overlay_scripts_profile_empty">還沒有腳本。請到「工具 → 腳本」匯入。</string>
     <string name="overlay_scripts_bound_on">已在此設定開啟</string>
     <string name="overlay_scripts_bound_off">此設定未開啟</string>

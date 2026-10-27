@@ -152,7 +152,7 @@
     <string name="profile_add_import_file">从文件导入</string>
     <string name="profile_add_scan_qr_code">扫描二维码</string>
     <string name="profile_add_create_manually">手动创建</string>
-    <string name="profile_override">配置覆盖</string>
+    <string name="profile_override">系统显式</string>
     <string name="basic_information">基本信息</string>
     <string name="remote_configuration">远程配置</string>
     <string name="last_updated_format">最后更新：%s</string>
@@ -779,7 +779,7 @@
     <string name="overlay_scripts_failed">无法保存脚本</string>
     <string name="overlay_scripts_empty_file">文件是空的</string>
     <string name="overlay_scripts_profile_enable">为此配置启用脚本</string>
-    <string name="overlay_scripts_profile_hint">默认不套用。打开后脚本覆盖此配置的分组、分流和对应的应用开关（中国直连、广告拦截），只保留节点，同时只跑一套规则。两者可同时开启：脚本先处理前置订阅，再由链式代理连接到落地节点。</string>
+    <string name="overlay_scripts_profile_hint">默认不套用。打开后脚本先处理此配置的分组与分流（节点保留）；之后「设置 → 系统显式」的开关再覆盖脚本的同名设置（中国 IP/域名直连、广告拦截等），最终只按一套结果生效。两者可同时开启：脚本先处理前置订阅，再由链式代理连接到落地节点。</string>
     <string name="overlay_scripts_profile_empty">还没有脚本。请到「工具 → 脚本」导入。</string>
     <string name="overlay_scripts_bound_on">已在此配置开启</string>
     <string name="overlay_scripts_bound_off">此配置未开启</string>
