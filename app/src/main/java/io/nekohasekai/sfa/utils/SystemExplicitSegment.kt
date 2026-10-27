@@ -37,6 +37,14 @@ internal class SystemExplicitSegment(
     private val root: JSONObject,
     private val config: Config,
     private val chainTag: String?,
+    /**
+     * CN rule-set tags the startup ladder has given up on for this run
+     * (ConfigChinaDirect.ladderSuppressedCnRuleSets). The segment runs
+     * after the ladder's rule-set rungs inside the pipeline, so a
+     * suppressed tag is not re-injected and never referenced; China
+     * direct degrades to its hardcoded lists for this start (D9).
+     */
+    private val suppressedCnRuleSetTags: Set<String> = emptySet(),
 ) {
     internal data class Config(
         val chinaIpDomainDirect: Boolean,
@@ -75,7 +83,9 @@ internal class SystemExplicitSegment(
         if (!config.chinaIpDomainDirect && !config.chinaPublicDnsDirect && !config.lanDirect) return
         val direct = ConfigChinaDirect.ensureDetourableDirect(root)
         if (config.chinaIpDomainDirect) {
-            val replaced = ConfigChinaDirect.ensureCnRuleSets(root)
+            val suppressed = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it in suppressedCnRuleSetTags }
+            val surviving = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it !in suppressedCnRuleSetTags }
+            val replaced = ConfigChinaDirect.ensureCnRuleSets(root, skip = suppressedCnRuleSetTags)
             if (replaced.isNotEmpty()) {
                 notices += OverrideNotice(
                     title = "系统显式",
@@ -84,8 +94,25 @@ internal class SystemExplicitSegment(
                 )
             }
             ConfigChinaDirect.ensureSysCnDns(root, direct)
-            register(Slot.CHINA, ConfigChinaDirect.chinaIpDomainRouteRules(direct))
-            cnMirrorRules = ConfigChinaDirect.cnDnsMirrorRules()
+            register(
+                Slot.CHINA,
+                ConfigChinaDirect.chinaIpDomainRouteRules(
+                    direct,
+                    ruleSetTags = surviving.filter { it == "geosite-cn" || it == "geoip-cn" },
+                ),
+            )
+            cnMirrorRules = ConfigChinaDirect.cnDnsMirrorRules(available = surviving.toSet())
+            if (suppressed.isNotEmpty()) {
+                // D9 floor: the ladder dropped these sets because
+                // they would not download; startup survival outranks
+                // the explicit layer, so this start's China
+                // direct runs on the hardcoded suffix/IP lists only.
+                notices += OverrideNotice(
+                    title = "系统显式",
+                    reason = "中国规则集（${suppressed.joinToString("、")}）已在本次启动的规则集恢复中跳过，中国直连仅按内置域名/IP 名单生效",
+                    hint = "订阅原文未改；规则集能正常下载后，下次启动会自动恢复规则集直连。",
+                )
+            }
         }
         if (config.lanDirect) {
             register(Slot.LAN, ConfigChinaDirect.lanRouteRules(direct))

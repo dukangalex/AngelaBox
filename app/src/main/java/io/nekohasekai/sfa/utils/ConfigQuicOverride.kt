@@ -233,6 +233,15 @@ object ConfigQuicOverride {
             // seven route-class toggles to any script that ran). Stage order
             // below is execution order only; the route rules land as ONE
             // ordered block in assembleRouteRules.
+            // D9: when this run is a ladder recovery that dropped
+            // rule-sets, the segment must not resurrect the CN sets it
+            // would otherwise inject — it runs after the rule-set
+            // rungs above and would rebuild the exact config that just
+            // failed to download (v1.0.133-beta field failure).
+            val suppressedCnRuleSets = ConfigChinaDirect.ladderSuppressedCnRuleSets(
+                dropAll = dropAllRemoteRuleSets,
+                needles = dropRuleSetNeedles,
+            )
             val segment = SystemExplicitSegment(
                 root,
                 SystemExplicitSegment.Config(
@@ -252,6 +261,7 @@ object ConfigQuicOverride {
                 chainTag = binding?.let {
                     ChainRuntimeCompiler.chainTag(profileId, it.landingProfileId)
                 },
+                suppressedCnRuleSetTags = suppressedCnRuleSets,
             )
             applyOne(warnings, "中国直连") { segment.applyChinaFamily() }
             applyOne(warnings, "防 VPN 泄露") { segment.applyVpnLeakProtect() }
@@ -445,7 +455,8 @@ object ConfigQuicOverride {
      *    否则内核取不到 ECH 配置，带 ECH 的节点永远连不上。
      * 幂等：重复调用不会叠加。strategy 与韧性默认值只做加法不覆盖；final 的
      * 处理分两档（design v2 §2.2 第 2 条）：默认覆盖模式把 final 强制改到
-     * 受保护服务器（第一个远程类型服务器，没有则新建 sys-dns-remote）并把
+     * 受保护服务器（第一个非中国远程类型服务器——订阅自带的中国 DNS 是直达
+     * 解析器，永不作候选、detour 永不被改；没有则新建 sys-dns-remote）并把
      * 其 detour 强制为当前出站，覆盖了订阅/脚本的设置时发 OverrideNotice
      * (NF-7)；dnsProtectLegacyFillOnly 开启时回到旧行为——只补空白。
      *
@@ -496,6 +507,13 @@ object ConfigQuicOverride {
             if (server.optString("tag").isBlank()) continue
             // sys-cn-dns is the China mirror target, not a general resolver.
             if (server.optString("tag") == ConfigChinaDirect.SYS_CN_DNS_TAG) continue
+            // Neither is any China DNS endpoint the subscription defines
+            // itself (its `dns-cn`, a 223.5.5.5 UDP server, ...): those
+            // are direct-reach resolvers. Promoting one to the protected
+            // final would send every unmatched query to a China resolver
+            // and force its detour onto the egress — the exact pair of
+            // notices from the v1.0.133-beta field failure.
+            if (ConfigChinaDirect.isChinaDnsServer(server)) continue
             val type = server.optString("type").lowercase()
             if (type in setOf("https", "tls", "udp", "tcp", "quic")) return server
         }

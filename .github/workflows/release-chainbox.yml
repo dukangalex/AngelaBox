@@ -284,6 +284,8 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
             --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
             --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDnsProtectChinaTest \
+            --tests io.nekohasekai.sfa.utils.CnRuleSetRecoveryTest \
             --tests io.nekohasekai.sfa.utils.ChinaDirectSplitMigrationTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \

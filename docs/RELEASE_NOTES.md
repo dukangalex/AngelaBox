@@ -1,3 +1,13 @@
+• **1.0.134：**
+1. **修复链式代理在大分组下被误拦停启（Chains with large groups no longer refused at start）：** 1.0.133 给链式展开加的防爆上限数值定得过小，入口与落地分组合计几十个节点的正常机场配置会被误判「叶子节点过多」而停止启动，回退配置也同样被拦。本版按内核实际展开方式（线性增长）重定了上限：大分组恢复正常，真正病态的递归配置仍会拦下。单分组成员上限同步放宽，大机场的「全节点」组不再误伤。
+   The anti-blowup caps added in 1.0.133 were sized for toy configs and refused real airport profiles whose entry and landing groups hold dozens of nodes, and the fallback config hit the same cap. The bounds now follow the kernel's actual linear expansion: large groups start normally, while genuinely pathological recursive configs are still rejected. The per-group member limit was raised to match.
+2. **修复防 DNS 泄露误选订阅自带的中国 DNS（DNS protection no longer hijacks the profile's China DNS）：** 订阅自带的中国 DNS（如阿里、腾讯 DoH）会被误当成「远程 DNS」抢成最终解析，还被改走代理出口，与中国直连冲突。本版按服务器地址识别中国 DNS 并将其排除在覆写之外：它保持直连、中国域名照常走它解析，最终解析只会落到真正的远程 DNS。
+   A profile's own China DNS (Aliyun/Tencent DoH and peers) was misread as a foreign resolver, promoted to final and forced through the proxy, fighting China direct. China DNS servers are now recognised by address and excluded from the override: they stay direct, China domains keep resolving through them, and final only ever lands on a genuinely remote resolver.
+3. **修复规则集下载失败时跳过仍然启动失败（Startup now survives an undownloadable rule-set）：** 本版注入的中国规则集若在冷启动时下载不下来，恢复流程每一级都会把它们重新注回去，出现「跳过之后仍然启动失败」。现在恢复可以真正跳过这些规则集，中国直连临时按内置域名/IP 名单工作并给出提示；同时修复了剥除规则集后残留的空规则可能把全部 DNS 查询导向中国镜像的问题。
+   When a China rule-set injected by this app could not be downloaded at cold start, every recovery rung re-injected it, so skipping still ended in a failed start. Recovery can now genuinely drop those sets, with China direct falling back to the built-in domain/IP lists plus a notice; an emptied rule shell that could have steered all DNS to the China mirror is removed as well.
+4. **内核与上一版相同：** `v1.15.0-chain.10`（官方 v1.15.0-alpha.13）。可以直接覆盖升级。
+   Same kernel as 1.0.133-beta, `v1.15.0-chain.10` (official v1.15.0-alpha.13). Installs over the previous build.
+
 • **1.0.133：**
 1. **「系统显式」上线：系统级防泄漏设置现在真正说了算（System-explicit settings are now the top layer）：** 原「配置覆盖」升级为「系统显式」，在订阅配置和叠加脚本之后生效。以前只要配置绑了脚本，这一组开关就会整体失效；现在脚本先处理配置，这些开关在其后强制覆写同类设置，页面里每一项帮助都写明了这条优先级。
    The profile-override page is now "System-explicit" and applies after both the profile and any overlay script. Previously, binding a script silently disabled the whole switch set; the explicit layer now overrides same-kind settings the script wrote, and every help text on the page says so.
