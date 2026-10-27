@@ -44,6 +44,38 @@ object ConfigChinaDirect {
         "geosite-geolocation-!cn" to (RuleSetPins.geositeBase() + "rule-set/geosite-geolocation-!cn.srs"),
     )
 
+    /** Tags of the pinned CN rule-sets, in [CN_RULE_SET_URLS] order. */
+    val CN_RULE_SET_TAGS: List<String> = CN_RULE_SET_URLS.map { it.first }
+
+    /**
+     * CN rule-set tags the startup ladder has already given up on for
+     * this run: it dropped every remote set ([dropAll]), or a drop
+     * rung is removing the named sets ([needles] are the drop rung's
+     * file names or tags, as ConfigDiagnose extracts them). The
+     * system-explicit segment runs AFTER the rule-set rungs inside
+     * ConfigQuicOverride.apply, so without this it re-injects
+     * the very sets the ladder removed and every recovery retry fails
+     * the same way (v1.0.133-beta field failure). D9: startup survival
+     * outranks the explicit layer — the caller degrades China direct
+     * to the hardcoded lists for the suppressed tags instead.
+     *
+     * Replace-rung needles are deliberately NOT passed here: the
+     * replace rung rewrites to the same pinned RuleSetPins URLs the
+     * segment injects, so a replaced set keeps working at full
+     * strength and there is nothing to suppress.
+     */
+    fun ladderSuppressedCnRuleSets(
+        dropAll: Boolean,
+        needles: Collection<String>,
+    ): Set<String> {
+        if (dropAll) return CN_RULE_SET_TAGS.toSet()
+        if (needles.isEmpty()) return emptySet()
+        val stems = needles.map {
+            it.trim().lowercase().substringAfterLast('/').substringBefore('?').removeSuffix(".srs")
+        }.toSet()
+        return CN_RULE_SET_TAGS.filter { it in stems }.toSet()
+    }
+
     val LAN_DOMAIN_SUFFIXES: List<String> = listOf(
         "local", "lan", "localhost", "home.arpa", "localdomain",
         "internal", "intranet", "private", "local.lan",
@@ -74,6 +106,50 @@ object ConfigChinaDirect {
         "alidns.com", "dnspod.com", "dnspod.cn", "doh.pub", "dns.pub",
         "360.cn", "onedns.net", "hichina.com",
     )
+
+    /** [CHINA_DNS_IPS] without their CIDR suffixes, for exact host matches. */
+    private val CHINA_DNS_PLAIN_IPS: Set<String> =
+        CHINA_DNS_IPS.map { it.substringBefore('/') }.toSet()
+
+    /**
+     * True when a dns server entry points at a known China DNS endpoint
+     * (AliDNS / DNSPod / Baidu / 114DNS / OneDNS ...), matched on the
+     * server address or domain from the lists above — never on the tag,
+     * which subscriptions choose freely. China DNS servers are
+     * direct-reach bootstrap/mirror resolvers: they only answer
+     * correctly when reached directly, so the DNS-protect overwrite
+     * must neither promote one to the protected final resolver nor
+     * force its detour onto the proxy egress (v1.0.133-beta did both to
+     * a subscription's own `dns-cn`, breaking its DNS outright).
+     */
+    fun isChinaDnsServer(server: JSONObject): Boolean {
+        val host = dnsServerHost(server) ?: return false
+        if (host in CHINA_DNS_PLAIN_IPS) return true
+        if (host in CHINA_DNS_DOMAINS) return true
+        return CHINA_DNS_DOMAIN_SUFFIXES.any { suffix ->
+            host == suffix || host.endsWith(".$suffix")
+        }
+    }
+
+    /** Host part of a dns server entry: native `server`, or legacy `address` URL. */
+    private fun dnsServerHost(server: JSONObject): String? {
+        val raw = server.optString("server").trim()
+            .ifBlank { server.optString("address").trim() }
+            .lowercase()
+        if (raw.isEmpty()) return null
+        val authority = if ("://" in raw) {
+            raw.substringAfter("://").substringBefore('/').substringBefore('?').substringAfterLast('@')
+        } else {
+            raw.substringBefore('/')
+        }
+        if (authority.startsWith("[")) {
+            // IPv6 literal, optionally with a port: [2400:3200::1]:53
+            return authority.substringAfter('[').substringBefore(']').ifBlank { null }
+        }
+        val colons = authority.count { it == ':' }
+        val host = if (colons == 1) authority.substringBefore(':') else authority
+        return host.ifBlank { null }
+    }
 
     fun apply(root: JSONObject) {
         val outs = root.optJSONArray("outbounds") ?: JSONArray().also { root.put("outbounds", it) }
@@ -236,13 +312,18 @@ object ConfigChinaDirect {
     }
 
     /** China IP/domain direct block (order table #9); needs [ensureCnRuleSets]. */
-    fun chinaIpDomainRouteRules(directTag: String): JSONArray {
+    fun chinaIpDomainRouteRules(
+        directTag: String,
+        ruleSetTags: List<String> = listOf("geosite-cn", "geoip-cn"),
+    ): JSONArray {
         val rules = JSONArray()
-        rules.put(
-            JSONObject()
-                .put("rule_set", JSONArray().put("geosite-cn").put("geoip-cn"))
-                .put("outbound", directTag),
-        )
+        if (ruleSetTags.isNotEmpty()) {
+            rules.put(
+                JSONObject()
+                    .put("rule_set", toArray(ruleSetTags))
+                    .put("outbound", directTag),
+            )
+        }
         // The hardcoded CN suffix list stays as the domain-side fallback:
         // if the geosite-cn download fails at startup, these still catch
         // the major CN domains (the set itself is the recovery ladder's
@@ -262,30 +343,39 @@ object ConfigChinaDirect {
      * Woven ahead of the fakeip rule by ConfigQuicOverride.ensureFakeIpDns —
      * behind it, A/AAAA queries would be answered with fake addresses first
      * and the mirror would never fire.
+     *
+     * [available] is the set of CN rule-set tags actually defined in
+     * this run's config: a rule naming a set the recovery ladder
+     * dropped is never emitted (the reference would dangle, and the
+     * logical rule needs both of its sets to mean anything).
      */
-    fun cnDnsMirrorRules(): JSONArray {
+    fun cnDnsMirrorRules(available: Set<String> = CN_RULE_SET_TAGS.toSet()): JSONArray {
         val rules = JSONArray()
-        rules.put(
-            JSONObject()
-                .put("rule_set", "geosite-cn")
-                .put("server", SYS_CN_DNS_TAG),
-        )
-        rules.put(
-            JSONObject()
-                .put("type", "logical")
-                .put("mode", "and")
-                .put(
-                    "rules",
-                    JSONArray()
-                        .put(
-                            JSONObject()
-                                .put("rule_set", "geosite-geolocation-!cn")
-                                .put("invert", true),
-                        )
-                        .put(JSONObject().put("rule_set", "geoip-cn")),
-                )
-                .put("server", SYS_CN_DNS_TAG),
-        )
+        if ("geosite-cn" in available) {
+            rules.put(
+                JSONObject()
+                    .put("rule_set", "geosite-cn")
+                    .put("server", SYS_CN_DNS_TAG),
+            )
+        }
+        if ("geosite-geolocation-!cn" in available && "geoip-cn" in available) {
+            rules.put(
+                JSONObject()
+                    .put("type", "logical")
+                    .put("mode", "and")
+                    .put(
+                        "rules",
+                        JSONArray()
+                            .put(
+                                JSONObject()
+                                    .put("rule_set", "geosite-geolocation-!cn")
+                                    .put("invert", true),
+                            )
+                            .put(JSONObject().put("rule_set", "geoip-cn")),
+                    )
+                    .put("server", SYS_CN_DNS_TAG),
+            )
+        }
         return rules
     }
 
@@ -296,12 +386,18 @@ object ConfigChinaDirect {
      * makes the pinned definition win so heal pins and this injection can
      * never disagree. Returns the tags whose definition was replaced, for
      * the caller's OverrideNotice.
+     *
+     * Tags in [skip] are neither injected nor rewritten: the startup
+     * ladder has given up on them for this run (see
+     * [ladderSuppressedCnRuleSets]) and re-adding them would resurrect
+     * the exact download failure the ladder is recovering from.
      */
-    fun ensureCnRuleSets(root: JSONObject): List<String> {
+    fun ensureCnRuleSets(root: JSONObject, skip: Set<String> = emptySet()): List<String> {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val sets = route.optJSONArray("rule_set") ?: JSONArray().also { route.put("rule_set", it) }
         val replaced = mutableListOf<String>()
         for ((tag, url) in CN_RULE_SET_URLS) {
+            if (tag in skip) continue
             var existing: JSONObject? = null
             for (i in 0 until sets.length()) {
                 val item = sets.optJSONObject(i) ?: continue

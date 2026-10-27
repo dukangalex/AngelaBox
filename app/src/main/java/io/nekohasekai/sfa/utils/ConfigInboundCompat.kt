@@ -1057,7 +1057,9 @@ object ConfigInboundCompat {
                 i++
                 continue
             }
-            if (stripDroppedRuleSets(rule.optJSONArray("rules"), dropTags)) changed = true
+            val subRules = rule.optJSONArray("rules")
+            val subCountBefore = subRules?.length() ?: 0
+            if (stripDroppedRuleSets(subRules, dropTags)) changed = true
             val raw = rule.opt("rule_set")
             var remove = false
             when (raw) {
@@ -1084,6 +1086,15 @@ object ConfigInboundCompat {
                         }
                     }
                 }
+            }
+            if (!remove && subRules != null && subCountBefore > 0 && subRules.length() == 0) {
+                // A logical container whose every sub-rule named a
+                // dropped set. Keeping the empty shell would leave a
+                // zero-sub-rule AND/OR rule behind: it matches
+                // everything and still points at its action/server
+                // (e.g. the CN DNS mirror rule's server), silently
+                // rerouting the traffic the strip meant to un-reference.
+                remove = true
             }
             if (remove) {
                 rules.remove(i)

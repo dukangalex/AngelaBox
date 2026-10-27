@@ -17,13 +17,30 @@ object ChainRuntimeCompiler {
     const val LEGACY_CHAIN_TAG = "my-chain"
     const val MAX_CONFIG_CHARS = 8 * 1024 * 1024
     const val MAX_MERGE_DEPTH = 24
-    const val MAX_GROUP_MEMBERS = 512
+    // A single group's member count is a plain list length, not an
+    // expansion mode; the real resource bound is
+    // MAX_MATERIALIZED_OUTBOUNDS below. 512 rejected legitimate
+    // mega-airport "all nodes" groups, so this aligns with that bound —
+    // anything larger trips the total cap with the clearer message.
+    const val MAX_GROUP_MEMBERS = 4096
 
     // NF-8 guardrails for group expansion/materialization. Exceeding any
     // of them is a hard error (fail-closed), never a silent truncation.
+    // There is deliberately NO cap on the two hops' leaf count: the
+    // kernel compiler expands only the landing hop (one clone per
+    // distinct landing leaf, entry hop untouched), so the final config
+    // grows linearly — appOuts + landingLeaves + 1 — and a leaf sum is
+    // not a blowup mode. The old 64-leaf sum cap rejected a real
+    // airport profile holding 70 leaves across its two groups
+    // (v1.0.133-beta field failure). The one resource bound that maps
+    // to reality is the total below: kernel output stays within
+    // roughly 2x it (landing clones are drawn from the same outbound
+    // list), and 4096 covers a ~1000-node subscription plus a full
+    // cross-profile clone of another, with ~2x margin, while memoized
+    // cloning keeps growth linear in the (char-capped) inputs, so a
+    // runaway cannot hide underneath it.
     const val MAX_GROUP_EXPANSION_DEPTH = 4
-    const val MAX_CHAIN_LEAVES = 64
-    const val MAX_MATERIALIZED_OUTBOUNDS = 512
+    const val MAX_MATERIALIZED_OUTBOUNDS = 4096
 
     /** A group member dropped during chain materialization, with why. */
     data class DiscardedMember(val groupTag: String, val memberTag: String, val reason: String)
@@ -137,12 +154,10 @@ object ChainRuntimeCompiler {
         }.getOrElse {
             prepareGroupHop(outs, main, entryExclude, ENTRY_PREFIX, inPlace = true, endpoints = endpoints, allowEndpoints = true, discards = discards)
         }
-        // NF-8: the two hops together may not expand to an unbounded leaf
-        // set. Hard error, not truncation.
-        val totalLeaves = leafTags(outs, entryHop).size + leafTags(outs, landingMergedTag).size
-        require(totalLeaves <= MAX_CHAIN_LEAVES) {
-            "链式两跳展开后的叶子节点过多（$totalLeaves > $MAX_CHAIN_LEAVES），请缩小入口或落地分组成员"
-        }
+        // No leaf-count check here on purpose (see MAX_MATERIALIZED_
+        // OUTBOUNDS): distinct leaves across the two hops map linearly
+        // into the kernel's output, so counting them polices legitimate
+        // airport groups without bounding any real resource.
         val chainTag = chainTag(req.currentProfileId, req.landingProfileId)
         removeOutbound(outs, chainTag)
         outs.put(JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
