@@ -515,15 +515,15 @@ class ConfigCompatTest {
             sets.getJSONObject(0).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
             sets.getJSONObject(1).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
             sets.getJSONObject(2).getString("url"),
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
             sets.getJSONObject(3).getString("url"),
         )
     }

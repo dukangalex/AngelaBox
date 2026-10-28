@@ -1,6 +1,6 @@
 /**
  * 默认覆写脚本。
- * overlay-revision: 33
+ * overlay-revision: 34
  * 全地区识别分组。地区自动选择是对应地区选择组里的一个成员，不另做一张卡片。
  * 手动选择是 selector，自动选择是 urltest。sing-box 没有负载均衡和故障转移，这里不生成这两个组。
  * 设置里的配置覆盖开关走全局 overlay，默认开。不要在脚本里改这些开关。
@@ -56,10 +56,12 @@ var ratePrefixRe = /(?:倍率|(?:^|[^a-z])x|×)\s*[:：]?\s*(\d+(?:\.\d+)?)/i;
 var lowRateWords = /免费|低倍|\bfree\b/i;
 var highRateWords = /高倍/;
 
-// 规则集决定分流（代理 vs 直连），所以钉到发布 tag，不用可变的 @rule-set 分支。
-// 改这里要同步 RuleSetPins.kt 与 scripts/test_security_guards.py。
-var GEOSITE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/";
-var GEOIP = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/";
+// 编译好的 .srs 只存在于两个仓库的 rule-set 分支（文件在分支根目录）：日期 tag 指向的
+// 是源码快照、里面没有编译产物（2026-10-27 实测全 404）；该分支由官方自动化以孤儿
+// 提交整支重写，提交 SHA 无法长期寻址，故钉分支名本身。改这里要同步 RuleSetPins.kt
+// 与 scripts/test_security_guards.py。
+var GEOSITE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/";
+var GEOIP = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/";
 
 var REGIONS = [
     { name: "香港", flag: "🇭🇰", zh: "香港|九龙|九龍", en: "hong kong|hongkong", codes: "HK|HKG" },

@@ -3406,14 +3406,13 @@ object ConfigIngest {
     }
 
     private fun remoteRuleSet(tag: String, url: String? = null): JSONObject {
-        val repo =
-            if (tag.startsWith("geoip-")) {
-                "sing-geoip@${RuleSetPins.SING_GEOIP_TAG}"
-            } else {
-                "sing-geosite@${RuleSetPins.SING_GEOSITE_TAG}"
-            }
+        // Compiled files live at the rule-set branch root — see RuleSetPins.
         val resolved = url?.takeIf { it.startsWith("http", true) }
-            ?: "https://testingcf.jsdelivr.net/gh/SagerNet/$repo/$tag.srs"
+            ?: if (tag.startsWith("geoip-")) {
+                RuleSetPins.geoipBase() + "$tag.srs"
+            } else {
+                RuleSetPins.geositeBase() + "$tag.srs"
+            }
         return JSONObject()
             .put("tag", tag)
             .put("type", "remote")

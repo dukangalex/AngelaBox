@@ -234,11 +234,15 @@ object ConfigQuicOverride {
             // below is execution order only; the route rules land as ONE
             // ordered block in assembleRouteRules.
             // D9: when this run is a ladder recovery that dropped
-            // rule-sets, the segment must not resurrect the CN sets it
-            // would otherwise inject — it runs after the rule-set
-            // rungs above and would rebuild the exact config that just
-            // failed to download (v1.0.133-beta field failure).
-            val suppressedCnRuleSets = ConfigChinaDirect.ladderSuppressedCnRuleSets(
+            // rule-sets, the segment must not resurrect what it would
+            // otherwise inject — it runs after the rule-set rungs above
+            // and would rebuild the exact config that just failed to
+            // download (v1.0.133-beta field failure). The suppression
+            // covers EVERY app-side injector in the segment: the CN
+            // sets (133) and the ads set, whose omission from the 134
+            // suppression rebuilt the failing config on the drop rung
+            // all over again (v1.0.134-beta field failure).
+            val suppressedRuleSets = ladderSuppressedRuleSets(
                 dropAll = dropAllRemoteRuleSets,
                 needles = dropRuleSetNeedles,
             )
@@ -261,7 +265,7 @@ object ConfigQuicOverride {
                 chainTag = binding?.let {
                     ChainRuntimeCompiler.chainTag(profileId, it.landingProfileId)
                 },
-                suppressedCnRuleSetTags = suppressedCnRuleSets,
+                suppressedRuleSetTags = suppressedRuleSets,
             )
             applyOne(warnings, "中国直连") { segment.applyChinaFamily() }
             applyOne(warnings, "防 VPN 泄露") { segment.applyVpnLeakProtect() }
@@ -302,6 +306,31 @@ object ConfigQuicOverride {
 
         OverrideStatus.set(warnings)
         return out
+    }
+
+    /**
+     * Every app-injected rule-set tag the startup ladder has given up
+     * on for this run: the CN sets (see
+     * [ConfigChinaDirect.ladderSuppressedCnRuleSets]) plus the ads set
+     * ([ConfigAdBlock.RULESET_TAG]), which is the segment's second
+     * definition injector. A drop-all rung suppresses both; a needle
+     * drop suppresses whichever of them the needles name. Replace-rung
+     * needles are not passed here (see the CN function's docs).
+     */
+    internal fun ladderSuppressedRuleSets(
+        dropAll: Boolean,
+        needles: Collection<String>,
+    ): Set<String> {
+        val suppressed = ConfigChinaDirect.ladderSuppressedCnRuleSets(dropAll, needles).toMutableSet()
+        if (dropAll) {
+            suppressed += ConfigAdBlock.RULESET_TAG
+        } else if (needles.isNotEmpty()) {
+            val stems = needles.map {
+                it.trim().lowercase().substringAfterLast('/').substringBefore('?').removeSuffix(".srs")
+            }.toSet()
+            if (ConfigAdBlock.RULESET_TAG in stems) suppressed += ConfigAdBlock.RULESET_TAG
+        }
+        return suppressed
     }
 
     private fun applyOne(warnings: MutableList<OverrideNotice>, title: String, block: () -> Unit) {
@@ -520,6 +549,24 @@ object ConfigQuicOverride {
         return null
     }
 
+    /**
+     * True when [tag] names a direct outbound the kernel counts as
+     * empty — no dialer options at all (its IsEmpty test deep-equals
+     * the dialer options against the zero value). [ConfigCompat]'s
+     * isEmptyDirect only ever widens that verdict: every field it
+     * checks is a dialer option, so a direct it calls non-empty is
+     * always safe to detour onto, and a false "empty" verdict costs
+     * only a skipped detour rewrite, never a refused start.
+     */
+    private fun isEmptyDirectOutbound(root: JSONObject, tag: String): Boolean {
+        val outs = root.optJSONArray("outbounds") ?: return false
+        for (i in 0 until outs.length()) {
+            val outbound = outs.optJSONObject(i) ?: continue
+            if (outbound.optString("tag") == tag) return ConfigCompat.isEmptyDirect(outbound)
+        }
+        return false
+    }
+
     private fun applyProtectedDnsFinal(
         root: JSONObject,
         egressTag: String?,
@@ -540,15 +587,34 @@ object ConfigQuicOverride {
         if (egressTag != null) {
             val oldDetour = protected.optString("detour")
             if (oldDetour != egressTag) {
-                protected.put("detour", egressTag)
-                if (oldDetour.isNotBlank()) {
+                if (isEmptyDirectOutbound(root, egressTag)) {
+                    // B-6: the kernel rejects a detour onto an EMPTY
+                    // direct outbound at startup ("detour to an empty
+                    // direct outbound makes no sense", dialer/detour).
+                    // Reachable whenever route.final is a plain direct:
+                    // with vpnLeakProtect off the segment never moves
+                    // the final, and even with it on, resolveMainTag
+                    // may find no main group to move to. Skip the
+                    // rewrite — the final override below still applies —
+                    // and say so instead of poisoning the start.
                     notices?.add(
                         OverrideNotice(
                             title = "系统显式",
-                            reason = "DNS 服务器「$protectedTag」的 detour 由「$oldDetour」改为当前出站「$egressTag」",
-                            hint = "DNS 防泄漏要求解析出站与流量出站一致，否则查询仍从原 detour 泄露。",
+                            reason = "DNS 服务器「$protectedTag」的 detour 未改为当前出站「$egressTag」",
+                            hint = "当前出站是未带任何拨号参数的直连出站，内核拒绝 detour 到空 direct（会停止启动）；本次保留其原 detour。",
                         ),
                     )
+                } else {
+                    protected.put("detour", egressTag)
+                    if (oldDetour.isNotBlank()) {
+                        notices?.add(
+                            OverrideNotice(
+                                title = "系统显式",
+                                reason = "DNS 服务器「$protectedTag」的 detour 由「$oldDetour」改为当前出站「$egressTag」",
+                                hint = "DNS 防泄漏要求解析出站与流量出站一致，否则查询仍从原 detour 泄露。",
+                            ),
+                        )
+                    }
                 }
             }
         }

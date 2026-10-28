@@ -39,9 +39,9 @@ object ConfigChinaDirect {
 
     /** Pinned definitions the system-explicit segment self-injects. */
     private val CN_RULE_SET_URLS: List<Pair<String, String>> = listOf(
-        "geosite-cn" to (RuleSetPins.geositeBase() + "rule-set/geosite-cn.srs"),
-        "geoip-cn" to (RuleSetPins.geoipBase() + "rule-set/geoip-cn.srs"),
-        "geosite-geolocation-!cn" to (RuleSetPins.geositeBase() + "rule-set/geosite-geolocation-!cn.srs"),
+        "geosite-cn" to (RuleSetPins.geositeBase() + "geosite-cn.srs"),
+        "geoip-cn" to (RuleSetPins.geoipBase() + "geoip-cn.srs"),
+        "geosite-geolocation-!cn" to (RuleSetPins.geositeBase() + "geosite-geolocation-!cn.srs"),
     )
 
     /** Tags of the pinned CN rule-sets, in [CN_RULE_SET_URLS] order. */

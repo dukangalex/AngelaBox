@@ -435,22 +435,33 @@ def test_no_second_publisher() -> None:
 
 
 def test_ruleset_pins() -> None:
-    """A rule-set decides proxy-vs-direct, so a mutable branch is a supply-chain hole."""
+    """Compiled .srs files exist only on the repos' generated rule-set branch.
+
+    Re-pinned 2026-10-27 (v1.0.135): the previous invariant pinned date
+    tags and banned the branch as a supply-chain hole. The startup
+    audit found every date-tag URL 404s — a date tag addresses a source
+    snapshot, which contains no compiled sets — so the "safe" pin made
+    cold starts fail outright. The branch is rewritten by upstream
+    automation as orphan commits, so a commit SHA is not durably
+    addressable either; the branch ref is the only live pin. The
+    invariant is now the reverse: shipped sources use the branch form,
+    and the dead date-tag form must not come back.
+    """
     pins_kt = read("app/src/main/java/io/nekohasekai/sfa/utils/RuleSetPins.kt")
-    geosite = re.search(r'SING_GEOSITE_TAG: String = "([0-9]{8,14})"', pins_kt)
-    geoip = re.search(r'SING_GEOIP_TAG: String = "([0-9]{8,14})"', pins_kt)
-    assert geosite, "RuleSetPins must pin SagerNet/sing-geosite to a date tag"
-    assert geoip, "RuleSetPins must pin SagerNet/sing-geoip to a date tag"
+    geosite = re.search(r'SING_GEOSITE_REF: String = "rule-set"', pins_kt)
+    geoip = re.search(r'SING_GEOIP_REF: String = "rule-set"', pins_kt)
+    assert geosite, "RuleSetPins must pin SagerNet/sing-geosite to the rule-set branch"
+    assert geoip, "RuleSetPins must pin SagerNet/sing-geoip to the rule-set branch"
 
     script = read("app/src/main/assets/scripts/airport-region.js")
-    assert f"sing-geosite@{geosite.group(1)}/" in script, "default script must use the same geosite pin"
-    assert f"sing-geoip@{geoip.group(1)}/" in script, "default script must use the same geoip pin"
+    assert "sing-geosite@rule-set/" in script, "default script must use the same geosite pin"
+    assert "sing-geoip@rule-set/" in script, "default script must use the same geoip pin"
 
     replica = read("scripts/test_inbound_compat.py")
-    assert f'SING_GEOSITE_TAG = "{geosite.group(1)}"' in replica, "sandbox replica must mirror the geosite pin"
-    assert f'SING_GEOIP_TAG = "{geoip.group(1)}"' in replica, "sandbox replica must mirror the geoip pin"
+    assert 'SING_GEOSITE_REF = "rule-set"' in replica, "sandbox replica must mirror the geosite pin"
+    assert 'SING_GEOIP_REF = "rule-set"' in replica, "sandbox replica must mirror the geoip pin"
 
-    # No shipped source may point at the mutable branch again.
+    # No shipped source may point at a dead date-tag ref again.
     for rel in (
         "app/src/main/java/io/nekohasekai/sfa/utils/ConfigInboundCompat.kt",
         "app/src/main/java/io/nekohasekai/sfa/utils/ConfigAdBlock.kt",
@@ -458,8 +469,8 @@ def test_ruleset_pins() -> None:
         "app/src/main/assets/scripts/airport-region.js",
     ):
         text = read(rel)
-        assert "SagerNet/sing-geosite@rule-set" not in text, f"{rel} reintroduced the mutable geosite branch"
-        assert "SagerNet/sing-geoip@rule-set" not in text, f"{rel} reintroduced the mutable geoip branch"
+        assert not re.search(r"sing-geosite@[0-9]{8,14}\b", text), f"{rel} reintroduced a dead geosite date tag"
+        assert not re.search(r"sing-geoip@[0-9]{8,14}\b", text), f"{rel} reintroduced a dead geoip date tag"
 
 
 def test_no_secret_files() -> None:
