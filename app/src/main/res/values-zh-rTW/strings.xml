@@ -50,6 +50,8 @@
     <string name="title_dashboard">儀表</string>
     <string name="title_configuration">設定檔</string>
     <string name="title_log">日誌</string>
+    <string name="notice_log_title">應用提示記錄</string>
+    <string name="notice_log_empty">暫無應用提示記錄</string>
     <string name="title_settings">設定</string>
     <string name="title_app_settings">應用程式</string>
     <string name="theme_settings">主題</string>
@@ -610,6 +612,7 @@
     <string name="checkup_subscription_ok">訂閱正常</string>
     <string name="checkup_subscription_more">（另有 %1$d 項）</string>
     <string name="subscription_health_update_notes_title">上次更新提示：%1$s</string>
+    <string name="subscription_health_update_notes_title_multi">上次更新提示：%1$d 個訂閱</string>
     <string name="subscription_health_notes_nodes">節點跳過</string>
     <string name="subscription_health_notes_rulesets">規則集換址</string>
     <string name="subscription_health_notes_other">其他提示</string>

@@ -3,6 +3,8 @@ package io.nekohasekai.sfa.bg
 import android.content.Context
 import android.util.Log
 import io.nekohasekai.sfa.utils.HookErrorClient
+import io.nekohasekai.sfa.utils.NoticeLog
+import io.nekohasekai.sfa.utils.NoticeLogStore
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -150,6 +152,12 @@ object DebugInfoExporter {
             count++
         } else if (serviceLogsResult.failure != null) {
             warnings.add("service logs: ${serviceLogsResult.failure}${serviceLogsResult.detail?.let { " ($it)" } ?: ""}")
+        }
+        // v1.0.136: 应用提示记录（界面一闪而过的那些提示的留档）。
+        val noticeRecords = runCatching { NoticeLogStore.readAll() }.getOrDefault(emptyList())
+        if (noticeRecords.isNotEmpty()) {
+            addTextEntry(zip, "logs/notice_log.txt", NoticeLog.format(noticeRecords))
+            count++
         }
         val lspdDir = File("/data/adb/lspd/log")
         if (lspdDir.isDirectory) {

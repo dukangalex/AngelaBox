@@ -149,6 +149,29 @@ object SubscriptionUpdateHealth {
                 }
             }
             .apply()
+        // v1.0.136: 更新提示不再常驻横幅——全文进应用提示记录留档
+        // （日志 → 应用提示记录 / 诊断导出），界面只在仪表盘闪一行汇总。
+        if (text.isNotBlank()) {
+            NoticeLogStore.append(
+                listOf(
+                    NoticeLogRecord(
+                        timestampMs = System.currentTimeMillis(),
+                        source = NoticeLog.SOURCE_SUBSCRIPTION,
+                        title = "订阅更新提示",
+                        reason = text,
+                        hint = "",
+                        error = false,
+                    ),
+                ),
+            )
+        }
+    }
+
+    /** 当前更新提示的批次序号（AB-025 的 warnseq）：闪现去重按（订阅， 批次）记。 */
+    fun importWarningsBatch(context: Context, profileId: Long): Long {
+        if (profileId < 0L) return 0L
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_WARN_SEQ_PREFIX + profileId, 0L)
     }
 
     /**

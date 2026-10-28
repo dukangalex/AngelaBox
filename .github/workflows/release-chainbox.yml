@@ -286,6 +286,9 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
             --tests io.nekohasekai.sfa.utils.ConfigDnsProtectChinaTest \
             --tests io.nekohasekai.sfa.utils.CnRuleSetRecoveryTest \
+            --tests io.nekohasekai.sfa.utils.NoticeConsolidationTest \
+            --tests io.nekohasekai.sfa.utils.NoticeFlashPlannerTest \
+            --tests io.nekohasekai.sfa.utils.NoticeLogTest \
             --tests io.nekohasekai.sfa.utils.ChinaDirectSplitMigrationTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
@@ -312,6 +315,8 @@ jobs:
             --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetTriageTest \
+            --tests io.nekohasekai.sfa.utils.FakeIpServerTagTest \
             --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \
             --tests io.nekohasekai.sfa.utils.SubscriptionInfoTest \
             --no-daemon --stacktrace

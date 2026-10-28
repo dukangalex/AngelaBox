@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.NetworkCheckupDialog
+import io.nekohasekai.sfa.compose.component.NoticeFlashHost
 import io.nekohasekai.sfa.compose.component.OnboardingGuideCard
 import io.nekohasekai.sfa.compose.component.OverrideBanner
 import io.nekohasekai.sfa.compose.component.RemoteControlMenuItems
@@ -109,10 +110,7 @@ fun DashboardScreen(
         ) {
             item { OverrideBanner() }
             item {
-                SubscriptionHealthBanner(
-                    uiState.healthIssues,
-                    onDismissImportWarnings = viewModel::dismissImportWarnings,
-                )
+                SubscriptionHealthBanner(uiState.healthIssues)
             }
             if (uiState.showOnboardingGuide) {
                 item {
@@ -231,6 +229,12 @@ fun DashboardScreen(
                 }
             }
         }
+        // 信息类提示的闪现层：悬浮在仪表盘底部，一闪而过、不留常驻。
+        NoticeFlashHost(
+            healthIssues = uiState.healthIssues,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .padding(start = 16.dp, end = 16.dp, bottom = bottomPadding + 16.dp),
+        )
     }
 
     if (uiState.showProfilePickerSheet) {

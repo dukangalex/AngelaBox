@@ -1,3 +1,13 @@
+• **1.0.136：**
+1. **规则集改为逐个分诊（Rule-sets are now triaged one by one）：** 以前启动时只要有一个远程规则集下载失败，恢复流程就会把全部远程规则集一并跳过，能用的也跟着丢了。本版在启动前逐个核对：有可用缓存或确认能下载的保留，只有确认拉不到的才跳过并提示，其余分流不受影响。
+   Previously, one failed remote rule-set download made the recovery drop every remote rule-set at start, usable ones included. Each set is now checked individually: sets with a usable cached copy or a reachable source are kept, only the ones proven unreachable are skipped with a notice, and the rest of the routing is unaffected.
+2. **提示改为一闪而过，并全部记入日志（Notices now flash briefly and are all kept in the log）：** 仪表盘不再常驻堆叠提示卡片。信息类提示合并成简短摘要，在底部短暂显示后自动消失；每条提示的全文（含内核原始报错）都会写入日志页新增的「应用提示记录」，可搜索、可导出，事后随时回查。启动失败等硬错误仍照常弹窗。
+   The dashboard no longer keeps stacks of resident notice cards. Informational notices are merged into a short summary that flashes briefly at the bottom and dismisses itself; the full text of every notice (kernel error text included) is written to the new "App notice log" on the Log page, searchable and exportable for later review. Hard errors such as a failed start still use a dialog as before.
+3. **修复 fakeip 相关的 DNS 报错（Fixed fakeip-related DNS errors）：** 旧配置转换后，fakeip 的 DNS 规则可能指向一个不存在的服务器标签，日志里反复出现「transport not found: dns-fakeip」、fakeip 解析失效。本版按实际生成的服务器标签接线，并把旧版本已经写坏的规则一并纠正。
+   After the legacy config conversion, the fakeip DNS rule could point at a server tag that does not exist, logging "transport not found: dns-fakeip" repeatedly while fakeip resolution failed. The wiring now uses the tag actually generated, and stale rules written by older versions are corrected too.
+4. **内核与上一版相同：** `v1.15.0-chain.10`（官方 v1.15.0-alpha.13）。可以直接覆盖升级。
+   Same kernel as 1.0.135-beta, `v1.15.0-chain.10` (official v1.15.0-alpha.13). Installs over the previous build.
+
 • **1.0.135：**
 1. **修复规则集地址失效导致的冷启动失败（Fixed cold-start failures from dead rule-set addresses）：** 应用内置规则集（中国直连三件套、广告拦截）写死的下载地址指向上游仓库的旧位置，文件早已不在那里 — 需要重新下载的冷启动必然失败，此前能启动全靠旧缓存。本版改用当前有效的官方地址，四个文件均已逐个通过完整下载与内核解析校验。
    The built-in rule-sets (China-direct trio and ad blocking) pointed at a stale location in the upstream repositories where the files no longer exist, so any cold start that had to re-download one was guaranteed to fail; earlier starts only survived on cached copies. The addresses now use the current official location, and all four files were verified end-to-end (full download plus a parse by the pinned kernel).

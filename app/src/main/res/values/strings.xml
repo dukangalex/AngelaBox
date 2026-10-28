@@ -52,6 +52,8 @@
     <string name="title_dashboard">Dashboard</string>
     <string name="title_configuration">Profiles</string>
     <string name="title_log">Logs</string>
+    <string name="notice_log_title">App Notice Log</string>
+    <string name="notice_log_empty">No app notices recorded yet</string>
     <string name="title_settings">Settings</string>
     <string name="title_app_settings">App</string>
     <string name="theme_settings">Theme</string>
@@ -891,6 +893,7 @@
     <string name="subscription_health_update_failed_title">Subscription keeps failing to update: %1$s</string>
     <string name="subscription_health_import_warnings_title">Last update skipped some nodes: %1$s</string>
     <string name="subscription_health_update_notes_title">Notes from the last update: %1$s</string>
+    <string name="subscription_health_update_notes_title_multi">Notes from the last update: %1$d profiles</string>
     <string name="subscription_health_notes_nodes">Nodes skipped</string>
     <string name="subscription_health_notes_rulesets">Rule-set URLs switched</string>
     <string name="subscription_health_notes_other">Other notes</string>

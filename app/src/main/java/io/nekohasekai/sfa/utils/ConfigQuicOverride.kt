@@ -18,6 +18,11 @@ object ConfigQuicOverride {
         replaceRuleSetNeedles: Collection<String> = emptyList(),
         dropRuleSetNeedles: Collection<String> = emptyList(),
         dropAllRemoteRuleSets: Boolean = false,
+        // Per-set triage (v1.0.136): exact tags the start triage proved
+        // undownloadable for this run. Dropped at the rule-set stage
+        // below and suppressed in the segment, exactly like a ladder
+        // drop — but only these sets; reachable ones stay.
+        dropRuleSetTags: Set<String> = emptySet(),
         // Replace undownloadable remote rule sets with their cached local
         // copies (normalization substitute) instead of dropping them.
         substituteCachedRuleSets: Boolean = false,
@@ -226,6 +231,9 @@ object ConfigQuicOverride {
                 } else if (dropRuleSetNeedles.isNotEmpty()) {
                     ConfigInboundCompat.dropRemoteRuleSetsMatching(root, dropRuleSetNeedles)
                 }
+                if (dropRuleSetTags.isNotEmpty()) {
+                    ConfigInboundCompat.dropRemoteRuleSetsByTags(root, dropRuleSetTags)
+                }
             }
             // System-explicit segment: the last route/dns-mutating stage.
             // No script gate — the toggles apply over subscription and script
@@ -245,6 +253,7 @@ object ConfigQuicOverride {
             val suppressedRuleSets = ladderSuppressedRuleSets(
                 dropAll = dropAllRemoteRuleSets,
                 needles = dropRuleSetNeedles,
+                tags = dropRuleSetTags,
             )
             val segment = SystemExplicitSegment(
                 root,
@@ -320,6 +329,7 @@ object ConfigQuicOverride {
     internal fun ladderSuppressedRuleSets(
         dropAll: Boolean,
         needles: Collection<String>,
+        tags: Collection<String> = emptyList(),
     ): Set<String> {
         val suppressed = ConfigChinaDirect.ladderSuppressedCnRuleSets(dropAll, needles).toMutableSet()
         if (dropAll) {
@@ -329,6 +339,13 @@ object ConfigQuicOverride {
                 it.trim().lowercase().substringAfterLast('/').substringBefore('?').removeSuffix(".srs")
             }.toSet()
             if (ConfigAdBlock.RULESET_TAG in stems) suppressed += ConfigAdBlock.RULESET_TAG
+        }
+        // Triage (v1.0.136) names exact tags, app-injected ones
+        // included: an app set the triage proved undownloadable is
+        // suppressed by name, no stem matching involved.
+        if (tags.isNotEmpty()) {
+            val appTags = ConfigChinaDirect.CN_RULE_SET_TAGS + ConfigAdBlock.RULESET_TAG
+            suppressed += appTags.filter { it in tags }
         }
         return suppressed
     }
@@ -634,17 +651,30 @@ object ConfigQuicOverride {
 
     private fun ensureFakeIpDns(dns: JSONObject, cnMirrorRules: JSONArray = JSONArray()) {
         val servers = dns.optJSONArray("servers") ?: JSONArray().also { dns.put("servers", it) }
-        var hasFakeIp = false
+        var fakeIpTag: String? = null
+        var sawFakeIp = false
         var firstRealTag: String? = null
         for (i in 0 until servers.length()) {
             val s = servers.optJSONObject(i) ?: continue
             if (s.optString("type") == "fakeip" || s.optString("tag") == "dns-fakeip") {
-                hasFakeIp = true
+                sawFakeIp = true
+                // The fakeip server's OWN tag, whatever it is: the
+                // legacy conversion (ConfigCompat) names it "fakeip",
+                // the bundled script names it "dns-fakeip", a
+                // subscription may use anything else. The rule woven
+                // below must name THIS tag — hardcoding "dns-fakeip"
+                // here pointed the A/AAAA rule at a transport that
+                // does not exist whenever the tags disagreed, and the
+                // kernel logged `dns: transport not found: dns-fakeip`
+                // for every such query (v1.0.135-beta field log).
+                if (fakeIpTag == null) {
+                    fakeIpTag = s.optString("tag").ifBlank { null }
+                }
             } else if (firstRealTag == null) {
                 firstRealTag = s.optString("tag").ifBlank { null }
             }
         }
-        if (!hasFakeIp) {
+        if (!sawFakeIp) {
             val fakeIp = JSONObject()
                 .put("type", "fakeip")
                 .put("tag", "dns-fakeip")
@@ -653,6 +683,10 @@ object ConfigQuicOverride {
             for (i in 0 until servers.length()) merged.put(servers.get(i))
             dns.put("servers", merged)
         }
+        // An untagged fakeip server cannot be referenced by any rule;
+        // fall back to the canonical name (pre-fix behaviour) rather
+        // than inventing a second fakeip server.
+        val effectiveFakeIpTag = fakeIpTag ?: "dns-fakeip"
         if (firstRealTag == null) {
             // 没有任何真实上游：补一个走隧道（默认路由）的远程 DNS，
             // 否则 final 只能指向 fakeip，非 A/AAAA 查询会失败。
@@ -689,7 +723,16 @@ object ConfigQuicOverride {
                     r.optString("server") == ConfigChinaDirect.SYS_CN_DNS_TAG -> Unit
                 rejectRule == null && r.optString("action") == "reject" &&
                     queryTypesContain(r, "HTTPS") -> rejectRule = r
-                fakeIpRule == null && r.optString("server") == "dns-fakeip" -> fakeIpRule = r
+                fakeIpRule == null && r.optString("server") == effectiveFakeIpTag -> fakeIpRule = r
+                // A rule naming the canonical "dns-fakeip" while the
+                // actual fakeip server carries another tag can only
+                // mean that server (the name is ours); retarget it
+                // instead of leaving a dangling transport reference.
+                fakeIpRule == null && effectiveFakeIpTag != "dns-fakeip" &&
+                    r.optString("server") == "dns-fakeip" -> {
+                    r.put("server", effectiveFakeIpTag)
+                    fakeIpRule = r
+                }
                 else -> rest.put(r)
             }
         }
@@ -704,7 +747,7 @@ object ConfigQuicOverride {
         merged.put(
             fakeIpRule ?: JSONObject()
                 .put("query_type", JSONArray().put("A").put("AAAA"))
-                .put("server", "dns-fakeip"),
+                .put("server", effectiveFakeIpTag),
         )
         for (i in 0 until rest.length()) merged.put(rest.get(i))
         val unchanged = merged.length() == rules.length() &&

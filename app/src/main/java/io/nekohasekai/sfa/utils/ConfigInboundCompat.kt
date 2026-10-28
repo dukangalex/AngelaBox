@@ -893,7 +893,7 @@ object ConfigInboundCompat {
     }
 
     /** Every rule_set tag still referenced by route or DNS rules, nested logical rules included. */
-    private fun referencedRuleSetTags(root: JSONObject): Set<String> {
+    internal fun referencedRuleSetTags(root: JSONObject): Set<String> {
         val tags = mutableSetOf<String>()
         fun scan(rules: JSONArray?) {
             if (rules == null) return
@@ -981,7 +981,11 @@ object ConfigInboundCompat {
                 ?: return emptyList()
             val out = ArrayList<String>()
             for (i in 0 until sets.length()) {
-                val tag = sets.optJSONObject(i)?.optString("tag")?.trim().orEmpty()
+                val item = sets.optJSONObject(i) ?: continue
+                val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+                val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
+                if (!remote) continue
+                val tag = item.optString("tag")?.trim().orEmpty()
                 if (ConfigDiagnose.isPlausibleRuleSetName(tag)) out += tag
             }
             out
@@ -1041,6 +1045,37 @@ object ConfigInboundCompat {
             keep.put(item)
         }
         if (dropTags.isEmpty() && keep.length() == sets.length()) return false
+        replaceArray(sets, keep)
+        stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
+        stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
+        return true
+    }
+
+    /**
+     * Per-set triage drop (v1.0.136): remove the remote definitions
+     * whose tag is in [tags] — exact tag match, no stem/filename
+     * guessing — and strip every route/DNS reference to them. This is
+     * the surgical counterpart of [dropAllRemoteRuleSets]: sets the
+     * triage proved reachable, and every local/inline set, stay.
+     */
+    internal fun dropRemoteRuleSetsByTags(root: JSONObject, tags: Set<String>): Boolean {
+        if (tags.isEmpty()) return false
+        val route = root.optJSONObject("route") ?: return false
+        val sets = route.optJSONArray("rule_set") ?: return false
+        val dropTags = mutableSetOf<String>()
+        val keep = JSONArray()
+        for (i in 0 until sets.length()) {
+            val item = sets.optJSONObject(i) ?: continue
+            val url = item.optString("url").ifBlank { item.optString("download_url") }.trim()
+            val tag = item.optString("tag").trim()
+            val remote = item.optString("type").equals("remote", true) || url.startsWith("http")
+            if (remote && tag in tags) {
+                dropTags.add(tag)
+                continue
+            }
+            keep.put(item)
+        }
+        if (dropTags.isEmpty()) return false
         replaceArray(sets, keep)
         stripDroppedRuleSets(route.optJSONArray("rules"), dropTags)
         stripDroppedRuleSets(root.optJSONObject("dns")?.optJSONArray("rules"), dropTags)
