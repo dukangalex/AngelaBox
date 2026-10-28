@@ -38,13 +38,14 @@ internal class SystemExplicitSegment(
     private val config: Config,
     private val chainTag: String?,
     /**
-     * CN rule-set tags the startup ladder has given up on for this run
-     * (ConfigChinaDirect.ladderSuppressedCnRuleSets). The segment runs
-     * after the ladder's rule-set rungs inside the pipeline, so a
-     * suppressed tag is not re-injected and never referenced; China
-     * direct degrades to its hardcoded lists for this start (D9).
+     * Rule-set tags the startup ladder has given up on for this run
+     * (ConfigQuicOverride.ladderSuppressedRuleSets: the CN sets plus the
+     * ads set). The segment runs after the ladder's rule-set rungs
+     * inside the pipeline, so a suppressed tag is not re-injected and
+     * never referenced; the affected feature degrades for this start
+     * (D9) — China direct to its hardcoded lists, ad-block to off.
      */
-    private val suppressedCnRuleSetTags: Set<String> = emptySet(),
+    private val suppressedRuleSetTags: Set<String> = emptySet(),
 ) {
     internal data class Config(
         val chinaIpDomainDirect: Boolean,
@@ -83,9 +84,9 @@ internal class SystemExplicitSegment(
         if (!config.chinaIpDomainDirect && !config.chinaPublicDnsDirect && !config.lanDirect) return
         val direct = ConfigChinaDirect.ensureDetourableDirect(root)
         if (config.chinaIpDomainDirect) {
-            val suppressed = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it in suppressedCnRuleSetTags }
-            val surviving = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it !in suppressedCnRuleSetTags }
-            val replaced = ConfigChinaDirect.ensureCnRuleSets(root, skip = suppressedCnRuleSetTags)
+            val suppressed = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it in suppressedRuleSetTags }
+            val surviving = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it !in suppressedRuleSetTags }
+            val replaced = ConfigChinaDirect.ensureCnRuleSets(root, skip = suppressedRuleSetTags)
             if (replaced.isNotEmpty()) {
                 notices += OverrideNotice(
                     title = "系统显式",
@@ -218,6 +219,19 @@ internal class SystemExplicitSegment(
 
     fun applyAdsToggle() {
         if (!config.adsBlock) return
+        if (ConfigAdBlock.RULESET_TAG in suppressedRuleSetTags) {
+            // D9, same floor as the CN sets: the ladder dropped remote
+            // rule-sets for this run, so the ads set must not be
+            // re-injected either — it is the second app-side definition
+            // injector and 134's CN-only suppression missed it, which
+            // rebuilt the exact undownloadable config on the drop rung.
+            notices += OverrideNotice(
+                title = "系统显式",
+                reason = "广告拦截规则集已在本次启动的规则集恢复中跳过",
+                hint = "订阅原文未改；规则集能正常下载后，下次启动会自动恢复广告拦截。",
+            )
+            return
+        }
         register(Slot.ADS, ConfigAdBlock.applyBlock(root))
     }
 

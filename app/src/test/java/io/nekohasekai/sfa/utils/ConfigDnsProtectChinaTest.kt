@@ -188,4 +188,89 @@ class ConfigDnsProtectChinaTest {
         assertEquals("direct", server(root, "bootstrap").getString("detour"))
         assertFalse(server(root, "dns-remote").getString("detour") == "direct")
     }
+
+    @Test
+    fun emptyDirectEgressIsNotDetoured() {
+        // B-6 shape: route.final is a plain direct outbound with no
+        // dialer options at all (vpnLeakProtect off, or no main group
+        // for it to move to). The kernel refuses a detour onto an
+        // empty direct at startup, so the overwrite must skip the
+        // detour rewrite — while still applying the final override.
+        val root = JSONObject()
+            .put(
+                "dns",
+                JSONObject()
+                    .put(
+                        "servers",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("type", "https")
+                                .put("tag", "dns-remote")
+                                .put("server", "cloudflare-dns.com"),
+                        ),
+                    )
+                    .put("final", "dns-remote"),
+            )
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(JSONObject().put("type", "direct").put("tag", "direct"))
+                    .put(JSONObject().put("type", "vless").put("tag", "n1").put("server", "example.com").put("server_port", 443)),
+            )
+            .put("route", JSONObject().put("final", "direct"))
+        val notices = mutableListOf<OverrideNotice>()
+        ConfigQuicOverride.applyDnsProtect(
+            root,
+            overwriteFinal = true,
+            egressTag = "direct",
+            notices = notices,
+        )
+        assertEquals("dns-remote", root.getJSONObject("dns").getString("final"))
+        // No detour was written onto the protected server.
+        assertEquals("", server(root, "dns-remote").optString("detour"))
+        assertTrue(notices.any { it.reason.contains("detour 未改为当前出站") })
+    }
+
+    @Test
+    fun nonEmptyDirectEgressIsDetoured() {
+        // Control: a direct carrying any dialer option (here
+        // connect_timeout) is not empty to the kernel, so the detour
+        // forcing proceeds exactly as before.
+        val root = JSONObject()
+            .put(
+                "dns",
+                JSONObject()
+                    .put(
+                        "servers",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("type", "https")
+                                .put("tag", "dns-remote")
+                                .put("server", "cloudflare-dns.com"),
+                        ),
+                    )
+                    .put("final", "dns-remote"),
+            )
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(
+                        JSONObject()
+                            .put("type", "direct")
+                            .put("tag", "direct")
+                            .put("connect_timeout", "8s"),
+                    )
+                    .put(JSONObject().put("type", "vless").put("tag", "n1").put("server", "example.com").put("server_port", 443)),
+            )
+            .put("route", JSONObject().put("final", "direct"))
+        val notices = mutableListOf<OverrideNotice>()
+        ConfigQuicOverride.applyDnsProtect(
+            root,
+            overwriteFinal = true,
+            egressTag = "direct",
+            notices = notices,
+        )
+        assertEquals("direct", server(root, "dns-remote").getString("detour"))
+        assertTrue(notices.none { it.reason.contains("未改为当前出站") })
+    }
 }

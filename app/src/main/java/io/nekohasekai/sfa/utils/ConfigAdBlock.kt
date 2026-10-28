@@ -9,7 +9,8 @@ import org.json.JSONObject
  */
 object ConfigAdBlock {
     const val RULESET_TAG = "geosite-category-ads-all"
-    // Pinned tag instead of the mutable @rule-set branch — see RuleSetPins.
+    // Canonical rule-set branch URL — see RuleSetPins for why the branch
+    // ref is the pin (compiled sets exist nowhere else).
     val RULESET_URL: String = RuleSetPins.adsRuleSetUrl()
 
     fun apply(root: JSONObject) {

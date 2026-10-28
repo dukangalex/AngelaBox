@@ -9,24 +9,35 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 JSDELIVR_HOST = "testingcf.jsdelivr.net"
-# Pins mirrored from RuleSetPins.kt: a rule-set decides proxy-vs-direct, so the
-# mutable @rule-set branch is a supply-chain input. Keep these in sync with the
-# Kotlin object and with assets/scripts/airport-region.js.
-SING_GEOSITE_TAG = "20261024005255"
-SING_GEOIP_TAG = "20261012"
+# Refs mirrored from RuleSetPins.kt: compiled .srs files exist only on the
+# repos' generated rule-set branch (date tags address source snapshots and
+# 404; the branch is rewritten as orphan commits, so no SHA pin either).
+# Keep these in sync with the Kotlin object and with
+# assets/scripts/airport-region.js.
+SING_GEOSITE_REF = "rule-set"
+SING_GEOIP_REF = "rule-set"
 RULE_SET_PINS = {
-    "SagerNet/sing-geosite": SING_GEOSITE_TAG,
-    "SagerNet/sing-geoip": SING_GEOIP_TAG,
+    "SagerNet/sing-geosite": SING_GEOSITE_REF,
+    "SagerNet/sing-geoip": SING_GEOIP_REF,
 }
-IMMUTABLE_REF = re.compile(r"^[0-9]{8,14}$")
 JSDELIVR_GH = re.compile(r"^https?://[^/]+/gh/([^/@]+)/([^/@]+)@([^/]+)(.*)$")
 JSDELIVR = re.compile(r"^https?://([^/]*jsdelivr\.net)/gh/(.+)$")
 RAW = re.compile(r"^https?://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$")
 GH_RAW = re.compile(r"^https?://github\.com/([^/]+)/([^/]+)/raw/(.+)$")
 
 
+def compiled_path(path: str):
+    """Mirror of RuleSetPins.compiledPath: branch-root path or None."""
+    rest = path[1:] if path.startswith("/") else path
+    if rest.startswith("rule-set/"):
+        rest = rest[len("rule-set/"):]
+    if not rest.lower().endswith(".srs"):
+        return None
+    return "/" + rest
+
+
 def pin_ruleset(url: str) -> str:
-    """Mirror of RuleSetPins.pin: replace a mutable ref with the pinned tag."""
+    """Mirror of RuleSetPins.pin: normalise onto the rule-set branch form."""
     raw = url.strip()
     if not raw:
         return url
@@ -34,16 +45,22 @@ def pin_ruleset(url: str) -> str:
     if m:
         owner, repo, ref, path = m.groups()
         pinned = RULE_SET_PINS.get(f"{owner}/{repo}")
-        if pinned is None or IMMUTABLE_REF.match(ref):
+        if pinned is None:
             return raw
-        return raw.split("/gh/")[0] + f"/gh/{owner}/{repo}@{pinned}{path}"
+        compiled = compiled_path(path)
+        if compiled is None:
+            return raw
+        return raw.split("/gh/")[0] + f"/gh/{owner}/{repo}@{pinned}{compiled}"
     m = RAW.match(raw)
     if m:
         owner, repo, ref, path = m.groups()
         pinned = RULE_SET_PINS.get(f"{owner}/{repo}")
-        if pinned is None or IMMUTABLE_REF.match(ref):
+        if pinned is None:
             return raw
-        return f"https://{JSDELIVR_HOST}/gh/{owner}/{repo}@{pinned}/{path}"
+        compiled = compiled_path(path)
+        if compiled is None:
+            return raw
+        return f"https://{JSDELIVR_HOST}/gh/{owner}/{repo}@{pinned}{compiled}"
     return raw
 
 
@@ -225,8 +242,8 @@ def proven_missing_ruleset(url: str, file: str, missing: set) -> bool:
     return not (stem.startswith("geoip-") and len(cc) == 2 and cc.isalpha())
 
 
-GEOSITE_BASE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
-GEOIP_BASE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/"
+GEOSITE_BASE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+GEOIP_BASE = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
 
 KNOWN_GEOSITE_STEMS = {
     "telegram", "github", "gitlab", "google", "youtube", "netflix",
@@ -351,7 +368,7 @@ def drop_missing_rulesets(root: dict) -> None:
         "geosite-tracker.srs": "geosite-category-ads-all.srs",
         "geosite-category-ai!cn.srs": "geosite-category-ai-!cn.srs",
     }
-    geosite_base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
+    geosite_base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
     route = root.get("route") or {}
     sets = route.get("rule_set") or []
     drop = set()
@@ -728,8 +745,8 @@ def main() -> int:
     got = [x["url"] for x in urls["route"]["rule_set"]]
     expect = [
         "https://testingcf.jsdelivr.net/gh/Loyalsoldier/geoip@release/srs/cn.srs",
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-cn.srs",
-        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs",
+        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
     ]
     if got != expect:
         errors.append(f"url rewrite failed: {got}")
@@ -838,13 +855,13 @@ def main() -> int:
         errors.append(f"third-party telegram.srs must stay verbatim, not swap to official: {by_tag.get('telegram')}")
     # A geoip name whose only official file is a geosite domain
     # list must not be cross-swapped either (IP list != domain list).
-    if by_tag.get("geoip-telegram") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs":
+    if by_tag.get("geoip-telegram") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs":
         errors.append(f"geoip-telegram must not cross-swap to geosite-telegram: {by_tag.get('geoip-telegram')}")
     if "geoip-cn" not in by_tag:
         errors.append("working geoip-cn must be kept")
     # The one swap that remains: an official-repo URL naming a
     # verified-absent file with a same-kind successor.
-    if by_tag.get("tracker") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs":
+    if by_tag.get("tracker") != "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs":
         errors.append(f"official geosite-tracker must swap to geosite-category-ads-all: {by_tag.get('tracker')}")
     refs = [r.get("rule_set") for r in replaced["route"]["rules"] if r.get("action") != "hijack-dns"]
     if "telegram" not in refs or "geoip-telegram" not in refs:

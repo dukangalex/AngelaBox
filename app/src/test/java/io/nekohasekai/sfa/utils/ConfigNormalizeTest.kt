@@ -255,7 +255,7 @@ class ConfigNormalizeTest {
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         assertEquals(2, sets.length())
         val telegram = (0 until sets.length()).map { sets.getJSONObject(it) }.first { it.getString("tag") == "telegram" }
-        assertTrue(telegram.getString("url").contains("SagerNet/sing-geosite@20261024005255/geosite-telegram.srs"))
+        assertTrue(telegram.getString("url").contains("SagerNet/sing-geosite@rule-set/geosite-telegram.srs"))
         val rules = root.getJSONObject("route").getJSONArray("rules")
         assertEquals("telegram", rules.getJSONObject(0).getString("rule_set"))
         assertEquals("n1", root.getJSONObject("route").getString("final"))
@@ -306,7 +306,7 @@ class ConfigNormalizeTest {
             byTag["telegram"],
         )
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/geoip-telegram.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-telegram.srs",
             byTag["geoip-telegram"],
         )
         assertTrue(byTag["geoip-fastly"]!!.contains("geoip-fastly.srs"))
@@ -351,7 +351,7 @@ class ConfigNormalizeTest {
             o.getString("tag") to o.getString("url")
         }
         assertEquals(
-            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/geosite-category-ads-all.srs",
+            "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
             byTag["tracker"],
         )
         assertEquals(
@@ -430,7 +430,7 @@ class ConfigNormalizeTest {
         assertTrue(heal.changed)
         assertEquals(listOf("biliintl", "apple-cn", "ai", "google"), heal.swapped)
         assertTrue(heal.dropped.isEmpty())
-        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
+        val base = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)
@@ -553,8 +553,8 @@ class ConfigNormalizeTest {
             heal.dropped.toSet(),
         )
         assertEquals(listOf("geoip-telegram"), heal.keptReferenced)
-        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
-        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@20261012/"
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
+        val geoipBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         assertEquals(3, sets.length())
         val byTag = (0 until sets.length()).associate {
@@ -604,7 +604,7 @@ class ConfigNormalizeTest {
         )
         assertTrue(notes.contains("规则集「geosite-biliintl」的地址已换成官方版"))
         assertFalse(notes.any { it.contains("telegram-ip") && it.contains("官方已下线") })
-        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@20261024005255/"
+        val geositeBase = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/"
         val sets = root.getJSONObject("route").getJSONArray("rule_set")
         val byTag = (0 until sets.length()).associate {
             val o = sets.getJSONObject(it)

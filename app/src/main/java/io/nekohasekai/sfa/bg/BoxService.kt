@@ -588,6 +588,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             needles = ConfigInboundCompat.remoteRuleSetTags(content)
         }
         var ruleSetRetried = false
+        // Whether the drop rung below actually ran for this start. The
+        // script-rollback rung must inherit this state (B-2): passing
+        // only the pre-skip `droppedRuleSets` flag left the rollback
+        // apply with an empty suppression set, so for script-bound
+        // profiles it resurrected every remote rule-set the drop rung
+        // had just removed — CN and ads alike.
+        var dropRungRan = false
         if ((ruleSetFail || timedOut) && !ladderExpired()) {
             ruleSetRetried = true
             if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
@@ -661,6 +668,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     keep(result.exceptionOrNull()?.message)
                 }
             }
+            dropRungRan = true
             val droppedAll = applyForRung(
                 rawContent,
                 dropAllRemoteRuleSets = true,
@@ -712,7 +720,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 rawContent,
                 skipScripts = true,
                 replaceRuleSetNeedles = needles,
-                dropAllRemoteRuleSets = droppedRuleSets,
+                dropAllRemoteRuleSets = droppedRuleSets || dropRungRan,
                 substituteCachedRuleSets = substitutedRuleSets,
                 profileId = profileId,
             )
@@ -811,6 +819,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 failureMessage += "\n\n逐部件检疫也没能让内核接受这份配置。内核校验原话：" +
                     checkError.take(200)
             }
+        }
+        // The explain() text above is a mapped summary; the raw final
+        // kernel error is the only artefact that names the failing
+        // rule-set, URL or network cause, and nothing in the ladder
+        // persists it anywhere. Attach it — truncated like the
+        // quarantine quote — so a field failure screenshot carries the
+        // kernel's own words instead of only the mapping.
+        val rawFinalError = err?.trim().orEmpty()
+        if (rawFinalError.isNotEmpty()) {
+            failureMessage += "\n\n最后一次启动的内核原话：" + rawFinalError.take(200)
         }
         if (ladderExpired()) {
             failureMessage += "\n\n启动重试的时间已用完，还有降级手段没来得及试；下次启动会从完整配置重新尝试。"

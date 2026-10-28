@@ -1,3 +1,13 @@
+• **1.0.135：**
+1. **修复规则集地址失效导致的冷启动失败（Fixed cold-start failures from dead rule-set addresses）：** 应用内置规则集（中国直连三件套、广告拦截）写死的下载地址指向上游仓库的旧位置，文件早已不在那里 — 需要重新下载的冷启动必然失败，此前能启动全靠旧缓存。本版改用当前有效的官方地址，四个文件均已逐个通过完整下载与内核解析校验。
+   The built-in rule-sets (China-direct trio and ad blocking) pointed at a stale location in the upstream repositories where the files no longer exist, so any cold start that had to re-download one was guaranteed to fail; earlier starts only survived on cached copies. The addresses now use the current official location, and all four files were verified end-to-end (full download plus a parse by the pinned kernel).
+2. **修复恢复流程「跳过规则集」后仍被注回（Recovery no longer re-injects the rule-sets it just skipped）：** 启动恢复删掉远程规则集之后，系统显式的广告拦截等注入点又会把集合原样注回，脚本回滚一步也丢了跳过状态 — 结果仍是「跳过之后仍然启动失败」。本版把全部注入点纳入阶梯抑制，恢复后的配置保证不再含被跳过的远程规则集，中国直连与广告拦截临时降级并给出提示。
+   After the startup recovery dropped remote rule-sets, injection points such as ad blocking quietly added them back, and the script-rollback step lost the skip state entirely, so starts still failed after "skipping". All injection points now honour the recovery state, the recovered configuration provably contains none of the skipped sets, and the affected features degrade with a notice instead.
+3. **两处启动健壮性修复（Two startup robustness fixes）：** 防 DNS 泄露在当前出口为空直连出站时，不再把 DNS 的 detour 强改过去（内核会因此拒启），改为跳过并提示；启动最终失败的对话框现在附上内核的原始报错（截断显示），方便定位问题。
+   DNS leak protection no longer forces a DNS detour onto an empty direct outbound, which the kernel refuses at start; it skips with a notice instead. The final startup-failure dialog now appends the kernel's own error text (truncated) to make field reports diagnosable.
+4. **内核与上一版相同：** `v1.15.0-chain.10`（官方 v1.15.0-alpha.13）。可以直接覆盖升级。
+   Same kernel as 1.0.134-beta, `v1.15.0-chain.10` (official v1.15.0-alpha.13). Installs over the previous build.
+
 • **1.0.134：**
 1. **修复链式代理在大分组下被误拦停启（Chains with large groups no longer refused at start）：** 1.0.133 给链式展开加的防爆上限数值定得过小，入口与落地分组合计几十个节点的正常机场配置会被误判「叶子节点过多」而停止启动，回退配置也同样被拦。本版按内核实际展开方式（线性增长）重定了上限：大分组恢复正常，真正病态的递归配置仍会拦下。单分组成员上限同步放宽，大机场的「全节点」组不再误伤。
    The anti-blowup caps added in 1.0.133 were sized for toy configs and refused real airport profiles whose entry and landing groups hold dozens of nodes, and the fallback config hit the same cap. The bounds now follow the kernel's actual linear expansion: large groups start normally, while genuinely pathological recursive configs are still rejected. The per-group member limit was raised to match.

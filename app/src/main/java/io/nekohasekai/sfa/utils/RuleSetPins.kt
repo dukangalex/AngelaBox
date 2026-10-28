@@ -1,40 +1,49 @@
 package io.nekohasekai.sfa.utils
 
 /**
- * Immutable refs for the third-party rule-sets the app points at.
+ * Canonical refs for the third-party rule-sets the app points at.
  *
- * A rule-set decides whether a domain is proxied or dialled directly, so the
- * URL is a supply-chain input: whoever can push to `SagerNet/sing-geosite`'s
- * `rule-set` branch — or to the CDN in front of it — can silently flip traffic
- * that should be tunnelled onto the local network interface, while the
- * dashboard still says "connected".
+ * A rule-set decides whether a domain is proxied or dialled directly, so
+ * the URL is a supply-chain input — but it first has to EXIST. The
+ * 2026-10-27 startup audit established that the compiled `.srs` files
+ * live only on the generated `rule-set` branch of `SagerNet/sing-geosite`
+ * and `SagerNet/sing-geoip` (files at the branch root). The date tags
+ * this object used to pin (`@<yyyymmdd>` / `@<yyyymmddhhmmss>`) address
+ * source snapshots of those repositories, which contain no compiled
+ * sets at all: every date-tag URL returns 404, and a cold start with an
+ * empty kernel cache failed on exactly that.
  *
- * `@rule-set` is a mutable branch, `@20261024005255` is a release tag. Pinning
- * makes the fetched bytes content-addressed by release date instead of
- * "whatever is on the branch right now". The tag is bumped on purpose, after
- * reading the diff, together with [RuleSetPinsTest] and the default overlay
- * script (`app/src/main/assets/scripts/airport-region.js`), which carries the
- * same pins for the script path.
+ * A commit-SHA pin was considered and rejected: upstream automation
+ * rewrites the `rule-set` branch as orphan commits (the branch head has
+ * no parents), so yesterday's SHA is not durably addressable — the
+ * branch ref is the only stable live form. The supply-chain exposure of
+ * a mutable branch is accepted deliberately and recorded here; it is
+ * the lesser failure next to a pin that can never download.
  *
- * Both repositories publish date-named tags. A date tag is treated as immutable
- * here; any other ref (branch names such as `rule-set`, `main`, `master`) is
- * replaced by the pin.
+ * [pin] therefore normalises every URL for the two repositories onto
+ * the branch form: any ref (branch name or dead date tag) becomes
+ * `rule-set`, and a source-layout `rule-set/` path prefix is stripped
+ * because the same file sits at the branch root. Only `.srs` paths are
+ * normalised — anything else is returned untouched, since no live
+ * target for it is known.
+ *
+ * The default overlay script (`app/src/main/assets/scripts/airport-region.js`)
+ * carries the same bases for the script path, and [RuleSetPinsTest]
+ * plus `scripts/test_security_guards.py` keep the two in sync.
  */
 object RuleSetPins {
-    /** SagerNet/sing-geosite release tag, minted 2026-10-24. */
-    const val SING_GEOSITE_TAG: String = "20261024005255"
+    /** The only ref of SagerNet/sing-geosite that serves compiled rule-sets. */
+    const val SING_GEOSITE_REF: String = "rule-set"
 
-    /** SagerNet/sing-geoip release tag, minted 2026-10-12. */
-    const val SING_GEOIP_TAG: String = "20261012"
+    /** The only ref of SagerNet/sing-geoip that serves compiled rule-sets. */
+    const val SING_GEOIP_REF: String = "rule-set"
 
     private const val JSDELIVR = "https://testingcf.jsdelivr.net"
 
-    private val IMMUTABLE_REF = Regex("^[0-9]{8,14}$")
-
     private val PINS: Map<String, String> =
         mapOf(
-            "SagerNet/sing-geosite" to SING_GEOSITE_TAG,
-            "SagerNet/sing-geoip" to SING_GEOIP_TAG,
+            "SagerNet/sing-geosite" to SING_GEOSITE_REF,
+            "SagerNet/sing-geoip" to SING_GEOIP_REF,
         )
 
     /** `https://<host>/gh/<owner>/<repo>@<ref><path>` — jsDelivr's GitHub form. */
@@ -44,43 +53,55 @@ object RuleSetPins {
     private val RAW_GITHUB =
         Regex("^https?://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)(/.*)?$")
 
-    /** Pinned tag for `owner/repo`, or null when the repository is not pinned. */
-    fun tagFor(repo: String): String? = PINS[repo]
+    /** Canonical ref for `owner/repo`, or null when the repository is not pinned. */
+    fun refFor(repo: String): String? = PINS[repo]
 
     /**
-     * Returns [url] with a mutable ref replaced by the pinned tag when the URL
-     * names one of the pinned repositories. Every other URL — including an
-     * already-pinned one, another owner's rule-set, or a non-GitHub URL — is
-     * returned unchanged.
+     * The branch-root path of the compiled file [path] names, or null
+     * when [path] does not name an `.srs` file. The source repositories
+     * keep compiled files under a `rule-set/` directory; on the
+     * generated branch the same file sits at the root.
+     */
+    private fun compiledPath(path: String): String? {
+        var rest = path.removePrefix("/")
+        if (rest.startsWith("rule-set/")) rest = rest.removePrefix("rule-set/")
+        if (!rest.lowercase().endsWith(".srs")) return null
+        return "/$rest"
+    }
+
+    /**
+     * Returns [url] normalised onto the canonical branch form when the
+     * URL names one of the pinned repositories and an `.srs` file.
+     * Every other URL — another owner's rule-set, a non-`.srs` path, or
+     * a non-GitHub URL — is returned unchanged.
      */
     fun pin(url: String): String {
         val raw = url.trim()
         if (raw.isEmpty()) return url
         JSDELIVR_GH.matchEntire(raw)?.let { m ->
-            val (owner, repo, ref, path) = m.destructured
+            val (owner, repo, _, path) = m.destructured
             val pinned = PINS["$owner/$repo"] ?: return raw
-            if (IMMUTABLE_REF.matches(ref)) return raw
+            val compiled = compiledPath(path) ?: return raw
             // Rebuild with the jsDelivr host the URL already used, so a custom
             // mirror keeps working.
-            return raw.substringBefore("/gh/") + "/gh/$owner/$repo@$pinned$path"
+            return raw.substringBefore("/gh/") + "/gh/$owner/$repo@$pinned$compiled"
         }
         RAW_GITHUB.matchEntire(raw)?.let { m ->
             val owner = m.groupValues[1]
             val repo = m.groupValues[2]
-            val ref = m.groupValues[3]
             val path = m.groupValues[4]
             val pinned = PINS["$owner/$repo"] ?: return raw
-            if (IMMUTABLE_REF.matches(ref)) return raw
-            return "$JSDELIVR/gh/$owner/$repo@$pinned$path"
+            val compiled = compiledPath(path) ?: return raw
+            return "$JSDELIVR/gh/$owner/$repo@$pinned$compiled"
         }
         return raw
     }
 
     /**
-     * True when [url] is a pinned, immutable rule-set URL for one of the
-     * repositories this app fetches from. Used by the regression guard.
+     * True when [url] is already the canonical branch URL for one of
+     * the repositories this app fetches from. Used by the regression guard.
      */
-    fun isPinned(url: String): Boolean = pin(url) == url.trim() && tagFor(repoOf(url)) != null
+    fun isPinned(url: String): Boolean = pin(url) == url.trim() && refFor(repoOf(url)) != null
 
     private fun repoOf(url: String): String {
         JSDELIVR_GH.matchEntire(url.trim())?.let { m ->
@@ -96,9 +117,9 @@ object RuleSetPins {
     fun adsRuleSetUrl(): String =
         pin("$JSDELIVR/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
 
-    /** Base URL for an official `geoip-*` file, pinned. */
-    fun geoipBase(): String = "$JSDELIVR/gh/SagerNet/sing-geoip@$SING_GEOIP_TAG/"
+    /** Base URL for an official `geoip-*` file on the rule-set branch. */
+    fun geoipBase(): String = "$JSDELIVR/gh/SagerNet/sing-geoip@$SING_GEOIP_REF/"
 
-    /** Base URL for an official `geosite-*` file, pinned. */
-    fun geositeBase(): String = "$JSDELIVR/gh/SagerNet/sing-geosite@$SING_GEOSITE_TAG/"
+    /** Base URL for an official `geosite-*` file on the rule-set branch. */
+    fun geositeBase(): String = "$JSDELIVR/gh/SagerNet/sing-geosite@$SING_GEOSITE_REF/"
 }
