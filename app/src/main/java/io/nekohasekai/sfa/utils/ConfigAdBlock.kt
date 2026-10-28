@@ -13,9 +13,9 @@ object ConfigAdBlock {
     // ref is the pin (compiled sets exist nowhere else).
     val RULESET_URL: String = RuleSetPins.adsRuleSetUrl()
 
-    fun apply(root: JSONObject) {
+    fun apply(root: JSONObject, seedPath: (String) -> String? = { null }) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val tag = ensureRuleSet(route)
+        val tag = ensureRuleSet(route, seedPath)
         if (alreadyRoutesAds(route, tag)) return
         val old = route.optJSONArray("rules") ?: JSONArray()
         val merged = JSONArray()
@@ -38,9 +38,9 @@ object ConfigAdBlock {
      * ordered block, or an empty array when the config already rejects the
      * ads set somewhere (same coverage test as [apply]).
      */
-    fun applyBlock(root: JSONObject): JSONArray {
+    fun applyBlock(root: JSONObject, seedPath: (String) -> String? = { null }): JSONArray {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val tag = ensureRuleSet(route)
+        val tag = ensureRuleSet(route, seedPath)
         if (alreadyRoutesAds(route, tag)) return JSONArray()
         return JSONArray().put(
             JSONObject()
@@ -95,14 +95,28 @@ object ConfigAdBlock {
         return false
     }
 
-    private fun ensureRuleSet(route: JSONObject): String {
+    private fun ensureRuleSet(route: JSONObject, seedPath: (String) -> String?): String {
+        // Bundled seed (137a, RuleSetSeeds): stamp the installed seed
+        // as `initial_path` — the kernel's cold-start floor — but only
+        // on definitions that ARE the canonical app set: ones created
+        // here, or an existing entry with the canonical tag AND the
+        // pinned URL. A same-tag entry pointing at some other URL may
+        // serve different content; seeding it with the official bytes
+        // would silently swap its rules at cold start.
+        fun stamp(item: JSONObject) {
+            val seed = seedPath(RULESET_TAG) ?: return
+            if (item.optString("initial_path") != seed) item.put("initial_path", seed)
+        }
         val sets = route.optJSONArray("rule_set") ?: JSONArray().also { route.put("rule_set", it) }
         var blankMatch: JSONObject? = null
         for (i in 0 until sets.length()) {
             val item = sets.optJSONObject(i) ?: continue
             val tag = item.optString("tag").trim()
             val url = item.optString("url").trim()
-            if (tag.equals(RULESET_TAG, true)) return tag
+            if (tag.equals(RULESET_TAG, true)) {
+                if (url == RULESET_URL) stamp(item)
+                return tag
+            }
             if (tag.contains("category-ads", ignoreCase = true) ||
                 url.contains("geosite-category-ads", ignoreCase = true)
             ) {
@@ -117,13 +131,13 @@ object ConfigAdBlock {
             blankMatch.put("tag", RULESET_TAG)
             return RULESET_TAG
         }
-        sets.put(
-            JSONObject()
-                .put("tag", RULESET_TAG)
-                .put("type", "remote")
-                .put("format", "binary")
-                .put("url", RULESET_URL),
-        )
+        val created = JSONObject()
+            .put("tag", RULESET_TAG)
+            .put("type", "remote")
+            .put("format", "binary")
+            .put("url", RULESET_URL)
+        stamp(created)
+        sets.put(created)
         return RULESET_TAG
     }
 }

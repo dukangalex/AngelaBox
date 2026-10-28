@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -125,6 +126,7 @@ fun LogScreen(
     saveFilePrefix: String = "logs",
     onBack: (() -> Unit)? = null,
     onOpenNoticeLog: (() -> Unit)? = null,
+    onOpenRuleSetState: (() -> Unit)? = null,
 ) {
     val resolvedViewModel = viewModel ?: viewModel<LogViewModel>()
     val uiState by resolvedViewModel.uiState.collectAsState()
@@ -625,6 +627,32 @@ fun LogScreen(
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                }
+
+                // 规则集状态入口（与应用提示记录同门）：每个集的
+                // 本地地板 / 可用性结论 / 最近活动，随时可查。
+                if (onOpenRuleSetState != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.rule_set_state_title),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        },
+                        onClick = {
+                            resolvedViewModel.toggleOptionsMenu()
+                            expandedLogLevel = false
+                            expandedSave = false
+                            onOpenRuleSetState()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Storage,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                             )

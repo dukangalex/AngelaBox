@@ -31,6 +31,7 @@ import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.compose.screen.log.LogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
 import io.nekohasekai.sfa.compose.screen.log.NoticeLogScreen
+import io.nekohasekai.sfa.compose.screen.log.RuleSetStateScreen
 import io.nekohasekai.sfa.compose.screen.privilegesettings.PrivilegeSettingsManageScreen
 import io.nekohasekai.sfa.compose.screen.profile.EditProfileRoute
 import io.nekohasekai.sfa.compose.screen.profile.RuleProvidersScreen
@@ -166,16 +167,21 @@ fun NavHost(
             popExitTransition = tabExit,
         ) {
             // 日志页右上角菜单可切到「应用提示记录」（一闪而过提示的
-            // 全文留档）；返回键回到内核日志。
+            // 全文留档）与「规则集状态」（每集地板/可用性留档）；返回
+            // 键回到内核日志。
             var showNoticeLog by remember { mutableStateOf(false) }
+            var showRuleSetState by remember { mutableStateOf(false) }
             if (showNoticeLog) {
                 NoticeLogScreen(onBack = { showNoticeLog = false })
+            } else if (showRuleSetState) {
+                RuleSetStateScreen(onBack = { showRuleSetState = false })
             } else {
                 LogScreen(
                     serviceStatus = serviceStatus,
                     showStartFab = showStartFab,
                     showStatusBar = showStatusBar,
                     onOpenNoticeLog = { showNoticeLog = true },
+                    onOpenRuleSetState = { showRuleSetState = true },
                 )
             }
         }

@@ -309,6 +309,9 @@ jobs:
             --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStoreTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStateTest \
             --tests io.nekohasekai.sfa.utils.RuleSetTriageTest \
             --tests io.nekohasekai.sfa.utils.FakeIpServerTagTest \
             --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \

@@ -80,6 +80,25 @@ object RuleSetAvailabilityStore {
         return out
     }
 
+    /**
+     * Every record across all profiles, keyed by
+     * RuleSetTriage.recordKey. For the 规则集状态 view (137c), which
+     * aggregates per set rather than per profile; callers split the
+     * keys with RuleSetState.parseRecordKey.
+     */
+    fun loadAll(): Map<String, RuleSetTriage.Record> {
+        val all = prefs()?.all ?: return emptyMap()
+        val out = LinkedHashMap<String, RuleSetTriage.Record>()
+        for ((key, value) in all) {
+            val text = value as? String ?: continue
+            val sep = text.indexOf('|')
+            if (sep <= 0) continue
+            val at = text.substring(sep + 1).toLongOrNull() ?: continue
+            out[key] = RuleSetTriage.Record(text.substring(0, sep) == "1", at)
+        }
+        return out
+    }
+
     /** Merge [updates] in, and drop this profile's long-stale entries. */
     fun save(profileId: Long, updates: Map<String, RuleSetTriage.Record>, nowMs: Long) {
         if (updates.isEmpty()) return
