@@ -9,6 +9,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -26,6 +30,7 @@ import io.nekohasekai.sfa.compose.screen.dashboard.ProfilesScreen
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.compose.screen.log.LogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
+import io.nekohasekai.sfa.compose.screen.log.NoticeLogScreen
 import io.nekohasekai.sfa.compose.screen.privilegesettings.PrivilegeSettingsManageScreen
 import io.nekohasekai.sfa.compose.screen.profile.EditProfileRoute
 import io.nekohasekai.sfa.compose.screen.profile.RuleProvidersScreen
@@ -160,7 +165,19 @@ fun NavHost(
             popEnterTransition = tabEnter,
             popExitTransition = tabExit,
         ) {
-            LogScreen(serviceStatus = serviceStatus, showStartFab = showStartFab, showStatusBar = showStatusBar)
+            // 日志页右上角菜单可切到「应用提示记录」（一闪而过提示的
+            // 全文留档）；返回键回到内核日志。
+            var showNoticeLog by remember { mutableStateOf(false) }
+            if (showNoticeLog) {
+                NoticeLogScreen(onBack = { showNoticeLog = false })
+            } else {
+                LogScreen(
+                    serviceStatus = serviceStatus,
+                    showStartFab = showStartFab,
+                    showStatusBar = showStatusBar,
+                    onOpenNoticeLog = { showNoticeLog = true },
+                )
+            }
         }
         composable(
             Screen.Groups.route,

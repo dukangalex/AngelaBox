@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonChecked
@@ -123,6 +124,7 @@ fun LogScreen(
     emptyMessage: String? = null,
     saveFilePrefix: String = "logs",
     onBack: (() -> Unit)? = null,
+    onOpenNoticeLog: (() -> Unit)? = null,
 ) {
     val resolvedViewModel = viewModel ?: viewModel<LogViewModel>()
     val uiState by resolvedViewModel.uiState.collectAsState()
@@ -604,6 +606,32 @@ fun LogScreen(
                 },
                 modifier = Modifier.widthIn(min = 200.dp),
             ) {
+                // 应用提示记录入口（只有日志页主入口传入时才有）：
+                // 一闪而过的提示的全文留档页。
+                if (onOpenNoticeLog != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.notice_log_title),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        },
+                        onClick = {
+                            resolvedViewModel.toggleOptionsMenu()
+                            expandedLogLevel = false
+                            expandedSave = false
+                            onOpenNoticeLog()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                }
+
                 // Log Level section with nested items
                 DropdownMenuItem(
                     text = {

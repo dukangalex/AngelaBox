@@ -43,6 +43,9 @@ import io.nekohasekai.sfa.utils.ConfigInboundCompat
 import io.nekohasekai.sfa.utils.ConfigNormalize
 import io.nekohasekai.sfa.utils.ConfigQuarantine
 import io.nekohasekai.sfa.utils.ConfigQuicOverride
+import io.nekohasekai.sfa.utils.ConfigAdBlock
+import io.nekohasekai.sfa.utils.ConfigChinaDirect
+import io.nekohasekai.sfa.utils.RuleSetTriage
 import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
@@ -395,6 +398,32 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         var droppedRuleSets = false
         var substitutedRuleSets = false
+        // Per-set triage (v1.0.136): exact rule-set tags this start's
+        // triage proved undownloadable and stripped from the built
+        // config BEFORE the first kernel attempt. Empty whenever the
+        // triage had any doubt — unknown sets are kept and the ladder
+        // below remains the all-or-nothing backstop, unchanged.
+        var triagedOutTags: List<String> = emptyList()
+        var triageNoted = false
+        // Wording follows the 规则集 + 跳过 pattern so the dashboard
+        // notice grouping (NoticeGrouping) folds this into the same
+        // rule-set summary card as the D9 notices. App-injected tags
+        // are NOT repeated here: the segment already emits their D9
+        // degradation notices for the same start.
+        fun noteTriagedOut() {
+            if (triageNoted || triagedOutTags.isEmpty()) return
+            triageNoted = true
+            val appTags = ConfigChinaDirect.CN_RULE_SET_TAGS + ConfigAdBlock.RULESET_TAG
+            val others = triagedOutTags.filter { it !in appTags }
+            if (others.isEmpty()) return
+            OverrideStatus.add(
+                OverrideNotice(
+                    title = "规则集已跳过",
+                    reason = "规则集 ${others.joinToString("、")} 这次探测确认下载失败，已跳过。",
+                    hint = "只跳过了探测确认下不下来的规则集，能用的都保留着；网络恢复后重启服务会重新探测。",
+                ),
+            )
+        }
         // Pipeline-fatal recovery state (G1): set when the first apply()
         // threw and a degraded-but-startable config was recovered.
         var recoveryNotice: OverrideNotice? = null
@@ -411,12 +440,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val firstApply = runCatching { ConfigQuicOverride.apply(rawContent, profileId = profileId) }
         if (firstApply.isSuccess) {
             content = firstApply.getOrThrow()
+            // Per-set triage (v1.0.136): probe the built config's
+            // remote rule-sets individually and strip ONLY the ones
+            // proven undownloadable, so a partially reachable
+            // subscription keeps its working sets (the 135 field
+            // failure skipped every set for one dead script set).
+            // Any triage failure leaves the untriaged config and the
+            // ladder exactly as they were — triage must never become
+            // a new way for a start to fail.
+            val triage = runCatching {
+                triageRemoteRuleSets(content, rawContent, profileId)
+            }.getOrNull()
+            if (triage != null && triage.first.isNotEmpty()) {
+                triagedOutTags = triage.first
+                triage.second?.let { content = it }
+            }
             // Memory demotion (AB-019): the stall memory is consulted
             // only on reloads inside this service run. A fresh start
             // always attempts the full config first — pre-skipping it
             // would punish a recovered network for a stall it did not
-            // cause, with no chance to prove otherwise.
-            if (StartRetryPolicy.mayConsultStallMemory(freshStart) &&
+            // cause, with no chance to prove otherwise. When the
+            // triage just stripped sets, its per-set evidence is
+            // fresher than the coarse stall memory, so the memory
+            // branch stands down for this start.
+            if (triagedOutTags.isEmpty() &&
+                StartRetryPolicy.mayConsultStallMemory(freshStart) &&
                 ruleSetStalls.shouldSkipRemote(profileId, defaultNetworkKey(), contentHashOf(rawContent))
             ) {
                 // This network + content stalled on remote rule sets before.
@@ -476,9 +524,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         // Every successful start goes through here. Starting with the remote
         // rule-sets kept proves they load again, so the stall is forgotten.
+        // A triage-degraded start does NOT prove the stripped sets load,
+        // so it must not clear the stall memory either.
         fun started(keptRuleSets: Boolean): Boolean {
             recoveryNotice?.let { OverrideStatus.add(it) }
-            if (keptRuleSets) ruleSetStalls.clear(profileId)
+            noteTriagedOut()
+            if (keptRuleSets && triagedOutTags.isEmpty()) ruleSetStalls.clear(profileId)
             return true
         }
 
@@ -525,6 +576,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 stripEch = true,
                 dropAllRemoteRuleSets = droppedRuleSets,
                 substituteCachedRuleSets = substitutedRuleSets,
+                dropRuleSetTags = triagedOutTags.toSet(),
                 profileId = profileId,
             )
             if (echContent != null) {
@@ -598,10 +650,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if ((ruleSetFail || timedOut) && !ladderExpired()) {
             ruleSetRetried = true
             if (stalled) ruleSetStalls.recordStall(profileId, defaultNetworkKey(), contentHashOf(rawContent))
+            if (needles.isNotEmpty()) {
+                // The kernel just proved these sets fail on this path:
+                // persist them as UNAVAILABLE so the NEXT start's
+                // triage strips them up front (availability records
+                // are how the ladder teaches the triage).
+                runCatching { learnRuleSetNeedles(profileId, content, needles) }
+            }
             if (!stalled && needles.isNotEmpty()) {
                 val replaced = applyForRung(
                     rawContent,
                     replaceRuleSetNeedles = needles,
+                    dropRuleSetTags = triagedOutTags.toSet(),
                     profileId = profileId,
                 )
                 if (replaced != null) {
@@ -656,6 +716,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     rawContent,
                     replaceRuleSetNeedles = needles,
                     substituteCachedRuleSets = true,
+                    dropRuleSetTags = triagedOutTags.toSet(),
                     profileId = profileId,
                 )
                 if (substitutedRetry != null) {
@@ -722,6 +783,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 replaceRuleSetNeedles = needles,
                 dropAllRemoteRuleSets = droppedRuleSets || dropRungRan,
                 substituteCachedRuleSets = substitutedRuleSets,
+                dropRuleSetTags = triagedOutTags.toSet(),
                 profileId = profileId,
             )
             if (rolledRaw != null) {
@@ -850,6 +912,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         dropAllRemoteRuleSets: Boolean = false,
         substituteCachedRuleSets: Boolean = false,
         stripEch: Boolean = false,
+        // Per-set triage (v1.0.136): every rebuild after the triage
+        // ran must carry its strip list, or the rebuild resurrects
+        // the sets the triage just removed (the 133/134 bug class).
+        dropRuleSetTags: Set<String> = emptySet(),
         profileId: Long,
     ): String? {
         return try {
@@ -860,6 +926,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 dropAllRemoteRuleSets = dropAllRemoteRuleSets,
                 substituteCachedRuleSets = substituteCachedRuleSets,
                 stripEch = stripEch,
+                dropRuleSetTags = dropRuleSetTags,
                 profileId = profileId,
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -867,6 +934,74 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Per-set triage for one start (v1.0.136; the decision logic is
+     * the pure RuleSetTriage). Enumerates the remote rule-sets of the
+     * BUILT config — subscription, script-generated and app-injected
+     * alike — decides availability from cache copies, fresh records
+     * and a bounded parallel probe, persists the new observations,
+     * and rebuilds the config with ONLY the proven-unavailable sets
+     * stripped.
+     *
+     * Returns (unavailable tags, rebuilt content). A null content
+     * means "keep the untriaged build" (nothing to strip, or the
+     * rebuild itself failed): the ladder then covers the sets exactly
+     * as before. Callers wrap this in runCatching — a triage
+     * exception must degrade to an untriaged start, never fail one.
+     */
+    private suspend fun triageRemoteRuleSets(
+        builtContent: String,
+        rawContent: String,
+        profileId: Long,
+    ): Pair<List<String>, String?> {
+        val refs = RuleSetTriage.enumerate(builtContent)
+        if (refs.isEmpty()) return emptyList<String>() to null
+        val rulesDir = File(
+            Application.application.getExternalFilesDir(null) ?: Application.application.filesDir,
+            "rule-sets",
+        )
+        val now = System.currentTimeMillis()
+        val records = RuleSetAvailabilityStore.load(profileId)
+        val plan = RuleSetTriage.plan(refs, records, profileId, now) { ref ->
+            RuleSetTriage.cacheCopyExists(rulesDir, ref)
+        }
+        val probeResults = withContext(Dispatchers.IO) {
+            RuleSetTriage.probeAll(plan.toProbe, HttpRuleSetProbe)
+        }
+        val decision = RuleSetTriage.decide(plan, probeResults, profileId, now)
+        RuleSetAvailabilityStore.save(profileId, decision.newRecords, now)
+        if (decision.unavailableTags.isEmpty()) return emptyList<String>() to null
+        val rebuilt = applyForRung(
+            rawContent,
+            dropRuleSetTags = decision.unavailableTags.toSet(),
+            profileId = profileId,
+        )
+        return decision.unavailableTags to rebuilt?.takeIf { it != builtContent }
+    }
+
+    /**
+     * Persist kernel-proven rule-set failures (the ladder's needles)
+     * as UNAVAILABLE availability records, so the next start's triage
+     * strips those sets up front instead of paying a failed kernel
+     * attempt to rediscover them.
+     */
+    private fun learnRuleSetNeedles(profileId: Long, builtContent: String, needles: List<String>) {
+        val now = System.currentTimeMillis()
+        val updates = LinkedHashMap<String, RuleSetTriage.Record>()
+        for (ref in RuleSetTriage.enumerate(builtContent)) {
+            val file = ref.url.substringAfterLast('/').substringBefore('?').lowercase()
+            val hit = needles.any { needle ->
+                runCatching { ConfigInboundCompat.ruleSetMatchesNeedle(ref.tag, file, needle) }
+                    .getOrDefault(false)
+            }
+            if (hit) {
+                updates[RuleSetTriage.recordKey(profileId, ref)] =
+                    RuleSetTriage.Record(available = false, checkedAtMs = now)
+            }
+        }
+        RuleSetAvailabilityStore.save(profileId, updates, now)
     }
 
     private class PipelineRecovery(val content: String, val notice: OverrideNotice)
