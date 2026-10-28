@@ -234,6 +234,21 @@ object ConfigQuicOverride {
                 if (dropRuleSetTags.isNotEmpty()) {
                     ConfigInboundCompat.dropRemoteRuleSetsByTags(root, dropRuleSetTags)
                 }
+                // Localization store (137b): stamp `initial_path` on
+                // the surviving remote definitions whose exact URL
+                // has a last-good copy in RuleSetStore, so a cold
+                // start floors on the stored bytes while the URL
+                // keeps driving kernel updates. Runs after the drops
+                // above — a suppressed definition is already gone and
+                // gets nothing — and is read-only against the store,
+                // so every rung's rebuild is stamped the same way and
+                // the start path gains no writes or network from it.
+                val storeDir = runCatching {
+                    RuleSetStore.storeDir(
+                        io.nekohasekai.sfa.Application.application.filesDir,
+                    )
+                }.getOrNull()
+                if (storeDir != null) RuleSetStore.stampInitialPaths(root, storeDir)
             }
             // System-explicit segment: the last route/dns-mutating stage.
             // No script gate — the toggles apply over subscription and script
@@ -255,6 +270,18 @@ object ConfigQuicOverride {
                 needles = dropRuleSetNeedles,
                 tags = dropRuleSetTags,
             )
+            // Bundled seeds (137a): resolve installed seed paths
+            // against the app files dir, the same runCatching shape
+            // as the substitute rung's dir above. No files dir (or no
+            // seed installed) → the provider yields null and every
+            // definition ships without initial_path, exactly as
+            // before this feature.
+            val seedFilesDir = runCatching {
+                io.nekohasekai.sfa.Application.application.filesDir
+            }.getOrNull()
+            val seedPath: (String) -> String? = { tag ->
+                seedFilesDir?.let { RuleSetSeeds.initialPathIfInstalled(it, tag) }
+            }
             val segment = SystemExplicitSegment(
                 root,
                 SystemExplicitSegment.Config(
@@ -275,6 +302,7 @@ object ConfigQuicOverride {
                     ChainRuntimeCompiler.chainTag(profileId, it.landingProfileId)
                 },
                 suppressedRuleSetTags = suppressedRuleSets,
+                seedPath = seedPath,
             )
             applyOne(warnings, "中国直连") { segment.applyChinaFamily() }
             applyOne(warnings, "防 VPN 泄露") { segment.applyVpnLeakProtect() }

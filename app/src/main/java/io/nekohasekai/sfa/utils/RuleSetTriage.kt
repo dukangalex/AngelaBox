@@ -25,6 +25,11 @@ import java.util.concurrent.TimeUnit
  *    (RuleSetCacheWarmer's files) is kept unconditionally: the
  *    ladder's substitute rung can serve it locally, so stripping it
  *    would only destroy value;
+ *  - an app-owned set whose bundled seed is installed (137a,
+ *    RuleSetSeeds) is likewise kept unconditionally: the kernel
+ *    loads the seed when its own cache is empty, so the set does
+ *    not depend on the network at start either. Both are "has a
+ *    local copy" for [plan] and share the top precedence tier;
  *  - a set with a fresh availability record is decided by the record;
  *  - anything else is probed — bounded, in parallel, through the
  *    injected [RuleSetProbe] (bg glue does a 1-byte ranged GET on the
@@ -98,9 +103,11 @@ object RuleSetTriage {
 
     /**
      * Split [refs] by what is already known. [hasCacheCopy] reports a
-     * usable app-side cache file (the substitute rung's ammunition);
-     * it outranks records — a stale-but-present copy still serves the
-     * set locally, while a record only says the network path failed.
+     * usable app-side local copy (the substitute rung's cache file,
+     * a bundled seed, or a 137b store copy — all in the kernel's
+     * initial_path / local tier); it outranks records — a
+     * stale-but-present copy still serves the set locally, while a
+     * record only says the network path failed.
      */
     fun plan(
         refs: List<Ref>,
@@ -197,6 +204,28 @@ object RuleSetTriage {
         val file = RuleSetProviders.cacheFile(workingDir, ref.tag, ref.format, ref.url)
         return file.isFile && file.length() > 0L
     }
+
+    /**
+     * A bundled seed installed for [ref]'s tag (137a): the kernel's
+     * `initial_path` tier serves the set with no network at all, so
+     * for triage a seeded app-owned set is a local copy in the same
+     * precedence tier as [cacheCopyExists]. Subscription tags are
+     * never seeded, so this is false for them by construction.
+     */
+    fun seedCopyExists(filesDir: File, ref: Ref): Boolean =
+        RuleSetSeeds.isInstalled(filesDir, ref.tag)
+
+    /**
+     * A last-good copy in the URL-keyed localization store (137b,
+     * [RuleSetStore]): the build stamps it as the definition's
+     * `initial_path`, so the kernel floors on it exactly like a seed
+     * — same precedence tier as [cacheCopyExists] and
+     * [seedCopyExists], never probed, never stripped. The store is
+     * keyed by the exact URL, so a copy fetched for another origin
+     * can never pose as this set's floor.
+     */
+    fun storeCopyExists(filesDir: File, ref: Ref): Boolean =
+        RuleSetStore.isStored(RuleSetStore.storeDir(filesDir), ref.tag, ref.format, ref.url)
 }
 
 /**

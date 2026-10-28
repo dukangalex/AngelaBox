@@ -51,6 +51,7 @@ import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
 import io.nekohasekai.sfa.utils.QuarantineBudget
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
+import io.nekohasekai.sfa.utils.RuleSetSeeds
 import io.nekohasekai.sfa.utils.StartRetryPolicy
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.ktx.hasPermission
@@ -437,9 +438,25 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // script-produced fatals. The first apply is now guarded and a
         // fatal is rerouted into recoverFromPipelineFatal + the ladder.
         var content: String
+        // Bundled rule-set seeds (137a): install/repair the APK-shipped
+        // seed files for the app-owned sets before the pipeline stamps
+        // them as initial_path. Best-effort by design — any failure
+        // leaves this start exactly as it was without seeds (the 136
+        // behaviour), so it is swallowed whole.
+        withContext(Dispatchers.IO) {
+            runCatching { RuleSetSeeds.ensureInstalled(Application.application) }
+        }
         val firstApply = runCatching { ConfigQuicOverride.apply(rawContent, profileId = profileId) }
         if (firstApply.isSuccess) {
             content = firstApply.getOrThrow()
+            // Localization capture (137b): script-generated rule sets
+            // exist only in this built form, so the import/update
+            // warms of the raw profile can never prefetch them. Fire
+            // a background warm over the built config so the NEXT
+            // start finds their last-good copies in the store (and
+            // the warmer cache); fire-and-forget — it must never
+            // block or fail this start.
+            runCatching { RuleSetWarmup.scheduleBuilt(content) }
             // Per-set triage (v1.0.136): probe the built config's
             // remote rule-sets individually and strip ONLY the ones
             // proven undownloadable, so a partially reachable
@@ -958,14 +975,22 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     ): Pair<List<String>, String?> {
         val refs = RuleSetTriage.enumerate(builtContent)
         if (refs.isEmpty()) return emptyList<String>() to null
-        val rulesDir = File(
-            Application.application.getExternalFilesDir(null) ?: Application.application.filesDir,
-            "rule-sets",
-        )
         val now = System.currentTimeMillis()
         val records = RuleSetAvailabilityStore.load(profileId)
         val plan = RuleSetTriage.plan(refs, records, profileId, now) { ref ->
-            RuleSetTriage.cacheCopyExists(rulesDir, ref)
+            // Local copies outrank records: the warmer cache file the
+            // substitute rung can serve, a bundled seed the kernel
+            // loads via initial_path (137a), or a localization-store
+            // copy the build stamped as initial_path (137b) — none of
+            // them needs the network at start, so none is ever probed
+            // or stripped. cacheCopyExists takes the external-files
+            // ROOT like every other cacheFile caller (it appends
+            // "rule-sets" itself); this call site used to pass the
+            // pre-nested rule-sets dir, which silently disabled the
+            // warmer tier — the lookup landed in rule-sets/rule-sets.
+            RuleSetTriage.cacheCopyExists(ruleSetWorkingDir(), ref) ||
+                RuleSetTriage.seedCopyExists(Application.application.filesDir, ref) ||
+                RuleSetTriage.storeCopyExists(Application.application.filesDir, ref)
         }
         val probeResults = withContext(Dispatchers.IO) {
             RuleSetTriage.probeAll(plan.toProbe, HttpRuleSetProbe)

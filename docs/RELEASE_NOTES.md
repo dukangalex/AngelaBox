@@ -1,3 +1,13 @@
+• **1.0.137：**
+1. **应用自有规则集改为随包内置（Built-in rule-sets now ship inside the app）：** 中国直连、广告拦截用的规则集现在直接打包在应用里，全新安装、没有网络、缓存全空时也能立刻启用，不再依赖第一次启动时现下载；之后的更新照常走原有渠道。
+   The rule-sets used by China direct and ad blocking now ship inside the app package, so they take effect on a fresh install with no network and an empty cache, instead of depending on a first-start download; later updates keep flowing through the usual channel.
+2. **订阅与脚本的规则集自动保存本地副本（Subscription and script rule-sets now keep a local copy）：** 订阅配置和叠加脚本用到的远程规则集，只要成功拉取过一次，应用就会把它的副本保存在本地；之后启动时先用本地副本兜底，某个集暂时下载不下来也不会再拖住启动。
+   Remote rule-sets used by subscription profiles and overlay scripts are now kept as a local copy after the first successful fetch. Later starts fall back to that copy, so a set that is temporarily unreachable no longer holds up startup.
+3. **新增「规则集状态」页（New "Rule-set status" page）：** 「日志」页右上角菜单新增「规则集状态」，每个规则集一行，能看到它有没有本地副本、副本里有多少条目、最近一次检查是否可用，方便自己核对分流数据是否完整。
+   The Log page menu gains a "Rule-set status" page: one row per rule-set showing whether it has a local copy, how many entries that copy holds, and the most recent availability check, so you can verify your routing data is complete.
+4. **内核与上一版相同：** `v1.15.0-chain.10`（官方 v1.15.0-alpha.13）。可以直接覆盖升级。
+   Same kernel as 1.0.136-beta, `v1.15.0-chain.10` (official v1.15.0-alpha.13). Installs over the previous build.
+
 • **1.0.136：**
 1. **规则集改为逐个分诊（Rule-sets are now triaged one by one）：** 以前启动时只要有一个远程规则集下载失败，恢复流程就会把全部远程规则集一并跳过，能用的也跟着丢了。本版在启动前逐个核对：有可用缓存或确认能下载的保留，只有确认拉不到的才跳过并提示，其余分流不受影响。
    Previously, one failed remote rule-set download made the recovery drop every remote rule-set at start, usable ones included. Each set is now checked individually: sets with a usable cached copy or a reachable source are kept, only the ones proven unreachable are skipped with a notice, and the rest of the routing is unaffected.

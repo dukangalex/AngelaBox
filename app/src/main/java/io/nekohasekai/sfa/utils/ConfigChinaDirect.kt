@@ -391,8 +391,20 @@ object ConfigChinaDirect {
      * ladder has given up on them for this run (see
      * [ladderSuppressedCnRuleSets]) and re-adding them would resurrect
      * the exact download failure the ladder is recovering from.
+     *
+     * [seedPath] resolves the bundled seed's installed path for a tag
+     * (137a, RuleSetSeeds); when it yields a path, the definition
+     * carries it as `initial_path` — the kernel's cold-start floor,
+     * warn-only if unreadable. The definition stays type:remote with
+     * the pinned URL, so updates keep flowing. Stamping is silent: a
+     * seed is an app-local concern and never joins the [replaced]
+     * notice, which is about the pinned definition itself.
      */
-    fun ensureCnRuleSets(root: JSONObject, skip: Set<String> = emptySet()): List<String> {
+    fun ensureCnRuleSets(
+        root: JSONObject,
+        skip: Set<String> = emptySet(),
+        seedPath: (String) -> String? = { null },
+    ): List<String> {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         val sets = route.optJSONArray("rule_set") ?: JSONArray().also { route.put("rule_set", it) }
         val replaced = mutableListOf<String>()
@@ -406,25 +418,32 @@ object ConfigChinaDirect {
                     break
                 }
             }
+            val definition: JSONObject
             if (existing == null) {
-                sets.put(
-                    JSONObject()
-                        .put("tag", tag)
-                        .put("type", "remote")
-                        .put("format", "binary")
-                        .put("url", url),
-                )
-            } else if (!existing.optString("type").equals("remote", true) ||
-                existing.optString("format") != "binary" ||
-                existing.optString("url") != url
-            ) {
-                existing.put("type", "remote")
-                existing.put("format", "binary")
-                existing.put("url", url)
-                existing.remove("path")
-                existing.remove("download_url")
-                existing.remove("download_detour")
-                replaced += tag
+                definition = JSONObject()
+                    .put("tag", tag)
+                    .put("type", "remote")
+                    .put("format", "binary")
+                    .put("url", url)
+                sets.put(definition)
+            } else {
+                definition = existing
+                if (!existing.optString("type").equals("remote", true) ||
+                    existing.optString("format") != "binary" ||
+                    existing.optString("url") != url
+                ) {
+                    existing.put("type", "remote")
+                    existing.put("format", "binary")
+                    existing.put("url", url)
+                    existing.remove("path")
+                    existing.remove("download_url")
+                    existing.remove("download_detour")
+                    replaced += tag
+                }
+            }
+            val seed = seedPath(tag)
+            if (seed != null && definition.optString("initial_path") != seed) {
+                definition.put("initial_path", seed)
             }
         }
         return replaced

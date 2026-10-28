@@ -46,6 +46,14 @@ internal class SystemExplicitSegment(
      * (D9) — China direct to its hardcoded lists, ad-block to off.
      */
     private val suppressedRuleSetTags: Set<String> = emptySet(),
+    /**
+     * Bundled-seed path resolver (137a, RuleSetSeeds): the installed
+     * seed's absolute path for an app-owned rule-set tag, or null
+     * when no seed is in place. Handed to the two definition
+     * injectors, which stamp it as `initial_path` so a cold start
+     * never depends on downloading the app-owned sets.
+     */
+    private val seedPath: (String) -> String? = { null },
 ) {
     internal data class Config(
         val chinaIpDomainDirect: Boolean,
@@ -86,7 +94,7 @@ internal class SystemExplicitSegment(
         if (config.chinaIpDomainDirect) {
             val suppressed = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it in suppressedRuleSetTags }
             val surviving = ConfigChinaDirect.CN_RULE_SET_TAGS.filter { it !in suppressedRuleSetTags }
-            val replaced = ConfigChinaDirect.ensureCnRuleSets(root, skip = suppressedRuleSetTags)
+            val replaced = ConfigChinaDirect.ensureCnRuleSets(root, skip = suppressedRuleSetTags, seedPath = seedPath)
             if (replaced.isNotEmpty()) {
                 notices += OverrideNotice(
                     title = "系统显式",
@@ -232,7 +240,7 @@ internal class SystemExplicitSegment(
             )
             return
         }
-        register(Slot.ADS, ConfigAdBlock.applyBlock(root))
+        register(Slot.ADS, ConfigAdBlock.applyBlock(root, seedPath))
     }
 
     /** Prepend the collected blocks as one ordered block; see class docs. */
