@@ -105,11 +105,8 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 - **手动补发**：Actions → **Telegram Release**（`telegram.yml`）→ Run workflow：
   - `tag` 留空 = 公告最新 Release；填 `v1.0.114-stable` / `v1.0.113-beta` 这类 tag = 公告指定版本；
   - `document_only=true` = 只补传 APK 文件，不重发文字说明。
-- **待办（需网页编辑工作流文件，GitHub App 无写权限）：**
-  1. `release-chainbox.yml` 的 `Notify Telegram` 步骤去掉 `continue-on-error: true`（脚本侧已支持失败留痕，失败应标红而不是吞掉）；
-  2. `ci.yml` 的 overlay-guards 步骤追加 `python3 scripts/test_unit_test_whitelist.py`（D6：白名单外的新增单测类会被 CI 静默跳过）；
-  3. `ci.yml` / `release-chainbox.yml` 的 `--tests` 白名单补上当前漏掉的 15 个测试类（`scripts/test_unit_test_whitelist.py` 会列出），或改为全量 `testDebugUnitTest`；
-  4. `ci.yml` 追加 `spotlessCheck`（`spotless` 已配置但从未在 CI 跑）。
+- **2026-10-29 核验与处理：** `scripts/test_unit_test_whitelist.py` 已接入 `ci.yml` 的 overlay-guards 和 `release-chainbox.yml`；检查通过，49 个测试类均出现在两个工作流白名单中，旧记录中的 15 个缺漏已不成立。`release-chainbox.yml` 的 `Notify Telegram` 已移除 `continue-on-error: true`，通知失败会清楚标为工作流失败（不撤销已经发布的 Release）。
+- **待办：** `spotlessCheck` 尚未接入 CI。2026-10-29 本地运行检查失败，报告了 100 多个 Kotlin/Java 源文件格式问题；先单独评估并整理这批既有格式差异，再把检查加入 CI，避免新增一个持续失败的门禁。
 
 ## 内核同步
 

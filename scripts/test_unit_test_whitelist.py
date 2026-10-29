@@ -7,7 +7,7 @@ silently skipped by that workflow. This guard fails in that case (and on stale
 whitelist entries that no longer map to a file). Each workflow file is checked
 independently: being listed in only one of them is still a failure.
 
-Wire into CI (web edit, GitHub App cannot write .github/workflows):
+Run by the overlay-guards step in ci.yml and by release-chainbox.yml:
     python3 scripts/test_unit_test_whitelist.py
 """
 from __future__ import annotations

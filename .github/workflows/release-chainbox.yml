@@ -432,7 +432,6 @@ jobs:
 
       - name: Notify Telegram
         if: success()
-        continue-on-error: true
         working-directory: sing-box-for-android
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
