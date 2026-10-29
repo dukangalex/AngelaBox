@@ -215,6 +215,9 @@
     <string name="notification_settings">Уведомления</string>
     <string name="enable_notification">Включить уведомления</string>
     <string name="dynamic_notification">Отображать скорость в реальном времени в уведомлении</string>
+    <string name="privacy_settings">Конфиденциальность</string>
+    <string name="hide_from_recents">Скрыть из списка последних задач</string>
+    <string name="hide_from_recents_summary">При включении AngelaBox не отображается в списке последних приложений Android. Откройте приложение снова с главного экрана.</string>
     <string name="disable_notification_description">Из-за ограничений Android необходимо сначала предоставить разрешение на уведомления, а затем отключить категорию уведомлений в настройках.</string>
     <string name="disable_notification_description_legacy">Из-за ограничений Android необходимо сначала предоставить разрешение на уведомления, а затем отключить уведомления в сведениях о приложении.</string>
     <string name="allow_bypass">Разрешить обход VPN</string>

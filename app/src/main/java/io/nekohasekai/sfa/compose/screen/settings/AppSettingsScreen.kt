@@ -111,6 +111,7 @@ import io.nekohasekai.sfa.update.UpdateSource
 import io.nekohasekai.sfa.update.UpdateState
 import io.nekohasekai.sfa.update.UpdateTrack
 import io.nekohasekai.sfa.utils.HookStatusClient
+import io.nekohasekai.sfa.utils.RecentTaskVisibility
 import io.nekohasekai.sfa.vendor.GitHubUpdateChecker
 import io.nekohasekai.sfa.vendor.Vendor
 import io.nekohasekai.sfa.xposed.XposedActivation
@@ -175,6 +176,7 @@ fun AppSettingsScreen(
 
     var notificationEnabled by remember { mutableStateOf(true) }
     var dynamicNotification by remember { mutableStateOf(Settings.dynamicNotification) }
+    var hideFromRecents by remember { mutableStateOf(Settings.hideFromRecents) }
     var showDisableNotificationDialog by remember { mutableStateOf(false) }
     val notifyApplyChange = rememberApplyServiceChangeNotifier()
 
@@ -832,6 +834,68 @@ fun AppSettingsScreen(
                     ),
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.privacy_settings),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+        )
+
+        Card(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        ) {
+            ListItem(
+                headlineContent = {
+                    Text(
+                        stringResource(R.string.hide_from_recents),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        stringResource(R.string.hide_from_recents_summary),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Filled.VisibilityOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = hideFromRecents,
+                        onCheckedChange = { checked ->
+                            hideFromRecents = checked
+                            scope.launch(Dispatchers.IO) {
+                                Settings.hideFromRecents = checked
+                                withContext(Dispatchers.Main) {
+                                    RecentTaskVisibility.setExcluded(context, checked)
+                                }
+                            }
+                        },
+                    )
+                },
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)),
+                colors =
+                ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                ),
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

@@ -215,6 +215,9 @@
     <string name="notification_settings">اعلان‌ها</string>
     <string name="enable_notification">فعال‌کردن اعلان</string>
     <string name="dynamic_notification">نمایش سرعت بلادرنگ در اعلان</string>
+    <string name="privacy_settings">حریم خصوصی</string>
+    <string name="hide_from_recents">پنهان‌کردن از برنامه‌های اخیر</string>
+    <string name="hide_from_recents_summary">با روشن‌کردن این گزینه، AngelaBox در فهرست برنامه‌های اخیر Android نمایش داده نمی‌شود؛ دوباره از صفحهٔ اصلی بازش کنید.</string>
     <string name="disable_notification_description">به دلیل محدودیت‌های اندروید، ابتدا باید مجوز اعلان را بدهید، سپس دسته‌بندی اعلان را در تنظیمات غیرفعال کنید.</string>
     <string name="disable_notification_description_legacy">به دلیل محدودیت‌های اندروید، ابتدا باید مجوز اعلان را بدهید، سپس اعلان‌ها را در اطلاعات برنامه غیرفعال کنید.</string>
     <string name="allow_bypass">اجازه دور زدن VPN</string>

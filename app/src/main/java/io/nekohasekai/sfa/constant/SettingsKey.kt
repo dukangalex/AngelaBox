@@ -14,6 +14,7 @@ object SettingsKey {
     const val SILENT_INSTALL_METHOD = "silent_install_method"
     const val AUTO_UPDATE_ENABLED = "auto_update_enabled"
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"
+    const val HIDE_FROM_RECENTS = "hide_from_recents"
     const val DISABLE_DEPRECATED_WARNINGS = "disable_deprecated_warnings"
     const val ONBOARDING_GUIDE_DISMISSED = "onboarding_guide_dismissed"
 

@@ -237,6 +237,9 @@
     <string name="notification_settings">通知</string>
     <string name="enable_notification">啟用通知</string>
     <string name="dynamic_notification">在通知中顯示即時網速</string>
+    <string name="privacy_settings">隱私</string>
+    <string name="hide_from_recents">從最近任務中隱藏</string>
+    <string name="hide_from_recents_summary">開啟後，AngelaBox 不會顯示在系統最近使用的應用程式清單中；仍可從桌面圖示重新開啟。</string>
     <string name="disable_notification_description">由於 Android 限制，您需要先授權通知權限，然後前往系統設定中關閉通知類別。</string>
     <string name="disable_notification_description_legacy">由於 Android 限制，您需要先授權通知權限，然後前往應用程式資訊中關閉通知。</string>
     <string name="allow_bypass">允許繞過 VPN</string>

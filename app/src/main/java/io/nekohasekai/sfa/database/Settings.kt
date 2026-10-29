@@ -76,6 +76,7 @@ object Settings {
     var fdroidCustomMirrors by dataStore.stringSet(SettingsKey.FDROID_CUSTOM_MIRRORS) { emptySet() }
     var autoUpdateEnabled by dataStore.boolean(SettingsKey.AUTO_UPDATE_ENABLED) { false }
     var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) { true }
+    var hideFromRecents by dataStore.boolean(SettingsKey.HIDE_FROM_RECENTS) { false }
     var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
     var onboardingGuideDismissed by dataStore.boolean(SettingsKey.ONBOARDING_GUIDE_DISMISSED) { false }
     var themeMode by dataStore.string(SettingsKey.THEME_MODE) { "system" }

@@ -148,6 +148,7 @@ import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.ktx.launchCustomTab
 import io.nekohasekai.sfa.update.UpdateState
 import io.nekohasekai.sfa.utils.RemoteControlManager
+import io.nekohasekai.sfa.utils.RecentTaskVisibility
 import io.nekohasekai.sfa.utils.ConfigDiagnose
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
@@ -259,6 +260,11 @@ class MainActivity :
                 App()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        RecentTaskVisibility.setExcluded(this, Settings.hideFromRecents)
     }
 
     override fun onNewIntent(intent: Intent) {

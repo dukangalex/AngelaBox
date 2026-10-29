@@ -252,6 +252,9 @@
     <string name="notification_settings">Notification</string>
     <string name="enable_notification">Enable Notification</string>
     <string name="dynamic_notification">Display realtime speed in notification</string>
+    <string name="privacy_settings">Privacy</string>
+    <string name="hide_from_recents">Hide from recent tasks</string>
+    <string name="hide_from_recents_summary">When on, AngelaBox is omitted from Android’s Recent apps screen. Open it again from the launcher.</string>
     <string name="disable_notification_description">Due to Android restrictions, you must first grant notification permission, then go to Settings to disable the notification category.</string>
     <string name="disable_notification_description_legacy">Due to Android restrictions, you must first grant notification permission, then go to App Info to disable notifications.</string>
     <string name="allow_bypass">Allow Bypass</string>
