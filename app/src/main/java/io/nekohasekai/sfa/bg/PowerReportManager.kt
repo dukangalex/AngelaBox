@@ -3,6 +3,11 @@ package io.nekohasekai.sfa.bg
 import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
 import java.text.ParseException
@@ -10,11 +15,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 data class PowerReport(
     val id: String,

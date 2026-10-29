@@ -55,8 +55,7 @@ class BackupManagerTest {
         assertTrue(hidden.contains("不受支持"))
     }
 
-    private fun hex(bytes: ByteArray): String =
-        bytes.joinToString("") { "%02x".format(it) }
+    private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
 
     @Test
     fun pbkdf2MatchesPublishedVectors() {
@@ -147,4 +146,3 @@ class BackupManagerTest {
         assertTrue(result.isFailure)
     }
 }
-

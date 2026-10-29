@@ -60,13 +60,13 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.BackupManager
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 private fun softRelaunchApp(context: android.content.Context) {
     try {
@@ -166,7 +166,11 @@ fun BackupRestoreScreen(navController: NavController) {
             busy = true
             val result = withContext(Dispatchers.IO) {
                 BackupManager.restoreBackupFile(
-                    context, tmp, Settings.restoreCompat, password, restoreSensitiveItems,
+                    context,
+                    tmp,
+                    Settings.restoreCompat,
+                    password,
+                    restoreSensitiveItems,
                 ).also { restored ->
                     // AB-020: warm the restored configs' rule sets now,
                     // synchronously — the relaunch below would kill a
@@ -285,8 +289,8 @@ fun BackupRestoreScreen(navController: NavController) {
                         "· 兼容：备份里的配置与当前已有数据共存，不覆盖已有配置和设置。\n\n" +
                         "恢复后会自动重新加载应用。\n\n" +
                         "WebDAV 需填写可访问的 HTTPS 目录 URL 以及账号密码。" +
-                            "连通性指示灯常驻自动检测，与实际上传使用同一套 GET/HEAD 接口：" +
-                            "绿灯可写，红灯认证/网络失败。部分网盘请使用应用密码，而不是登录密码。",
+                        "连通性指示灯常驻自动检测，与实际上传使用同一套 GET/HEAD 接口：" +
+                        "绿灯可写，红灯认证/网络失败。部分网盘请使用应用密码，而不是登录密码。",
                 )
             },
             confirmButton = { TextButton(onClick = { showHelp = false }) { Text("知道了") } },
@@ -429,7 +433,10 @@ fun BackupRestoreScreen(navController: NavController) {
                     )
                     OutlinedTextField(
                         value = pw,
-                        onValueChange = { pw = it; restorePwError = null },
+                        onValueChange = {
+                            pw = it
+                            restorePwError = null
+                        },
                         label = { Text(stringResource(R.string.backup_password_label)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
@@ -535,7 +542,11 @@ fun BackupRestoreScreen(navController: NavController) {
                                         val tmp = File(context.cacheDir, "chainbox-backup.zip")
                                         BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
                                         BackupManager.webdavUpload(
-                                            webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
+                                            webdavUrl,
+                                            webdavUser,
+                                            webdavPass,
+                                            remoteFile,
+                                            tmp,
                                         ).getOrThrow()
                                     }
                                 }
@@ -543,8 +554,11 @@ fun BackupRestoreScreen(navController: NavController) {
                                 persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
                                 busy = false
                                 snackbar.showSnackbar(
-                                    if (result.isSuccess) "WebDAV 备份完成"
-                                    else "WebDAV 备份失败: ${result.exceptionOrNull()?.message}",
+                                    if (result.isSuccess) {
+                                        "WebDAV 备份完成"
+                                    } else {
+                                        "WebDAV 备份失败: ${result.exceptionOrNull()?.message}"
+                                    },
                                 )
                             }
                         }
@@ -563,7 +577,11 @@ fun BackupRestoreScreen(navController: NavController) {
                             val tmp = File(context.cacheDir, "chainbox-restore.zip")
                             val downloaded = withContext(Dispatchers.IO) {
                                 BackupManager.webdavDownload(
-                                    webdavUrl, webdavUser, webdavPass, remoteFile, tmp,
+                                    webdavUrl,
+                                    webdavUser,
+                                    webdavPass,
+                                    remoteFile,
+                                    tmp,
                                 )
                             }
                             persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)

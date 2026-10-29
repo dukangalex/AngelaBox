@@ -712,5 +712,4 @@ class ConfigCompatTest {
         val server = root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0)
         assertEquals("wg-out", server.getString("detour"))
     }
-
 }

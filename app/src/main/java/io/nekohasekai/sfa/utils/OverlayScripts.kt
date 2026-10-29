@@ -1,9 +1,9 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.database.Settings
-import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 data class OverlayScript(
     val id: String,
@@ -62,8 +62,7 @@ object OverlayScripts {
         return kept
     }
 
-    internal fun withoutRetiredAirport(items: List<OverlayScript>): List<OverlayScript> =
-        items.filterNot { isRetiredAirport(it) }
+    internal fun withoutRetiredAirport(items: List<OverlayScript>): List<OverlayScript> = items.filterNot { isRetiredAirport(it) }
 
     /** In-app airport override is gone. A copy saved by 1.0.79 stays in
      *  settings and the list used to show it as「代码导入」because that
@@ -304,8 +303,7 @@ object OverlayScripts {
         }
     }
 
-    private fun loadBindings(): Map<Long, List<String>> =
-        decodeBindings(Settings.overlayScriptBindingsJson)
+    private fun loadBindings(): Map<Long, List<String>> = decodeBindings(Settings.overlayScriptBindingsJson)
 
     private fun saveBindings(map: Map<Long, List<String>>) {
         Settings.overlayScriptBindingsJson = encodeBindings(map)

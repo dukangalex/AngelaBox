@@ -194,9 +194,12 @@ class ConfigNormalizeTest {
             .map { group.getJSONArray("outbounds").getString(it) }
         assertEquals(listOf("n1"), members)
         assertEquals("proxy", root.getJSONObject("route").getString("final"))
-        assertEquals("8.8.8.8", root.getJSONArray("outbounds").let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it) }.first { it.getString("tag") == "n1" }
-        }.getString("server"))
+        assertEquals(
+            "8.8.8.8",
+            root.getJSONArray("outbounds").let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it) }.first { it.getString("tag") == "n1" }
+            }.getString("server"),
+        )
     }
 
     @Test
@@ -738,8 +741,7 @@ class ConfigNormalizeTest {
         assertTrue(domainIdx in 0 until dnsIdx)
     }
 
-    private fun ruleSetRoot(vararg sets: String): JSONObject =
-        JSONObject("""{"route":{"rule_set":[${sets.joinToString(",")}]}}""")
+    private fun ruleSetRoot(vararg sets: String): JSONObject = JSONObject("""{"route":{"rule_set":[${sets.joinToString(",")}]}}""")
 
     @Test
     fun substituteCachedRuleSetsSwapsRemoteWithCache() {
@@ -783,8 +785,7 @@ class ConfigNormalizeTest {
         if (json.contains("\"x-bad\"")) "decode config: unknown field x-bad" else null
     }
 
-    private fun tagsOf(arr: org.json.JSONArray): List<String> =
-        (0 until arr.length()).map { arr.getJSONObject(it).getString("tag") }
+    private fun tagsOf(arr: org.json.JSONArray): List<String> = (0 until arr.length()).map { arr.getJSONObject(it).getString("tag") }
 
     @Test
     fun quarantineIsolatesBadDnsRuleAndNodeOnly() {
@@ -1167,8 +1168,7 @@ class ConfigNormalizeTest {
     // start ladder's memory / budget policy.
     // ---------------------------------------------------------------
 
-    private fun remoteSet(tag: String): String =
-        """{"type":"remote","tag":"$tag","format":"binary","url":"https://example.com/$tag.srs"}"""
+    private fun remoteSet(tag: String): String = """{"type":"remote","tag":"$tag","format":"binary","url":"https://example.com/$tag.srs"}"""
 
     @Test
     fun warmerPendingListsOnlyMissingOrStaleRemoteSets() {
@@ -1213,7 +1213,10 @@ class ConfigNormalizeTest {
         val now = 1_000_000L
         val calls = mutableListOf<String>()
         val warmed = RuleSetCacheWarmer.warm(
-            content, dir, deadlineMs = now + 10_000, nowMs = { now },
+            content,
+            dir,
+            deadlineMs = now + 10_000,
+            nowMs = { now },
         ) { url, dest ->
             calls += url
             dest.parentFile?.mkdirs()
@@ -1228,8 +1231,14 @@ class ConfigNormalizeTest {
         assertTrue(RuleSetCacheWarmer.uncachedRemoteTags(content, dir).isEmpty())
         // A deadline already in the past attempts nothing.
         val late = RuleSetCacheWarmer.warm(
-            content, dir, deadlineMs = now - 1, nowMs = { now },
-        ) { url, _ -> calls += url; true }
+            content,
+            dir,
+            deadlineMs = now - 1,
+            nowMs = { now },
+        ) { url, _ ->
+            calls += url
+            true
+        }
         assertEquals(0, late)
         assertEquals(2, calls.size)
         dir.deleteRecursively()
@@ -1241,7 +1250,10 @@ class ConfigNormalizeTest {
         val content = ruleSetRoot(remoteSet("geoip-cn"), remoteSet("geosite-cn")).toString()
         val now = 1_000_000L
         val warmed = RuleSetCacheWarmer.warm(
-            content, dir, deadlineMs = now + 10_000, nowMs = { now },
+            content,
+            dir,
+            deadlineMs = now + 10_000,
+            nowMs = { now },
         ) { url, _ ->
             if (url.contains("geoip-cn")) throw RuntimeException("boom")
             false
@@ -1292,5 +1304,4 @@ class ConfigNormalizeTest {
         assertFalse(StartRetryPolicy.mayConsultStallMemory(freshStart = true))
         assertTrue(StartRetryPolicy.mayConsultStallMemory(freshStart = false))
     }
-
 }

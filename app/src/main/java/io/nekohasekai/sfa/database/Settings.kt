@@ -51,6 +51,7 @@ object Settings {
     var selectedProfile by dataStore.long(SettingsKey.SELECTED_PROFILE) { -1L }
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)
+
     // Crash reports whose boot-time auto-start skip has already fired once
     // (report directory names). One unread report suppresses auto-start at
     // most once; see BootReceiver.
@@ -103,11 +104,13 @@ object Settings {
     var lanDirect by dataStore.boolean(SettingsKey.LAN_DIRECT) { true }
     var privacyProtect by dataStore.boolean(SettingsKey.PRIVACY_PROTECT) { false }
     var vpnLeakProtect by dataStore.boolean(SettingsKey.VPN_LEAK_PROTECT) { true }
+
     // One-release fallback for the dnsProtect semantic change (fill-only
     // instead of forced overwrite). Scheduled for removal in the next
     // release; the 系统显式 page carries the same note.
     var dnsProtectLegacyFillOnly by dataStore.boolean(SettingsKey.DNS_PROTECT_LEGACY_FILL_ONLY) { false }
     var dnsProtectNoticeDismissed by dataStore.boolean(SettingsKey.DNS_PROTECT_NOTICE_DISMISSED) { false }
+
     // B8: versioned form of the dismissal above. The 系统显式 page treats
     // the notice as dismissed when this rev reaches its current notice
     // revision (or the legacy boolean is set), so a future copy change
@@ -230,8 +233,7 @@ object Settings {
     internal fun chinaDirectSplitSeedMigration(
         isSet: (String) -> Boolean,
         storedChinaDirect: Boolean,
-    ): List<Pair<String, Boolean>> =
-        CHINA_DIRECT_SPLIT_KEYS.filter { !isSet(it) }.map { it to storedChinaDirect }
+    ): List<Pair<String, Boolean>> = CHINA_DIRECT_SPLIT_KEYS.filter { !isSet(it) }.map { it to storedChinaDirect }
 
     /**
      * One-shot: seed the chinaDirect split switches from the stored

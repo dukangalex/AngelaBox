@@ -37,6 +37,5 @@ object StartRetryPolicy {
         alreadyExtended: Boolean,
         uncachedRemoteRuleSets: Int,
         ladderExpired: Boolean,
-    ): Boolean =
-        timedOut && !alreadyExtended && uncachedRemoteRuleSets > 0 && !ladderExpired
+    ): Boolean = timedOut && !alreadyExtended && uncachedRemoteRuleSets > 0 && !ladderExpired
 }

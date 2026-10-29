@@ -103,8 +103,14 @@ object ConfigChinaDirect {
     )
 
     val CHINA_DNS_DOMAIN_SUFFIXES: List<String> = listOf(
-        "alidns.com", "dnspod.com", "dnspod.cn", "doh.pub", "dns.pub",
-        "360.cn", "onedns.net", "hichina.com",
+        "alidns.com",
+        "dnspod.com",
+        "dnspod.cn",
+        "doh.pub",
+        "dns.pub",
+        "360.cn",
+        "onedns.net",
+        "hichina.com",
     )
 
     /** [CHINA_DNS_IPS] without their CIDR suffixes, for exact host matches. */

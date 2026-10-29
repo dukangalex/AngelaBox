@@ -99,12 +99,10 @@ object RuleSetSeeds {
     fun seedDir(filesDir: File): File = File(filesDir, SEED_DIR_NAME)
 
     /** The installed seed file for [tag], or null when [tag] is not app-owned. */
-    fun installedFile(filesDir: File, tag: String): File? =
-        SEEDS[tag]?.let { File(seedDir(filesDir), it.assetName) }
+    fun installedFile(filesDir: File, tag: String): File? = SEEDS[tag]?.let { File(seedDir(filesDir), it.assetName) }
 
     /** True when a non-empty seed file is in place for [tag]. */
-    fun isInstalled(filesDir: File, tag: String): Boolean =
-        installedFile(filesDir, tag)?.let { it.isFile && it.length() > 0L } == true
+    fun isInstalled(filesDir: File, tag: String): Boolean = installedFile(filesDir, tag)?.let { it.isFile && it.length() > 0L } == true
 
     /**
      * Absolute `initial_path` value for [tag]'s definition, or null
@@ -114,12 +112,10 @@ object RuleSetSeeds {
      * via filemanager.BasePath + filepath.Abs, which an absolute path
      * passes through unchanged.
      */
-    fun initialPathIfInstalled(filesDir: File, tag: String): String? =
-        if (isInstalled(filesDir, tag)) installedFile(filesDir, tag)?.absolutePath else null
+    fun initialPathIfInstalled(filesDir: File, tag: String): String? = if (isInstalled(filesDir, tag)) installedFile(filesDir, tag)?.absolutePath else null
 
-    fun sha256Hex(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes)
-            .joinToString("") { "%02x".format(it) }
+    fun sha256Hex(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it) }
 
     /**
      * The install policy. Install (or reinstall) the bundled bytes
@@ -141,8 +137,7 @@ object RuleSetSeeds {
     }
 
     /** Record file form: one `tag=installedSha,bundledSha` line per seed. */
-    fun formatRecords(records: Map<String, InstallRecord>): String =
-        records.entries.joinToString("\n") { (tag, r) -> "$tag=${r.installedSha256},${r.bundledSha256}" } + "\n"
+    fun formatRecords(records: Map<String, InstallRecord>): String = records.entries.joinToString("\n") { (tag, r) -> "$tag=${r.installedSha256},${r.bundledSha256}" } + "\n"
 
     /** Parses [formatRecords] output; malformed lines are ignored. */
     fun parseRecords(text: String): Map<String, InstallRecord> {

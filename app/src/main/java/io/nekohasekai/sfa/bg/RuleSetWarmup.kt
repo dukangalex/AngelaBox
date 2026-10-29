@@ -130,13 +130,12 @@ object RuleSetWarmup {
         pruneStore(storeDir, content)
     }
 
-    private fun downloadToTemp(url: String, tmp: File): Boolean =
-        runCatching {
-            HTTPClient().use { client ->
-                client.downloadToFile(url, RemoteUrlGuard.Kind.SUBSCRIPTION, tmp)
-            }
-            tmp.isFile && tmp.length() > 0L
-        }.getOrDefault(false)
+    private fun downloadToTemp(url: String, tmp: File): Boolean = runCatching {
+        HTTPClient().use { client ->
+            client.downloadToFile(url, RemoteUrlGuard.Kind.SUBSCRIPTION, tmp)
+        }
+        tmp.isFile && tmp.length() > 0L
+    }.getOrDefault(false)
 
     /**
      * Store maintenance at the warm triggers: prune entries whose

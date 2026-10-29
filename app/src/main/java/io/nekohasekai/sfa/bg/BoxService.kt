@@ -27,34 +27,34 @@ import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.chain.ChainBindings
+import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.chain.ChainBindings
-import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.ktx.hasPermission
+import io.nekohasekai.sfa.utils.ConfigAdBlock
 import io.nekohasekai.sfa.utils.ConfigChainReapply
 import io.nekohasekai.sfa.utils.ConfigCheckOracle
+import io.nekohasekai.sfa.utils.ConfigChinaDirect
 import io.nekohasekai.sfa.utils.ConfigDiagnose
 import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.ConfigInboundCompat
 import io.nekohasekai.sfa.utils.ConfigNormalize
 import io.nekohasekai.sfa.utils.ConfigQuarantine
 import io.nekohasekai.sfa.utils.ConfigQuicOverride
-import io.nekohasekai.sfa.utils.ConfigAdBlock
-import io.nekohasekai.sfa.utils.ConfigChinaDirect
-import io.nekohasekai.sfa.utils.RuleSetTriage
 import io.nekohasekai.sfa.utils.OverlayScripts
 import io.nekohasekai.sfa.utils.OverrideNotice
 import io.nekohasekai.sfa.utils.OverrideStatus
 import io.nekohasekai.sfa.utils.QuarantineBudget
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
 import io.nekohasekai.sfa.utils.RuleSetSeeds
+import io.nekohasekai.sfa.utils.RuleSetTriage
 import io.nekohasekai.sfa.utils.StartRetryPolicy
 import io.nekohasekai.sfa.utils.TunnelGate
-import io.nekohasekai.sfa.ktx.hasPermission
 import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -71,11 +71,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
         private const val START_BUDGET_MS = 45_000L
+
         // The ladder as a whole gets a budget too: each rung having its
         // own 45 s attempt budget let pathological starts sit on the
         // Starting screen for minutes (7 attempts + repeated apply()).
         private const val LADDER_BUDGET_MS = 180_000L
         private const val TAG = "BoxService"
+
         // A rule-set stall is remembered for 10 min on the same default
         // network, but (AB-019) the memory is only consulted by reloads
         // inside the current service run — a fresh service start always
@@ -135,8 +137,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val abandonedStartThreads: MutableSet<Thread> =
         Collections.synchronizedSet(Collections.newSetFromMap(java.util.WeakHashMap()))
 
-    fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean =
-        thread in abandonedStartThreads
+    fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean = thread in abandonedStartThreads
 
     // Serializes startOrReloadKernel: a background subscription update's
     // reload used to run a second pipeline concurrently with an ongoing
@@ -154,6 +155,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
     private val startAbort = AtomicBoolean(false)
+
     @Volatile private var startInFlight = false
 
     private class StartCancelled : IllegalStateException("已取消启动")
@@ -183,8 +185,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      * name (often a subscription/airport name) is replaced by the app name —
      * the notification is visible on the lock screen to anyone looking.
      */
-    private fun notificationLabel(): String =
-        if (Settings.privacyProtect) "AngelaBox" else lastProfileName
+    private fun notificationLabel(): String = if (Settings.privacyProtect) "AngelaBox" else lastProfileName
 
     private suspend fun startService() {
         try {
@@ -382,8 +383,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         rawContent: String,
         profileId: Long,
         freshStart: Boolean,
-    ): Boolean =
-        kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId, freshStart) }
+    ): Boolean = kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId, freshStart) }
 
     private suspend fun startOrReloadKernelLocked(
         rawContent: String,
@@ -391,8 +391,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         freshStart: Boolean,
     ): Boolean {
         val ladderStart = SystemClock.elapsedRealtime()
-        fun ladderExpired(): Boolean =
-            SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
+        fun ladderExpired(): Boolean = SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
         val options = buildOverrideOptions()
         val scriptBound = OverlayScripts.isBound(profileId)
         val chainBound = ChainBindings.get(profileId) != null
@@ -406,6 +405,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // below remains the all-or-nothing backstop, unchanged.
         var triagedOutTags: List<String> = emptyList()
         var triageNoted = false
+
         // Wording follows the 规则集 + 跳过 pattern so the dashboard
         // notice grouping (NoticeGrouping) folds this into the same
         // rule-set summary card as the D9 notices. App-injected tags
@@ -619,8 +619,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // rungs rebuild from rawContent and would silently lose it, so
         // remember and re-apply it to whatever they produce (reheal).
         var resolverHealed = false
-        fun reheal(candidate: String): String =
-            if (resolverHealed) ConfigInboundCompat.healRuntimeConfig(candidate) else candidate
+        fun reheal(candidate: String): String = if (resolverHealed) ConfigInboundCompat.healRuntimeConfig(candidate) else candidate
 
         if (ConfigDiagnose.looksLikeDomainResolver(firstErr) ||
             ConfigDiagnose.looksLikeDomainResolver(err)
@@ -828,8 +827,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // rung below gets its turn first.
                 scriptRollbackError =
                     ConfigDiagnose.explain(firstErr, scriptsBound = true) +
-                        "\n\n关掉脚本后仍失败：" +
-                        ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false)
+                    "\n\n关掉脚本后仍失败：" +
+                    ConfigDiagnose.explain(result.exceptionOrNull()?.message, scriptsBound = false)
             }
         }
 
@@ -934,23 +933,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // the sets the triage just removed (the 133/134 bug class).
         dropRuleSetTags: Set<String> = emptySet(),
         profileId: Long,
-    ): String? {
-        return try {
-            ConfigQuicOverride.apply(
-                rawContent,
-                skipScripts = skipScripts,
-                replaceRuleSetNeedles = replaceRuleSetNeedles,
-                dropAllRemoteRuleSets = dropAllRemoteRuleSets,
-                substituteCachedRuleSets = substituteCachedRuleSets,
-                stripEch = stripEch,
-                dropRuleSetTags = dropRuleSetTags,
-                profileId = profileId,
-            )
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
+    ): String? = try {
+        ConfigQuicOverride.apply(
+            rawContent,
+            skipScripts = skipScripts,
+            replaceRuleSetNeedles = replaceRuleSetNeedles,
+            dropAllRemoteRuleSets = dropAllRemoteRuleSets,
+            substituteCachedRuleSets = substituteCachedRuleSets,
+            stripEch = stripEch,
+            dropRuleSetTags = dropRuleSetTags,
+            profileId = profileId,
+        )
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     /**
@@ -1254,9 +1251,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     /** Same working dir the startup substitute and the cache warmer use. */
-    private fun ruleSetWorkingDir(): File =
-        runCatching { Application.application.getExternalFilesDir(null) }.getOrNull()
-            ?: Application.application.filesDir
+    private fun ruleSetWorkingDir(): File = runCatching { Application.application.getExternalFilesDir(null) }.getOrNull()
+        ?: Application.application.filesDir
 
     private fun noteRuleSetsSkipped(
         cause: ConfigDiagnose.RuleSetSkipCause,

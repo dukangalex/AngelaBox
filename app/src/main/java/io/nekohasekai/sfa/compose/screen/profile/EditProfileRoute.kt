@@ -50,25 +50,25 @@ fun EditProfileRoute(profileId: Long, onNavigateBack: () -> Unit, modifier: Modi
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             exitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
             popEnterTransition = {
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             popExitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
         ) {
             EditProfileScreen(
@@ -101,25 +101,25 @@ fun EditProfileRoute(profileId: Long, onNavigateBack: () -> Unit, modifier: Modi
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             exitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
             popEnterTransition = {
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             popExitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
         ) { backStackEntry ->
             val currentIconId =
@@ -151,25 +151,25 @@ fun EditProfileRoute(profileId: Long, onNavigateBack: () -> Unit, modifier: Modi
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             exitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Left,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
             popEnterTransition = {
                 slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeIn(nestedFadeIn)
+                ) + fadeIn(nestedFadeIn)
             },
             popExitTransition = {
                 slideOutOfContainer(
                     AnimatedContentTransitionScope.SlideDirection.Right,
                     animationSpec = nestedTween,
-                    ) + fadeOut(nestedFadeOut)
+                ) + fadeOut(nestedFadeOut)
             },
         ) { backStackEntry ->
             val isReadOnly = backStackEntry.arguments?.getBoolean("isReadOnly") ?: false

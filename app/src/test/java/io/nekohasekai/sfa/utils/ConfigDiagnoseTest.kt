@@ -180,27 +180,31 @@ class ConfigDiagnoseTest {
         // not be worded as a download failure; a kernel error is quoted
         // verbatim when there is one, and not invented when there is not.
         val timeout = ConfigDiagnose.ruleSetSkippedReason(
-            ConfigDiagnose.RuleSetSkipCause.START_TIMEOUT, null,
+            ConfigDiagnose.RuleSetSkipCause.START_TIMEOUT,
+            null,
         )
         assertTrue(timeout.contains("启动超时"))
         assertFalse(timeout.contains("下载失败"))
 
         val kernelError = "initialize rule-set geosite-cn: Get https://example.com/x.srs: i/o timeout"
         val failed = ConfigDiagnose.ruleSetSkippedReason(
-            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED, kernelError,
+            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED,
+            kernelError,
         )
         assertTrue(failed.contains("下载失败"))
         assertTrue(failed.contains("内核原话"))
         assertTrue(failed.contains("i/o timeout"))
 
         val noDetail = ConfigDiagnose.ruleSetSkippedReason(
-            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED, null,
+            ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED,
+            null,
         )
         assertTrue(noDetail.contains("没能下载下来"))
         assertFalse(noDetail.contains("内核原话"))
 
         val memory = ConfigDiagnose.ruleSetSkippedReason(
-            ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP, null,
+            ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP,
+            null,
         )
         assertTrue(memory.contains("卡住过"))
     }

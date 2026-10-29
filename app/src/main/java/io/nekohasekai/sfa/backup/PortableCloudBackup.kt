@@ -91,14 +91,13 @@ object PortableCloudBackup {
         val settings: JSONObject,
     )
 
-    fun manifest(writtenBy: String, time: Long = System.currentTimeMillis()): JSONObject =
-        JSONObject()
-            .put("version", VERSION)
-            .put("format", FORMAT)
-            .put("app", APP)
-            .put("written_by", writtenBy)
-            .put("time", time)
-            .put("secrets", "omitted")
+    fun manifest(writtenBy: String, time: Long = System.currentTimeMillis()): JSONObject = JSONObject()
+        .put("version", VERSION)
+        .put("format", FORMAT)
+        .put("app", APP)
+        .put("written_by", writtenBy)
+        .put("time", time)
+        .put("secrets", "omitted")
 
     fun isPortableManifest(raw: String): Boolean {
         if (raw.isBlank()) return false
@@ -272,8 +271,7 @@ object PortableCloudBackup {
         } catch (_: Exception) {
             return SensitiveItemsOutcome()
         }
-        fun bool(key: String, fallback: Boolean): Boolean =
-            if (root.has(key)) root.optBoolean(key, fallback) else fallback
+        fun bool(key: String, fallback: Boolean): Boolean = if (root.has(key)) root.optBoolean(key, fallback) else fallback
 
         Settings.chinaDirect = bool("china_direct", Settings.chinaDirect)
         Settings.adsBlock = bool("ads_block", Settings.adsBlock)

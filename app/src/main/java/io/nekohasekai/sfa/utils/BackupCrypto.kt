@@ -56,8 +56,7 @@ object BackupCrypto {
 
     enum class Failure { NOT_ENCRYPTED, UNSUPPORTED_VERSION, DECRYPT_FAILED }
 
-    class BackupCryptoException(val failure: Failure) :
-        Exception("backup crypto failure: $failure")
+    class BackupCryptoException(val failure: Failure) : Exception("backup crypto failure: $failure")
 
     /** True when [data] starts with the container magic and version. */
     fun isEncrypted(data: ByteArray): Boolean {
@@ -74,12 +73,14 @@ object BackupCrypto {
         val header = ByteArrayOutputStream()
         header.write(MAGIC)
         header.write(VERSION.toInt())
-        header.write(byteArrayOf(
-            (iterations ushr 24).toByte(),
-            (iterations ushr 16).toByte(),
-            (iterations ushr 8).toByte(),
-            iterations.toByte(),
-        ))
+        header.write(
+            byteArrayOf(
+                (iterations ushr 24).toByte(),
+                (iterations ushr 16).toByte(),
+                (iterations ushr 8).toByte(),
+                iterations.toByte(),
+            ),
+        )
         header.write(SALT_BYTES)
         header.write(salt)
         header.write(IV_BYTES)
@@ -171,12 +172,14 @@ object BackupCrypto {
         var produced = 0
         for (block in 1..blocks) {
             mac.update(salt)
-            var u = mac.doFinal(byteArrayOf(
-                (block ushr 24).toByte(),
-                (block ushr 16).toByte(),
-                (block ushr 8).toByte(),
-                block.toByte(),
-            ))
+            var u = mac.doFinal(
+                byteArrayOf(
+                    (block ushr 24).toByte(),
+                    (block ushr 16).toByte(),
+                    (block ushr 8).toByte(),
+                    block.toByte(),
+                ),
+            )
             val t = u.copyOf()
             var round = 1
             while (round < iterations) {
@@ -193,6 +196,5 @@ object BackupCrypto {
         return derived
     }
 
-    private fun utf8(chars: CharArray): ByteArray =
-        String(chars).toByteArray(Charsets.UTF_8)
+    private fun utf8(chars: CharArray): ByteArray = String(chars).toByteArray(Charsets.UTF_8)
 }

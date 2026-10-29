@@ -60,8 +60,7 @@ object OverrideStatus {
 
     fun dismiss(item: OverrideNotice) = dismiss(listOf(item))
 
-    private fun fingerprint(notice: OverrideNotice): String =
-        notice.title + "\u0001" + notice.reason + "\u0001" + notice.hint + "\u0001" + notice.error
+    private fun fingerprint(notice: OverrideNotice): String = notice.title + "\u0001" + notice.reason + "\u0001" + notice.hint + "\u0001" + notice.error
 
     /** 把本批里还没留过档的提示写入 NoticeLogStore（见 recentlyRecorded 的去重口径）。 */
     private fun recordNew(items: List<OverrideNotice>) {

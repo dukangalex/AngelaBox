@@ -6,9 +6,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -142,8 +142,10 @@ private fun DoneContent(
         // status icon and title; the text lives only in the banner.
         val shown = if (
             item.id == NetworkCheckup.ItemId.SUBSCRIPTION &&
-            (result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_BAD ||
-                result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY) &&
+            (
+                result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_BAD ||
+                    result.verdict == NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY
+                ) &&
             item.detail.isNotBlank() && item.detail == result.verdictDetail
         ) {
             item.copy(detail = "")
@@ -172,7 +174,8 @@ private fun VerdictBanner(result: NetworkCheckup.Result) {
         NetworkCheckup.VerdictKind.NO_NETWORK, NetworkCheckup.VerdictKind.SERVICE_STOPPED ->
             MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
         NetworkCheckup.VerdictKind.NODE_SLOW, NetworkCheckup.VerdictKind.SUBSCRIPTION_UNHEALTHY,
-        NetworkCheckup.VerdictKind.TUNNEL_UNCERTAIN ->
+        NetworkCheckup.VerdictKind.TUNNEL_UNCERTAIN,
+        ->
             MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
         else ->
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer

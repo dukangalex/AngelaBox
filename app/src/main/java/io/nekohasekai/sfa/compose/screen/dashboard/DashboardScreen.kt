@@ -182,7 +182,7 @@ fun DashboardScreen(
                                 onHideProfilePickerSheet = viewModel::hideProfilePickerSheet,
                                 onOpenNewProfile = onOpenNewProfile,
                                 onOpenChainBuilder = onOpenChainBuilder,
-                            onOpenCheckup = { showCheckupDialog = true },
+                                onOpenCheckup = { showCheckupDialog = true },
                                 onToggleService = viewModel::toggleService,
                                 onRequestDelayTest = viewModel::testSelectedDelay,
                                 commandClient = viewModel.commandClient,

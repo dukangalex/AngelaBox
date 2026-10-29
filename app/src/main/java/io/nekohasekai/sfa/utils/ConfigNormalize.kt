@@ -1,8 +1,8 @@
 package io.nekohasekai.sfa.utils
 
-import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * Compatibility rewriter for the current libbox. Nodes, selector/urltest
@@ -62,8 +62,13 @@ object ConfigNormalize {
     )
 
     val STUN_TCP_PORTS: IntArray = intArrayOf(
-        3478, 3479, 3480, 3481,
-        5349, 5350, 5351,
+        3478,
+        3479,
+        3480,
+        3481,
+        5349,
+        5350,
+        5351,
     )
 
     fun cnDomainSuffixArray(): JSONArray {

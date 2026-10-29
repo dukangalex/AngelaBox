@@ -81,8 +81,7 @@ object RuleSetStore {
     fun storeDir(filesDir: File): File = File(filesDir, STORE_DIR_NAME)
 
     /** Origin key: first 16 hex chars of the URL's SHA-256. */
-    fun urlHash(url: String): String =
-        RuleSetSeeds.sha256Hex(url.trim().toByteArray(Charsets.UTF_8)).substring(0, 16)
+    fun urlHash(url: String): String = RuleSetSeeds.sha256Hex(url.trim().toByteArray(Charsets.UTF_8)).substring(0, 16)
 
     /**
      * The store file name for one set: origin hash + sanitised tag +
@@ -100,20 +99,17 @@ object RuleSetStore {
         return "${urlHash(url)}-$safe.$ext"
     }
 
-    fun entryFile(storeDir: File, tag: String, format: String, url: String): File =
-        File(storeDir, entryFileName(tag, format, url))
+    fun entryFile(storeDir: File, tag: String, format: String, url: String): File = File(storeDir, entryFileName(tag, format, url))
 
     /** True when a usable (non-empty) stored copy exists for this exact URL. */
-    fun isStored(storeDir: File, tag: String, format: String, url: String): Boolean =
-        entryFile(storeDir, tag, format, url).let { it.isFile && it.length() > 0L }
+    fun isStored(storeDir: File, tag: String, format: String, url: String): Boolean = entryFile(storeDir, tag, format, url).let { it.isFile && it.length() > 0L }
 
     /** Absolute `initial_path` value for a stored set, or null. */
-    fun initialPathIfStored(storeDir: File, tag: String, format: String, url: String): String? =
-        if (isStored(storeDir, tag, format, url)) {
-            entryFile(storeDir, tag, format, url).absolutePath
-        } else {
-            null
-        }
+    fun initialPathIfStored(storeDir: File, tag: String, format: String, url: String): String? = if (isStored(storeDir, tag, format, url)) {
+        entryFile(storeDir, tag, format, url).absolutePath
+    } else {
+        null
+    }
 
     /**
      * Format gate for a would-be stored copy: non-empty, plus for
@@ -173,8 +169,7 @@ object RuleSetStore {
     }
 
     /** A fresh temp file name inside the store dir for one download. */
-    fun tempFile(storeDir: File, tag: String, format: String, url: String): File =
-        File(storeDir, entryFileName(tag, format, url) + TMP_SUFFIX)
+    fun tempFile(storeDir: File, tag: String, format: String, url: String): File = File(storeDir, entryFileName(tag, format, url) + TMP_SUFFIX)
 
     // ------------------------------------------------------------------
     // Last-seen index: one `fileName=lastSeenMs` line per entry. The
@@ -183,8 +178,7 @@ object RuleSetStore {
     // seed records (formatRecords/parseRecords).
     // ------------------------------------------------------------------
 
-    fun formatIndex(index: Map<String, Long>): String =
-        index.entries.joinToString("\n") { (name, seen) -> "$name=$seen" } + "\n"
+    fun formatIndex(index: Map<String, Long>): String = index.entries.joinToString("\n") { (name, seen) -> "$name=$seen" } + "\n"
 
     /** Parses [formatIndex] output; malformed lines are ignored. */
     fun parseIndex(text: String): Map<String, Long> {

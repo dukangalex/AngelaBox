@@ -147,8 +147,7 @@ fun PerAppProxyScreen(
     var unlistedSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
     val saveLock = remember { Mutex() }
 
-    fun buildPackageList(newUids: Set<Int>): Set<String> =
-        packages.filter { it.uid in newUids }.mapTo(HashSet(unlistedSelected)) { it.packageName }
+    fun buildPackageList(newUids: Set<Int>): Set<String> = packages.filter { it.uid in newUids }.mapTo(HashSet(unlistedSelected)) { it.packageName }
 
     fun updateCurrentPackages(filterQuery: String) {
         currentPackages =

@@ -8,6 +8,7 @@ enum class Alert {
     StartCommandServer,
     CreateService,
     StartService,
+
     /** Appended. Ordinal is sent across the binder; do not reorder. */
     RestartAsVpn,
 }

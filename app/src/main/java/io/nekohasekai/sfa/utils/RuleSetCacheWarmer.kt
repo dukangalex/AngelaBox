@@ -86,6 +86,5 @@ object RuleSetCacheWarmer {
         return warmed
     }
 
-    private fun isFresh(dest: File, nowMs: Long): Boolean =
-        dest.isFile && dest.length() > 0L && nowMs - dest.lastModified() <= STALE_MS
+    private fun isFresh(dest: File, nowMs: Long): Boolean = dest.isFile && dest.length() > 0L && nowMs - dest.lastModified() <= STALE_MS
 }

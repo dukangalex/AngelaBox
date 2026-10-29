@@ -785,8 +785,16 @@ object BackupManager {
                                 } catch (_: Exception) {
                                     ""
                                 }
-                                val next = try { URI(nextUrl) } catch (_: Exception) { null }
-                                val cur = try { URI(target) } catch (_: Exception) { null }
+                                val next = try {
+                                    URI(nextUrl)
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                val cur = try {
+                                    URI(target)
+                                } catch (_: Exception) {
+                                    null
+                                }
                                 if (
                                     nextUrl.isEmpty() ||
                                     next == null ||
@@ -820,7 +828,9 @@ object BackupManager {
                     if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
                     lastDetail = friendlyProbeDetail(e)
                 } finally {
-                    try { conn.disconnect() } catch (_: Exception) {}
+                    try {
+                        conn.disconnect()
+                    } catch (_: Exception) {}
                 }
             }
             if (sawAuthFailure) error(lastDetail)
@@ -848,7 +858,11 @@ object BackupManager {
     }
 
     internal fun authFailedMessage(baseUrl: String, code: Int, body: String?): String {
-        val host = try { URI(baseUrl).host ?: baseUrl } catch (_: Exception) { baseUrl }
+        val host = try {
+            URI(baseUrl).host ?: baseUrl
+        } catch (_: Exception) {
+            baseUrl
+        }
         val extra = if (host.contains("koofr", true)) {
             " Koofr 请使用账号邮箱 + 在 Koofr 设置里生成的应用密码，不是登录密码。"
         } else {
@@ -867,12 +881,10 @@ object BackupManager {
         }
     }
 
-    private inline fun <T> wrapSsl(block: () -> T): T {
-        return try {
-            block()
-        } catch (e: Exception) {
-            throw friendlySsl(e)
-        }
+    private inline fun <T> wrapSsl(block: () -> T): T = try {
+        block()
+    } catch (e: Exception) {
+        throw friendlySsl(e)
     }
 
     internal fun friendlySsl(e: Exception): Exception {

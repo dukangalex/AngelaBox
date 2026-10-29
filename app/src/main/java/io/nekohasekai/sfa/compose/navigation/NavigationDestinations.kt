@@ -9,8 +9,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.ui.graphics.vector.ImageVector
-import io.nekohasekai.sfa.R
 import androidx.navigation.NavController
+import io.nekohasekai.sfa.R
 
 sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
     object Dashboard : Screen(
@@ -63,4 +63,3 @@ fun NavController.popToDashboard() {
         navigate(Screen.Dashboard.route) { launchSingleTop = true }
     }
 }
-

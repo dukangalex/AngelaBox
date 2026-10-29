@@ -199,8 +199,7 @@ object RuleSetState {
      * changes behaviour, and the one a user diagnosing a start wants
      * to see).
      */
-    fun latestRecord(records: List<RecordFact>): RecordFact? =
-        records.maxWithOrNull(compareBy<RecordFact> { it.checkedAtMs }.thenBy { !it.available })
+    fun latestRecord(records: List<RecordFact>): RecordFact? = records.maxWithOrNull(compareBy<RecordFact> { it.checkedAtMs }.thenBy { !it.available })
 
     /**
      * TTL-aware verdict for [record] at [nowMs], mirroring
@@ -250,6 +249,5 @@ object RuleSetState {
     }
 
     /** Absolute timestamp for row display: `2026-10-28 09:41`. */
-    fun formatDateTime(ms: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date(ms))
+    fun formatDateTime(ms: Long): String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date(ms))
 }

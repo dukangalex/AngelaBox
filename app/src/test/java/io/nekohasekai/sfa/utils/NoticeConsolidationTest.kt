@@ -131,8 +131,7 @@ class NoticeConsolidationTest {
 
     // ---------- 更新提示汇总与合并 ----------
 
-    private fun swapLines(n: Int): String =
-        (1..n).joinToString("\n") { "规则集「geosite-$it」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版" }
+    private fun swapLines(n: Int): String = (1..n).joinToString("\n") { "规则集「geosite-$it」的原地址不是公共 HTTPS 地址，未被采用，已换成官方版" }
 
     @Test
     fun allSwapWarningsSummarizeAsOneLine() {

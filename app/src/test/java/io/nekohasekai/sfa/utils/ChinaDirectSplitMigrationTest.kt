@@ -18,8 +18,7 @@ class ChinaDirectSplitMigrationTest {
     private fun seedWrites(
         setKeys: Set<String>,
         storedChinaDirect: Boolean,
-    ): Map<String, Boolean> =
-        Settings.chinaDirectSplitSeedMigration({ it in setKeys }, storedChinaDirect).toMap()
+    ): Map<String, Boolean> = Settings.chinaDirectSplitSeedMigration({ it in setKeys }, storedChinaDirect).toMap()
 
     @Test
     fun seedInheritsStoredOnForAllThree() {

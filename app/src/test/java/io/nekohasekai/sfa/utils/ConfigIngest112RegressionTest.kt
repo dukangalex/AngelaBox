@@ -99,7 +99,7 @@ class ConfigIngest112RegressionTest {
             // The node with an invalid port must not appear in the output.
             assertFalse(
                 "port $port should be rejected",
-                result.content.contains("\"server_port\":$port")
+                result.content.contains("\"server_port\":$port"),
             )
         }
     }
@@ -113,7 +113,7 @@ class ConfigIngest112RegressionTest {
             assertEquals(ConfigIngest.Format.ShareLinks, result.format)
             assertTrue(
                 "port $port should be accepted",
-                result.content.contains("\"server_port\":$port")
+                result.content.contains("\"server_port\":$port"),
             )
         }
     }

@@ -17,6 +17,7 @@ object ChainRuntimeCompiler {
     const val LEGACY_CHAIN_TAG = "my-chain"
     const val MAX_CONFIG_CHARS = 8 * 1024 * 1024
     const val MAX_MERGE_DEPTH = 24
+
     // A single group's member count is a plain list length, not an
     // expansion mode; the real resource bound is
     // MAX_MATERIALIZED_OUTBOUNDS below. 512 rejected legitimate
@@ -54,8 +55,12 @@ object ChainRuntimeCompiler {
     private val forbiddenTags = setOf("direct", "block", "dns")
     private val groupTypes = setOf("selector", "urltest")
     private val CN_RULE_SET_TOKENS = setOf(
-        "geoip-cn", "geosite-cn", "geosite-geolocation-cn",
-        "geoip_cn", "geosite_cn", "cn",
+        "geoip-cn",
+        "geosite-cn",
+        "geosite-geolocation-cn",
+        "geoip_cn",
+        "geosite_cn",
+        "cn",
     )
 
     data class ApplyRequest(
@@ -70,8 +75,7 @@ object ChainRuntimeCompiler {
     data class Hop(val profileId: Long, val profileName: String, val tag: String, val type: String)
 
     /** Deterministic tag of the chain outbound compiled for a binding. */
-    fun chainTag(currentProfileId: Long, landingProfileId: Long): String =
-        "$GENERATED_PREFIX$currentProfileId-$landingProfileId"
+    fun chainTag(currentProfileId: Long, landingProfileId: Long): String = "$GENERATED_PREFIX$currentProfileId-$landingProfileId"
 
     data class CompiledChain(val chainTag: String, val entryTag: String, val landingTag: String)
 
@@ -160,8 +164,10 @@ object ChainRuntimeCompiler {
         // airport groups without bounding any real resource.
         val chainTag = chainTag(req.currentProfileId, req.landingProfileId)
         removeOutbound(outs, chainTag)
-        outs.put(JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
-            .put("outbounds", JSONArray().put(entryHop).put(landingMergedTag)))
+        outs.put(
+            JSONObject().put("type", NATIVE_CHAIN_TYPE).put("tag", chainTag)
+                .put("outbounds", JSONArray().put(entryHop).put(landingMergedTag)),
+        )
         route.put("final", chainTag)
         root.put("outbounds", outs)
         pinTrafficToChain(root, chainTag, landingMergedTag, setOf(main, entryHop))
@@ -250,7 +256,10 @@ object ChainRuntimeCompiler {
             val t = tag.lowercase()
             if (isFinalLike(tag)) score -= 80
             if (t.contains("proxy") || t.contains("select") || t.contains("节点") || t.contains("选择") || t.contains("自动")) score += 25
-            if (score > bestScore) { bestScore = score; best = tag }
+            if (score > bestScore) {
+                bestScore = score
+                best = tag
+            }
         }
         return best
     }
@@ -284,9 +293,7 @@ object ChainRuntimeCompiler {
         entryTag: String,
         landingContent: String,
         landingTag: String,
-    ): Boolean {
-        return allLeavesUseTls(entryContent, entryTag) && allLeavesUseTls(landingContent, landingTag)
-    }
+    ): Boolean = allLeavesUseTls(entryContent, entryTag) && allLeavesUseTls(landingContent, landingTag)
 
     internal fun allLeavesUseTls(content: String, tag: String): Boolean {
         val outs = parseConfig(content).optJSONArray("outbounds") ?: return false
@@ -345,7 +352,10 @@ object ChainRuntimeCompiler {
             val type = o.optString("type").trim()
             if (tag.isEmpty()) continue
             if (tag in entryTags || tag.startsWith(ENTRY_PREFIX)) continue
-            if (type == "direct" || isDirectLike(tag)) { directTags.add(tag); continue }
+            if (type == "direct" || isDirectLike(tag)) {
+                directTags.add(tag)
+                continue
+            }
             if (type in forbiddenTypes || tag.lowercase() in forbiddenTags) protected.add(tag)
             if (tag.startsWith(LANDING_PREFIX)) protected.add(tag)
         }
@@ -458,7 +468,11 @@ object ChainRuntimeCompiler {
 
     private fun textsOf(rule: JSONObject, key: String): List<String> {
         val raw = rule.opt(key) ?: return emptyList()
-        return when (raw) { is String -> listOf(raw); is JSONArray -> (0 until raw.length()).map { raw.optString(it) }; else -> emptyList() }
+        return when (raw) {
+            is String -> listOf(raw)
+            is JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+            else -> emptyList()
+        }
     }
 
     fun displayHopTag(tag: String): String {
@@ -544,8 +558,9 @@ object ChainRuntimeCompiler {
             clone.put("outbounds", mapped)
             if (clone.has("default")) {
                 val d = clone.optString("default").trim()
-                if (d.isBlank() || d in forbiddenTags || d in extraExclude || d in excludeLeaves) clone.remove("default")
-                else {
+                if (d.isBlank() || d in forbiddenTags || d in extraExclude || d in excludeLeaves) {
+                    clone.remove("default")
+                } else {
                     val dObj = find(outs, d)
                     val dType = dObj?.optString("type")
                     val dHop = when {
@@ -612,6 +627,7 @@ object ChainRuntimeCompiler {
         val visiting = mutableSetOf<String>()
         val merged = mutableMapOf<String, String>()
         val emptied = mutableSetOf<String>()
+
         // Returns null when a nested landing group has nothing left after
         // filtering DIRECT/block; the parent drops it instead of failing.
         fun merge(tag: String, depth: Int = 0): String? {
@@ -766,12 +782,10 @@ object ChainRuntimeCompiler {
         return tag
     }
 
-    private fun resolverName(raw: Any?): String {
-        return when (raw) {
-            is String -> raw.trim()
-            is JSONObject -> raw.optString("server").trim()
-            else -> ""
-        }
+    private fun resolverName(raw: Any?): String = when (raw) {
+        is String -> raw.trim()
+        is JSONObject -> raw.optString("server").trim()
+        else -> ""
     }
 
     private fun pointResolver(outbound: JSONObject, server: String) {

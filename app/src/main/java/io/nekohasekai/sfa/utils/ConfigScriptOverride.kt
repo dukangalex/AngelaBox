@@ -1,16 +1,16 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.database.Settings
+import org.json.JSONObject
+import org.mozilla.javascript.Context
+import org.mozilla.javascript.ContextFactory
+import org.mozilla.javascript.Scriptable
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
-import org.json.JSONObject
-import org.mozilla.javascript.Context
-import org.mozilla.javascript.ContextFactory
-import org.mozilla.javascript.Scriptable
 
 /**
  * Runs user `function main(config)` scripts against the live sing-box JSON.

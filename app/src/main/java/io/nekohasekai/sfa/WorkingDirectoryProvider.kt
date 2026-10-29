@@ -141,8 +141,11 @@ class WorkingDirectoryProvider : DocumentsProvider() {
 
     private fun includeFile(result: MatrixCursor, documentId: String, file: File) {
         var flags = 0
-        if (file.isDirectory) flags = flags or DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
-        else flags = flags or DocumentsContract.Document.FLAG_SUPPORTS_WRITE
+        if (file.isDirectory) {
+            flags = flags or DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
+        } else {
+            flags = flags or DocumentsContract.Document.FLAG_SUPPORTS_WRITE
+        }
         if (file.parentFile?.canWrite() == true && file != baseDir) {
             flags = flags or DocumentsContract.Document.FLAG_SUPPORTS_DELETE or DocumentsContract.Document.FLAG_SUPPORTS_RENAME
         }
@@ -158,7 +161,10 @@ class WorkingDirectoryProvider : DocumentsProvider() {
     }
 
     private fun getMimeType(file: File): String = file.extension.lowercase().let {
-        if (it.isNotEmpty()) MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) ?: "application/octet-stream"
-        else "application/octet-stream"
+        if (it.isNotEmpty()) {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) ?: "application/octet-stream"
+        } else {
+            "application/octet-stream"
+        }
     }
 }

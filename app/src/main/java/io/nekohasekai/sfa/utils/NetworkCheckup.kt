@@ -2,16 +2,16 @@ package io.nekohasekai.sfa.utils
 
 import android.content.Context
 import io.nekohasekai.sfa.R
-import java.net.HttpURLConnection
-import java.net.InetAddress
-import java.net.SocketTimeoutException
-import java.net.URI
-import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.SocketTimeoutException
+import java.net.URI
+import java.net.UnknownHostException
 
 /**
  * 一键网络体检：TUN 连通性、DNS、节点延迟、订阅状态四项检查，
@@ -182,7 +182,9 @@ object NetworkCheckup {
     private suspend fun checkTunnel(context: Context, tunnelUp: Boolean): Item {
         if (!tunnelUp) {
             return Item(
-                ItemId.TUNNEL, ItemStatus.SKIP, "not_started",
+                ItemId.TUNNEL,
+                ItemStatus.SKIP,
+                "not_started",
                 context.getString(R.string.checkup_tunnel_not_started),
             )
         }
@@ -192,23 +194,33 @@ object NetworkCheckup {
             ?: TunnelProbe.Timeout
         return when (probed) {
             is TunnelProbe.Ok -> Item(
-                ItemId.TUNNEL, ItemStatus.OK, "ok",
+                ItemId.TUNNEL,
+                ItemStatus.OK,
+                "ok",
                 context.getString(R.string.checkup_tunnel_ok),
             )
             is TunnelProbe.HttpError -> Item(
-                ItemId.TUNNEL, ItemStatus.FAIL, "http_error",
+                ItemId.TUNNEL,
+                ItemStatus.FAIL,
+                "http_error",
                 context.getString(R.string.checkup_tunnel_http_error, probed.code),
             )
             TunnelProbe.Timeout -> Item(
-                ItemId.TUNNEL, ItemStatus.FAIL, "timeout",
+                ItemId.TUNNEL,
+                ItemStatus.FAIL,
+                "timeout",
                 context.getString(R.string.checkup_tunnel_timeout),
             )
             TunnelProbe.DnsFailure -> Item(
-                ItemId.TUNNEL, ItemStatus.FAIL, "dns_failure",
+                ItemId.TUNNEL,
+                ItemStatus.FAIL,
+                "dns_failure",
                 context.getString(R.string.checkup_tunnel_dns_failure),
             )
             TunnelProbe.IoError -> Item(
-                ItemId.TUNNEL, ItemStatus.FAIL, "io_error",
+                ItemId.TUNNEL,
+                ItemStatus.FAIL,
+                "io_error",
                 context.getString(R.string.checkup_tunnel_io_error),
             )
         }
@@ -283,13 +295,13 @@ object NetworkCheckup {
 
     // ---- DNS ----
 
-    private suspend fun checkDns(context: Context, tunnelUp: Boolean): Item {
-        return withTimeoutOrNull(CHECK_TIMEOUT_MS) { probeDns(context, tunnelUp) }
-            ?: Item(
-                ItemId.DNS, ItemStatus.WARN, "error",
-                context.getString(R.string.checkup_dns_error),
-            )
-    }
+    private suspend fun checkDns(context: Context, tunnelUp: Boolean): Item = withTimeoutOrNull(CHECK_TIMEOUT_MS) { probeDns(context, tunnelUp) }
+        ?: Item(
+            ItemId.DNS,
+            ItemStatus.WARN,
+            "error",
+            context.getString(R.string.checkup_dns_error),
+        )
 
     /**
      * 劫持探测：查一个保证 NXDOMAIN 的随机 canary（RFC 2606 .invalid 永不解析）。
@@ -306,20 +318,26 @@ object NetworkCheckup {
             emptyArray()
         } catch (_: Exception) {
             return Item(
-                ItemId.DNS, ItemStatus.WARN, "error",
+                ItemId.DNS,
+                ItemStatus.WARN,
+                "error",
                 context.getString(R.string.checkup_dns_error),
             )
         }
         if (addresses.isEmpty()) {
             return Item(
-                ItemId.DNS, ItemStatus.OK, "ok",
+                ItemId.DNS,
+                ItemStatus.OK,
+                "ok",
                 context.getString(R.string.checkup_dns_ok),
             )
         }
         if (addresses.all(::isFakeIp)) {
             // FakeIP 会给所有域名返回假地址（含 .invalid 金丝雀），这是预期行为，不是劫持。
             return Item(
-                ItemId.DNS, ItemStatus.OK, "fakeip",
+                ItemId.DNS,
+                ItemStatus.OK,
+                "fakeip",
                 context.getString(R.string.checkup_dns_fakeip),
             )
         }
@@ -330,18 +348,24 @@ object NetworkCheckup {
             }.getOrDefault(false)
             return if (directHijacked) {
                 Item(
-                    ItemId.DNS, ItemStatus.FAIL, "hijacked_local",
+                    ItemId.DNS,
+                    ItemStatus.FAIL,
+                    "hijacked_local",
                     context.getString(R.string.checkup_dns_hijacked_local),
                 )
             } else {
                 Item(
-                    ItemId.DNS, ItemStatus.FAIL, "hijacked_system",
+                    ItemId.DNS,
+                    ItemStatus.FAIL,
+                    "hijacked_system",
                     context.getString(R.string.checkup_dns_hijacked_system),
                 )
             }
         }
         return Item(
-            ItemId.DNS, ItemStatus.FAIL, "hijacked",
+            ItemId.DNS,
+            ItemStatus.FAIL,
+            "hijacked",
             context.getString(R.string.checkup_dns_hijacked_tunnel),
         )
     }
@@ -367,7 +391,9 @@ object NetworkCheckup {
     ): Item {
         if (!tunnelUp || outboundTag.isBlank()) {
             return Item(
-                ItemId.LATENCY, ItemStatus.SKIP, "skipped",
+                ItemId.LATENCY,
+                ItemStatus.SKIP,
+                "skipped",
                 context.getString(R.string.checkup_latency_not_started),
             )
         }
@@ -394,23 +420,33 @@ object NetworkCheckup {
         val ms = latest
         return when {
             ms == null || ms <= 0 -> Item(
-                ItemId.LATENCY, ItemStatus.WARN, "no_data",
+                ItemId.LATENCY,
+                ItemStatus.WARN,
+                "no_data",
                 context.getString(R.string.checkup_latency_no_data),
             )
             ms > SLOW_LATENCY_MS && fresh -> Item(
-                ItemId.LATENCY, ItemStatus.WARN, "slow",
+                ItemId.LATENCY,
+                ItemStatus.WARN,
+                "slow",
                 context.getString(R.string.checkup_latency_slow, ms),
             )
             ms > SLOW_LATENCY_MS -> Item(
-                ItemId.LATENCY, ItemStatus.WARN, "slow_stale",
+                ItemId.LATENCY,
+                ItemStatus.WARN,
+                "slow_stale",
                 context.getString(R.string.checkup_latency_slow_stale, ms),
             )
             fresh -> Item(
-                ItemId.LATENCY, ItemStatus.OK, "ok",
+                ItemId.LATENCY,
+                ItemStatus.OK,
+                "ok",
                 context.getString(R.string.checkup_latency_ok, ms),
             )
             else -> Item(
-                ItemId.LATENCY, ItemStatus.OK, "ok_stale",
+                ItemId.LATENCY,
+                ItemStatus.OK,
+                "ok_stale",
                 context.getString(R.string.checkup_latency_ok_stale, ms),
             )
         }
@@ -424,7 +460,9 @@ object NetworkCheckup {
         }.orEmpty()
         if (issues.isEmpty()) {
             return Item(
-                ItemId.SUBSCRIPTION, ItemStatus.OK, "ok",
+                ItemId.SUBSCRIPTION,
+                ItemStatus.OK,
+                "ok",
                 context.getString(R.string.checkup_subscription_ok),
             )
         }

@@ -41,17 +41,16 @@ class ChainRuntimeCompilerGuardrailTest {
         .put("route", JSONObject().put("final", "g0"))
         .toString()
 
-    private fun applySameProfile(content: String, entry: String, landing: String): String =
-        ChainRuntimeCompiler.apply(
-            ChainRuntimeCompiler.ApplyRequest(
-                content = content,
-                currentProfileId = 1L,
-                entryTag = entry,
-                landingProfileId = 1L,
-                landingTag = landing,
-                landingContent = null,
-            ),
-        )
+    private fun applySameProfile(content: String, entry: String, landing: String): String = ChainRuntimeCompiler.apply(
+        ChainRuntimeCompiler.ApplyRequest(
+            content = content,
+            currentProfileId = 1L,
+            entryTag = entry,
+            landingProfileId = 1L,
+            landingTag = landing,
+            landingContent = null,
+        ),
+    )
 
     @Test
     fun expansionDepthBeyondCapFailsClosed() {

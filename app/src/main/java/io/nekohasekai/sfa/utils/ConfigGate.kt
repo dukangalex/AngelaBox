@@ -35,9 +35,8 @@ object ConfigGate {
     }
 
     /** Production check adapter backed by the real kernel. */
-    fun libboxCheck(candidate: String): String? =
-        runCatching { Libbox.checkConfig(candidate) }
-            .exceptionOrNull()?.let { it.message ?: it.toString() }
+    fun libboxCheck(candidate: String): String? = runCatching { Libbox.checkConfig(candidate) }
+        .exceptionOrNull()?.let { it.message ?: it.toString() }
 
     /**
      * [check] returns null when the kernel accepts the candidate, or

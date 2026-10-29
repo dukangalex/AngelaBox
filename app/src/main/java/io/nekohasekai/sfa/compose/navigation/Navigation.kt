@@ -46,11 +46,11 @@ import io.nekohasekai.sfa.compose.screen.settings.ProfileOverrideScreen
 import io.nekohasekai.sfa.compose.screen.settings.RemoteControlScreen
 import io.nekohasekai.sfa.compose.screen.settings.ServiceSettingsScreen
 import io.nekohasekai.sfa.compose.screen.settings.SettingsScreen
-import io.nekohasekai.sfa.compose.screen.settings.ThemeSettingsScreen
 import io.nekohasekai.sfa.compose.screen.settings.TailscaleFontPickerScreen
 import io.nekohasekai.sfa.compose.screen.settings.TailscaleGhosttyConfigEditorScreen
 import io.nekohasekai.sfa.compose.screen.settings.TailscaleTerminalConfigScreen
 import io.nekohasekai.sfa.compose.screen.settings.TailscaleThemePickerScreen
+import io.nekohasekai.sfa.compose.screen.settings.ThemeSettingsScreen
 import io.nekohasekai.sfa.compose.screen.tools.ChainBuilderScreen
 import io.nekohasekai.sfa.compose.screen.tools.CrashReportDetailScreen
 import io.nekohasekai.sfa.compose.screen.tools.CrashReportFileContentScreen
@@ -351,7 +351,12 @@ fun NavHost(
         }
         composable(
             route = "tools/outbound_picker/{selectedOutbound}",
-            arguments = listOf(navArgument("selectedOutbound") { type = NavType.StringType; defaultValue = "" }),
+            arguments = listOf(
+                navArgument("selectedOutbound") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
             enterTransition = slideInFromRight,
             exitTransition = slideOutToLeft,
             popEnterTransition = slideInFromLeft,

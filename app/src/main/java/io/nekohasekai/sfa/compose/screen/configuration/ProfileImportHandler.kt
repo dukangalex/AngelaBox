@@ -109,30 +109,29 @@ class ProfileImportHandler(private val context: Context) {
         return importFromBytes(snapshot.bytes, fallbackName)
     }
 
-    private suspend fun importFromBytes(data: ByteArray, filename: String): ImportResult =
-        withContext(Dispatchers.IO) {
-            try {
-                val dataString = String(data)
-                if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
+    private suspend fun importFromBytes(data: ByteArray, filename: String): ImportResult = withContext(Dispatchers.IO) {
+        try {
+            val dataString = String(data)
+            if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
+                return@withContext importJsonConfiguration(dataString, filename)
+            }
+
+            val content = try {
+                Libbox.decodeProfileContent(data)
+            } catch (e: Exception) {
+                if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
                     return@withContext importJsonConfiguration(dataString, filename)
                 }
-
-                val content = try {
-                    Libbox.decodeProfileContent(data)
-                } catch (e: Exception) {
-                    if (dataString.trimStart().startsWith("{") || dataString.trimStart().startsWith("[")) {
-                        return@withContext importJsonConfiguration(dataString, filename)
-                    }
-                    return@withContext ImportResult.Error(
-                        context.getString(R.string.error_decode_profile, e.message),
-                    )
-                }
-
-                importProfile(content)
-            } catch (e: Exception) {
-                ImportResult.Error(e.message ?: "Unknown error")
+                return@withContext ImportResult.Error(
+                    context.getString(R.string.error_decode_profile, e.message),
+                )
             }
+
+            importProfile(content)
+        } catch (e: Exception) {
+            ImportResult.Error(e.message ?: "Unknown error")
         }
+    }
 
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
@@ -383,18 +382,14 @@ class ProfileImportHandler(private val context: Context) {
         return ImportResult.Success(profile)
     }
 
-    private fun readUriBytes(uri: Uri): ByteArray? {
-        return context.contentResolver.openInputStream(uri)?.use { input ->
-            io.nekohasekai.sfa.utils.ImportPathGuard.readLimited(input, MAX_IMPORT_BYTES)
-        }
+    private fun readUriBytes(uri: Uri): ByteArray? = context.contentResolver.openInputStream(uri)?.use { input ->
+        io.nekohasekai.sfa.utils.ImportPathGuard.readLimited(input, MAX_IMPORT_BYTES)
     }
 
-    private fun extractProfileNameFromUrl(url: String): String {
-        return url.substringAfterLast("/")
-            .substringBeforeLast(".")
-            .takeIf { it.isNotEmpty() }
-            ?: "Remote Profile"
-    }
+    private fun extractProfileNameFromUrl(url: String): String = url.substringAfterLast("/")
+        .substringBeforeLast(".")
+        .takeIf { it.isNotEmpty() }
+        ?: "Remote Profile"
 
     private fun extractHostFromUrl(url: String): String = try {
         val uri = Uri.parse(url)
@@ -486,28 +481,26 @@ class ProfileImportHandler(private val context: Context) {
      * state that will be stored (interval already floored, as in
      * [importProfile]).
      */
-    private fun describeDecodedProfile(content: ProfileContent): String? {
-        return when (content.type) {
-            Libbox.ProfileTypeRemote -> buildString {
-                append(context.getString(R.string.import_profile_detail_type_remote))
-                append('\n')
-                append(context.getString(R.string.import_profile_detail_url, content.remotePath))
-                append('\n')
-                append(
-                    if (content.autoUpdate) {
-                        context.getString(
-                            R.string.import_profile_detail_auto_update_on,
-                            content.autoUpdateInterval.coerceAtLeast(15),
-                        )
-                    } else {
-                        context.getString(R.string.import_profile_detail_auto_update_off)
-                    },
-                )
-            }
-
-            Libbox.ProfileTypeLocal -> context.getString(R.string.import_profile_detail_type_local)
-            else -> null
+    private fun describeDecodedProfile(content: ProfileContent): String? = when (content.type) {
+        Libbox.ProfileTypeRemote -> buildString {
+            append(context.getString(R.string.import_profile_detail_type_remote))
+            append('\n')
+            append(context.getString(R.string.import_profile_detail_url, content.remotePath))
+            append('\n')
+            append(
+                if (content.autoUpdate) {
+                    context.getString(
+                        R.string.import_profile_detail_auto_update_on,
+                        content.autoUpdateInterval.coerceAtLeast(15),
+                    )
+                } else {
+                    context.getString(R.string.import_profile_detail_auto_update_off)
+                },
+            )
         }
+
+        Libbox.ProfileTypeLocal -> context.getString(R.string.import_profile_detail_type_local)
+        else -> null
     }
 
     /**
@@ -549,7 +542,6 @@ class ProfileImportHandler(private val context: Context) {
         return false
     }
 
-    private fun sha256Hex(data: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(data)
-            .joinToString("") { "%02x".format(it) }
+    private fun sha256Hex(data: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(data)
+        .joinToString("") { "%02x".format(it) }
 }

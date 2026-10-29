@@ -301,8 +301,7 @@ internal class SystemExplicitSegment(
     }
 
     /** The effective egress at segment time: route.final after the chain stage (and after the VPN-leak stage, which runs earlier in the segment). */
-    private fun currentEgressTag(): String? =
-        root.optJSONObject("route")?.optString("final")?.trim()?.takeIf { it.isNotEmpty() }
+    private fun currentEgressTag(): String? = root.optJSONObject("route")?.optString("final")?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun outboundType(outs: JSONArray, tag: String): String {
         for (i in 0 until outs.length()) {

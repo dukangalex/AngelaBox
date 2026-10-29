@@ -133,10 +133,16 @@ object ConfigIngest {
                     } catch (_: Exception) {
                         null
                     }
-                    if (node != null) nodes += node else if (str(map["protocol"]).lowercase() !in XRAY_NON_PROXY) xraySkipped++
+                    if (node != null) {
+                        nodes += node
+                    } else if (str(map["protocol"]).lowercase() !in XRAY_NON_PROXY) {
+                        xraySkipped++
+                    }
                 }
-                map["type"] != null && (map.containsKey("server_port") || map.containsKey("peers") ||
-                    (map.containsKey("tag") && !map.containsKey("name"))) -> {
+                map["type"] != null && (
+                    map.containsKey("server_port") || map.containsKey("peers") ||
+                        (map.containsKey("tag") && !map.containsKey("name"))
+                    ) -> {
                     val node = JSONObject(jsonOf(map))
                     if (isBareOutbound(node)) nodes += node
                 }
@@ -255,13 +261,11 @@ object ConfigIngest {
         return root
     }
 
-    private fun jsonObjects(arr: JSONArray): List<JSONObject> =
-        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+    private fun jsonObjects(arr: JSONArray): List<JSONObject> = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
 
     private val GROUP_TYPES = setOf("selector", "urltest")
 
-    private fun hasGroups(arr: JSONArray): Boolean =
-        jsonObjects(arr).any { it.optString("type").lowercase() in GROUP_TYPES }
+    private fun hasGroups(arr: JSONArray): Boolean = jsonObjects(arr).any { it.optString("type").lowercase() in GROUP_TYPES }
 
     /** `{"type":"vless","server":…}` pasted on its own. */
     private fun isBareOutbound(obj: JSONObject): Boolean {
@@ -307,8 +311,7 @@ object ConfigIngest {
         return true
     }
 
-    private fun isLegacyWireguard(o: JSONObject): Boolean =
-        o.has("local_address") || o.has("server") || o.has("peer_public_key") || o.has("system_interface")
+    private fun isLegacyWireguard(o: JSONObject): Boolean = o.has("local_address") || o.has("server") || o.has("peer_public_key") || o.has("system_interface")
 
     private val LEGACY_WG_KEYS = setOf(
         "type", "tag", "server", "server_port", "local_address", "peer_public_key", "pre_shared_key",
@@ -618,7 +621,7 @@ object ConfigIngest {
         var dupGroups = 0
         for (proxy in proxies) {
             // 逐条隔离：一个 proxy 抛异常只跳过它自己，不 abort 整个订阅
-            //（与 share / Xray 路径的逐条 try/catch 对齐）。
+            // （与 share / Xray 路径的逐条 try/catch 对齐）。
             val converted = try {
                 convertClashProxy(proxy, skips)
             } catch (_: Exception) {
@@ -944,8 +947,7 @@ object ConfigIngest {
         return "没有可用节点（$named 当前内核还不支持）。没有改成直连。"
     }
 
-    private fun unsupported(message: String): Result =
-        Result("", listOf(message), Format.Clash, message)
+    private fun unsupported(message: String): Result = Result("", listOf(message), Format.Clash, message)
 
     private fun convertClashProxy(raw: Map<*, *>, skips: SkipBag): JSONObject? {
         val name = str(raw["name"]).ifBlank { return null }
@@ -1352,8 +1354,7 @@ object ConfigIngest {
         return endpoint
     }
 
-    private fun firstPort(ports: String): Int? =
-        ports.split(',', '/').firstOrNull()?.trim()?.substringBefore('-')?.trim()?.toIntOrNull()
+    private fun firstPort(ports: String): Int? = ports.split(',', '/').firstOrNull()?.trim()?.substringBefore('-')?.trim()?.toIntOrNull()
 
     private fun putTls(out: JSONObject, raw: Map<*, *>, defaultEnabled: Boolean = false) {
         val ech = asMap(raw["ech-opts"] ?: raw["ech_opts"])
@@ -1784,8 +1785,7 @@ object ConfigIngest {
             }
             val filters = clashFilters(spec["filter"])
             val excludes = clashFilters(spec["exclude-filter"] ?: spec["exclude_filter"])
-            fun keep(tag: String): Boolean =
-                (filters.isEmpty() || filters.any { it.containsMatchIn(tag) }) && excludes.none { it.containsMatchIn(tag) }
+            fun keep(tag: String): Boolean = (filters.isEmpty() || filters.any { it.containsMatchIn(tag) }) && excludes.none { it.containsMatchIn(tag) }
             val tags = mutableListOf<String>()
             for (item in clashNodes) {
                 val tag = str(item["name"])
@@ -1799,8 +1799,11 @@ object ConfigIngest {
                 tags += tag
                 shareNodes.put(node)
             }
-            if (tags.isNotEmpty()) providerMembers[name] = tags
-            else notes += "节点源「$name」里没有能识别的节点"
+            if (tags.isNotEmpty()) {
+                providerMembers[name] = tags
+            } else {
+                notes += "节点源「$name」里没有能识别的节点"
+            }
         }
     }
 
@@ -2046,8 +2049,10 @@ object ConfigIngest {
     ) {
         /** Official remote sets: tag -> explicit URL (null = default mirror). */
         val remote = LinkedHashMap<String, String?>()
+
         /** Faithful inline sets: tag -> the `type: inline` rule-set object. */
         val inline = LinkedHashMap<String, JSONObject>()
+
         /** User-facing lines naming every substitution / drop / partial loss. */
         val notes = mutableListOf<String>()
         private val resolutions = HashMap<String, ProviderResolution?>()
@@ -2087,10 +2092,9 @@ object ConfigIngest {
             return ProviderResolution.Remote(mapped.first)
         }
 
-        private fun providerSpec(name: String): Map<*, *>? =
-            asMap(providers[name]) ?: providers.entries.firstOrNull { (key, _) ->
-                key is String && key.equals(name, true)
-            }?.value?.let { asMap(it) }
+        private fun providerSpec(name: String): Map<*, *>? = asMap(providers[name]) ?: providers.entries.firstOrNull { (key, _) ->
+            key is String && key.equals(name, true)
+        }?.value?.let { asMap(it) }
 
         /** Inline the provider's own content; null when it cannot be had or parses to nothing. */
         private fun faithful(spec: Map<*, *>, name: String): ProviderResolution? {
@@ -3310,8 +3314,7 @@ object ConfigIngest {
         return false
     }
 
-    private fun prependEchRule(dns: JSONObject, name: String, tag: String): Boolean =
-        prependEchRule(dns, listOf(name), tag)
+    private fun prependEchRule(dns: JSONObject, name: String, tag: String): Boolean = prependEchRule(dns, listOf(name), tag)
 
     private fun prependEchRule(dns: JSONObject, names: List<String>, tag: String): Boolean {
         val rules = dns.optJSONArray("rules") ?: JSONArray().also { dns.put("rules", it) }
@@ -3437,7 +3440,15 @@ object ConfigIngest {
         val locals = JSONArray()
         // sing-box wants prefixes; mihomo / Xray often write a bare address.
         (addresses.ifEmpty { listOf("172.16.0.2/32") }).forEach { address ->
-            locals.put(if ('/' in address) address else if (':' in address) "$address/128" else "$address/32")
+            locals.put(
+                if ('/' in address) {
+                    address
+                } else if (':' in address) {
+                    "$address/128"
+                } else {
+                    "$address/32"
+                },
+            )
         }
         val peer = JSONObject()
             .put("address", server)
@@ -3539,10 +3550,6 @@ object ConfigIngest {
         return shareLinesOf(decoded)
     }
 
-    /**
-     * Links one per line, or several on a line separated by spaces / commas. A YAML list item
-     * (`- vless://…`) or a quoted link counts too; comments and other text are ignored.
-     */
     /** `https://host/path?token=…` is a subscription address, not an HTTP proxy node. */
     private fun isSubscriptionUrl(link: String): Boolean {
         val scheme = link.substringBefore("://").lowercase(Locale.US)
@@ -3550,6 +3557,10 @@ object ConfigIngest {
         return parseHttpProxy(link.substringAfter("://"), scheme == "https") == null
     }
 
+    /**
+     * Links one per line, or several on a line separated by spaces / commas. A YAML list item
+     * (`- vless://…`) or a quoted link counts too; comments and other text are ignored.
+     */
     private fun shareLinesOf(text: String): List<String> {
         val out = ArrayList<String>()
         for (rawLine in text.lineSequence()) {
@@ -3642,11 +3653,9 @@ object ConfigIngest {
     }
 
     /** Base64 keys use '+'. URLDecoder would turn that into a space. */
-    private fun urlDecodeKeepPlus(value: String): String =
-        urlDecode(value.replace("+", "%2B"))
+    private fun urlDecodeKeepPlus(value: String): String = urlDecode(value.replace("+", "%2B"))
 
-    private fun stripBom(value: String): String =
-        if (value.isNotEmpty() && value[0] == '\uFEFF') value.substring(1) else value
+    private fun stripBom(value: String): String = if (value.isNotEmpty() && value[0] == '\uFEFF') value.substring(1) else value
 
     private fun str(value: Any?): String = when (value) {
         null -> ""
@@ -3710,6 +3719,7 @@ object ConfigIngest {
 
     private const val SHARE_SCHEMES = "ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|socks[45]?a?|https?|wireguard|wg|ssh|naive(?:\\+https|\\+quic)?|shadowtls|snell"
     private val SHARE_LINE = Regex("(?i)^($SHARE_SCHEMES)://")
+
     /** A second link on the same line, after whitespace or a comma. */
     private val SHARE_SPLIT = Regex("(?i)(?:\\s+|\\s*,\\s*)(?=(?:$SHARE_SCHEMES)://)")
     private const val CHAIN_KEY = "__angela_chain"
@@ -3728,6 +3738,7 @@ object ConfigIngest {
  */
 internal object MiniYaml {
     private val anchors = ThreadLocal.withInitial { HashMap<String, Any?>() }
+
     /** 递归深度上限：防恶意嵌套 YAML 导致 StackOverflowError（Error 抓不住，只能事前限）。 */
     private const val MAX_DEPTH = 512
     private class YamlDepthException(message: String) : IllegalArgumentException(message)

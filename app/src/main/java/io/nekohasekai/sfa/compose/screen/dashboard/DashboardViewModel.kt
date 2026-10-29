@@ -41,10 +41,6 @@ import io.nekohasekai.sfa.utils.NetworkCheckup
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
 import io.nekohasekai.sfa.utils.TunnelGate
-import java.io.File
-import java.util.Collections
-import java.util.Date
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -59,6 +55,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
+import java.io.File
+import java.util.Collections
+import java.util.Date
+import java.util.concurrent.atomic.AtomicLong
 
 enum class CardGroup {
     ChainPath,
@@ -203,12 +203,19 @@ class DashboardViewModel :
         )
 
     private var plannedPath: ChainPath = ChainPath.regular()
+
     @Volatile private var groupHints: List<GroupHint> = emptyList()
+
     @Volatile private var outboundDelays: Map<String, Int> = emptyMap()
+
     @Volatile private var liveChain: List<String> = emptyList()
+
     @Volatile private var liveDestinations: List<String> = emptyList()
+
     @Volatile private var liveActive: Int = 0
+
     @Volatile private var liveFlowing: Boolean = false
+
     @Volatile private var liveSamples: List<FlowSample> = emptyList()
     private var delayPrimed = false
     private var connectionsStore: Connections? = null

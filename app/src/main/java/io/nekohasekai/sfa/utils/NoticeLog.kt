@@ -1,12 +1,12 @@
 package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.Application
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
-import org.json.JSONObject
 
 /**
  * 应用提示的持久记录（v1.0.136）：信息类提示在界面上一闪而过（见
@@ -38,15 +38,14 @@ object NoticeLog {
     const val MAX_RECORDS = 300
     const val MAX_AGE_MS = 30L * 24 * 3600 * 1000
 
-    fun serialize(record: NoticeLogRecord): String =
-        JSONObject()
-            .put("ts", record.timestampMs)
-            .put("src", record.source)
-            .put("title", record.title)
-            .put("reason", record.reason)
-            .put("hint", record.hint)
-            .put("err", record.error)
-            .toString()
+    fun serialize(record: NoticeLogRecord): String = JSONObject()
+        .put("ts", record.timestampMs)
+        .put("src", record.source)
+        .put("title", record.title)
+        .put("reason", record.reason)
+        .put("hint", record.hint)
+        .put("err", record.error)
+        .toString()
 
     /** 坏行返回 null（跳过），不让一行损坏毁掉整份记录。 */
     fun parse(line: String): NoticeLogRecord? = runCatching {
@@ -61,10 +60,9 @@ object NoticeLog {
         )
     }.getOrNull()
 
-    fun parseAll(text: String): List<NoticeLogRecord> =
-        text.lineSequence().mapNotNull { line ->
-            line.takeIf { it.isNotBlank() }?.let { parse(it) }
-        }.toList()
+    fun parseAll(text: String): List<NoticeLogRecord> = text.lineSequence().mapNotNull { line ->
+        line.takeIf { it.isNotBlank() }?.let { parse(it) }
+    }.toList()
 
     /**
      * 留存裁剪：先按年龄丢弃（时间戳在未来的是时钟异常，保留），再只留

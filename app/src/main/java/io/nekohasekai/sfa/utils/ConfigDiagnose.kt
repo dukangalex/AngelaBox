@@ -31,13 +31,19 @@ object ConfigDiagnose {
             looksLike(text, "outbound detour not found") -> {
                 val tag = extractAfter(text, "outbound detour not found:")
                 "找不到出站「$tag」。规则集下载或 DNS 还指向旧名字。" +
-                    if (scriptsBound) "应用会改走直连下载后再试，脚本绑定仍保留。"
-                    else "应用会改走直连下载后再试。"
+                    if (scriptsBound) {
+                        "应用会改走直连下载后再试，脚本绑定仍保留。"
+                    } else {
+                        "应用会改走直连下载后再试。"
+                    }
             }
             looksLike(text, "download_detour") && looksLike(text, "not found") -> {
                 "规则集的下载出口已失效。官方 1.14 请用 http_clients。" +
-                    if (scriptsBound) "应用会改成直连下载后再试，脚本绑定仍保留。"
-                    else "应用会改成直连下载后再试。"
+                    if (scriptsBound) {
+                        "应用会改成直连下载后再试，脚本绑定仍保留。"
+                    } else {
+                        "应用会改成直连下载后再试。"
+                    }
             }
             looksLike(text, "initialize rule-set") || looksLike(text, "initial rule-set") -> {
                 if (ruleSetRetried) {
@@ -58,8 +64,11 @@ object ConfigDiagnose {
                     extractAfter(text, "unknown outbound:")
                 }
                 "路由指向了不存在的出站「$tag」。" +
-                    if (scriptsBound) "脚本覆盖分组后旧规则还在用原来的名字。绑定还在，修好后再开。"
-                    else "应用会清掉无效引用后再试。"
+                    if (scriptsBound) {
+                        "脚本覆盖分组后旧规则还在用原来的名字。绑定还在，修好后再开。"
+                    } else {
+                        "应用会清掉无效引用后再试。"
+                    }
             }
             looksLike(text, "detour to an empty direct") -> {
                 "DNS 不能 detour 到空的 direct（官方 1.12+ 会拒绝）。应用会自动去掉这条 detour。"
@@ -125,8 +134,7 @@ object ConfigDiagnose {
         return mapped
     }
 
-    fun rollbackHint(): String =
-        "脚本这次没套上，已按订阅原规则启动。绑定还在，修好后再开即可。"
+    fun rollbackHint(): String = "脚本这次没套上，已按订阅原规则启动。绑定还在，修好后再开即可。"
 
     fun looksLikeRpcDeath(text: String?): Boolean {
         val t = text.orEmpty()
@@ -177,21 +185,20 @@ object ConfigDiagnose {
      * a real kernel error is quoted verbatim when we have it, and when
      * we do not, the text says no more than what is known.
      */
-    fun ruleSetSkippedReason(cause: RuleSetSkipCause, kernelError: String?): String =
-        when (cause) {
-            RuleSetSkipCause.MEMORY_PRE_SKIP ->
-                "不久前在当前网络上，远程规则集下载卡住过。这次先跳过这些规则集快速启动，避免再等一轮。"
-            RuleSetSkipCause.START_TIMEOUT ->
-                "这次启动超时（内核在预算时间内没有启动完），已先跳过远程规则集后启动。超时本身不能证明规则集有问题，也可能是设备或网络整体慢。"
-            RuleSetSkipCause.DOWNLOAD_FAILED -> {
-                val detail = kernelError?.trim()?.takeIf { it.isNotEmpty() }
-                if (detail != null) {
-                    "远程规则集下载失败，已跳过这些规则集后启动。内核原话：${detail.take(180)}"
-                } else {
-                    "远程规则集这次没能下载下来，已跳过这些规则集后启动。"
-                }
+    fun ruleSetSkippedReason(cause: RuleSetSkipCause, kernelError: String?): String = when (cause) {
+        RuleSetSkipCause.MEMORY_PRE_SKIP ->
+            "不久前在当前网络上，远程规则集下载卡住过。这次先跳过这些规则集快速启动，避免再等一轮。"
+        RuleSetSkipCause.START_TIMEOUT ->
+            "这次启动超时（内核在预算时间内没有启动完），已先跳过远程规则集后启动。超时本身不能证明规则集有问题，也可能是设备或网络整体慢。"
+        RuleSetSkipCause.DOWNLOAD_FAILED -> {
+            val detail = kernelError?.trim()?.takeIf { it.isNotEmpty() }
+            if (detail != null) {
+                "远程规则集下载失败，已跳过这些规则集后启动。内核原话：${detail.take(180)}"
+            } else {
+                "远程规则集这次没能下载下来，已跳过这些规则集后启动。"
             }
         }
+    }
 
     fun looksLikeDomainResolver(text: String?): Boolean {
         val t = text.orEmpty()
@@ -267,8 +274,7 @@ object ConfigDiagnose {
         "from", "with", "code", "html",
     )
 
-    private fun looksLike(text: String, needle: String): Boolean =
-        text.contains(needle, ignoreCase = true)
+    private fun looksLike(text: String, needle: String): Boolean = text.contains(needle, ignoreCase = true)
 
     private fun extractAfter(text: String, prefix: String): String {
         val idx = text.indexOf(prefix, ignoreCase = true)

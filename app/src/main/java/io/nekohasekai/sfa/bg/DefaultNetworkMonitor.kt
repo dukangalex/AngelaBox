@@ -45,6 +45,7 @@ object DefaultNetworkMonitor {
             else -> "other"
         }
     }
+
     @Volatile
     private var listener: InterfaceUpdateListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -57,6 +58,7 @@ object DefaultNetworkMonitor {
     private var rebindToken = 0
     private var lastInterfaceEventAt = 0L
     private var wakeReceiver: BroadcastReceiver? = null
+
     @Volatile
     private var running = false
 

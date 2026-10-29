@@ -9,6 +9,7 @@ import org.json.JSONObject
  */
 object ConfigAdBlock {
     const val RULESET_TAG = "geosite-category-ads-all"
+
     // Canonical rule-set branch URL — see RuleSetPins for why the branch
     // ref is the pin (compiled sets exist nowhere else).
     val RULESET_URL: String = RuleSetPins.adsRuleSetUrl()
@@ -70,12 +71,10 @@ object ConfigAdBlock {
         return false
     }
 
-    private fun ruleMentionsSet(rule: JSONObject, tag: String): Boolean {
-        return when (val raw = rule.opt("rule_set")) {
-            is String -> raw.trim() == tag
-            is JSONArray -> (0 until raw.length()).any { raw.optString(it).trim() == tag }
-            else -> false
-        }
+    private fun ruleMentionsSet(rule: JSONObject, tag: String): Boolean = when (val raw = rule.opt("rule_set")) {
+        is String -> raw.trim() == tag
+        is JSONArray -> (0 until raw.length()).any { raw.optString(it).trim() == tag }
+        else -> false
     }
 
     private fun ruleSetMentioned(rules: JSONArray?, tag: String): Boolean {

@@ -42,8 +42,10 @@ class ConfigChinaDirectTest {
         assertTrue(tags.contains("direct"))
         val routeRules = root.getJSONObject("route").getJSONArray("rules")
         assertTrue(routeRules.length() >= 5)
-        assertFalse(root.optJSONObject("dns")?.optJSONArray("servers")?.toString()
-            ?.contains(ConfigChinaDirect.CN_DNS_TAG) == true)
+        assertFalse(
+            root.optJSONObject("dns")?.optJSONArray("servers")?.toString()
+                ?.contains(ConfigChinaDirect.CN_DNS_TAG) == true,
+        )
     }
 
     @Test
@@ -164,5 +166,4 @@ class ConfigChinaDirectTest {
         // must be recognized and not merged a second time.
         assertEquals(once, twice)
     }
-
 }

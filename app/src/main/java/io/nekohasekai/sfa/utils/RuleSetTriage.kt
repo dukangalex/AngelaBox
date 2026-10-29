@@ -212,8 +212,7 @@ object RuleSetTriage {
      * precedence tier as [cacheCopyExists]. Subscription tags are
      * never seeded, so this is false for them by construction.
      */
-    fun seedCopyExists(filesDir: File, ref: Ref): Boolean =
-        RuleSetSeeds.isInstalled(filesDir, ref.tag)
+    fun seedCopyExists(filesDir: File, ref: Ref): Boolean = RuleSetSeeds.isInstalled(filesDir, ref.tag)
 
     /**
      * A last-good copy in the URL-keyed localization store (137b,
@@ -224,8 +223,7 @@ object RuleSetTriage {
      * keyed by the exact URL, so a copy fetched for another origin
      * can never pose as this set's floor.
      */
-    fun storeCopyExists(filesDir: File, ref: Ref): Boolean =
-        RuleSetStore.isStored(RuleSetStore.storeDir(filesDir), ref.tag, ref.format, ref.url)
+    fun storeCopyExists(filesDir: File, ref: Ref): Boolean = RuleSetStore.isStored(RuleSetStore.storeDir(filesDir), ref.tag, ref.format, ref.url)
 }
 
 /**

@@ -117,12 +117,11 @@ class SystemExplicitSegmentTest {
     }
 
     /** rule_set appears both as a plain string and as an array in the wild. */
-    private fun JSONObject.ruleSetMentions(tag: String): Boolean =
-        when (val rs = opt("rule_set")) {
-            is String -> rs == tag
-            is JSONArray -> rs.hasString(tag)
-            else -> false
-        }
+    private fun JSONObject.ruleSetMentions(tag: String): Boolean = when (val rs = opt("rule_set")) {
+        is String -> rs == tag
+        is JSONArray -> rs.hasString(tag)
+        else -> false
+    }
 
     private fun JSONObject.portIs(port: Int): Boolean = optInt("port", -1) == port
 
@@ -424,9 +423,12 @@ class SystemExplicitSegmentTest {
         assertEquals(1, sniffs.size)
         // The surviving sniff-all is the block copy at the WebRTC head.
         val stunIdx = all.indexOfFirst { it.optJSONArray("protocol").hasString("stun") }
-        assertEquals(all.indexOf(sniffs[0]) + 1, all.indexOfFirst {
-            it.optString("network") == "udp" && it.portsContain(3478)
-        })
+        assertEquals(
+            all.indexOf(sniffs[0]) + 1,
+            all.indexOfFirst {
+                it.optString("network") == "udp" && it.portsContain(3478)
+            },
+        )
         assertTrue(stunIdx > all.indexOf(sniffs[0]))
     }
 }

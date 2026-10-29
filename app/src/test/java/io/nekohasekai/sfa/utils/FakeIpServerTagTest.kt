@@ -34,9 +34,11 @@ class FakeIpServerTagTest {
 
     private fun dnsWith(fakeIpTag: String, ruleServer: String): JSONObject = JSONObject()
         .put(
-            "dns", JSONObject()
+            "dns",
+            JSONObject()
                 .put(
-                    "servers", JSONArray()
+                    "servers",
+                    JSONArray()
                         .put(
                             JSONObject()
                                 .put("type", "fakeip")
@@ -52,7 +54,8 @@ class FakeIpServerTagTest {
                 )
                 .put("final", "dns-remote")
                 .put(
-                    "rules", JSONArray()
+                    "rules",
+                    JSONArray()
                         .put(
                             JSONObject()
                                 .put("query_type", JSONArray().put("A").put("AAAA"))
@@ -61,7 +64,8 @@ class FakeIpServerTagTest {
                 ),
         )
         .put(
-            "outbounds", JSONArray()
+            "outbounds",
+            JSONArray()
                 .put(JSONObject().put("tag", "proxy").put("type", "direct")),
         )
         .put("route", JSONObject().put("final", "proxy"))

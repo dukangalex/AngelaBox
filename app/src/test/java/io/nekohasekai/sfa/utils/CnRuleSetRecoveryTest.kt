@@ -117,17 +117,15 @@ class CnRuleSetRecoveryTest {
         return (0 until sets.length()).mapNotNull { sets.optJSONObject(it) }
     }
 
-    private fun definedRuleSetTags(root: JSONObject): Set<String> =
-        definedRuleSets(root)
-            .mapNotNull { it.optString("tag").takeIf { tag -> tag.isNotBlank() } }
-            .toSet()
+    private fun definedRuleSetTags(root: JSONObject): Set<String> = definedRuleSets(root)
+        .mapNotNull { it.optString("tag").takeIf { tag -> tag.isNotBlank() } }
+        .toSet()
 
     /** True when any definition is a remote set (by type or by http(s) URL). */
-    private fun hasRemoteDefinition(root: JSONObject): Boolean =
-        definedRuleSets(root).any { set ->
-            set.optString("type").equals("remote", true) ||
-                set.optString("url").startsWith("http")
-        }
+    private fun hasRemoteDefinition(root: JSONObject): Boolean = definedRuleSets(root).any { set ->
+        set.optString("type").equals("remote", true) ||
+            set.optString("url").startsWith("http")
+    }
 
     /** Every rule_set tag referenced by a rule list, nested logical rules included. */
     private fun referencedTags(rules: JSONArray?): Set<String> {
@@ -158,11 +156,9 @@ class CnRuleSetRecoveryTest {
         return out
     }
 
-    private fun routeRules(root: JSONObject): JSONArray? =
-        root.optJSONObject("route")?.optJSONArray("rules")
+    private fun routeRules(root: JSONObject): JSONArray? = root.optJSONObject("route")?.optJSONArray("rules")
 
-    private fun dnsRules(root: JSONObject): JSONArray? =
-        root.optJSONObject("dns")?.optJSONArray("rules")
+    private fun dnsRules(root: JSONObject): JSONArray? = root.optJSONObject("dns")?.optJSONArray("rules")
 
     @Test
     fun dropAllStripsSegmentInjectedSetsAndEveryReference() {

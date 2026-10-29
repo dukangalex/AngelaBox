@@ -36,19 +36,17 @@ object VendorKeepAlive {
     }
 
     /** 厂商中文名，用于 UI 展示 */
-    fun vendorName(): String {
-        return when {
-            Build.MANUFACTURER.contains("huawei", ignoreCase = true) -> "华为"
-            Build.MANUFACTURER.contains("honor", ignoreCase = true) -> "荣耀"
-            Build.MANUFACTURER.contains("xiaomi", ignoreCase = true) ||
-                Build.MANUFACTURER.contains("redmi", ignoreCase = true) -> "小米"
-            Build.MANUFACTURER.contains("oppo", ignoreCase = true) ||
-                Build.MANUFACTURER.contains("realme", ignoreCase = true) ||
-                Build.MANUFACTURER.contains("oneplus", ignoreCase = true) -> "OPPO"
-            Build.MANUFACTURER.contains("vivo", ignoreCase = true) ||
-                Build.MANUFACTURER.contains("iqoo", ignoreCase = true) -> "vivo"
-            else -> "本机"
-        }
+    fun vendorName(): String = when {
+        Build.MANUFACTURER.contains("huawei", ignoreCase = true) -> "华为"
+        Build.MANUFACTURER.contains("honor", ignoreCase = true) -> "荣耀"
+        Build.MANUFACTURER.contains("xiaomi", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("redmi", ignoreCase = true) -> "小米"
+        Build.MANUFACTURER.contains("oppo", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("realme", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("oneplus", ignoreCase = true) -> "OPPO"
+        Build.MANUFACTURER.contains("vivo", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("iqoo", ignoreCase = true) -> "vivo"
+        else -> "本机"
     }
 
     /**

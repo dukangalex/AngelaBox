@@ -436,5 +436,4 @@ private data class CreatedProfile(
 private object FetchProbeAbort : Exception("fetch probe")
 
 /** The import is paused before any fetch: these URLs need disclosure first. */
-private class ProviderFetchConfirmationRequired(val urls: List<String>) :
-    Exception("provider fetch confirmation required")
+private class ProviderFetchConfirmationRequired(val urls: List<String>) : Exception("provider fetch confirmation required")

@@ -7,13 +7,13 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import io.nekohasekai.sfa.database.Settings
 import java.io.File
 import java.io.FileInputStream
 import android.content.pm.PackageInstaller as AndroidPackageInstaller
+import android.provider.Settings as AndroidSettings
 
 object SystemPackageInstaller {
 

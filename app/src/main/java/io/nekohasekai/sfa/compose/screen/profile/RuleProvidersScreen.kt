@@ -140,8 +140,7 @@ internal object RuleProviderPageCache {
 
     fun last(profileId: Long): RuleProvidersUiState? = map[profileId]?.state
 
-    fun get(profileId: Long, fingerprint: Long): RuleProvidersUiState? =
-        map[profileId]?.takeIf { it.fingerprint == fingerprint }?.state
+    fun get(profileId: Long, fingerprint: Long): RuleProvidersUiState? = map[profileId]?.takeIf { it.fingerprint == fingerprint }?.state
 
     fun put(profileId: Long, fingerprint: Long, state: RuleProvidersUiState) {
         map[profileId] = Snap(fingerprint, state.copy(loading = false, error = null))
@@ -449,14 +448,11 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         )
     }
 
-    private fun workingDir(): File =
-        Application.application.getExternalFilesDir(null) ?: Application.application.filesDir
+    private fun workingDir(): File = Application.application.getExternalFilesDir(null) ?: Application.application.filesDir
 
     class Factory(private val profileId: Long) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return RuleProvidersViewModel(profileId) as T
-        }
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = RuleProvidersViewModel(profileId) as T
     }
 }
 

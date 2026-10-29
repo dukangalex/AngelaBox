@@ -24,6 +24,7 @@ object DebugInfoExporter {
     private const val BUFFER_SIZE = 128 * 1024
     private const val MAX_LOG_BYTES = 2L * 1024 * 1024
     private val PROXY_URI = Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?h?|wireguard|wg|anytls|shadowtls|snell|naive(\\+[a-z]+)?|ssh)://\\S+")
+
     // Redacts credential-shaped assignments in logs and exported diagnostics.
     // Beyond the generic keys, this covers sing-box/VPN key material that
     // appears in JSON configs: WireGuard private_key / pre_shared_key / psk,

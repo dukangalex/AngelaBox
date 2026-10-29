@@ -41,8 +41,7 @@ object ConfigCompat {
      */
     data class SanitizeResult(val content: String, val notes: List<String>)
 
-    fun sanitize(content: String, fetch: ((String) -> String)? = null): String =
-        sanitizeDetailed(content, fetch).content
+    fun sanitize(content: String, fetch: ((String) -> String)? = null): String = sanitizeDetailed(content, fetch).content
 
     fun sanitizeDetailed(
         content: String,
@@ -118,14 +117,13 @@ object ConfigCompat {
     /** Import and subscription refresh. HTTPS proxy-providers are pulled here. */
     fun sanitizeRemote(content: String): String = sanitizeRemoteDetailed(content).content
 
-    fun sanitizeRemoteDetailed(content: String, deadlineMs: Long = 0L): SanitizeResult =
-        sanitizeDetailed(
-            content,
-            fetch = { url ->
-                HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
-            },
-            deadlineMs = deadlineMs,
-        )
+    fun sanitizeRemoteDetailed(content: String, deadlineMs: Long = 0L): SanitizeResult = sanitizeDetailed(
+        content,
+        fetch = { url ->
+            HTTPClient().use { it.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION) }
+        },
+        deadlineMs = deadlineMs,
+    )
 
     fun sanitizeOutbound(o: JSONObject): Boolean {
         var changed = coerceKeepAliveField(o)
@@ -575,16 +573,14 @@ object ConfigCompat {
         return canonicalizeRcode(first.ifBlank { "NOERROR" })
     }
 
-    internal fun canonicalizeRcode(raw: String): String {
-        return when (raw.trim().lowercase().replace("-", "_")) {
-            "", "success", "noerror", "no_error", "0" -> "NOERROR"
-            "format_error", "formerr", "form_err", "1" -> "FORMERR"
-            "server_failure", "servfail", "serv_fail", "2" -> "SERVFAIL"
-            "name_error", "nxdomain", "nx_domain", "3" -> "NXDOMAIN"
-            "not_implemented", "notimp", "not_imp", "4" -> "NOTIMP"
-            "refused", "5" -> "REFUSED"
-            else -> raw.trim().uppercase()
-        }
+    internal fun canonicalizeRcode(raw: String): String = when (raw.trim().lowercase().replace("-", "_")) {
+        "", "success", "noerror", "no_error", "0" -> "NOERROR"
+        "format_error", "formerr", "form_err", "1" -> "FORMERR"
+        "server_failure", "servfail", "serv_fail", "2" -> "SERVFAIL"
+        "name_error", "nxdomain", "nx_domain", "3" -> "NXDOMAIN"
+        "not_implemented", "notimp", "not_imp", "4" -> "NOTIMP"
+        "refused", "5" -> "REFUSED"
+        else -> raw.trim().uppercase()
     }
 
     private fun replaceArray(target: JSONArray, keep: JSONArray) {

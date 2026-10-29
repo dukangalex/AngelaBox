@@ -24,8 +24,7 @@ object NoticeFlashPlanner {
 
     private const val ONE_LINE_REASON_MAX = 90
 
-    fun fingerprint(notice: OverrideNotice): String =
-        notice.title + "\u0001" + notice.reason + "\u0001" + notice.hint + "\u0001" + notice.error
+    fun fingerprint(notice: OverrideNotice): String = notice.title + "\u0001" + notice.reason + "\u0001" + notice.hint + "\u0001" + notice.error
 
     data class Plan(
         /** 要闪现的行，按原提示顺序（规则集汇总卡占家族第一条的位置）。 */
@@ -91,15 +90,14 @@ object NoticeFlashPlanner {
 
     fun planSubscriptionWarnings(
         issues: List<SubscriptionUpdateHealth.HealthIssue>,
-    ): List<SubscriptionFlash> =
-        SubscriptionNoticeSummary.mergeImportWarningCards(issues).map { card ->
-            val names = card.profileNames.joinToString("、")
-            val summary = SubscriptionNoticeSummary.summaryLine(card.detail)
-            SubscriptionFlash(
-                profileIds = card.profileIds,
-                text = if (summary.isBlank()) "「$names」更新提示" else "「$names」更新提示：$summary",
-            )
-        }
+    ): List<SubscriptionFlash> = SubscriptionNoticeSummary.mergeImportWarningCards(issues).map { card ->
+        val names = card.profileNames.joinToString("、")
+        val summary = SubscriptionNoticeSummary.summaryLine(card.detail)
+        SubscriptionFlash(
+            profileIds = card.profileIds,
+            text = if (summary.isBlank()) "「$names」更新提示" else "「$names」更新提示：$summary",
+        )
+    }
 }
 
 /**

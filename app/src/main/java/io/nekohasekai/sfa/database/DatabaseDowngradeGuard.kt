@@ -39,13 +39,12 @@ internal object DatabaseDowngradeGuard {
         Log.w(TAG, "$name is schema v$onDisk, app expects v$currentVersion; backed up before open")
     }
 
-    private fun readVersion(file: File, name: String): Int? =
-        runCatching {
-            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { it.version }
-        }.getOrElse {
-            Log.w(TAG, "read version of $name", it)
-            null
-        }
+    private fun readVersion(file: File, name: String): Int? = runCatching {
+        SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { it.version }
+    }.getOrElse {
+        Log.w(TAG, "read version of $name", it)
+        null
+    }
 
     private fun copyAside(file: File, onDisk: Int) {
         for (suffix in listOf("", "-wal", "-shm", "-journal")) {

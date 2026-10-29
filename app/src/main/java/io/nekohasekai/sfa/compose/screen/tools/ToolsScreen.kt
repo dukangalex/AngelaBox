@@ -370,7 +370,6 @@ fun ToolsScreen(
             modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
         )
 
-        
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -431,7 +430,7 @@ fun ToolsScreen(
             )
         }
 
-Card(
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),

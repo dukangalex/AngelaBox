@@ -49,20 +49,19 @@ class RuleSetStoreTest {
         return byteArrayOf(0x53, 0x52, 0x53, 1) + compressed.copyOf(n)
     }
 
-    private fun jsonBytes(): ByteArray =
-        """{"version":1,"rules":[{"domain_suffix":["example.com"]}]}"""
-            .toByteArray(Charsets.UTF_8)
+    private fun jsonBytes(): ByteArray = """{"version":1,"rules":[{"domain_suffix":["example.com"]}]}"""
+        .toByteArray(Charsets.UTF_8)
 
-    private fun remoteSet(tag: String, url: String, format: String = "binary"): JSONObject =
-        JSONObject()
-            .put("tag", tag)
-            .put("type", "remote")
-            .put("format", format)
-            .put("url", url)
+    private fun remoteSet(tag: String, url: String, format: String = "binary"): JSONObject = JSONObject()
+        .put("tag", tag)
+        .put("type", "remote")
+        .put("format", format)
+        .put("url", url)
 
     private fun configOf(vararg sets: JSONObject): JSONObject = JSONObject()
         .put(
-            "route", JSONObject()
+            "route",
+            JSONObject()
                 .put("rule_set", JSONArray().also { arr -> sets.forEach { arr.put(it) } })
                 .put("final", "proxy"),
         )
@@ -277,8 +276,7 @@ class RuleSetStoreTest {
     fun pruningKeepsReferencedEvictsUnreferencedAndCapEvictsOldestFirst() {
         val now = 1_700_000_000_000L
         val day = 24L * 60 * 60 * 1000
-        fun entry(name: String, hash: String, size: Long, seen: Long) =
-            RuleSetStore.EntryInfo(name, hash, size, seen, seen)
+        fun entry(name: String, hash: String, size: Long, seen: Long) = RuleSetStore.EntryInfo(name, hash, size, seen, seen)
 
         val grace = RuleSetStore.planPrune(
             listOf(

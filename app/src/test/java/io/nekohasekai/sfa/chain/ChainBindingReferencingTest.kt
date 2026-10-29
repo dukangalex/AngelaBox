@@ -49,11 +49,16 @@ class ChainBindingReferencingTest {
         // An already-invalidated binding still references the landing;
         // the confirmation lists it so the user sees the full dependency
         // picture before deleting.
-        val withInvalidated = bindings + (4L to ChainBinding(
-            4L, "entry-d", 9L, "land-a",
-            invalidated = true,
-            invalidReason = ChainBindings.INVALID_REASON_LANDING_DELETED,
-        ))
+        val withInvalidated = bindings + (
+            4L to ChainBinding(
+                4L,
+                "entry-d",
+                9L,
+                "land-a",
+                invalidated = true,
+                invalidReason = ChainBindings.INVALID_REASON_LANDING_DELETED,
+            )
+            )
         val affected = ChainBindingCodec.referencing(withInvalidated, 9L)
         assertEquals(listOf(1L, 2L, 4L), affected.map { it.profileId })
     }

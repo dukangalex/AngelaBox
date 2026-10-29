@@ -20,8 +20,7 @@ object SubscriptionNoticeSummary {
         else -> BUCKET_OTHER
     }
 
-    fun linesOf(detail: String): List<String> =
-        detail.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    fun linesOf(detail: String): List<String> = detail.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 
     /** 按桶分组（保持 节点 / 规则集 / 其他 的展示顺序），展开区用。 */
     fun groupLines(detail: String): List<Pair<Int, List<String>>> {

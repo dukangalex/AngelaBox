@@ -143,13 +143,11 @@ object RemoteUrlGuard {
      * hostname and the proxy routes github.com, instead of a pre-resolved
      * IP that may be poisoned or a fake-ip.
      */
-    fun validateWithoutDns(url: String, kind: Kind): ValidatedEndpoint {
-        return validate(
-            url,
-            kind,
-            resolve = { listOf(InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))) },
-        )
-    }
+    fun validateWithoutDns(url: String, kind: Kind): ValidatedEndpoint = validate(
+        url,
+        kind,
+        resolve = { listOf(InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))) },
+    )
 
     /**
      * Resolve a host without the VPN DNS. Used when a proxied download was
@@ -474,15 +472,12 @@ object RemoteUrlGuard {
      * answer, which is what keeps the "returned addresses are all allowed"
      * contract true on every path.
      */
-    internal fun keepTunnelAnswer(addr: InetAddress): Boolean =
-        isFakeIp(addr.address) || isAddressAllowed(addr, Kind.SUBSCRIPTION)
+    internal fun keepTunnelAnswer(addr: InetAddress): Boolean = isFakeIp(addr.address) || isAddressAllowed(addr, Kind.SUBSCRIPTION)
 
-    private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true): List<InetAddress> {
-        return try {
-            if (tcp) queryATcp(host, server, protect) else queryA(host, server, protect)
-        } catch (_: Exception) {
-            emptyList()
-        }
+    private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true): List<InetAddress> = try {
+        if (tcp) queryATcp(host, server, protect) else queryA(host, server, protect)
+    } catch (_: Exception) {
+        emptyList()
     }
 
     /**

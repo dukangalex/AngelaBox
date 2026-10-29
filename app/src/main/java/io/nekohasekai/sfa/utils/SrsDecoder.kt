@@ -306,12 +306,10 @@ object SrsDecoder {
         }
     }
 
-    private fun ipv4(addr: ByteArray): Long {
-        return ((addr[0].toLong() and 0xFF) shl 24) or
-            ((addr[1].toLong() and 0xFF) shl 16) or
-            ((addr[2].toLong() and 0xFF) shl 8) or
-            (addr[3].toLong() and 0xFF)
-    }
+    private fun ipv4(addr: ByteArray): Long = ((addr[0].toLong() and 0xFF) shl 24) or
+        ((addr[1].toLong() and 0xFF) shl 16) or
+        ((addr[2].toLong() and 0xFF) shl 8) or
+        (addr[3].toLong() and 0xFF)
 
     private fun formatIpv4(value: Long): String {
         val u = value and 0xFFFFFFFFL

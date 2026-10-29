@@ -39,19 +39,18 @@ class ChainRuntimeCompilerBacklogTest {
         error("no $tag")
     }
 
-    private fun apply(content: String, entry: String, landing: String, landingProfile: Long = 1L, landingContent: String? = null) =
-        JSONObject(
-            ChainRuntimeCompiler.apply(
-                ChainRuntimeCompiler.ApplyRequest(
-                    content = content,
-                    currentProfileId = 1L,
-                    entryTag = entry,
-                    landingProfileId = landingProfile,
-                    landingTag = landing,
-                    landingContent = landingContent,
-                ),
+    private fun apply(content: String, entry: String, landing: String, landingProfile: Long = 1L, landingContent: String? = null) = JSONObject(
+        ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = content,
+                currentProfileId = 1L,
+                entryTag = entry,
+                landingProfileId = landingProfile,
+                landingTag = landing,
+                landingContent = landingContent,
             ),
-        )
+        ),
+    )
 
     @Test
     fun entryGroupKeepsWireGuardEndpointMember() {

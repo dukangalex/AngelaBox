@@ -1,9 +1,9 @@
 package io.nekohasekai.sfa.utils
 
-import java.net.InetAddress
-import java.net.URI
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.InetAddress
+import java.net.URI
 
 /**
  * Import/startup shim for sing-box 1.11–1.13 field removals. Not a kernel
@@ -407,7 +407,9 @@ object ConfigInboundCompat {
             }
         }
         val v4 = v4Cidrs(ib.opt("address"))
-        val wanted = if (v4.isEmpty()) JSONArray().put(TUN_ADDRESS) else {
+        val wanted = if (v4.isEmpty()) {
+            JSONArray().put(TUN_ADDRESS)
+        } else {
             val arr = JSONArray()
             v4.forEach { arr.put(it) }
             arr
@@ -629,8 +631,7 @@ object ConfigInboundCompat {
         val guardStrippedTags: List<String>,
     )
 
-    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean =
-        rewriteRuleSetUrlsWithReport(root).changed
+    internal fun rewriteRuleSetUrls(root: JSONObject): Boolean = rewriteRuleSetUrlsWithReport(root).changed
 
     internal fun rewriteRuleSetUrlsWithReport(root: JSONObject): RuleSetUrlRewrite {
         val route = root.optJSONObject("route") ?: return RuleSetUrlRewrite(false, emptyList())
@@ -784,8 +785,7 @@ object ConfigInboundCompat {
      * self-hosted set changes routing semantics, so it must never
      * happen silently — callers surface the names in their notes.
      */
-    internal fun healRemoteRuleSets(root: JSONObject): Boolean =
-        healRemoteRuleSetsWithReport(root).changed
+    internal fun healRemoteRuleSets(root: JSONObject): Boolean = healRemoteRuleSetsWithReport(root).changed
 
     internal fun healRemoteRuleSetsWithReport(root: JSONObject): RuleSetHeal {
         val none = RuleSetHeal(false, emptyList(), emptyList())
@@ -881,8 +881,11 @@ object ConfigInboundCompat {
             }
         }
         if (!changed && dropTags.isEmpty()) {
-            return if (keptReferenced.isEmpty()) none
-            else RuleSetHeal(false, swapped, emptyList(), keptReferenced)
+            return if (keptReferenced.isEmpty()) {
+                none
+            } else {
+                RuleSetHeal(false, swapped, emptyList(), keptReferenced)
+            }
         }
         replaceArray(sets, keep)
         if (dropTags.isNotEmpty()) {
@@ -1247,8 +1250,7 @@ object ConfigInboundCompat {
      * kernel can start. Missing non-China route targets fall back to the
      * primary selector, never silently to DIRECT.
      */
-    internal fun healMissingOutboundRefs(root: JSONObject): Boolean =
-        healMissingOutboundRefsWithReport(root).changed
+    internal fun healMissingOutboundRefs(root: JSONObject): Boolean = healMissingOutboundRefsWithReport(root).changed
 
     internal fun healMissingOutboundRefsWithReport(root: JSONObject): RefHeal {
         val tags = outboundTags(root)
@@ -1666,8 +1668,7 @@ object ConfigInboundCompat {
         val enabledTags: List<String>,
     )
 
-    internal fun stripTailscaleSshServer(root: JSONObject): Boolean =
-        stripTailscaleSshServerWithReport(root).changed
+    internal fun stripTailscaleSshServer(root: JSONObject): Boolean = stripTailscaleSshServerWithReport(root).changed
 
     /**
      * A tailscale endpoint's `ssh_server` makes the kernel run a Tailscale
@@ -1816,12 +1817,11 @@ object ConfigInboundCompat {
      * kinds are not interchangeable behind a route rule, so a swap
      * must never cross from one to the other.
      */
-    private fun ruleSetKindOf(stem: String): RuleSetKind =
-        if (stem.startsWith("geoip-") || stem.endsWith("-ip")) {
-            RuleSetKind.IP
-        } else {
-            RuleSetKind.DOMAIN
-        }
+    private fun ruleSetKindOf(stem: String): RuleSetKind = if (stem.startsWith("geoip-") || stem.endsWith("-ip")) {
+        RuleSetKind.IP
+    } else {
+        RuleSetKind.DOMAIN
+    }
 
     /**
      * [candidate] (an official URL from [officialRuleSetUrl]) accepted
@@ -1841,8 +1841,7 @@ object ConfigInboundCompat {
      * (a geoip name whose only official file is a geosite list)
      * yields "" — the original address then stays as written.
      */
-    internal fun officialRuleSetSwapUrl(raw: String): String =
-        acceptSameKind(officialRuleSetUrl(raw), raw)
+    internal fun officialRuleSetSwapUrl(raw: String): String = acceptSameKind(officialRuleSetUrl(raw), raw)
 
     /**
      * True when [url] points at the official SagerNet rule-set repos
@@ -1925,5 +1924,4 @@ object ConfigInboundCompat {
             n == "geosite-$t" || n == "geoip-$t" ||
             n == "geosite-$f" || n == "geoip-$f"
     }
-
 }

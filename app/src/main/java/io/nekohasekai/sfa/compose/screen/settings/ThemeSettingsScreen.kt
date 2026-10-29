@@ -85,109 +85,109 @@ fun ThemeSettingsScreen(navController: NavController) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-            Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.DarkMode,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Text(
-                            stringResource(R.string.theme_mode),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ModeChip(
-                            modifier = Modifier.weight(1f),
-                            selected = Appearance.mode == "system",
-                            icon = Icons.Outlined.PhoneAndroid,
-                            label = stringResource(R.string.theme_mode_system),
-                            onClick = { Appearance.applyMode("system") },
-                        )
-                        ModeChip(
-                            modifier = Modifier.weight(1f),
-                            selected = Appearance.mode == "light",
-                            icon = Icons.Outlined.LightMode,
-                            label = stringResource(R.string.theme_mode_light),
-                            onClick = { Appearance.applyMode("light") },
-                        )
-                        ModeChip(
-                            modifier = Modifier.weight(1f),
-                            selected = Appearance.mode == "dark",
-                            icon = Icons.Outlined.DarkMode,
-                            label = stringResource(R.string.theme_mode_dark),
-                            onClick = { Appearance.applyMode("dark") },
-                        )
-                    }
+        Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.DarkMode,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        stringResource(R.string.theme_mode),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ModeChip(
+                        modifier = Modifier.weight(1f),
+                        selected = Appearance.mode == "system",
+                        icon = Icons.Outlined.PhoneAndroid,
+                        label = stringResource(R.string.theme_mode_system),
+                        onClick = { Appearance.applyMode("system") },
+                    )
+                    ModeChip(
+                        modifier = Modifier.weight(1f),
+                        selected = Appearance.mode == "light",
+                        icon = Icons.Outlined.LightMode,
+                        label = stringResource(R.string.theme_mode_light),
+                        onClick = { Appearance.applyMode("light") },
+                    )
+                    ModeChip(
+                        modifier = Modifier.weight(1f),
+                        selected = Appearance.mode == "dark",
+                        icon = Icons.Outlined.DarkMode,
+                        label = stringResource(R.string.theme_mode_dark),
+                        onClick = { Appearance.applyMode("dark") },
+                    )
                 }
             }
-
-            Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.Palette,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Text(
-                            stringResource(R.string.theme_color),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        ThemeSeeds.forEach { seed ->
-                            if (seed.id == "dynamic" && Build.VERSION.SDK_INT < 31) return@forEach
-                            ColorSwatch(
-                                seed = seed,
-                                selected = Appearance.seed == seed.id,
-                                wallpaper = seed.id == "dynamic",
-                                onClick = { Appearance.applySeed(seed.id) },
-                            )
-                        }
-                    }
-                }
-            }
-
-            Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.theme_pure_black)) },
-                    supportingContent = { Text(stringResource(R.string.theme_pure_black_summary)) },
-                    leadingContent = {
-                        Icon(
-                            Icons.Outlined.Contrast,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    trailingContent = {
-                        Switch(
-                            checked = Appearance.pureBlack,
-                            onCheckedChange = Appearance::applyPureBlack,
-                            enabled = Appearance.mode != "light",
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
-            }
-            Spacer(Modifier.height(12.dp))
         }
+
+        Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.Palette,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        stringResource(R.string.theme_color),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    ThemeSeeds.forEach { seed ->
+                        if (seed.id == "dynamic" && Build.VERSION.SDK_INT < 31) return@forEach
+                        ColorSwatch(
+                            seed = seed,
+                            selected = Appearance.seed == seed.id,
+                            wallpaper = seed.id == "dynamic",
+                            onClick = { Appearance.applySeed(seed.id) },
+                        )
+                    }
+                }
+            }
+        }
+
+        Card(colors = cardColors, shape = RoundedCornerShape(20.dp)) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.theme_pure_black)) },
+                supportingContent = { Text(stringResource(R.string.theme_pure_black_summary)) },
+                leadingContent = {
+                    Icon(
+                        Icons.Outlined.Contrast,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = Appearance.pureBlack,
+                        onCheckedChange = Appearance::applyPureBlack,
+                        enabled = Appearance.mode != "light",
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+    }
 }
 
 @Composable

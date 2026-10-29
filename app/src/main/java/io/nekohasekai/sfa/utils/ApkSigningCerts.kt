@@ -17,14 +17,14 @@ import java.security.MessageDigest
 object ApkSigningCerts {
     private val MAGIC = "APK Sig Block 42".toByteArray(Charsets.UTF_8)
     private const val V2_ID = 0x7109871A
+
     // 0xF05368C0 does not fit in a Kotlin Int literal.
     private val V3_ID = 0xF05368C0.toInt()
     private const val EOCD_SCAN = 65557
 
     fun firstCertDer(file: File): ByteArray? = extractCerts(file).firstOrNull()
 
-    fun sha256Hex(der: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(der).joinToString("") { b -> "%02x".format(b) }
+    fun sha256Hex(der: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(der).joinToString("") { b -> "%02x".format(b) }
 
     fun extractCerts(file: File): List<ByteArray> {
         if (!file.isFile || file.length() < 32L) return emptyList()

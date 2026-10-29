@@ -23,8 +23,7 @@ data class SubscriptionInfo(
      * after the user renewed is a false alarm. Expiry is absolute time and
      * deliberately not gated by this.
      */
-    fun isQuotaFresh(nowMs: Long, maxAgeMs: Long): Boolean =
-        fetchedAt > 0L && nowMs - fetchedAt in 0..maxAgeMs
+    fun isQuotaFresh(nowMs: Long, maxAgeMs: Long): Boolean = fetchedAt > 0L && nowMs - fetchedAt in 0..maxAgeMs
     val unlimited: Boolean get() = total <= 0L && expireAt == null
     val progress: Float
         get() = if (total > 0L) (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
@@ -108,11 +107,9 @@ object SubscriptionInfoStore {
         put(context, profileId, raw)
     }
 
-    fun fetchRemote(url: String, profileId: Long, context: Context): String {
-        return HTTPClient().use { client ->
-            val body = client.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
-            if (profileId > 0L) capture(client, profileId, context)
-            body
-        }
+    fun fetchRemote(url: String, profileId: Long, context: Context): String = HTTPClient().use { client ->
+        val body = client.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        if (profileId > 0L) capture(client, profileId, context)
+        body
     }
 }

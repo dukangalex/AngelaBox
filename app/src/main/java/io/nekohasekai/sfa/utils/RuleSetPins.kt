@@ -114,8 +114,7 @@ object RuleSetPins {
     }
 
     /** Official ads list the runtime ad-block overlay injects. */
-    fun adsRuleSetUrl(): String =
-        pin("$JSDELIVR/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
+    fun adsRuleSetUrl(): String = pin("$JSDELIVR/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
 
     /** Base URL for an official `geoip-*` file on the rule-set branch. */
     fun geoipBase(): String = "$JSDELIVR/gh/SagerNet/sing-geoip@$SING_GEOIP_REF/"

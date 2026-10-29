@@ -37,11 +37,9 @@ object NoticeClassifier {
      * 配置 + 同一设置下它每次启动都逐字重发，是「事实没变、提示常驻」
      * 的典型——展示层按指纹跨启动去重（见 NoticeGrouper）。
      */
-    fun isDnsDetourRewrite(notice: OverrideNotice): Boolean =
-        notice.reason.contains("detour 由") && notice.reason.contains("改为当前出站")
+    fun isDnsDetourRewrite(notice: OverrideNotice): Boolean = notice.reason.contains("detour 由") && notice.reason.contains("改为当前出站")
 
-    fun detourFingerprint(notice: OverrideNotice): String =
-        notice.title + "|" + notice.reason + "|" + notice.hint
+    fun detourFingerprint(notice: OverrideNotice): String = notice.title + "|" + notice.reason + "|" + notice.hint
 
     private val SET_TAG_REGEX = Regex("""(?:geosite|geoip)-[A-Za-z0-9!._\-]+""")
 

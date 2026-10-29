@@ -135,8 +135,7 @@ object ChainBindingCodec {
      * shared resolveMainTag helper and its UI/dashboard callers stay
      * forgiving (NF-3).
      */
-    fun entryDisappearanceFailsClosed(binding: ChainBinding, entryMissing: Boolean): Boolean =
-        entryMissing && binding.materialized
+    fun entryDisappearanceFailsClosed(binding: ChainBinding, entryMissing: Boolean): Boolean = entryMissing && binding.materialized
 
     /**
      * B1 read-only query: bindings owned by OTHER profiles whose landing
@@ -219,8 +218,7 @@ object ChainBindings {
      * binding, matching [onProfileDeleted]'s transform.
      */
     @Synchronized
-    fun bindingsLandingOn(profileId: Long): List<ChainBinding> =
-        ChainBindingCodec.referencing(load(), profileId)
+    fun bindingsLandingOn(profileId: Long): List<ChainBinding> = ChainBindingCodec.referencing(load(), profileId)
 
     @Synchronized
     fun all(): List<ChainBinding> = load().values.toList()

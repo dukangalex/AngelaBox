@@ -33,12 +33,11 @@ public final class XposedProvider extends ContentProvider {
   /**
    * Exact names only. Package prefixes are not a security boundary.
    *
-   * Official LSPosed does not publish a pinable signing certificate:
-   * daemon SignInfo.CERTIFICATE is generated at their build from a private
-   * keystore and is not in the public tree. Inner manager/daemon APKs inside
-   * the Magisk zip are unsigned payloads. We will not invent a fingerprint.
-   * Callers must be SYSTEM/root/shell/self, or an exact LSPosed package whose
-   * signing cert is not Android Debug.
+   * <p>Official LSPosed does not publish a pinable signing certificate: daemon SignInfo.CERTIFICATE
+   * is generated at their build from a private keystore and is not in the public tree. Inner
+   * manager/daemon APKs inside the Magisk zip are unsigned payloads. We will not invent a
+   * fingerprint. Callers must be SYSTEM/root/shell/self, or an exact LSPosed package whose signing
+   * cert is not Android Debug.
    */
   private static final Set<String> TRUSTED_PACKAGES =
       new HashSet<>(Arrays.asList("org.lsposed.manager", "org.lsposed.daemon"));

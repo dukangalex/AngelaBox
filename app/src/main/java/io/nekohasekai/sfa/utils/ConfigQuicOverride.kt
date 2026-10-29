@@ -1,9 +1,9 @@
 package io.nekohasekai.sfa.utils
 
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
-import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -792,8 +792,7 @@ object ConfigQuicOverride {
     }
 
     /** The IPv6 reject rule (order table #4), built for the segment. */
-    internal fun disableIpv6RouteRule(): JSONObject =
-        JSONObject().put("ip_version", 6).put("action", "reject")
+    internal fun disableIpv6RouteRule(): JSONObject = JSONObject().put("ip_version", 6).put("action", "reject")
 
     /** The non-route-rule parts of IPv6 disabling: DNS strategy + TUN v6 strip. */
     internal fun applyDisableIpv6Mutations(root: JSONObject) {

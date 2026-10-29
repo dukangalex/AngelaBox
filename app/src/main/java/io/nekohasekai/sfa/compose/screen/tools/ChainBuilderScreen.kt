@@ -394,9 +394,10 @@ fun ChainBuilderScreen(
     // fallback selection alone does not count when nothing is bound.
     val chainDirty = when (val saved = savedBinding) {
         null -> exit != null
-        else -> entry?.tag != saved.entryTag ||
-            exit?.profileId != saved.landingProfileId ||
-            exit?.tag != saved.landingTag
+        else ->
+            entry?.tag != saved.entryTag ||
+                exit?.profileId != saved.landingProfileId ||
+                exit?.tag != saved.landingTag
     }
 
     OverrideTopBar {
@@ -521,7 +522,10 @@ fun ChainBuilderScreen(
                             placeholder = "选择入口",
                             accent = scheme.primary,
                             enabled = !busy,
-                            onClick = { picker = "entry"; pickerQuery = "" },
+                            onClick = {
+                                picker = "entry"
+                                pickerQuery = ""
+                            },
                             modifier = Modifier.weight(1f),
                         )
                         LinkPulse(
@@ -535,7 +539,10 @@ fun ChainBuilderScreen(
                             accent = scheme.tertiary,
                             enabled = !busy,
                             showFlag = true,
-                            onClick = { picker = "landing"; pickerQuery = "" },
+                            onClick = {
+                                picker = "landing"
+                                pickerQuery = ""
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -705,8 +712,12 @@ fun ChainBuilderScreen(
             }
         }
         val q = pickerQuery.trim().lowercase()
-        val filtered = if (q.isEmpty()) source else source.filter {
-            it.tag.lowercase().contains(q) || it.profileName.lowercase().contains(q)
+        val filtered = if (q.isEmpty()) {
+            source
+        } else {
+            source.filter {
+                it.tag.lowercase().contains(q) || it.profileName.lowercase().contains(q)
+            }
         }
         val grouped = if (picker == "landing") {
             val currentFirst = filtered.filter { it.profileId == currentProfileId }

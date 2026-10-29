@@ -11,30 +11,28 @@ import org.junit.Test
 
 class ChainRuntimeCompilerTest {
 
-    private fun profile(finalTag: String = "漏网之鱼"): String {
-        return JSONObject()
-            .put(
-                "outbounds",
-                JSONArray()
-                    .put(node("hk-1"))
-                    .put(node("jp-1"))
-                    .put(
-                        JSONObject()
-                            .put("type", "selector")
-                            .put("tag", "节点选择")
-                            .put("outbounds", JSONArray().put("hk-1").put("jp-1")),
-                    )
-                    .put(
-                        JSONObject()
-                            .put("type", "selector")
-                            .put("tag", "漏网之鱼")
-                            .put("outbounds", JSONArray().put("节点选择").put("direct")),
-                    )
-                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
-            )
-            .put("route", JSONObject().put("final", finalTag))
-            .toString()
-    }
+    private fun profile(finalTag: String = "漏网之鱼"): String = JSONObject()
+        .put(
+            "outbounds",
+            JSONArray()
+                .put(node("hk-1"))
+                .put(node("jp-1"))
+                .put(
+                    JSONObject()
+                        .put("type", "selector")
+                        .put("tag", "节点选择")
+                        .put("outbounds", JSONArray().put("hk-1").put("jp-1")),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "selector")
+                        .put("tag", "漏网之鱼")
+                        .put("outbounds", JSONArray().put("节点选择").put("direct")),
+                )
+                .put(JSONObject().put("type", "direct").put("tag", "direct")),
+        )
+        .put("route", JSONObject().put("final", finalTag))
+        .toString()
 
     private fun node(tag: String) = JSONObject()
         .put("type", "vless")

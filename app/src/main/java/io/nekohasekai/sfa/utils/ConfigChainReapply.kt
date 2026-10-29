@@ -4,8 +4,8 @@ import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
-import java.io.File
 import org.json.JSONObject
+import java.io.File
 
 /**
  * Compatibility entry point for existing update/startup flows.

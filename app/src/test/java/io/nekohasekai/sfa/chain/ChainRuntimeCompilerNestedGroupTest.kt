@@ -31,30 +31,31 @@ class ChainRuntimeCompilerNestedGroupTest {
         return (0 until arr.length()).map { arr.getString(it) }
     }
 
-    private fun compile(config: JSONObject, entry: String, landing: String): JSONObject {
-        return JSONObject(
-            ChainRuntimeCompiler.apply(
-                ChainRuntimeCompiler.ApplyRequest(
-                    content = config.toString(),
-                    currentProfileId = 1L,
-                    entryTag = entry,
-                    landingProfileId = 1L,
-                    landingTag = landing,
-                    landingContent = null,
-                ),
+    private fun compile(config: JSONObject, entry: String, landing: String): JSONObject = JSONObject(
+        ChainRuntimeCompiler.apply(
+            ChainRuntimeCompiler.ApplyRequest(
+                content = config.toString(),
+                currentProfileId = 1L,
+                entryTag = entry,
+                landingProfileId = 1L,
+                landingTag = landing,
+                landingContent = null,
             ),
-        )
-    }
+        ),
+    )
 
     @Test
     fun nestedEntryGroupCannotReachDirect() {
         val config = JSONObject()
-            .put("outbounds", JSONArray()
-                .put(node("proxy-1"))
-                .put(node("proxy-2"))
-                .put(JSONObject().put("type", "selector").put("tag", "nested").put("outbounds", JSONArray().put("proxy-2").put("direct")))
-                .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("nested")))
-                .put(JSONObject().put("type", "direct").put("tag", "direct")))
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(node("proxy-1"))
+                    .put(node("proxy-2"))
+                    .put(JSONObject().put("type", "selector").put("tag", "nested").put("outbounds", JSONArray().put("proxy-2").put("direct")))
+                    .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("nested")))
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
             .put("route", JSONObject().put("final", "entry"))
 
         val compiled = ChainRuntimeCompiler.apply(
@@ -125,12 +126,15 @@ class ChainRuntimeCompilerNestedGroupTest {
     @Test(expected = IllegalArgumentException::class)
     fun nestedEntryCycleFailsClosed() {
         val config = JSONObject()
-            .put("outbounds", JSONArray()
-                .put(node("proxy-1"))
-                .put(JSONObject().put("type", "selector").put("tag", "a").put("outbounds", JSONArray().put("b")))
-                .put(JSONObject().put("type", "selector").put("tag", "b").put("outbounds", JSONArray().put("a")))
-                .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("a")))
-                .put(JSONObject().put("type", "direct").put("tag", "direct")))
+            .put(
+                "outbounds",
+                JSONArray()
+                    .put(node("proxy-1"))
+                    .put(JSONObject().put("type", "selector").put("tag", "a").put("outbounds", JSONArray().put("b")))
+                    .put(JSONObject().put("type", "selector").put("tag", "b").put("outbounds", JSONArray().put("a")))
+                    .put(JSONObject().put("type", "selector").put("tag", "entry").put("outbounds", JSONArray().put("a")))
+                    .put(JSONObject().put("type", "direct").put("tag", "direct")),
+            )
             .put("route", JSONObject().put("final", "entry"))
 
         ChainRuntimeCompiler.apply(

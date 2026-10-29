@@ -665,5 +665,4 @@ class ConfigQuicOverrideTest {
         // no second reject rule is added.
         assertEquals(1, rules.length())
     }
-
 }

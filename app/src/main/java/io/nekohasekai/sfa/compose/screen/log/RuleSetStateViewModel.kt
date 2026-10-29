@@ -10,13 +10,13 @@ import io.nekohasekai.sfa.utils.RuleSetSeeds
 import io.nekohasekai.sfa.utils.RuleSetState
 import io.nekohasekai.sfa.utils.RuleSetStore
 import io.nekohasekai.sfa.utils.RuleSetTriage
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * 「规则集状态」页的数据源：把每个规则集的 app 侧事实快照下来，
@@ -110,12 +110,11 @@ class RuleSetStateViewModel : ViewModel() {
         val consumedStore = HashSet<String>()
         val consumedWarmer = HashSet<String>()
 
-        fun copyFact(file: File, atMs: Long): RuleSetState.CopyFact =
-            RuleSetState.CopyFact(
-                sizeBytes = file.length(),
-                atMs = atMs,
-                entryCount = runCatching { RuleSetProviders.entryCount(file) }.getOrNull(),
-            )
+        fun copyFact(file: File, atMs: Long): RuleSetState.CopyFact = RuleSetState.CopyFact(
+            sizeBytes = file.length(),
+            atMs = atMs,
+            entryCount = runCatching { RuleSetProviders.entryCount(file) }.getOrNull(),
+        )
 
         val inputs = accs.values.map { a ->
             val seedCopy = if (a.appOwned) {

@@ -1,12 +1,12 @@
 package io.nekohasekai.sfa.utils
 
-import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class ConfigScriptOverrideTest {
 
@@ -68,11 +68,14 @@ class ConfigScriptOverrideTest {
         assertTrue(usMembers.contains("🇭🇰 香港-自动选择"))
         assertTrue(out.has("route"))
         assertTrue(out.getJSONObject("route").has("rule_set"))
-        assertEquals("tcp", out.getJSONObject("dns").getJSONArray("servers").let { servers ->
-            (0 until servers.length()).map { servers.getJSONObject(it) }
-                .first { it.optString("tag") == "dns-remote" }
-                .getString("type")
-        })
+        assertEquals(
+            "tcp",
+            out.getJSONObject("dns").getJSONArray("servers").let { servers ->
+                (0 until servers.length()).map { servers.getJSONObject(it) }
+                    .first { it.optString("tag") == "dns-remote" }
+                    .getString("type")
+            },
+        )
         val inbounds = out.getJSONArray("inbounds")
         val tun = (0 until inbounds.length()).map { inbounds.getJSONObject(it) }
             .first { it.optString("type") == "tun" }

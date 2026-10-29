@@ -60,9 +60,7 @@ class RuleSetStallMemory(
 
     /** True only within the window of a recorded stall and on the same network. Expired entries are dropped. */
     @Synchronized
-    fun shouldSkipRemote(profileId: Long, network: String?): Boolean {
-        return shouldSkipRemote(profileId, network, null)
-    }
+    fun shouldSkipRemote(profileId: Long, network: String?): Boolean = shouldSkipRemote(profileId, network, null)
 
     @Synchronized
     fun shouldSkipRemote(profileId: Long, network: String?, contentHash: String?): Boolean {

@@ -1671,5 +1671,4 @@ class ConfigIngestTest {
             )
         assertFalse(ConfigIngest.ensureEchQueryRoute(root))
     }
-
 }

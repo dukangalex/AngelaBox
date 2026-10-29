@@ -77,9 +77,9 @@ import io.nekohasekai.sfa.chain.LiveTopology
 import io.nekohasekai.sfa.chain.PlacedRibbon
 import io.nekohasekai.sfa.chain.SankeyLayout
 import io.nekohasekai.sfa.chain.TrafficFlowBuilder
+import io.nekohasekai.sfa.compose.LineChart
 import io.nekohasekai.sfa.compose.base.GlobalEventBus
 import io.nekohasekai.sfa.compose.base.UiEvent
-import io.nekohasekai.sfa.compose.LineChart
 import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
 
@@ -775,6 +775,7 @@ private fun TrafficSankey(
         val maxText = (layerWidth - barW - with(density) { 10.dp.toPx() }).coerceAtLeast(
             with(density) { 48.dp.toPx() },
         )
+
         // Labels are single-line and shrink-to-fit: the old two-line
         // measure broke long domains mid-word ("youtube.co / m you…"),
         // which read as corruption. A label now steps its font size down
@@ -864,132 +865,131 @@ private fun TrafficSankey(
                     .then(if (needScroll) Modifier.verticalScroll(scroll) else Modifier),
             ) {
                 Canvas(Modifier.fillMaxWidth().height(canvasDp)) {
-                val (placed, ribbons) = SankeyLayout.layout(
-                    nodes = nodes,
-                    links = links,
-                    width = size.width,
-                    height = size.height,
-                    nodeWidth = barW,
-                    pad = padPx,
-                    minHeights = minHeights,
-                    gapY = gapY,
-                )
-                fun columnColor(col: Int, last: Int): Color = when {
-                    col <= 0 -> source
-                    col == last -> dest
-                    col == 1 && last >= 2 -> rule
-                    else -> hop
-                }
-                fun ink(col: Int, last: Int, isDirect: Boolean): Color =
-                    if (isDirect) direct else columnColor(col, last)
-                val lastCol = nodes.maxOf { it.column }
-                val colXs = placed.groupBy { it.node.column }.mapValues { (_, items) -> items.first().x }
-                val sortedCols = colXs.keys.sorted()
-                var yScan = 0f
-                val scanStep = 7.dp.toPx()
-                while (yScan < size.height) {
-                    drawLine(scan, Offset(0f, yScan), Offset(size.width, yScan), strokeWidth = 1f)
-                    yScan += scanStep
-                }
-                val proxyBottom = placed.filter { !it.node.direct }.maxOfOrNull { it.y + it.h }
-                val directTop = placed.filter { it.node.direct }.minOfOrNull { it.y }
-                if (proxyBottom != null && directTop != null && directTop > proxyBottom + 4f) {
-                    val mid = (proxyBottom + directTop) / 2f
-                    drawLine(
-                        color = laneLine,
-                        start = Offset(padPx, mid),
-                        end = Offset(size.width - padPx, mid),
-                        strokeWidth = 1.2.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                    val (placed, ribbons) = SankeyLayout.layout(
+                        nodes = nodes,
+                        links = links,
+                        width = size.width,
+                        height = size.height,
+                        nodeWidth = barW,
+                        pad = padPx,
+                        minHeights = minHeights,
+                        gapY = gapY,
                     )
-                }
-                ribbons.forEach { ribbon ->
-                    val fromC = ink(ribbon.columnFrom, lastCol, ribbon.direct)
-                    val toC = ink(ribbon.columnTo, lastCol, ribbon.direct)
-                    val alpha = if (ribbon.direct) 0.16f else 0.42f
-                    drawPath(
-                        path = ribbonPath(ribbon),
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(fromC.copy(alpha = alpha), toC.copy(alpha = alpha)),
-                            startX = ribbon.x0,
-                            endX = ribbon.x1,
-                        ),
-                    )
-                }
-                if (flowing) {
+                    fun columnColor(col: Int, last: Int): Color = when {
+                        col <= 0 -> source
+                        col == last -> dest
+                        col == 1 && last >= 2 -> rule
+                        else -> hop
+                    }
+                    fun ink(col: Int, last: Int, isDirect: Boolean): Color = if (isDirect) direct else columnColor(col, last)
+                    val lastCol = nodes.maxOf { it.column }
+                    val colXs = placed.groupBy { it.node.column }.mapValues { (_, items) -> items.first().x }
+                    val sortedCols = colXs.keys.sorted()
+                    var yScan = 0f
+                    val scanStep = 7.dp.toPx()
+                    while (yScan < size.height) {
+                        drawLine(scan, Offset(0f, yScan), Offset(size.width, yScan), strokeWidth = 1f)
+                        yScan += scanStep
+                    }
+                    val proxyBottom = placed.filter { !it.node.direct }.maxOfOrNull { it.y + it.h }
+                    val directTop = placed.filter { it.node.direct }.minOfOrNull { it.y }
+                    if (proxyBottom != null && directTop != null && directTop > proxyBottom + 4f) {
+                        val mid = (proxyBottom + directTop) / 2f
+                        drawLine(
+                            color = laneLine,
+                            start = Offset(padPx, mid),
+                            end = Offset(size.width - padPx, mid),
+                            strokeWidth = 1.2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                        )
+                    }
                     ribbons.forEach { ribbon ->
                         val fromC = ink(ribbon.columnFrom, lastCol, ribbon.direct)
                         val toC = ink(ribbon.columnTo, lastCol, ribbon.direct)
-                        val dx = (ribbon.x1 - ribbon.x0) * 0.48f
-                        val y0 = (ribbon.y0Top + ribbon.y0Bottom) / 2f
-                        val y1 = (ribbon.y1Top + ribbon.y1Bottom) / 2f
-                        val dots = if (ribbon.direct) 2 else 4
-                        for (k in 0 until dots) {
-                            val t = (phase + k / dots.toFloat()) % 1f
-                            val p = cubicPoint(
-                                t,
-                                ribbon.x0, y0,
-                                ribbon.x0 + dx, y0,
-                                ribbon.x1 - dx, y1,
-                                ribbon.x1, y1,
-                            )
-                            val glow = lerp(fromC, toC, t)
-                            if (ribbon.direct) {
-                                drawCircle(glow.copy(alpha = 0.45f), radius = 1.8.dp.toPx(), center = p)
-                            } else {
-                                drawCircle(glow.copy(alpha = 0.20f), radius = 7.dp.toPx(), center = p)
-                                drawCircle(glow.copy(alpha = 0.85f), radius = 2.6.dp.toPx(), center = p)
-                                drawCircle(Color.White.copy(alpha = 0.92f), radius = 1.15.dp.toPx(), center = p)
+                        val alpha = if (ribbon.direct) 0.16f else 0.42f
+                        drawPath(
+                            path = ribbonPath(ribbon),
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(fromC.copy(alpha = alpha), toC.copy(alpha = alpha)),
+                                startX = ribbon.x0,
+                                endX = ribbon.x1,
+                            ),
+                        )
+                    }
+                    if (flowing) {
+                        ribbons.forEach { ribbon ->
+                            val fromC = ink(ribbon.columnFrom, lastCol, ribbon.direct)
+                            val toC = ink(ribbon.columnTo, lastCol, ribbon.direct)
+                            val dx = (ribbon.x1 - ribbon.x0) * 0.48f
+                            val y0 = (ribbon.y0Top + ribbon.y0Bottom) / 2f
+                            val y1 = (ribbon.y1Top + ribbon.y1Bottom) / 2f
+                            val dots = if (ribbon.direct) 2 else 4
+                            for (k in 0 until dots) {
+                                val t = (phase + k / dots.toFloat()) % 1f
+                                val p = cubicPoint(
+                                    t,
+                                    ribbon.x0, y0,
+                                    ribbon.x0 + dx, y0,
+                                    ribbon.x1 - dx, y1,
+                                    ribbon.x1, y1,
+                                )
+                                val glow = lerp(fromC, toC, t)
+                                if (ribbon.direct) {
+                                    drawCircle(glow.copy(alpha = 0.45f), radius = 1.8.dp.toPx(), center = p)
+                                } else {
+                                    drawCircle(glow.copy(alpha = 0.20f), radius = 7.dp.toPx(), center = p)
+                                    drawCircle(glow.copy(alpha = 0.85f), radius = 2.6.dp.toPx(), center = p)
+                                    drawCircle(Color.White.copy(alpha = 0.92f), radius = 1.15.dp.toPx(), center = p)
+                                }
                             }
                         }
                     }
-                }
-                placed.forEach { node ->
-                    val color = ink(node.node.column, lastCol, node.node.direct)
-                    drawRoundRect(
-                        color = color.copy(alpha = if (node.node.direct) 0.16f else 0.28f),
-                        topLeft = Offset(node.x - 3.dp.toPx(), node.y - 2.dp.toPx()),
-                        size = Size(node.w + 6.dp.toPx(), node.h + 4.dp.toPx()),
-                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                    )
-                    drawRoundRect(
-                        color = color,
-                        topLeft = Offset(node.x, node.y),
-                        size = Size(node.w, node.h),
-                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
-                    )
-                    val layout = measured[node.node.id] ?: return@forEach
-                    val colIndex = sortedCols.indexOf(node.node.column)
-                    val nextX = if (colIndex >= 0 && colIndex < sortedCols.lastIndex) {
-                        colXs[sortedCols[colIndex + 1]] ?: size.width
-                    } else {
-                        size.width - padPx
-                    }
-                    val maxW = (nextX - node.x - node.w - 8.dp.toPx()).coerceAtLeast(24.dp.toPx())
-                    val drawn = if (layout.size.width <= maxW.toInt() + 1) {
-                        layout
-                    } else {
-                        measureFit(node.node.label, labelStyle, maxW)
-                    }
-                    val sub = measuredSub[node.node.id]
-                    val subDrawn = if (sub == null || sub.size.width <= maxW.toInt() + 1) {
-                        sub
-                    } else {
-                        subLabelOf(node.node)?.let { measureFit(it, subLabelStyle, maxW) }
-                    }
-                    val subGapPx = 1.dp.toPx()
-                    val totalTextH = drawn.size.height +
-                        (if (subDrawn != null) subGapPx + subDrawn.size.height else 0f)
-                    val tx = node.x + node.w + 5f
-                    val ty = node.y + ((node.h - totalTextH) / 2f).coerceAtLeast(0f)
-                    drawText(drawn, topLeft = Offset(tx, ty))
-                    if (subDrawn != null) {
-                        drawText(
-                            subDrawn,
-                            topLeft = Offset(tx, ty + drawn.size.height + subGapPx),
+                    placed.forEach { node ->
+                        val color = ink(node.node.column, lastCol, node.node.direct)
+                        drawRoundRect(
+                            color = color.copy(alpha = if (node.node.direct) 0.16f else 0.28f),
+                            topLeft = Offset(node.x - 3.dp.toPx(), node.y - 2.dp.toPx()),
+                            size = Size(node.w + 6.dp.toPx(), node.h + 4.dp.toPx()),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
                         )
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(node.x, node.y),
+                            size = Size(node.w, node.h),
+                            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+                        )
+                        val layout = measured[node.node.id] ?: return@forEach
+                        val colIndex = sortedCols.indexOf(node.node.column)
+                        val nextX = if (colIndex >= 0 && colIndex < sortedCols.lastIndex) {
+                            colXs[sortedCols[colIndex + 1]] ?: size.width
+                        } else {
+                            size.width - padPx
+                        }
+                        val maxW = (nextX - node.x - node.w - 8.dp.toPx()).coerceAtLeast(24.dp.toPx())
+                        val drawn = if (layout.size.width <= maxW.toInt() + 1) {
+                            layout
+                        } else {
+                            measureFit(node.node.label, labelStyle, maxW)
+                        }
+                        val sub = measuredSub[node.node.id]
+                        val subDrawn = if (sub == null || sub.size.width <= maxW.toInt() + 1) {
+                            sub
+                        } else {
+                            subLabelOf(node.node)?.let { measureFit(it, subLabelStyle, maxW) }
+                        }
+                        val subGapPx = 1.dp.toPx()
+                        val totalTextH = drawn.size.height +
+                            (if (subDrawn != null) subGapPx + subDrawn.size.height else 0f)
+                        val tx = node.x + node.w + 5f
+                        val ty = node.y + ((node.h - totalTextH) / 2f).coerceAtLeast(0f)
+                        drawText(drawn, topLeft = Offset(tx, ty))
+                        if (subDrawn != null) {
+                            drawText(
+                                subDrawn,
+                                topLeft = Offset(tx, ty + drawn.size.height + subGapPx),
+                            )
+                        }
                     }
-                }
                 }
             }
         }
@@ -1026,15 +1026,21 @@ private fun ribbonPath(ribbon: PlacedRibbon): Path {
     return Path().apply {
         moveTo(ribbon.x0, ribbon.y0Top)
         cubicTo(
-            ribbon.x0 + dx, ribbon.y0Top,
-            ribbon.x1 - dx, ribbon.y1Top,
-            ribbon.x1, ribbon.y1Top,
+            ribbon.x0 + dx,
+            ribbon.y0Top,
+            ribbon.x1 - dx,
+            ribbon.y1Top,
+            ribbon.x1,
+            ribbon.y1Top,
         )
         lineTo(ribbon.x1, ribbon.y1Bottom)
         cubicTo(
-            ribbon.x1 - dx, ribbon.y1Bottom,
-            ribbon.x0 + dx, ribbon.y0Bottom,
-            ribbon.x0, ribbon.y0Bottom,
+            ribbon.x1 - dx,
+            ribbon.y1Bottom,
+            ribbon.x0 + dx,
+            ribbon.y0Bottom,
+            ribbon.x0,
+            ribbon.y0Bottom,
         )
         close()
     }

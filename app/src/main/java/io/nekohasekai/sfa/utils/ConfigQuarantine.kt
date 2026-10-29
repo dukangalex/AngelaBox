@@ -241,8 +241,7 @@ object ConfigQuarantine {
             }
         }
 
-        private fun fails(root: JSONObject, removed: Set<String>): Boolean =
-            check(rebuild(root, removed).first.toString()) != null
+        private fun fails(root: JSONObject, removed: Set<String>): Boolean = check(rebuild(root, removed).first.toString()) != null
     }
 
     // ----------------------------------------------------------------

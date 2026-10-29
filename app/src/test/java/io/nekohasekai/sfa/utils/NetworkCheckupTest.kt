@@ -28,8 +28,7 @@ class NetworkCheckupTest {
         code: String,
     ) = allOk().map { if (it.id == id) it.copy(status = status, code = code) else it }
 
-    private fun itemsOf(vararg overrides: NetworkCheckup.Item) =
-        allOk().map { base -> overrides.firstOrNull { it.id == base.id } ?: base }
+    private fun itemsOf(vararg overrides: NetworkCheckup.Item) = allOk().map { base -> overrides.firstOrNull { it.id == base.id } ?: base }
 
     @Test
     fun verdict_allOk() {

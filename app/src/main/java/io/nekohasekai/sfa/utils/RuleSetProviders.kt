@@ -118,8 +118,7 @@ object RuleSetProviders {
 
     fun pretty(item: JSONObject): String = item.toString(2)
 
-    fun numbered(lines: List<String>): String =
-        lines.mapIndexed { index, line -> "${index + 1} $line" }.joinToString("\n")
+    fun numbered(lines: List<String>): String = lines.mapIndexed { index, line -> "${index + 1} $line" }.joinToString("\n")
 
     fun flattenRules(rules: JSONArray): List<String> {
         val out = mutableListOf<String>()

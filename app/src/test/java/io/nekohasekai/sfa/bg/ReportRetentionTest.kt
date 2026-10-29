@@ -1,10 +1,10 @@
 package io.nekohasekai.sfa.bg
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class ReportRetentionTest {
 
@@ -18,8 +18,7 @@ class ReportRetentionTest {
         return dir
     }
 
-    private fun newestFirst(): List<File> =
-        temp.root.listFiles { f -> f.isDirectory }!!.sortedByDescending { it.lastModified() }
+    private fun newestFirst(): List<File> = temp.root.listFiles { f -> f.isDirectory }!!.sortedByDescending { it.lastModified() }
 
     @Test
     fun keepsOnlyNewestTen() {

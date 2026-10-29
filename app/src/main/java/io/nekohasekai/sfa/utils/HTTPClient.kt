@@ -109,14 +109,12 @@ class HTTPClient : Closeable {
             return route == Route.DIRECT_DNS || route == Route.TUNNEL_IP || tunnelUp
         }
 
-        internal fun sameHost(a: String, b: String): Boolean {
-            return try {
-                val ha = URI(a).host?.lowercase(Locale.US)
-                val hb = URI(b).host?.lowercase(Locale.US)
-                !ha.isNullOrEmpty() && ha == hb
-            } catch (_: Exception) {
-                false
-            }
+        internal fun sameHost(a: String, b: String): Boolean = try {
+            val ha = URI(a).host?.lowercase(Locale.US)
+            val hb = URI(b).host?.lowercase(Locale.US)
+            !ha.isNullOrEmpty() && ha == hb
+        } catch (_: Exception) {
+            false
         }
 
         internal fun maxChars(kind: RemoteUrlGuard.Kind): Int = when (kind) {
@@ -222,19 +220,17 @@ class HTTPClient : Closeable {
             return headers
         }
 
-        internal fun httpFailureMessage(kind: RemoteUrlGuard.Kind, code: Int): String {
-            return when {
-                kind == RemoteUrlGuard.Kind.UPDATE && code == 403 ->
-                    "GitHub 发行包暂时无法下载。请点「查看发布」用浏览器安装，或稍后重试。"
-                kind == RemoteUrlGuard.Kind.UPDATE && code == 404 ->
-                    "未找到发行包。请点「查看发布」确认。"
-                kind == RemoteUrlGuard.Kind.UPDATE ->
-                    "GitHub 下载失败 HTTP $code。请点「查看发布」用浏览器安装。"
-                // E-3: 429/408 本质是瞬时失败，文案也要说清原因，别误导排查。
-                code == 429 -> "下载失败 HTTP 429（服务器限流）"
-                code == 408 -> "下载失败 HTTP 408（服务器响应超时）"
-                else -> "下载失败 HTTP $code"
-            }
+        internal fun httpFailureMessage(kind: RemoteUrlGuard.Kind, code: Int): String = when {
+            kind == RemoteUrlGuard.Kind.UPDATE && code == 403 ->
+                "GitHub 发行包暂时无法下载。请点「查看发布」用浏览器安装，或稍后重试。"
+            kind == RemoteUrlGuard.Kind.UPDATE && code == 404 ->
+                "未找到发行包。请点「查看发布」确认。"
+            kind == RemoteUrlGuard.Kind.UPDATE ->
+                "GitHub 下载失败 HTTP $code。请点「查看发布」用浏览器安装。"
+            // E-3: 429/408 本质是瞬时失败，文案也要说清原因，别误导排查。
+            code == 429 -> "下载失败 HTTP 429（服务器限流）"
+            code == 408 -> "下载失败 HTTP 408（服务器响应超时）"
+            else -> "下载失败 HTTP $code"
         }
 
         /** Proxy is up: dial the hostname so the tunnel routes by name, not a pre-resolved IP. */
@@ -316,8 +312,7 @@ class HTTPClient : Closeable {
             }
         }
 
-        internal fun explainProfileUpdate(error: Throwable): String =
-            explainProfileUpdate(error, TunnelGate.up)
+        internal fun explainProfileUpdate(error: Throwable): String = explainProfileUpdate(error, TunnelGate.up)
 
         internal fun explainProfileUpdate(error: Throwable, tunnelUp: Boolean): String {
             val chain = generateSequence(error) { it.cause }.toList()
@@ -349,8 +344,7 @@ class HTTPClient : Closeable {
             }
         }
 
-        internal fun explainUpdateFailure(error: Throwable): String =
-            explainUpdateFailure(error, TunnelGate.up)
+        internal fun explainUpdateFailure(error: Throwable): String = explainUpdateFailure(error, TunnelGate.up)
 
         internal fun explainUpdateFailure(error: Throwable, tunnelUp: Boolean): String {
             val messages = generateSequence(error) { it.cause }
@@ -460,7 +454,7 @@ class HTTPClient : Closeable {
                             if (n <= 0) break
                             written += n
                             if (written > max) {
-                                throw IllegalStateException("下载内容过大（>${max} 字节）")
+                                throw IllegalStateException("下载内容过大（>$max 字节）")
                             }
                             output.write(buf, 0, n)
                             onProgress?.invoke(written, total)
@@ -601,7 +595,7 @@ class HTTPClient : Closeable {
                 }
                 val declared = conn.contentLengthLong
                 if (declared > maxBytes) {
-                    throw IllegalStateException("下载内容过大（>${maxBytes} 字节）")
+                    throw IllegalStateException("下载内容过大（>$maxBytes 字节）")
                 }
                 return conn.inputStream.use { input -> reader(input, conn, deadlineNanos) }
             } finally {
@@ -635,7 +629,7 @@ class HTTPClient : Closeable {
             if (n <= 0) break
             total += n
             if (total > maxBytes) {
-                throw IllegalStateException("下载内容过大（>${maxBytes} 字符）")
+                throw IllegalStateException("下载内容过大（>$maxBytes 字符）")
             }
             output.write(buf, 0, n)
         }
@@ -685,12 +679,9 @@ private class PinnedSniSslSocketFactory(
         if (autoClose) runCatching { s.close() }
         return connectOutside()
     }
-    override fun createSocket(host: String, port: Int): Socket =
-        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
-    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket =
-        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port, localHost, localPort))
-    override fun createSocket(address: InetAddress, port: Int): Socket =
-        if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
+    override fun createSocket(host: String, port: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port, localHost, localPort))
+    override fun createSocket(address: InetAddress, port: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
     override fun createSocket(
         address: InetAddress,
         port: Int,

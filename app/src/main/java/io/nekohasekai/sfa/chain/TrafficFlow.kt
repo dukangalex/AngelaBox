@@ -500,8 +500,7 @@ object SankeyLayout {
         val needed = byCol.values.maxOf { col ->
             val proxy = col.filter { !it.direct }
             val direct = col.filter { it.direct }
-            fun mins(list: List<FlowNode>) =
-                list.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
+            fun mins(list: List<FlowNode>) = list.map { node -> (minHeights[node.id] ?: 16f).coerceAtLeast(16f) }
             val laneGap = if (proxy.isNotEmpty() && direct.isNotEmpty()) gapY * 2.2f else 0f
             val extraGaps =
                 (proxy.size - 1).coerceAtLeast(0) + (direct.size - 1).coerceAtLeast(0)

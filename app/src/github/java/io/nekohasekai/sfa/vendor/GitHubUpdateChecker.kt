@@ -77,9 +77,7 @@ class GitHubUpdateChecker : Closeable {
         return apks.find { it.name.equals(PREFERRED_APK, ignoreCase = true) }
     }
 
-    private fun getReleases(githubToken: String): List<GitHubRelease> {
-        return fetchReleaseList(RELEASES_URL, githubToken)
-    }
+    private fun getReleases(githubToken: String): List<GitHubRelease> = fetchReleaseList(RELEASES_URL, githubToken)
 
     private fun fetchReleaseList(url: String, githubToken: String): List<GitHubRelease> {
         RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.UPDATE)
@@ -140,8 +138,7 @@ class GitHubUpdateChecker : Closeable {
         }
     }
 
-    private fun normalizeVersion(raw: String): String =
-        raw.trim().removePrefix("v").removePrefix("V").substringBefore(" ")
+    private fun normalizeVersion(raw: String): String = raw.trim().removePrefix("v").removePrefix("V").substringBefore(" ")
 
     private fun versionCodeFromName(name: String): Int {
         val parts = name.split(".", "-")

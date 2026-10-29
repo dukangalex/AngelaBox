@@ -26,14 +26,12 @@ data class ChainPath(
     val landingInvalidated: Boolean = false,
 ) {
     companion object {
-        fun regular(profileName: String = "", exitTag: String = ""): ChainPath {
-            return ChainPathBuilder.build(
-                profileName = profileName,
-                defaultOutboundTag = exitTag,
-                binding = null,
-                landingProfileName = null,
-            )
-        }
+        fun regular(profileName: String = "", exitTag: String = ""): ChainPath = ChainPathBuilder.build(
+            profileName = profileName,
+            defaultOutboundTag = exitTag,
+            binding = null,
+            landingProfileName = null,
+        )
     }
 }
 

@@ -40,9 +40,11 @@ class RuleSetTriageTest {
     /** A built-config shape: subscription + script + app-injected sets. */
     private fun mixedConfig(): String = JSONObject()
         .put(
-            "route", JSONObject()
+            "route",
+            JSONObject()
                 .put(
-                    "rule_set", org.json.JSONArray()
+                    "rule_set",
+                    org.json.JSONArray()
                         .put(remoteSet("sub-ok", okUrl))
                         .put(remoteSet("sub-404", notFoundUrl))
                         .put(remoteSet("sub-slow", slowUrl))
@@ -59,13 +61,15 @@ class RuleSetTriageTest {
                         ),
                 )
                 .put(
-                    "rules", org.json.JSONArray()
+                    "rules",
+                    org.json.JSONArray()
                         .put(JSONObject().put("rule_set", org.json.JSONArray().put("sub-ok").put("sub-404")).put("outbound", "proxy"))
                         .put(JSONObject().put("rule_set", "geosite-nvidia@cn").put("outbound", "direct"))
                         .put(
                             JSONObject().put("type", "logical").put("mode", "and")
                                 .put(
-                                    "rules", org.json.JSONArray()
+                                    "rules",
+                                    org.json.JSONArray()
                                         .put(JSONObject().put("rule_set", org.json.JSONArray().put("sub-slow").put("geosite-cn")).put("outbound", "proxy")),
                                 )
                                 .put("outbound", "proxy"),
@@ -74,19 +78,23 @@ class RuleSetTriageTest {
                 .put("final", "proxy"),
         )
         .put(
-            "dns", JSONObject()
+            "dns",
+            JSONObject()
                 .put(
-                    "servers", org.json.JSONArray()
+                    "servers",
+                    org.json.JSONArray()
                         .put(JSONObject().put("tag", "dns-remote").put("type", "https").put("server", "8.8.8.8")),
                 )
                 .put(
-                    "rules", org.json.JSONArray()
+                    "rules",
+                    org.json.JSONArray()
                         .put(JSONObject().put("rule_set", org.json.JSONArray().put("sub-404").put("geosite-cn")).put("server", "dns-remote"))
                         .put(JSONObject().put("rule_set", "geosite-category-ads-all").put("action", "reject")),
                 ),
         )
         .put(
-            "outbounds", org.json.JSONArray()
+            "outbounds",
+            org.json.JSONArray()
                 .put(JSONObject().put("tag", "proxy").put("type", "direct"))
                 .put(JSONObject().put("tag", "direct").put("type", "direct")),
         )
@@ -100,8 +108,7 @@ class RuleSetTriageTest {
         .put("download_detour", "direct")
 
     /** The production probe's semantics, faked: 2xx = true, else false. */
-    private fun fakeProbe(verdicts: Map<String, Boolean>): RuleSetProbe =
-        RuleSetProbe { url -> verdicts[url] ?: true }
+    private fun fakeProbe(verdicts: Map<String, Boolean>): RuleSetProbe = RuleSetProbe { url -> verdicts[url] ?: true }
 
     private fun triage(
         content: String,
@@ -189,9 +196,8 @@ class RuleSetTriageTest {
     fun freshRecordsDecideWithoutProbing() {
         val content = mixedConfig()
         val refs = RuleSetTriage.enumerate(content)
-        fun recordFor(tag: String, available: Boolean, at: Long) =
-            RuleSetTriage.recordKey(profileId, refs.first { it.tag == tag }) to
-                RuleSetTriage.Record(available, at)
+        fun recordFor(tag: String, available: Boolean, at: Long) = RuleSetTriage.recordKey(profileId, refs.first { it.tag == tag }) to
+            RuleSetTriage.Record(available, at)
         val records = mapOf(
             // 1 minute old: fresh under both TTLs.
             recordFor("sub-404", available = false, at = t0 - 60_000),
@@ -237,7 +243,10 @@ class RuleSetTriageTest {
         val refs = RuleSetTriage.enumerate(content)
         val slowResults = RuleSetTriage.probeAll(
             refs,
-            RuleSetProbe { Thread.sleep(300); true },
+            RuleSetProbe {
+                Thread.sleep(300)
+                true
+            },
             budgetMs = 50,
             parallelism = 4,
         )
