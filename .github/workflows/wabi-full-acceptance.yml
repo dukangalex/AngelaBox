@@ -1,5 +1,7 @@
 name: Temporary full acceptance
 on:
+  push:
+    branches: [wabi/full-acceptance-20261030]
   workflow_dispatch:
 permissions:
   contents: read
