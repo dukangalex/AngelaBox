@@ -206,6 +206,15 @@ jobs:
         working-directory: sing-box-for-android
         run: python3 scripts/wabi_full_acceptance.py
 
+      - name: Capture final emulator state and logcat
+        if: always()
+        working-directory: sing-box-for-android
+        run: |
+          mkdir -p wabi-evidence
+          adb logcat -d > wabi-evidence/final-logcat.txt || true
+          adb shell dumpsys connectivity > wabi-evidence/final-connectivity.txt || true
+          adb shell ip addr > wabi-evidence/final-addresses.txt || true
+
       - name: Save recent-app screenshots
         if: always()
         uses: actions/upload-artifact@v4

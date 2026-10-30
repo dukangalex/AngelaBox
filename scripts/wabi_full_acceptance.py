@@ -87,8 +87,12 @@ def power(r,expected):
  clicktext(r,expected); time.sleep(5); r=ui('power '+expected)
  if any('Connection request' in n.get('text','') for n in r.iter()):
   clicktext(r,'OK'); time.sleep(12); r=ui('vpn approved')
- for i in range(3):
-  if maybe(r,'Allow') or maybe(r,'ALLOW'): time.sleep(5); r=ui('permission allowed')
+ for i in range(6):
+  if any(n.get('text')=='Deprecated Warning' for n in r.iter()):
+   clicktext(r,'OK'); time.sleep(4); r=ui('deprecation acknowledged '+str(i)); continue
+  if maybe(r,'Allow') or maybe(r,'ALLOW'):
+   time.sleep(5); r=ui('permission allowed '+str(i)); continue
+  break
  return r
 
 r=home()
