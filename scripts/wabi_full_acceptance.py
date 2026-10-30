@@ -96,7 +96,7 @@ def power(r,expected):
  return r
 
 r=home()
-url='https://raw.githubusercontent.com/dukangalex/AngelaBox/wabi/full-acceptance-20261030/scripts/wabi_vpn_fixture.json'
+url='https://raw.githubusercontent.com/dukangalex/AngelaBox/72321df1037c0390c62a0b342ca02aa1e7b6a0a1/scripts/wabi_vpn_fixture.json'
 link='sing-box://import-remote-profile?url='+urllib.parse.quote(url,safe='')+'#Wabi-VPN-Acceptance'
 shell('am','start','-a','android.intent.action.VIEW','-d',link,'-p',P)
 r=ui('remote import confirm'); clicktext(r,'OK'); r=ui('new remote profile'); clicktext(r,'Create'); time.sleep(15); r=ui('profile created')

@@ -1,7 +1,7 @@
 name: Temporary full acceptance
 on:
   push:
-    branches: [wabi/full-acceptance-20261030]
+    branches: [wabi/candidate-full-vpn-20261030]
   workflow_dispatch:
 permissions:
   contents: read
@@ -47,6 +47,15 @@ jobs:
           git tag -f "$KTAG" HEAD
           git describe --tags --abbrev=0
           test "$(git describe --tags --abbrev=0)" = "$KTAG"
+
+      - name: Apply and identify candidate kernel patch
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          sha256sum ../sing-box-for-android/.wabi-evidence/candidate.patch
+          git apply --check ../sing-box-for-android/.wabi-evidence/candidate.patch
+          git apply ../sing-box-for-android/.wabi-evidence/candidate.patch
+          git diff --stat
 
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
