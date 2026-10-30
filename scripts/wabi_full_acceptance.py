@@ -104,20 +104,30 @@ for i in range(3):
  if any(n.get('text')=='Dashboard' for n in r.iter()): clicktext(r,'Dashboard'); r=ui('dashboard'); break
  shell('input','keyevent','4'); r=ui('back to dashboard')
 # A single freshly imported profile should be selected by the normal creation flow.
+# Port 18081 is available directly but rejected only by the VPN route. This is
+# a control for the originating shell UID and detects accidental VPN bypass.
+def getfixture(port):
+ return shell("printf 'GET / HTTP/1.0\r\nHost: 10.0.2.2\r\n\r\n' | toybox nc -w 10 10.0.2.2 "+str(port),check=False)
+control=getfixture(18081); save('control-before-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable before VPN'
 r=power(r,'Start')
 assert any(n.get('content-desc')=='Stop' for n in r.iter()),'Service did not reach running UI'
+control=getfixture(18081); save('control-during-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' not in control,'VPN reject rule bypassed by test traffic'
+
 conn=shell('dumpsys','connectivity'); addr=shell('ip','addr'); save('vpn-connectivity',conn); save('vpn-addresses',addr)
 assert '172.19.0.1' in addr, 'VPN TUN address not present'
 http=shell("printf 'GET / HTTP/1.0\r\nHost: 10.0.2.2\r\n\r\n' | toybox nc -w 10 10.0.2.2 18080",check=False)
 save('vpn-http-response',http); assert 'ANGELABOX_ACCEPTANCE_OK' in http,'HTTP through VPN failed'
 r=power(r,'Stop'); time.sleep(4); addr=shell('ip','addr'); save('vpn-stopped-addresses',addr); assert '172.19.0.1' not in addr,'TUN remained after stop'
+control=getfixture(18081); save('control-after-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable after VPN stop'
 r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr'),'TUN not recreated'
 shell('am','force-stop',P); time.sleep(6); save('force-stop-addresses',shell('ip','addr')); r=home(); assert any(n.get('content-desc')=='Start' for n in r.iter()),'Stale running state after force-stop'
 r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr'); r=power(r,'Stop')
 # Exercise visible profile and logs/settings navigation, saving actual screenshots.
-for label in ['Profiles','Logs','Settings','Dashboard']:
- r=ui('before '+label)
- if any(n.get('text')==label or n.get('content-desc')==label for n in r.iter()): clicktext(r,label); ui('opened '+label)
+for label in ['Profiles','Logs','Settings']:
+ r=home()
+ if any(n.get('text')==label or n.get('content-desc')==label for n in r.iter()):
+  clicktext(r,label); ui('opened '+label); shell('input','keyevent','4'); time.sleep(3)
+r=home()
 # Preserve and repeat the previously established recent-card toggle acceptance.
 r=nav(); assert switch(r).get('checked')=='false'; r=toggle(r,'false'); recents('on'); shell('am','force-stop',P); launch(); r=nav(); assert switch(r).get('checked')=='true'; r=toggle(r,'true'); recents('off')
 save('app-logcat',adb('logcat','-d'))

@@ -1,1 +1,38 @@
-{"log":{"level":"debug"},"inbounds":[{"type":"tun","tag":"tun-in","address":["172.19.0.1/30"],"auto_route":true,"strict_route":true,"stack":"mixed"}],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct","auto_detect_interface":true}}
+{
+  "log": {
+    "level": "debug"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct",
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "ip_cidr": [
+          "10.0.2.2/32"
+        ],
+        "port": [
+          18081
+        ],
+        "action": "reject"
+      }
+    ]
+  }
+}

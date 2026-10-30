@@ -201,6 +201,7 @@ jobs:
           mkdir -p /tmp/wabi-http
           echo ANGELABOX_ACCEPTANCE_OK > /tmp/wabi-http/index.html
           nohup python3 -m http.server 18080 --directory /tmp/wabi-http >/tmp/wabi-http.log 2>&1 &
+          nohup python3 -m http.server 18081 --directory /tmp/wabi-http >/tmp/wabi-http-reject-control.log 2>&1 &
 
       - name: Exercise profiles VPN TUN and persistence
         working-directory: sing-box-for-android
