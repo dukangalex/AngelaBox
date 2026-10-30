@@ -1,7 +1,7 @@
 name: Temporary full acceptance
 on:
   push:
-    branches: [wabi/full-acceptance-20261030]
+    branches: [wabi/beta-vpn-diagnosis]
   workflow_dispatch:
 permissions:
   contents: read
@@ -203,6 +203,10 @@ jobs:
           nohup python3 -m http.server 18080 --directory /tmp/wabi-http >/tmp/wabi-http.log 2>&1 &
           nohup python3 -m http.server 18081 --directory /tmp/wabi-http >/tmp/wabi-http-reject-control.log 2>&1 &
 
+      - name: Build and install independent route probe
+        working-directory: sing-box-for-android
+        run: bash scripts/wabi_probe/build.sh
+
       - name: Exercise profiles VPN TUN and persistence
         working-directory: sing-box-for-android
         run: python3 scripts/wabi_full_acceptance.py
@@ -212,9 +216,9 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           mkdir -p wabi-evidence
-          adb logcat -d > wabi-evidence/final-logcat.txt || true
-          adb shell dumpsys connectivity > wabi-evidence/final-connectivity.txt || true
-          adb shell ip addr > wabi-evidence/final-addresses.txt || true
+          timeout 30s adb logcat -d > wabi-evidence/final-logcat.txt || true
+          timeout 30s adb shell dumpsys connectivity > wabi-evidence/final-connectivity.txt || true
+          timeout 30s adb shell ip addr > wabi-evidence/final-addresses.txt || true
 
       - name: Save recent-app screenshots
         if: always()
