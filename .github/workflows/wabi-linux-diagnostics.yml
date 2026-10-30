@@ -1,13 +1,13 @@
-name: Temporary Linux kernel diagnostics
+name: Temporary Linux Hysteria size comparison
 on:
   push:
     branches: [wabi/linux-diagnostics-20261030]
 permissions:
   contents: read
 jobs:
-  linux-diagnostics:
+  compare:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -20,46 +20,28 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
-      - name: Capture runner kernel and TLS capability
-        run: |
-          uname -a
-          sudo modprobe tls
-          grep '^tls ' /proc/modules || true
-          grep '^Tls' /proc/net/tls_stat || true
-      - name: Test baseline Linux process lookups
-        working-directory: kernel
-        run: go test -count=1 -v ./common/process
-      - name: Apply isolated candidate patch
-        working-directory: kernel
-        run: |
-          git apply --check ../app/.wabi-evidence/candidate.patch
-          git apply ../app/.wabi-evidence/candidate.patch
-          git diff --stat
-      - name: Test candidate Linux process lookups
-        working-directory: kernel
-        run: go test -count=1 -v ./common/process
-      - name: Pull Hysteria image
-        run: docker pull tobyxdd/hysteria:v1.3.5
-      - name: Test Hysteria and kTLS
-        working-directory: kernel/test
-        run: |
-          set -o pipefail
-          go test -count=1 -v -timeout 12m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound|TestKTLS|TestKTLSECH|TestKTLSReality)$' .
-      - name: Diagnose Hysteria deadlines and packet sizes
-        if: always()
+      - run: docker pull tobyxdd/hysteria:v1.3.5
+      - name: Compare baseline and candidate Hysteria UDP packet sizes
         working-directory: kernel/test
         run: |
           set +e
-          test -f clash_test.go || exit 2
-          cp clash_test.go /tmp/wabi-original-clash-test.go
-          sed -i 's/time.After(10 \* time.Second)/time.After(60 * time.Second)/g' clash_test.go
-          echo '=== candidate with original 1500-byte UDP, extended diagnostic timeout ==='
-          go test -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound)$' .
-          code1500=$?
-          sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go
-          echo '=== candidate with 1100-byte UDP, extended diagnostic timeout ==='
-          go test -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound)$' .
-          code1100=$?
-          echo "DIAGNOSTIC_EXIT 1500=$code1500 1100=$code1100"
-          cp /tmp/wabi-original-clash-test.go clash_test.go
-          exit 0
+          run_tests() {
+            local flavor="$1" size="$2"
+            cp clash_test.go /tmp/wabi-original-clash-test.go
+            sed -i 's/time.After(10 \* time.Second)/time.After(60 * time.Second)/g' clash_test.go
+            if [ "$size" = 1100 ]; then
+              sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go
+            fi
+            echo "=== $flavor UDP size $size ==="
+            go test -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound)$' .
+            echo "DIAGNOSTIC_EXIT $flavor $size $?"
+            cp /tmp/wabi-original-clash-test.go clash_test.go
+          }
+          run_tests baseline 1500
+          run_tests baseline 1100
+          cd ..
+          git apply --check ../app/.wabi-evidence/candidate.patch || exit 2
+          git apply ../app/.wabi-evidence/candidate.patch || exit 3
+          cd test
+          run_tests candidate 1500
+          run_tests candidate 1100
