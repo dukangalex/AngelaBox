@@ -33,7 +33,7 @@ jobs:
               sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go
             fi
             echo "=== $flavor UDP size $size ==="
-            go test -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound)$' .
+            go test -mod=mod -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound)$' .
             echo "DIAGNOSTIC_EXIT $flavor $size $?"
             cp /tmp/wabi-original-clash-test.go clash_test.go
           }
@@ -49,7 +49,7 @@ jobs:
           cp /tmp/wabi-test-go.mod test/go.mod
           cp /tmp/wabi-test-go.sum test/go.sum
           cd test
-          go list -m all > /tmp/baseline-modules.txt || exit 4
+          go list -mod=mod -m all > /tmp/baseline-modules.txt || exit 4
           run_tests baseline 1500
           run_tests baseline 1100
           cd ..
@@ -57,7 +57,7 @@ jobs:
           git apply --check ../app/.wabi-evidence/candidate.patch || exit 5
           git apply ../app/.wabi-evidence/candidate.patch || exit 6
           cd test
-          go list -m all > /tmp/candidate-modules.txt || exit 7
+          go list -mod=mod -m all > /tmp/candidate-modules.txt || exit 7
           echo '=== effective module differences ==='
           diff -u /tmp/baseline-modules.txt /tmp/candidate-modules.txt || true
           run_tests candidate 1500
