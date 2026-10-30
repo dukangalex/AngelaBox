@@ -115,8 +115,28 @@ def getfixture(port):
   if 'WABI_PROBE_HTTP_' in text or 'WABI_PROBE_FAILED_' in text: return text
  raise Exception('Probe did not produce a result on port '+str(port))
 control=getfixture(18081); save('control-before-vpn',control); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable before VPN'
-r=home()
-r=power(r,'Start')
+# Default LAN-direct overlay precedes the fixture's 10.0.2.2 reject rule.
+# Disable it on this disposable emulator through the app UI before testing.
+r=home(); clicktext(r,'Settings'); r=ui('settings for vpn routing control')
+clicktext(r,'System Explicit'); r=ui('system explicit initial')
+for i in range(24):
+ if any(n.get('text')=='局域网直连' for n in r.iter()): break
+ size=shell('wm','size'); w,h=map(int,re.findall(r'(\d+)x(\d+)',size)[-1]); shell('input','swipe',str(w//2),str(int(h*.78)),str(w//2),str(int(h*.25)),'400'); r=ui('find lan direct '+str(i))
+else: raise Exception('LAN direct switch not found')
+title=next(n for n in r.iter() if n.get('text')=='局域网直连')
+parent=next(n for n in r.iter() if title in list(n))
+controls=[n for n in parent.iter() if n.get('checkable')=='true' and n.get('clickable')=='true']
+if len(controls)!=1: raise Exception('ambiguous LAN direct switch '+str([n.attrib for n in controls]))
+print('LAN_DIRECT_BEFORE',controls[0].attrib,flush=True)
+if controls[0].get('checked')=='true':
+ x,y=bounds(controls[0]); shell('input','tap',x,y); r=ui('lan direct disabled')
+ title=next(n for n in r.iter() if n.get('text')=='局域网直连')
+ parent=next(n for n in r.iter() if title in list(n))
+ controls=[n for n in parent.iter() if n.get('checkable')=='true' and n.get('clickable')=='true']
+assert len(controls)==1 and controls[0].get('checked')=='false', 'LAN direct remains enabled'
+print('LAN_DIRECT_AFTER',controls[0].attrib,flush=True)
+shell('input','keyevent','4'); time.sleep(2); shell('input','keyevent','4'); time.sleep(2)
+r=home(); r=power(r,'Start')
 assert any(n.get('content-desc')=='Stop' for n in r.iter()),'Service did not reach running UI'
 control=getfixture(18081); save('control-during-vpn',control); assert 'WABI_PROBE_FAILED_' in control,'VPN reject rule bypassed by test traffic'
 r=home()
