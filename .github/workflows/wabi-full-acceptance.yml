@@ -212,6 +212,10 @@ jobs:
           nohup python3 -m http.server 18080 --directory /tmp/wabi-http >/tmp/wabi-http.log 2>&1 &
           nohup python3 -m http.server 18081 --directory /tmp/wabi-http >/tmp/wabi-http-reject-control.log 2>&1 &
 
+      - name: Build and install independent route probe
+        working-directory: sing-box-for-android
+        run: bash scripts/wabi_probe/build.sh
+
       - name: Exercise profiles VPN TUN and persistence
         working-directory: sing-box-for-android
         run: python3 scripts/wabi_full_acceptance.py

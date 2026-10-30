@@ -104,21 +104,31 @@ for i in range(3):
  if any(n.get('text')=='Dashboard' for n in r.iter()): clicktext(r,'Dashboard'); r=ui('dashboard'); break
  shell('input','keyevent','4'); r=ui('back to dashboard')
 # A single freshly imported profile should be selected by the normal creation flow.
-# Port 18081 is available directly but rejected only by the VPN route. This is
-# a control for the originating shell UID and detects accidental VPN bypass.
+# Probe from a separate ordinary app UID, not the privileged adb shell UID.
+# A reject rule provides a direct VPN-routing control rather than assuming HTTP success means VPN routing.
 def getfixture(port):
- return shell("printf 'GET / HTTP/1.0\r\nHost: 10.0.2.2\r\n\r\n' | toybox nc -w 10 10.0.2.2 "+str(port),check=False)
-control=getfixture(18081); save('control-before-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable before VPN'
+ shell('am','force-stop','org.wabi.vpnprobe')
+ shell('am','start','-n','org.wabi.vpnprobe/.ProbeActivity','--es','url',f'http://10.0.2.2:{port}/')
+ for i in range(5):
+  time.sleep(3); root=ui('probe '+str(port)+' '+str(i))
+  text=' '.join(n.get('text','') for n in root.iter())
+  if 'WABI_PROBE_HTTP_' in text or 'WABI_PROBE_FAILED_' in text: return text
+ raise Exception('Probe did not produce a result on port '+str(port))
+control=getfixture(18081); save('control-before-vpn',control); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable before VPN'
+r=home()
 r=power(r,'Start')
 assert any(n.get('content-desc')=='Stop' for n in r.iter()),'Service did not reach running UI'
-control=getfixture(18081); save('control-during-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' not in control,'VPN reject rule bypassed by test traffic'
+control=getfixture(18081); save('control-during-vpn',control); assert 'WABI_PROBE_FAILED_' in control,'VPN reject rule bypassed by test traffic'
+r=home()
 
 conn=shell('dumpsys','connectivity'); addr=shell('ip','addr'); save('vpn-connectivity',conn); save('vpn-addresses',addr)
 assert '172.19.0.1' in addr, 'VPN TUN address not present'
-http=shell("printf 'GET / HTTP/1.0\r\nHost: 10.0.2.2\r\n\r\n' | toybox nc -w 10 10.0.2.2 18080",check=False)
-save('vpn-http-response',http); assert 'ANGELABOX_ACCEPTANCE_OK' in http,'HTTP through VPN failed'
+http=getfixture(18080)
+save('vpn-http-response',http); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in http,'HTTP through VPN failed'
+r=home()
 r=power(r,'Stop'); time.sleep(4); addr=shell('ip','addr'); save('vpn-stopped-addresses',addr); assert '172.19.0.1' not in addr,'TUN remained after stop'
-control=getfixture(18081); save('control-after-vpn',control); assert 'ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable after VPN stop'
+control=getfixture(18081); save('control-after-vpn',control); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in control,'control fixture unavailable after VPN stop'
+r=home()
 r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr'),'TUN not recreated'
 shell('am','force-stop',P); time.sleep(6); save('force-stop-addresses',shell('ip','addr')); r=home(); assert any(n.get('content-desc')=='Start' for n in r.iter()),'Stale running state after force-stop'
 r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr'); r=power(r,'Stop')
