@@ -44,4 +44,4 @@ jobs:
         working-directory: kernel/test
         run: |
           set -o pipefail
-          go test -count=1 -v -timeout 12m -tags 'with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound|TestKTLS|TestKTLSECH|TestKTLSReality)$' .
+          go test -count=1 -v -timeout 12m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^(TestHysteriaSelf|TestHysteriaInbound|TestHysteriaOutbound|TestKTLS|TestKTLSECH|TestKTLSReality)$' .
