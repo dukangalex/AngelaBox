@@ -37,11 +37,28 @@ jobs:
             echo "DIAGNOSTIC_EXIT $flavor $size $?"
             cp /tmp/wabi-original-clash-test.go clash_test.go
           }
-          run_tests baseline 1500
-          run_tests baseline 1100
+          # The released tag has conflict markers in test/go.mod and test/go.sum.
+          # Normalize only the test harness with the candidate's resolved modules;
+          # the baseline kernel source itself stays at the released commit.
           cd ..
           git apply --check ../app/.wabi-evidence/candidate.patch || exit 2
           git apply ../app/.wabi-evidence/candidate.patch || exit 3
+          cp test/go.mod /tmp/wabi-test-go.mod
+          cp test/go.sum /tmp/wabi-test-go.sum
+          git reset --hard HEAD
+          cp /tmp/wabi-test-go.mod test/go.mod
+          cp /tmp/wabi-test-go.sum test/go.sum
           cd test
+          go list -m all > /tmp/baseline-modules.txt || exit 4
+          run_tests baseline 1500
+          run_tests baseline 1100
+          cd ..
+          git reset --hard HEAD
+          git apply --check ../app/.wabi-evidence/candidate.patch || exit 5
+          git apply ../app/.wabi-evidence/candidate.patch || exit 6
+          cd test
+          go list -m all > /tmp/candidate-modules.txt || exit 7
+          echo '=== effective module differences ==='
+          diff -u /tmp/baseline-modules.txt /tmp/candidate-modules.txt || true
           run_tests candidate 1500
           run_tests candidate 1100
