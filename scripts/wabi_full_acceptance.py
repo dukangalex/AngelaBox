@@ -186,13 +186,16 @@ def set_switch(r,label,value):
   x,y=bounds(n); shell('input','tap',x,y); r=ui('set '+label); n=control_for(r,label)
  assert n.get('checked')==value,(label,n.attrib)
  return r
+# Return through the actual bottom navigation; relaunch can restore a nested screen.
+def dashboard():
+ r=home()
+ for i in range(5):
+  if any(n.get('text')=='Dashboard' or n.get('content-desc')=='Dashboard' for n in r.iter()):
+   clicktext(r,'Dashboard'); return ui('perapp-dashboard')
+  shell('input','keyevent','4'); r=ui('perapp-find-nav '+str(i))
+ raise Exception('dashboard navigation unavailable')
 # Navigate to the system-explicit override, and select unmanaged exclusion.
-for i in range(5):
- r=ui('back-to-dashboard '+str(i))
- if any(n.get('content-desc')=='Start' for n in r.iter()): break
- shell('input','keyevent','4'); time.sleep(2)
-else: r=home()
-if not any(n.get('text')=='Settings' or n.get('content-desc')=='Settings' for n in r.iter()): r=home()
+r=dashboard()
 clicktext(r,'Settings'); r=ui('perapp-settings'); clicktext(r,'System Explicit'); r=ui('perapp-override')
 r=scroll_until(r,'托管模式','perapp-search-managed'); r=set_switch(r,'托管模式','false')
 r=scroll_until(r,'管理','perapp-search-manage'); clicktext(r,'管理'); r=ui('perapp-list')
@@ -201,11 +204,11 @@ clicktext(r,'Search'); r=ui('perapp-search'); shell('input','text','VPN%sRoute%s
 probe=[n for n in r.iter() if n.get('text')=='VPN Route Probe']
 assert len(probe)==1,'probe app unavailable in app selection'
 r=set_switch(r,'VPN Route Probe','true'); save('perapp-selection','excluded probe selected, unmanaged mode')
-shell('input','keyevent','4'); shell('input','keyevent','4'); shell('input','keyevent','4'); r=home(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
+shell('input','keyevent','4'); shell('input','keyevent','4'); shell('input','keyevent','4'); r=dashboard(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
 excluded=getfixture(18081); save('perapp-excluded-result',excluded); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in excluded,'excluded app did not route direct'
 r=home(); r=power(r,'Stop')
 # Turn the setting off and verify the same app is once again subject to the VPN rule.
 clicktext(r,'Settings'); r=ui('perapp-settings-disable'); clicktext(r,'System Explicit'); r=ui('perapp-override-disable'); r=scroll_until(r,'托管模式','perapp-return'); r=set_switch(r,'启用','false')
-shell('input','keyevent','4'); shell('input','keyevent','4'); r=home(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
+shell('input','keyevent','4'); shell('input','keyevent','4'); r=dashboard(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
 included=getfixture(18081); save('perapp-default-result',included); assert 'WABI_PROBE_FAILED_' in included,'VPN reject rule bypassed when per-app disabled'
 r=home(); r=power(r,'Stop'); print('PER_APP_EXCLUDE_ROUTING_VERIFIED',flush=True)
