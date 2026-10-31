@@ -106,7 +106,7 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
   - `tag` 留空 = 公告最新 Release；填 `v1.0.114-stable` / `v1.0.113-beta` 这类 tag = 公告指定版本；
   - `document_only=true` = 只补传 APK 文件，不重发文字说明。
 - **2026-10-29 核验与处理：** `scripts/test_unit_test_whitelist.py` 已接入 `ci.yml` 的 overlay-guards 和 `release-chainbox.yml`；检查通过，49 个测试类均出现在两个工作流白名单中，旧记录中的 15 个缺漏已不成立。`release-chainbox.yml` 的 `Notify Telegram` 已移除 `continue-on-error: true`，通知失败会清楚标为工作流失败（不撤销已经发布的 Release）。
-- **待办：** `spotlessCheck` 尚未接入 CI。2026-10-29 本地运行检查失败，报告了 100 多个 Kotlin/Java 源文件格式问题；先单独评估并整理这批既有格式差异，再把检查加入 CI，避免新增一个持续失败的门禁。
+- **2026-10-31 更新：** 已整理既有 Kotlin/Java 格式差异，并将 `spotlessCheck` 接入 CI 与发布工作流；CI 通过。测试白名单现覆盖 50 个测试类，包括每次启动重建分应用包名迭代器的回归。Beta 发布还要求精确 `dev` 最新提交及该提交的绿色 CI。
 
 ## 内核同步
 
@@ -117,8 +117,8 @@ GitHub Release 发布成功后，`telegram.yml` 会按 `docs/RELEASE_NOTES.md` �
 | 官方上游 | SagerNet/sing-box **v1.15.0-alpha.13** |
 | 本仓库 | dukangalex/sing-box 分支 `chain-dev` |
 | 已对齐基线 | 官方 1.15.0-alpha.13（`go.mod` 1.25.5；官方 CI 1.26.10；本仓库发版 Go 1.25.5） |
-| 内核 tag | v1.15.0-chain.9（正式版仍为 v1.15.0-chain.8） |
-| 发版钉死的 commit | `9efb79143f95b9e5a47260f45e29a48e82bce165`（`version.properties` 的 `KERNEL_COMMIT`） |
+| 内核 tag | v1.15.0-chain.11（正式版仍为 v1.15.0-chain.8） |
+| 发版钉死的 commit | `b4a0320eabbb9b2835055b6dfcc094f25706421f`（`version.properties` 的 `KERNEL_COMMIT`） |
 
 官方 1.14.1（2026-09-15）changelog 为 “Fixes and improvements”，无新 inbound/outbound 类型。**不跟进 v1.14.1**：稳定安装包钉的是 1.14.0；测试线已在 1.15，没有产品理由再回头吃一版修补。官方 1.15.0-alpha.6（2026-09-17）同样是修补、无新类型，测试线跟进。
 
@@ -154,7 +154,7 @@ git push origin chain-dev
 3. **冲突即停**：与官方架构无法兼容时停止发版。
 4. **先验证再跟进**：官方 sing-box 1.14 已发布，`chain-dev` 已带 1.14 依赖。App 侧先把兼容层（fakeip / rcode / inbound sniff / rule-set URL）与链式出站做稳，再合入更新的官方提交。不要在未验证 Chain outbound 的情况下整包快进。
 5. **发版核对官方功能**：CI 拉取 `SagerNet/sing-box` 的 `v$KERNEL_UPSTREAM`，用 `scripts/check_upstream_features.py` 确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`。缺失即失败，不得发版。
-6. **记录内核 commit**：Release 说明写入本次构建的 `chain-dev` SHA，便于复现与审计。构建仍从 `chain-dev` 分支拉取，不以可变分支代替记录。
+6. **记录内核 commit**：Release 说明写入本次构建的 `chain-dev` SHA，便于复现与审计。构建检出精确 `KERNEL_COMMIT`，并校验远端正式 `KERNEL_TAG` 指向同一提交；不得以可变分支替代精确 pin。
 
 ## App 同步
 

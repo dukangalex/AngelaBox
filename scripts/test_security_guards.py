@@ -512,9 +512,23 @@ def test_subscription_https_only() -> None:
     assert 'require(scheme == "https") { "仅允许 HTTPS" }' in src
 
 
+def test_beta_release_requires_tested_dev_tip() -> None:
+    workflow = read(".github/workflows/release-chainbox.yml")
+    guard = read("scripts/release_preflight_gate.sh")
+    assert "actions: read" in workflow
+    assert 'bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"' in workflow
+    assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
+    assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
+    assert 'refs/heads/dev' in guard
+    assert 'select(.headSha ==' in guard
+    assert '[ "$CI_STATUS" != "completed" ]' in guard
+    assert '[ "$CI_CONCLUSION" != "success" ]' in guard
+
+
 def main() -> int:
     tests = [
         test_source_guards,
+        test_beta_release_requires_tested_dev_tip,
         test_bypass_mixed_or,
         test_update_url_pin,
         test_clash_api_loopback,

@@ -365,16 +365,22 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         serviceReload()
     }
 
-    private fun buildOverrideOptions(): OverrideOptions = OverrideOptions().apply {
-        autoRedirect = Settings.autoRedirect
-        if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
-            val appList = Settings.getEffectivePerAppProxyList()
-            if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                includePackage =
-                    PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-            } else {
-                excludePackage =
-                    PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
+    // libbox consumes StringIterator while starting.  Keep immutable package
+    // snapshots and allocate fresh iterators for every retry in the ladder.
+    private fun buildOverrideOptionsFactory(): () -> OverrideOptions {
+        val redirect = Settings.autoRedirect
+        val enabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
+        val includeMode = enabled && Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE
+        val packages = if (enabled) Settings.getEffectivePerAppProxyList() else emptySet()
+        val snapshot = PerAppPackageSnapshot(enabled, includeMode, packages, Application.application.packageName)
+        return {
+            OverrideOptions().apply {
+                autoRedirect = redirect
+                if (snapshot.includes) {
+                    includePackage = PlatformInterfaceWrapper.StringArray(snapshot.includeIterator())
+                } else if (snapshot.excludes) {
+                    excludePackage = PlatformInterfaceWrapper.StringArray(snapshot.excludeIterator())
+                }
             }
         }
     }
@@ -392,7 +398,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     ): Boolean {
         val ladderStart = SystemClock.elapsedRealtime()
         fun ladderExpired(): Boolean = SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
-        val options = buildOverrideOptions()
+        val optionsFactory = buildOverrideOptionsFactory()
         val scriptBound = OverlayScripts.isBound(profileId)
         val chainBound = ChainBindings.get(profileId) != null
 
@@ -550,7 +556,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return true
         }
 
-        var result = attempt(content, options)
+        var result = attempt(content, optionsFactory())
         if (result.isSuccess) {
             if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
             if (substitutedRuleSets) noteRuleSetsSubstituted()
@@ -578,7 +584,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
         if (ConfigDiagnose.looksLikeRpcDeath(err)) {
             restartCommandServer()
-            result = attempt(content, options)
+            result = attempt(content, optionsFactory())
             if (result.isSuccess) {
                 if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                 if (substitutedRuleSets) noteRuleSetsSubstituted()
@@ -598,7 +604,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             if (echContent != null) {
                 restartCommandServer()
-                result = attempt(echContent, options)
+                result = attempt(echContent, optionsFactory())
             }
             if (echContent != null && result.isSuccess) {
                 OverrideStatus.add(
@@ -629,7 +635,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 resolverHealed = true
                 restartCommandServer()
                 content = patched
-                result = attempt(content, options)
+                result = attempt(content, optionsFactory())
                 if (result.isSuccess) {
                     if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
                     if (substitutedRuleSets) noteRuleSetsSubstituted()
@@ -682,7 +688,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 )
                 if (replaced != null) {
                     restartCommandServer()
-                    result = attempt(reheal(replaced), options)
+                    result = attempt(reheal(replaced), optionsFactory())
                     if (result.isSuccess) {
                         OverrideStatus.add(
                             OverrideNotice(
@@ -713,7 +719,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 )
             ) {
                 restartCommandServer()
-                result = attempt(content, options, StartRetryPolicy.EXTENDED_START_BUDGET_MS)
+                result = attempt(content, optionsFactory(), StartRetryPolicy.EXTENDED_START_BUDGET_MS)
                 if (result.isSuccess) {
                     if (droppedRuleSets && !recoveredContent) {
                         noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)
@@ -737,7 +743,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 )
                 if (substitutedRetry != null) {
                     restartCommandServer()
-                    result = attempt(reheal(substitutedRetry), options)
+                    result = attempt(reheal(substitutedRetry), optionsFactory())
                     if (result.isSuccess) {
                         noteRuleSetsSubstituted()
                         return started(false)
@@ -753,7 +759,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             if (droppedAll != null) {
                 restartCommandServer()
-                result = attempt(reheal(droppedAll), options)
+                result = attempt(reheal(droppedAll), optionsFactory())
                 if (result.isSuccess) {
                     if (timedOut && !stalled) {
                         // The drop rescued a timed-out start: now the stall is
@@ -804,7 +810,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
             if (rolledRaw != null) {
                 restartCommandServer()
-                result = attempt(reheal(rolledRaw), options)
+                result = attempt(reheal(rolledRaw), optionsFactory())
                 if (result.isSuccess) {
                     OverrideStatus.add(
                         OverrideNotice(
@@ -852,7 +858,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 (quarantined.removedItems.isNotEmpty() || quarantined.floorUsed)
             ) {
                 restartCommandServer()
-                result = attempt(reheal(quarantined.content), options)
+                result = attempt(reheal(quarantined.content), optionsFactory())
                 if (result.isSuccess) {
                     OverrideStatus.add(quarantineNotice(quarantined))
                     if (chainBound &&
