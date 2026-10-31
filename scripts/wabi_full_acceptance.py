@@ -120,8 +120,17 @@ control=getfixture(18081); save('control-before-vpn',control); assert 'WABI_PROB
 r=home(); clicktext(r,'Settings'); r=ui('settings for vpn routing control')
 clicktext(r,'System Explicit'); r=ui('system explicit initial')
 for i in range(24):
- if any(n.get('text')=='局域网直连' for n in r.iter()): break
- size=shell('wm','size'); w,h=map(int,re.findall(r'(\d+)x(\d+)',size)[-1]); shell('input','swipe',str(w//2),str(int(h*.78)),str(w//2),str(int(h*.25)),'400'); r=ui('find lan direct '+str(i))
+ size=shell('wm','size'); w,h=map(int,re.findall(r'(\d+)x(\d+)',size)[-1])
+ titles=[n for n in r.iter() if n.get('text')=='局域网直连']
+ if titles:
+  parent=next(n for n in r.iter() if titles[0] in list(n))
+  visible_controls=[n for n in parent.iter() if n.get('checkable')=='true' and n.get('clickable')=='true']
+  if len(visible_controls)==1:
+   b=list(map(int,re.findall(r'\d+',visible_controls[0].attrib['bounds'])))
+   # Accessibility includes clipped controls at the navigation-bar edge.
+   # Scroll the complete touch target into view before interacting with it.
+   if b[3]-b[1]>=30 and b[1]>=80 and b[3]<=h-48: break
+ shell('input','swipe',str(w//2),str(int(h*.78)),str(w//2),str(int(h*.25)),'400'); r=ui('find lan direct '+str(i))
 else: raise Exception('LAN direct switch not found')
 title=next(n for n in r.iter() if n.get('text')=='局域网直连')
 parent=next(n for n in r.iter() if title in list(n))
