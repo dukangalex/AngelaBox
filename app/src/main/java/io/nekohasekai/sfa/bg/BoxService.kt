@@ -372,6 +372,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val enabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
         val includeMode = enabled && Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE
         val packages = if (enabled) Settings.getEffectivePerAppProxyList() else emptySet()
+        android.util.Log.i("WabiPerAppDebug", "effective include=$includeMode managed=${Settings.perAppProxyManagedMode} packages=$packages")
         val snapshot = PerAppPackageSnapshot(enabled, includeMode, packages, Application.application.packageName)
         return {
             OverrideOptions().apply {
@@ -556,6 +557,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return true
         }
 
+        // TEST BRANCH ONLY: exercise the retry boundary after native iteration.
+        if (Settings.getEffectivePerAppProxyList().contains("org.wabi.vpnprobe")) {
+            val forced = attempt("{", optionsFactory())
+            check(forced.isFailure) { "malformed diagnostic config unexpectedly started" }
+            android.util.Log.i("WabiRetryTest", "forced parse failure before retry: ${forced.exceptionOrNull()}")
+        }
         var result = attempt(content, optionsFactory())
         if (result.isSuccess) {
             if (droppedRuleSets && !recoveredContent) noteRuleSetsSkipped(ConfigDiagnose.RuleSetSkipCause.MEMORY_PRE_SKIP)

@@ -163,6 +163,7 @@ class VPNService :
             }
 
             val excludePackage = options.excludePackage
+            android.util.Log.i("WabiPerAppDebug", "openTun exclude hasNext=${excludePackage.hasNext()}")
             if (excludePackage.hasNext()) {
                 while (excludePackage.hasNext()) {
                     try {
