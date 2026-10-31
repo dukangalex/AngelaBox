@@ -40,14 +40,26 @@ jobs:
           cd "$GITHUB_WORKSPACE/kernel/test"
           go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-compat
           cp clash_test.go /tmp/wabi-original-clash-test.go
+          cp box_test.go /tmp/wabi-original-box-test.go
+          cp hysteria_test.go /tmp/wabi-original-hysteria-test.go
           rc=0
           for size in 1500 1100; do
             cp /tmp/wabi-original-clash-test.go clash_test.go
+            cp /tmp/wabi-original-hysteria-test.go hysteria_test.go
+            # Diagnose datagrams independently of the preceding 6.4 MiB TCP transfer.
+            sed -i '/require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))/d' box_test.go
+            sed -i 's/testSuitSimple1(t, clientPort, testPort)/testSuit(t, clientPort, testPort)/' hysteria_test.go
             if [ "$size" = 1100 ]; then sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go; fi
             echo "=== Hysteria v1 UDP $size ==="
             go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound|Outbound)$' . 2>&1 | tee "/tmp/compat-${size}.log" || rc=1
           done
           cp /tmp/wabi-original-clash-test.go clash_test.go
+          cp /tmp/wabi-original-box-test.go box_test.go
+          cp /tmp/wabi-original-hysteria-test.go hysteria_test.go
+          # Measure the previously timed-out TCP path with a longer explicit limit.
+          sed -i 's/time.After(10 \* time.Second)/time.After(60 * time.Second)/g' clash_test.go
+          echo '=== Hysteria v1 original suite with 60s transfer timeout ==='
+          go test -mod=mod -count=1 -v -timeout 10m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound|Outbound)$' . 2>&1 | tee /tmp/compat-v1-full.log || rc=1
           echo '=== Hysteria2 bidirectional regression ==='
           go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria2(Self|Inbound|Outbound)$' . 2>&1 | tee /tmp/compat-hysteria2.log || rc=1
           exit "$rc"
