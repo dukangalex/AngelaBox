@@ -141,7 +141,7 @@ jobs:
           sed -i 's/abiFilters += "arm64-v8a"/abiFilters += "x86_64"/' app/build.gradle.kts
           grep -q 'abiFilters += "x86_64"' app/build.gradle.kts
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
-          ./gradlew :app:testDebugUnitTest --tests '*InspectionPolicyTest' --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests '*InspectionPolicyTest' --tests '*InspectionAiTransportTest' --no-daemon --stacktrace
           find app/build/outputs/apk -name '*.apk' -print
       - name: Install emulator and enable KVM
         run: |
