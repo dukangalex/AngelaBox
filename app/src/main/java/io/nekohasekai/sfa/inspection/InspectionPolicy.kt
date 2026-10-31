@@ -55,7 +55,7 @@ object InspectionPolicy {
                     }
                 },
             )
-            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; no root cause established; skipped/unknown is not healthy.")
+            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; DNS canary nonresolution is not proof of working DNS; no root cause established; skipped/unknown is not healthy.")
             .toString(2)
     }
 
