@@ -30,13 +30,13 @@ jobs:
           set -euo pipefail
           python3 app/scripts/wabi_hysteria_server_diagnose.py upstream-hysteria/core/cs/server_client.go
           cd upstream-hysteria
-          go mod download github.com/quic-go/quic-go
-          QUIC_DIR="$(go list -m -f '{{.Dir}}' github.com/quic-go/quic-go)"
+          (cd app && GOWORK=off go mod download github.com/quic-go/quic-go)
+          QUIC_DIR="$(cd app && GOWORK=off go list -m -f '{{.Dir}}' github.com/quic-go/quic-go)"
           cp -r "$QUIC_DIR" /tmp/wabi-hy-old-quic
           chmod -R u+w /tmp/wabi-hy-old-quic
           python3 ../app/scripts/wabi_hysteria_legacy_cap.py /tmp/wabi-hy-old-quic/connection.go
-          go mod edit -replace github.com/quic-go/quic-go=/tmp/wabi-hy-old-quic
-          CGO_ENABLED=0 go build -mod=mod -tags=gpl -o /tmp/wabi-hysteria-server ./app/cmd/
+          go work edit -replace github.com/quic-go/quic-go=/tmp/wabi-hy-old-quic
+          CGO_ENABLED=0 go build -tags=gpl -o /tmp/wabi-hysteria-server ./app/cmd/
           cd ..
           mkdir -p /tmp/wabi-hysteria-image
           cp /tmp/wabi-hysteria-server /tmp/wabi-hysteria-image/hysteria
