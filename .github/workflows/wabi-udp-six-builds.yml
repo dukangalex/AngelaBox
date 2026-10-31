@@ -1,0 +1,120 @@
+name: Wabi release matrix dry run
+
+on:
+  push:
+    branches: [wabi/udp-guard-six-builds]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: android
+            goarch: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: dukangalex/sing-box
+          fetch-depth: 0
+          ref: b4a0320eabbb9b2835055b6dfcc094f25706421f
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          set -e
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            TAGS=$(cat release/DEFAULT_BUILD_TAGS_WINDOWS | tr -d '\n' | tr ' ' ',')
+          else
+            TAGS=$(cat release/DEFAULT_BUILD_TAGS_OTHERS | tr -d '\n' | tr ' ' ',')
+          fi
+          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+          OUT="sing-box-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          echo "Building $OUT"
+          echo "TAGS=$TAGS"
+          go build -v -trimpath \
+            -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION}' -X 'runtime.godebugDefault=multipathtcp=0,tlssha1=1' -s -w -buildid= -checklinkname=0" \
+            -tags "${TAGS}" \
+            -o "${OUT}" \
+            ./cmd/sing-box
+          ls -lh "${OUT}"
+
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: sing-box-*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ needs.build.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare release files
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name 'sing-box-*' -o -name '*.exe' \) 2>/dev/null | while read f; do
+            cp "$f" dist/ || true
+          done
+          cd dist
+          expected=(sing-box-linux-amd64 sing-box-linux-arm64 sing-box-windows-amd64.exe sing-box-darwin-amd64 sing-box-darwin-arm64 sing-box-android-arm64)
+          for f in "${expected[@]}"; do
+            if [ ! -s "$f" ]; then
+              echo "Required release binary missing or empty: $f" >&2
+              exit 1
+            fi
+          done
+          count=$(find . -maxdepth 1 -type f | wc -l)
+          test "$count" -eq "${#expected[@]}" || { echo "Unexpected binary count: $count" >&2; exit 1; }
+          ls -la
+          for f in *; do
+            if [ -f "$f" ]; then
+              tar -czf "${f}.tar.gz" "$f"
+              rm -f "$f"
+            fi
+          done
+          ls -la
+
+      - name: Verify archives without publishing
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 6
+          for f in dist/*.tar.gz; do tar -tzf "$f"; done
+          echo 'Dry run: no release is published.'
