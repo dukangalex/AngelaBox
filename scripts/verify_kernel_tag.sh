@@ -18,4 +18,7 @@ test "$(git -C "$kernel" rev-parse HEAD)" = "$commit" || { echo 'Kernel checkout
 git -C "$kernel" fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
 resolved=$(git -C "$kernel" rev-parse "refs/tags/$tag^{commit}")
 test "$resolved" = "$commit" || { echo "Remote kernel tag $tag does not match pinned commit" >&2; exit 1; }
+# The kernel build embeds git-describe output; ensure it will report this tag.
+described=$(git -C "$kernel" describe --tags --abbrev=0)
+test "$described" = "$tag" || { echo "Kernel git describe selected $described instead of $tag" >&2; exit 1; }
 echo "Verified kernel $tag at $commit"
