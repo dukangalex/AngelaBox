@@ -1,0 +1,68 @@
+name: Temporary complete candidate kernel verification
+on:
+  push:
+    branches: [wabi/full-matrix-diagnosis]
+permissions:
+  contents: read
+jobs:
+  full-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Setup official Brutal module
+        run: |
+          set -euxo pipefail
+          if [ ! -e /lib/modules/$(uname -r)/build/Makefile ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y "linux-headers-$(uname -r)"
+          fi
+          git clone -q https://github.com/HyNetworks/tcp-brutal.git /tmp/wabi-tcp-brutal
+          git -C /tmp/wabi-tcp-brutal checkout --detach f11e52d88c7ad2285896de018c2d96d4687f0ab6
+          (cd /tmp/wabi-tcp-brutal && make)
+          sudo insmod /tmp/wabi-tcp-brutal/brutal.ko
+          grep -qw brutal /proc/sys/net/ipv4/tcp_available_congestion_control
+      - name: Full candidate kernel integration with OpenVPN and Brutal
+        working-directory: test
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 30m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' . 2>&1 | tee /tmp/wabi-full-matrix.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-matrix-log
+          path: /tmp/wabi-full-matrix.log
+          if-no-files-found: ignore
+          retention-days: 7
+  hysteria-repeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Repeat unchanged candidate Hysteria v1 and v2 integration suites
+        working-directory: test
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          go list -m -f '{{.Dir}}' github.com/sagernet/sing-quic
+          go test -mod=mod -count=3 -v -timeout 18m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestHysteria(Self|Inbound|Outbound)$|^TestHysteria2(Self|Inbound|Outbound)$' . 2>&1 | tee /tmp/wabi-hysteria-repeat.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hysteria-repeat-log
+          path: /tmp/wabi-hysteria-repeat.log
+          if-no-files-found: ignore
+          retention-days: 7
