@@ -10,7 +10,13 @@ object TunnelGate {
     var up: Boolean = false
         private set
 
+    @Volatile
+    var generation: Long = 0
+        private set
+
+    @Synchronized
     fun setUp(value: Boolean) {
+        if (up != value) generation++
         up = value
     }
 }

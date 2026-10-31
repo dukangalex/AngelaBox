@@ -842,4 +842,36 @@
     <string name="overlay_scripts_profile_empty">還沒有腳本。請到「工具 → 腳本」匯入。</string>
     <string name="overlay_scripts_bound_on">已在此設定開啟</string>
     <string name="overlay_scripts_bound_off">此設定未開啟</string>
+
+    <string name="inspection_title">App 巡检</string>
+    <string name="inspection_tools_desc">本地巡检与可选 AI 分析</string>
+    <string name="inspection_intro">先巡检，再依据证据分析。AI 只能提供建议，不能修改配置、路由、DNS 或服务状态，最终由你决定。</string>
+    <string name="inspection_auto">自动本地巡检</string>
+    <string name="inspection_auto_desc">默认关闭。开启后约每 15 分钟记录系统网络与本地服务状态，实际时间受 Android 调度影响。不发起探测、不调用云端、不上传、不通知；这不是完整的连通性测试。</string>
+    <string name="inspection_observed_at">采集时间：%1$s</string>
+    <string name="inspection_point_in_time">仅代表采集时观测，不保证当前一切正常</string>
+    <string name="inspection_stale">结果已过期或环境已变化，请重新巡检</string>
+    <string name="inspection_evidence_limit">已观测不等于已确认根因；需关注表示有待排查；未知或未检查不能视为正常。探测仅代表本 App 的路径，本页不测节点延迟。自动巡检不含主动检测。配置修改或网络切换可能使旧证据失效。</string>
+    <string name="inspection_run">立即本地巡检</string>
+    <string name="inspection_model_settings">AI 模型设置</string>
+    <string name="inspection_ai_review">预览 AI 分析数据</string>
+    <string name="inspection_no_model">未配置模型时仍可本地巡检，不会发起 AI 请求。</string>
+    <string name="inspection_clear">清除本地报告</string>
+    <string name="inspection_probe_consent">手动巡检会通过当前网络路径访问 gstatic.com、cloudflare.com 并对比公共 DNS 解析结果，同时读取本地订阅健康状态。不会向 AI 上传日志、订阅或配置，也不会改变路由；会消耗少量流量。是否开始？</string>
+    <string name="inspection_send_title">发送前确认</string>
+    <string name="inspection_send_desc">接收地址：%1$s\n模型：%2$s\n仅发送下方证据及固定只读分析指令。API 密钥将通过 Authorization 请求头发送至该地址。服务商可见请求 IP，且可能产生 API 费用。取消则保持本地。</string>
+    <string name="inspection_prompt_disclosure">固定指令：用中文说明观测证据与可能原因，区分不确定和未检查项目，仅提出用户自主决定的检查建议，不索取秘密或执行修改。证据不含原始日志、URL、节点名、配置、IP 或订阅内容。</string>
+    <string name="inspection_send">仅发送本次证据</string>
+    <string name="inspection_config_desc">可选配置兼容 OpenAI chat/completions 的 HTTPS 接口、模型及 API 密钥。无默认服务商，保存时不请求模型。配置使用 Android Keystore 加密，排除在备份之外。后台不会调用 AI。</string>
+    <string name="inspection_endpoint">完整 HTTPS chat/completions 地址</string>
+    <string name="inspection_model">模型标识</string>
+    <string name="inspection_key">API 密钥</string>
+    <string name="inspection_key_keep">API 密钥（地址未变时留空保留）</string>
+    <string name="inspection_remove_model">删除已存模型与密钥</string>
+    <string name="inspection_save_failed">未能保存。请使用不含查询参数和片段的公网 HTTPS 地址、模型标识及有效格式的密钥。未发送请求。</string>
+    <string name="inspection_failed">巡检失败或环境发生变化，未获得可靠的新报告。请在网络与配置稳定后重新巡检。</string>
+    <string name="inspection_ai_failed">AI 分析失败或证据已失效。不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_cancelled">已在本地取消。AI 请求可能已送达服务商；不会自动重试或修改设置。</string>
+    <string name="inspection_ai_untrusted">AI 分析可能有误，仅供参考，未执行任何修改</string>
+    <string name="inspection_subscription_unknown">未能讀取訂閱健康狀態，不能判定正常</string>
 </resources>

@@ -56,6 +56,7 @@ import io.nekohasekai.sfa.compose.screen.tools.CrashReportDetailScreen
 import io.nekohasekai.sfa.compose.screen.tools.CrashReportFileContentScreen
 import io.nekohasekai.sfa.compose.screen.tools.CrashReportListScreen
 import io.nekohasekai.sfa.compose.screen.tools.CrashReportMetadataScreen
+import io.nekohasekai.sfa.compose.screen.tools.InspectionScreen
 import io.nekohasekai.sfa.compose.screen.tools.NetworkQualityScreen
 import io.nekohasekai.sfa.compose.screen.tools.OOMReportDetailScreen
 import io.nekohasekai.sfa.compose.screen.tools.OOMReportFileContentScreen
@@ -339,6 +340,9 @@ fun NavHost(
         }
         composable(route = "tools/scripts", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
             ScriptListScreen(navController = navController, serviceStatus = serviceStatus)
+        }
+        composable(route = "tools/inspection", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
+            InspectionScreen(navController = navController)
         }
         composable(route = "tools/network_quality", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
             NetworkQualityScreen(navController = navController, serviceStatus = serviceStatus)
