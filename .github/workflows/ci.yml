@@ -40,6 +40,7 @@ jobs:
           python3 scripts/test_apk_signing.py
           python3 scripts/test_unit_test_whitelist.py
           python3 scripts/test_pin_guards.py
+          python3 scripts/test_kernel_tag.py
 
       - name: Read kernel pin
         id: pin
@@ -62,6 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          ../scripts/verify_kernel_tag.sh ../version.properties .
 
       - name: Verify official types present in audited kernel
         run: |
@@ -102,6 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          ../chainbox/scripts/verify_kernel_tag.sh ../chainbox/version.properties .
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -149,15 +152,11 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
 
-      - name: Stamp kernel version tag
+      - name: Verify published kernel tag
         working-directory: sing-box
         run: |
           set -euo pipefail
-          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
-          echo "$KTAG" | grep -Eq '^v[0-9]'
-          git tag -f "$KTAG" HEAD
-          git describe --tags --abbrev=0
-          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+          ../sing-box-for-android/scripts/verify_kernel_tag.sh ../sing-box-for-android/version.properties .
 
       - name: Setup Java 17 and 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9

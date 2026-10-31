@@ -1,0 +1,27 @@
+name: Temporary kernel tag guard verification
+on:
+  push:
+    branches: [wabi/kernel-origin-guard]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test locally generated tag scenarios and repository guards
+        run: |
+          set -euo pipefail
+          python3 scripts/test_kernel_tag.py
+          python3 scripts/test_security_guards.py
+          python3 scripts/test_pin_guards.py
+      - name: Verify real published beta and stable pins
+        run: |
+          set -euo pipefail
+          mkdir k && git -C k init && git -C k remote add origin https://github.com/dukangalex/sing-box.git
+          for p in version.properties version-stable.properties; do
+            commit=$(sed -n 's/^KERNEL_COMMIT=//p' "$p")
+            git -C k fetch --depth=1 origin "$commit"
+            git -C k checkout --detach FETCH_HEAD
+            scripts/verify_kernel_tag.sh "$p" k
+          done

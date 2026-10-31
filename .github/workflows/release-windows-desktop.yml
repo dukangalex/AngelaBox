@@ -85,13 +85,12 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.dcommit }}"
 
-      - name: Stamp kernel tag
+      - name: Verify published kernel tag
         working-directory: sing-box
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
-          git tag -f "${{ steps.pin.outputs.ktag }}" HEAD
+          ../angelabox/scripts/verify_kernel_tag.sh ../angelabox/version.properties .
 
       - name: Identity assertions
         shell: bash
