@@ -1,0 +1,54 @@
+name: Temporary integrated kernel regression
+on:
+  push:
+    branches: [wabi/integrated-kernel-regression]
+permissions:
+  contents: read
+jobs:
+  core-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Test project CI kernel package selection
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test $packages 2>&1 | tee /tmp/wabi-core-unit.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integrated-kernel-unit-log
+          path: /tmp/wabi-core-unit.log
+          if-no-files-found: ignore
+          retention-days: 7
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Run integrated kernel integration suite
+        working-directory: test
+        run: |
+          set -euo pipefail
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 35m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' ./... 2>&1 | tee /tmp/wabi-kernel-integration.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integrated-kernel-integration-log
+          path: /tmp/wabi-kernel-integration.log
+          if-no-files-found: ignore
+          retention-days: 7
