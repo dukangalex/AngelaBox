@@ -31,7 +31,7 @@ def main():
         props = root/'version.properties'
         def verify(tag, commit):
             props.write_text(f'KERNEL_TAG={tag}\nKERNEL_COMMIT={commit}\n')
-            return run(str(SCRIPT), str(props), str(checkout), check=False)
+            return run('bash', str(SCRIPT), str(props), str(checkout), check=False)
         assert verify(TAG, first).returncode == 0, 'matching published tag must pass'
         (src/'content').write_text('two\n')
         run('git', 'commit', '-am', 'second', cwd=src)
