@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.URI
+import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
 
 /** No tools, config writes, redirects, retry, direct-network fallback, or automatic model calls. */
@@ -39,13 +40,23 @@ object InspectionAi {
     }
 
     /** Only called from the preview's explicit Send button with the exact reviewed payload. */
-    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = withContext(Dispatchers.IO) {
+    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing(config, payload, stillCurrent) { url, headers ->
+        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers)
+    }
+
+    /** Transport seam for deterministic tests; production always uses the guarded pinned client. */
+    internal suspend fun analyzeUsing(
+        config: InspectionStore.AiConfig,
+        payload: String,
+        stillCurrent: () -> Boolean,
+        open: (String, Map<String, String>) -> HttpsURLConnection,
+    ): String = withContext(Dispatchers.IO) {
         validateConfig(config)
+        coroutineContext.ensureActive()
         require(stillCurrent())
         val body = requestBody(payload, config.model).toByteArray(Charsets.UTF_8)
-        val connection = HTTPClient.openPinned(
+        val connection = open(
             config.endpoint,
-            RemoteUrlGuard.Kind.SCRIPT,
             mapOf(
                 "Authorization" to "Bearer ${config.key}",
                 "Content-Type" to "application/json",
@@ -54,7 +65,9 @@ object InspectionAi {
         )
         try {
             // Resolve once and pin; HTTPClient never follows a redirect here. Never bypass VPN.
+            coroutineContext.ensureActive()
             require(stillCurrent())
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.requestMethod = "POST"
@@ -76,6 +89,7 @@ object InspectionAi {
                     bytes.write(buffer, 0, size)
                 }
             }
+            coroutineContext.ensureActive()
             require(stillCurrent())
             parseResponse(bytes.toByteArray())
         } finally {

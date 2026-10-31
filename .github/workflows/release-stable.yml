@@ -303,6 +303,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ConfigNormalizeTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
             --tests io.nekohasekai.sfa.inspection.InspectionPolicyTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionAiTransportTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
             --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \
             --tests io.nekohasekai.sfa.utils.SubscriptionInfoTest \
