@@ -35,9 +35,8 @@ object InspectionPolicy {
     }
 
     /** Wall-clock rollback is stale too; persisted results never prove current health. */
-    fun fresh(snapshot: Snapshot, now: Long, profileId: Long, serviceUp: Boolean, networkId: Long?, contextToken: String): Boolean =
-        now >= snapshot.collectedAt && now - snapshot.collectedAt <= MAX_AGE_MS &&
-            snapshot.profileId == profileId && snapshot.serviceUp == serviceUp && snapshot.networkId == networkId && snapshot.contextToken == contextToken && contextToken.isNotEmpty()
+    fun fresh(snapshot: Snapshot, now: Long, profileId: Long, serviceUp: Boolean, networkId: Long?, contextToken: String): Boolean = now >= snapshot.collectedAt && now - snapshot.collectedAt <= MAX_AGE_MS &&
+        snapshot.profileId == profileId && snapshot.serviceUp == serviceUp && snapshot.networkId == networkId && snapshot.contextToken == contextToken && contextToken.isNotEmpty()
 
     fun attention(facts: List<Fact>): Boolean = facts.any { normalized(it).state == State.ATTENTION }
 
@@ -48,11 +47,14 @@ object InspectionPolicy {
             .put("schema", 1)
             .put("app_version", version(appVersion))
             .put("kernel_version", version(kernelVersion))
-            .put("checks", JSONArray().apply {
-                snapshot.facts.map(::normalized).forEach { fact ->
-                    put(JSONObject().put("id", fact.id).put("state", fact.state.name).put("code", fact.code))
-                }
-            })
+            .put(
+                "checks",
+                JSONArray().apply {
+                    snapshot.facts.map(::normalized).forEach { fact ->
+                        put(JSONObject().put("id", fact.id).put("state", fact.state.name).put("code", fact.code))
+                    }
+                },
+            )
             .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; no root cause established; skipped/unknown is not healthy.")
             .toString(2)
     }

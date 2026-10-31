@@ -80,7 +80,12 @@ fun InspectionScreen(navController: NavController) {
     LaunchedEffect(changes) {
         withContext(Dispatchers.IO) {
             Triple(InspectionStore.latest(context), InspectionStore.enabled(context), InspectionStore.config(context))
-        }.let { (result, auto, ai) -> if (snapshot?.collectedAt != result?.collectedAt) answer = null; snapshot = result; enabled = auto; config = ai }
+        }.let { (result, auto, ai) ->
+            if (snapshot?.collectedAt != result?.collectedAt) answer = null
+            snapshot = result
+            enabled = auto
+            config = ai
+        }
     }
     LaunchedEffect(Unit) {
         while (true) {
@@ -112,7 +117,9 @@ fun InspectionScreen(navController: NavController) {
                                     InspectionRunner.schedule(context, value)
                                     InspectionStore.setEnabled(context, value)
                                 }
-                            } catch (_: Exception) { message = R.string.inspection_save_failed }
+                            } catch (_: Exception) {
+                                message = R.string.inspection_save_failed
+                            }
                         }
                     })
                 }
@@ -133,7 +140,10 @@ fun InspectionScreen(navController: NavController) {
         }
         if (running) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            TextButton(onClick = { task?.cancel(); message = R.string.inspection_cancelled }) { Text(stringResource(R.string.cancel)) }
+            TextButton(onClick = {
+                task?.cancel()
+                message = R.string.inspection_cancelled
+            }) { Text(stringResource(R.string.cancel)) }
         }
         Button(enabled = !running, onClick = { showProbeConsent = true }) { Text(stringResource(R.string.inspection_run)) }
         OutlinedButton(enabled = !running, onClick = { showConfig = true }) { Text(stringResource(R.string.inspection_model_settings)) }
@@ -144,7 +154,10 @@ fun InspectionScreen(navController: NavController) {
         }) { Text(stringResource(R.string.inspection_ai_review)) }
         if (config == null) Text(stringResource(R.string.inspection_no_model), style = MaterialTheme.typography.bodySmall)
         TextButton(enabled = !running, onClick = {
-            scope.launch { withContext(Dispatchers.IO) { InspectionStore.clearResult(context) }; answer = null }
+            scope.launch {
+                withContext(Dispatchers.IO) { InspectionStore.clearResult(context) }
+                answer = null
+            }
         }) { Text(stringResource(R.string.inspection_clear)) }
         message?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
         answer?.let {
@@ -152,22 +165,33 @@ fun InspectionScreen(navController: NavController) {
             SelectionContainer { Text(it) }
         }
     }
-    if (showProbeConsent) AlertDialog(
-        onDismissRequest = { showProbeConsent = false },
-        title = { Text(stringResource(R.string.inspection_run)) },
-        text = { Text(stringResource(R.string.inspection_probe_consent)) },
-        confirmButton = { TextButton(onClick = {
-            showProbeConsent = false
-            running = true; answer = null; message = null
-            task = scope.launch {
-                try { snapshot = InspectionRunner.manual(context) }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { message = R.string.inspection_failed }
-                finally { running = false }
-            }
-        }) { Text(stringResource(R.string.inspection_run)) } },
-        dismissButton = { TextButton(onClick = { showProbeConsent = false }) { Text(stringResource(R.string.cancel)) } },
-    )
+    if (showProbeConsent) {
+        AlertDialog(
+            onDismissRequest = { showProbeConsent = false },
+            title = { Text(stringResource(R.string.inspection_run)) },
+            text = { Text(stringResource(R.string.inspection_probe_consent)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showProbeConsent = false
+                    running = true
+                    answer = null
+                    message = null
+                    task = scope.launch {
+                        try {
+                            snapshot = InspectionRunner.manual(context)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            message = R.string.inspection_failed
+                        } finally {
+                            running = false
+                        }
+                    }
+                }) { Text(stringResource(R.string.inspection_run)) }
+            },
+            dismissButton = { TextButton(onClick = { showProbeConsent = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
     review?.let { approved ->
         AlertDialog(
             onDismissRequest = { review = null },
@@ -179,31 +203,50 @@ fun InspectionScreen(navController: NavController) {
                     Text(stringResource(R.string.inspection_prompt_disclosure), style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = {
-                review = null; running = true; answer = null; message = null
-                task = scope.launch {
-                    fun current() = approved.stamp == InspectionRunner.stamp(context) &&
-                        InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
-                    try {
-                        val output = InspectionAi.analyze(approved.config, approved.payload, ::current)
-                        if (current()) { answer = output; answerStamp = approved.stamp }
-                        else message = R.string.inspection_failed
-                    } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { message = R.string.inspection_ai_failed }
-                    finally { running = false }
-                }
-            }) { Text(stringResource(R.string.inspection_send)) } },
+            confirmButton = {
+                TextButton(onClick = {
+                    review = null
+                    running = true
+                    answer = null
+                    message = null
+                    task = scope.launch {
+                        fun current() = approved.stamp == InspectionRunner.stamp(context) &&
+                            InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
+                        try {
+                            val output = InspectionAi.analyze(approved.config, approved.payload, ::current)
+                            if (current()) {
+                                answer = output
+                                answerStamp = approved.stamp
+                            } else {
+                                message = R.string.inspection_failed
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            message = R.string.inspection_ai_failed
+                        } finally {
+                            running = false
+                        }
+                    }
+                }) { Text(stringResource(R.string.inspection_send)) }
+            },
             dismissButton = { TextButton(onClick = { review = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
-    if (showConfig) InspectionConfigDialog(config, onDismiss = { showConfig = false }, onSave = { value ->
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { if (value == null) InspectionStore.clearConfig(context) else InspectionStore.saveConfig(context, value) }
-                showConfig = false; message = null
-            } catch (_: Exception) { message = R.string.inspection_save_failed; showConfig = false }
-        }
-    })
+    if (showConfig) {
+        InspectionConfigDialog(config, onDismiss = { showConfig = false }, onSave = { value ->
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { if (value == null) InspectionStore.clearConfig(context) else InspectionStore.saveConfig(context, value) }
+                    showConfig = false
+                    message = null
+                } catch (_: Exception) {
+                    message = R.string.inspection_save_failed
+                    showConfig = false
+                }
+            }
+        })
+    }
 }
 
 @Composable
