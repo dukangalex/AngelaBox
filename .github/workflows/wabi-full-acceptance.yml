@@ -38,15 +38,16 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
 
-      - name: Stamp kernel version tag
+      - name: Verify remote validation tag matches candidate
         working-directory: sing-box
         run: |
           set -euo pipefail
           KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
-          echo "$KTAG" | grep -Eq '^v[0-9]'
-          git tag -f "$KTAG" HEAD
-          git describe --tags --abbrev=0
+          echo "$KTAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-wabi\.[0-9]+$'
+          git fetch --no-tags origin "refs/tags/$KTAG:refs/tags/$KTAG"
+          test "$(git rev-parse "refs/tags/$KTAG^{commit}")" = "${{ steps.pin.outputs.commit }}"
           test "$(git describe --tags --abbrev=0)" = "$KTAG"
+          echo "Verified candidate-only tag $KTAG"
 
       - name: Verify integrated Hysteria dependency
         working-directory: sing-box
