@@ -1,14 +1,14 @@
 name: Temporary full acceptance
 on:
   push:
-    branches: [wabi/integrated-kernel-acceptance]
+    branches: [wabi/perapp-acceptance]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout ChainBox
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

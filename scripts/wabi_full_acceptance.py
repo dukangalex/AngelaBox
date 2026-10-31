@@ -162,3 +162,50 @@ r=home()
 r=nav(); assert switch(r).get('checked')=='false'; r=toggle(r,'false'); recents('on'); shell('am','force-stop',P); launch(); r=nav(); assert switch(r).get('checked')=='true'; r=toggle(r,'true'); recents('off')
 save('app-logcat',adb('logcat','-d'))
 print('VPN/TUN import-start-http-stop-restart and recent-card acceptance completed',flush=True)
+
+# Per-app exclusion: use the probe app to check actual routing, not just UI state.
+def scroll_until(r,label,name):
+ for i in range(18):
+  if any(n.get('text')==label or n.get('content-desc')==label for n in r.iter()): return r
+  size=shell('wm','size'); w,h=map(int,re.findall(r'(\d+)x(\d+)',size)[-1]); shell('input','swipe',w//2,int(h*.78),w//2,int(h*.25),400); r=ui(name+' '+str(i))
+ raise Exception('not visible '+label)
+def control_for(r,label):
+ nodes=[n for n in r.iter() if n.get('text')==label]
+ if len(nodes)!=1: raise Exception('unexpected label '+label+' count='+str(len(nodes)))
+ title=nodes[0]
+ parents={child:par for par in r.iter() for child in par}
+ n=title
+ while n in parents:
+  n=parents[n]
+  controls=[c for c in n.iter() if c.get('checkable')=='true' and c.get('clickable')=='true']
+  if len(controls)==1: return controls[0]
+ raise Exception('switch not found '+label)
+def set_switch(r,label,value):
+ n=control_for(r,label)
+ if n.get('checked')!=value:
+  x,y=bounds(n); shell('input','tap',x,y); r=ui('set '+label); n=control_for(r,label)
+ assert n.get('checked')==value,(label,n.attrib)
+ return r
+# Navigate to the system-explicit override, and select unmanaged exclusion.
+for i in range(5):
+ r=ui('back-to-dashboard '+str(i))
+ if any(n.get('content-desc')=='Start' for n in r.iter()): break
+ shell('input','keyevent','4'); time.sleep(2)
+else: r=home()
+if not any(n.get('text')=='Settings' or n.get('content-desc')=='Settings' for n in r.iter()): r=home()
+clicktext(r,'Settings'); r=ui('perapp-settings'); clicktext(r,'System Explicit'); r=ui('perapp-override')
+r=scroll_until(r,'托管模式','perapp-search-managed'); r=set_switch(r,'托管模式','false')
+r=scroll_until(r,'管理','perapp-search-manage'); clicktext(r,'管理'); r=ui('perapp-list')
+# Search the installed probe so that selection is independent of list order.
+clicktext(r,'Search'); r=ui('perapp-search'); shell('input','text','VPN%sRoute%sProbe'); time.sleep(7); r=ui('perapp-probe-search')
+probe=[n for n in r.iter() if n.get('text')=='VPN Route Probe']
+assert len(probe)==1,'probe app unavailable in app selection'
+r=set_switch(r,'VPN Route Probe','true'); save('perapp-selection','excluded probe selected, unmanaged mode')
+shell('input','keyevent','4'); shell('input','keyevent','4'); shell('input','keyevent','4'); r=home(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
+excluded=getfixture(18081); save('perapp-excluded-result',excluded); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in excluded,'excluded app did not route direct'
+r=home(); r=power(r,'Stop')
+# Turn the setting off and verify the same app is once again subject to the VPN rule.
+clicktext(r,'Settings'); r=ui('perapp-settings-disable'); clicktext(r,'System Explicit'); r=ui('perapp-override-disable'); r=scroll_until(r,'托管模式','perapp-return'); r=set_switch(r,'启用','false')
+shell('input','keyevent','4'); shell('input','keyevent','4'); r=home(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
+included=getfixture(18081); save('perapp-default-result',included); assert 'WABI_PROBE_FAILED_' in included,'VPN reject rule bypassed when per-app disabled'
+r=home(); r=power(r,'Stop'); print('PER_APP_EXCLUDE_ROUTING_VERIFIED',flush=True)
