@@ -26,7 +26,7 @@ jobs:
           fi
           git clone -q https://github.com/HyNetworks/tcp-brutal.git /tmp/wabi-tcp-brutal
           git -C /tmp/wabi-tcp-brutal checkout --detach f11e52d88c7ad2285896de018c2d96d4687f0ab6
-          make -C /tmp/wabi-tcp-brutal
+          (cd /tmp/wabi-tcp-brutal && make)
           sudo insmod /tmp/wabi-tcp-brutal/brutal.ko
           cat /proc/sys/net/ipv4/tcp_available_congestion_control
           grep -qw brutal /proc/sys/net/ipv4/tcp_available_congestion_control
