@@ -6,7 +6,7 @@ a="func (c *udpPacketConn) inputPacket(message *udpMessage) {"
 b=a+"\n println(\"DIAG_FRAGMENT session\", message.sessionID, \"packet\", message.packetID, \"index\", message.fragmentID, \"total\", message.fragmentTotal, \"size\", message.data.Len())"
 assert s.count(a)==1
 s=s.replace(a,b)
-a="newMessage := d.defragger.feed(message)"
+a="newMessage := c.defragger.feed(message)"
 b=a+"\n if newMessage != nil { println(\"DIAG_REASSEMBLED\", newMessage.packetID, newMessage.data.Len()) }"
 assert s.count(a)==1
 s=s.replace(a,b)
