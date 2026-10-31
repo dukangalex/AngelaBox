@@ -36,12 +36,19 @@ class InspectionPolicyTest {
         assertFalse(payload.contains(evil))
         assertFalse(payload.contains("session"))
         val json = JSONObject(payload)
-        assertEquals(setOf("schema", "app_version", "kernel_version", "checks", "limitations"), json.keySet())
+        assertEquals(setOf("schema", "app_version", "kernel_version", "checks", "limitations"), json.keys().asSequence().toSet())
         assertEquals("unknown", json.getString("app_version"))
         val fact = json.getJSONArray("checks").getJSONObject(2)
         assertEquals("UNKNOWN", fact.getString("state"))
         assertEquals("unknown", fact.getString("code"))
         assertEquals("unknown", fact.getString("id"))
+    }
+
+    @Test fun dnsCanaryAbsenceDoesNotProveWorkingDns() {
+        val fact = InspectionPolicy.normalized(InspectionPolicy.Fact("DNS", InspectionPolicy.State.OBSERVED, "ok"))
+        assertEquals(InspectionPolicy.State.UNKNOWN, fact.state)
+        assertEquals("canary_not_resolved", fact.code)
+        assertEquals(fact, InspectionPolicy.normalized(fact))
     }
 
     @Test fun unknownNeverBecomesHealthy() {
