@@ -1,13 +1,13 @@
-name: Temporary Hysteria client datagram advertisement diagnosis
+name: Temporary Hysteria v1 compatibility verification
 on:
   push:
-    branches: [wabi/hysteria-client-advertise-diagnosis]
+    branches: [wabi/hysteria-v1-compat-verify]
 permissions:
   contents: read
 jobs:
-  diagnose:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -20,36 +20,39 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
-      - name: Apply candidate and instrument reply path
+      - name: Apply candidate and exact compatibility patch
         working-directory: kernel
         run: |
           set -euo pipefail
           git apply --check ../app/.wabi-evidence/candidate.patch
           git apply ../app/.wabi-evidence/candidate.patch
           cd test
-          python3 ../../app/scripts/wabi_hysteria_reply_diagnose.py
-          python3 ../../app/scripts/wabi_hysteria_server_diagnose.py docker_test.go
           go mod download github.com/sagernet/sing-quic
+          MOD_VERSION="$(go list -mod=mod -m -f '{{.Version}}' github.com/sagernet/sing-quic)"
+          test "$MOD_VERSION" = 'v0.7.2-0.20261020082049-7e0a5869a5f4'
           MODULE_DIR="$(go list -mod=mod -m -f '{{.Dir}}' github.com/sagernet/sing-quic)"
-          cp -r "$MODULE_DIR" /tmp/wabi-sing-quic-fragment
-          chmod -R u+w /tmp/wabi-sing-quic-fragment
-          python3 ../../app/scripts/wabi_hysteria_fragment_diagnose.py /tmp/wabi-sing-quic-fragment
-          python3 ../../app/scripts/wabi_hysteria_client_cap.py /tmp/wabi-sing-quic-fragment/hysteria/client.go
-          go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-fragment
-          gofmt -w clash_test.go
-          cp clash_test.go /tmp/diag-clash-1500.go
-          set +e
+          cp -r "$MODULE_DIR" /tmp/wabi-sing-quic-compat
+          chmod -R u+w /tmp/wabi-sing-quic-compat
+          cd /tmp/wabi-sing-quic-compat
+          sha256sum "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
+          git apply --check "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
+          git apply "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
+          cd "$GITHUB_WORKSPACE/kernel/test"
+          go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-compat
+          cp clash_test.go /tmp/wabi-original-clash-test.go
           for size in 1500 1100; do
-            cp /tmp/diag-clash-1500.go clash_test.go
+            cp /tmp/wabi-original-clash-test.go clash_test.go
             if [ "$size" = 1100 ]; then sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go; fi
-            echo "=== DEBUG UDP $size ==="
-            go test -mod=mod -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteriaOutbound$' . 2>&1 | tee "/tmp/diag-${size}.log"
-            echo "DIAG_EXIT $size ${PIPESTATUS[0]}"
+            echo "=== Hysteria v1 UDP $size ==="
+            go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound|Outbound)$' . 2>&1 | tee "/tmp/compat-${size}.log"
           done
+          cp /tmp/wabi-original-clash-test.go clash_test.go
+          echo '=== Hysteria2 self regression ==='
+          go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria2Self$' . 2>&1 | tee /tmp/compat-hysteria2.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hysteria-reply-diagnostics
-          path: /tmp/diag-*.log
+          name: hysteria-v1-compatibility-logs
+          path: /tmp/compat-*.log
           if-no-files-found: ignore
           retention-days: 7
