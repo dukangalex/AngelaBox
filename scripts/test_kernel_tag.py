@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the published tag / pinned commit gate against a real local remote."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
@@ -31,8 +32,13 @@ def main():
         props = root/'version.properties'
         def verify(tag, commit):
             props.write_text(f'KERNEL_TAG={tag}\nKERNEL_COMMIT={commit}\n')
-            return run('bash', str(SCRIPT), str(props), str(checkout), check=False)
-        assert verify(TAG, first).returncode == 0, 'matching published tag must pass'
+            def shell_path(path):
+                if os.name == 'nt':
+                    return run('bash', '-c', 'cygpath -u "$1"', '_', str(path)).stdout.strip()
+                return str(path)
+            return run('bash', shell_path(SCRIPT), shell_path(props), shell_path(checkout), check=False)
+        matching = verify(TAG, first)
+        assert matching.returncode == 0, f'matching published tag must pass: {matching.stdout} {matching.stderr}'
         (src/'content').write_text('two\n')
         run('git', 'commit', '-am', 'second', cwd=src)
         second = run('git', 'rev-parse', 'HEAD', cwd=src).stdout.strip()
