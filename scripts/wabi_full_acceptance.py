@@ -170,7 +170,7 @@ def scroll_until(r,label,name):
   size=shell('wm','size'); w,h=map(int,re.findall(r'(\d+)x(\d+)',size)[-1]); shell('input','swipe',w//2,int(h*.78),w//2,int(h*.25),400); r=ui(name+' '+str(i))
  raise Exception('not visible '+label)
 def control_for(r,label):
- nodes=[n for n in r.iter() if n.get('text')==label]
+ nodes=[n for n in r.iter() if n.get('text')==label and n.get('class')!='android.widget.EditText']
  if len(nodes)!=1: raise Exception('unexpected label '+label+' count='+str(len(nodes)))
  title=nodes[0]
  parents={child:par for par in r.iter() for child in par}
@@ -201,8 +201,12 @@ r=scroll_until(r,'托管模式','perapp-search-managed'); r=set_switch(r,'托管
 r=scroll_until(r,'管理','perapp-search-manage'); clicktext(r,'管理'); r=ui('perapp-list')
 # Search the installed probe so that selection is independent of list order.
 clicktext(r,'Search'); r=ui('perapp-search'); shell('input','text','VPN%sRoute%sProbe'); time.sleep(7); r=ui('perapp-probe-search')
-probe=[n for n in r.iter() if n.get('text')=='VPN Route Probe']
-assert len(probe)==1,'probe app unavailable in app selection'
+probe=[n for n in r.iter() if n.get('text')=='VPN Route Probe' and n.get('class')=='android.widget.TextView']
+assert len(probe)==1,'probe app unavailable or ambiguous in app selection'
+parents={child:par for par in r.iter() for child in par}
+row=parents[probe[0]]
+assert any(n.get('text','').startswith('org.wabi.vpnprobe (') for n in row.iter()),'probe package mismatch'
+assert len([n for n in row.iter() if n.get('checkable')=='true' and n.get('clickable')=='true'])==1,'probe selection control ambiguous'
 r=set_switch(r,'VPN Route Probe','true'); save('perapp-selection','excluded probe selected, unmanaged mode')
 shell('input','keyevent','4'); shell('input','keyevent','4'); shell('input','keyevent','4'); r=dashboard(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
 excluded=getfixture(18081); save('perapp-excluded-result',excluded); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in excluded,'excluded app did not route direct'
