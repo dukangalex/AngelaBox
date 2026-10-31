@@ -17,14 +17,15 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
-      - name: Compare baseline and candidate with isolated TCP and diagnostic deadline
+      - name: Compare normal and root candidate TCP with diagnostic deadline
         run: |
           set -uo pipefail
-          for sha in e086d9de7653adba08133ecb6257b40370b0f20c 3ae0e4b7a3d857592ced6783d248bcd425be335a; do
+          for mode in normal root; do
+            sha=3ae0e4b7a3d857592ced6783d248bcd425be335a
             for deadline in 10 60; do
               git reset --hard "$sha" || exit 1
               cd test || exit 1
-              echo "=== ref=$sha diagnostic_timeout=${deadline}s TCP_ONLY ===" | tee -a /tmp/hy-tcp-compare.log
+              echo "=== ref=$sha mode=$mode diagnostic_timeout=${deadline}s TCP_ONLY ===" | tee -a /tmp/hy-tcp-compare.log
               python3 - "$deadline" <<'PY'
           import pathlib,sys
           p=pathlib.Path('clash_test.go')
@@ -42,8 +43,10 @@ jobs:
           p.write_text(s)
           PY
               start=$(date +%s)
-              go test -mod=mod -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestHysteria(Self|Inbound|Outbound)$|^TestHysteria2Self/self$' . 2>&1 | tee -a /tmp/hy-tcp-compare.log
-              rc=${PIPESTATUS[0]}; echo "=== ref=$sha diagnostic_timeout=$deadline rc=$rc elapsed=$(($(date +%s)-start))s ===" | tee -a /tmp/hy-tcp-compare.log
+              prefix=(); if [ "$mode" = root ]; then prefix=(sudo -E env -u GITHUB_TOKEN -u GH_TOKEN); fi
+              set +e
+              "${prefix[@]}" go test -mod=mod -count=1 -v -timeout 5m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestHysteria(Self|Inbound|Outbound)$|^TestHysteria2Self/self$' . 2>&1 | tee -a /tmp/hy-tcp-compare.log
+              rc=${PIPESTATUS[0]}; echo "=== ref=$sha mode=$mode diagnostic_timeout=$deadline rc=$rc elapsed=$(($(date +%s)-start))s ===" | tee -a /tmp/hy-tcp-compare.log
               cd .. || exit 1
             done
           done
