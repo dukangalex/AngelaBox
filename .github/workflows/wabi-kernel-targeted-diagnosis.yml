@@ -1,0 +1,65 @@
+name: Temporary kernel targeted diagnostics
+on:
+  push:
+    branches: [wabi/kernel-targeted-diagnosis]
+permissions:
+  contents: read
+jobs:
+  openvpn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Run OpenVPN integration with required feature tag
+        working-directory: test
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 18m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestOpenVPN' . 2>&1 | tee /tmp/wabi-openvpn-tagged.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openvpn-tagged-log
+          path: /tmp/wabi-openvpn-tagged.log
+          if-no-files-found: ignore
+          retention-days: 7
+  tcp-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Compare unchanged candidate Hysteria TCP tests in user and root contexts
+        working-directory: test
+        run: |
+          set -uo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a || exit 1
+          go list -m -f '{{.Dir}}' github.com/sagernet/sing-quic
+          rc=0
+          for mode in user root; do
+            echo "=== mode=$mode ==="
+            if [ "$mode" = root ]; then
+              sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 6m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound)$|^TestHysteria2Self/self$' . 2>&1 | tee "/tmp/wabi-tcp-${mode}.log" || rc=1
+            else
+              go test -mod=mod -count=1 -v -timeout 6m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound)$|^TestHysteria2Self/self$' . 2>&1 | tee "/tmp/wabi-tcp-${mode}.log" || rc=1
+            fi
+          done
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tcp-context-logs
+          path: /tmp/wabi-tcp-*.log
+          if-no-files-found: ignore
+          retention-days: 7
