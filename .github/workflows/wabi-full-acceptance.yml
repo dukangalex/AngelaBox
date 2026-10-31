@@ -1,7 +1,7 @@
 name: Clean candidate acceptance (non-publishing)
 on:
   push:
-    branches: [wabi/clean-candidate-acceptance]
+    branches: [wabi/udp-guard-clean-acceptance]
   workflow_dispatch:
 permissions:
   contents: read
