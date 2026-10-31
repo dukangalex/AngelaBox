@@ -1,0 +1,243 @@
+name: Clean candidate acceptance (non-publishing)
+on:
+  push:
+    branches: [wabi/clean-candidate-acceptance]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+
+      - name: Verify remote validation tag matches candidate
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version.properties | cut -d= -f2 | tr -d '\r')
+          echo "$KTAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-wabi\.[0-9]+$'
+          git fetch --no-tags origin "refs/tags/$KTAG:refs/tags/$KTAG"
+          test "$(git rev-parse "refs/tags/$KTAG^{commit}")" = "${{ steps.pin.outputs.commit }}"
+          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+          echo "Verified candidate-only tag $KTAG"
+
+      - name: Verify integrated Hysteria dependency
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          grep -F 'replace github.com/sagernet/sing-quic => ./third_party/sing-quic' go.mod
+          grep -E 'MaxDatagramFrameSize:[[:space:]]+1200,' third_party/sing-quic/hysteria/client.go
+          grep -E 'MaxDatagramFrameSize:[[:space:]]+1200,' third_party/sing-quic/hysteria/service.go
+
+      - name: Setup Java 17 and 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+          cache-dependency-path: |
+            sing-box-for-android/**/*.gradle*
+            sing-box-for-android/**/gradle-wrapper.properties
+            sing-box-for-android/gradle/libs.versions.toml
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.25.5"
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          for bin in \
+            "$SDK/cmdline-tools/latest/bin" \
+            "$SDK/cmdline-tools/current/bin" \
+            "$SDK/cmdline-tools/16.0/bin" \
+            "$SDK/cmdline-tools/11.0/bin" \
+            "$SDK/tools/bin" \
+            "$SDK/platform-tools"
+          do
+            if [ -d "$bin" ]; then
+              echo "$bin" >> "$GITHUB_PATH"
+              export PATH="$bin:$PATH"
+            fi
+          done
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not on PATH; listing $SDK"
+            find "$SDK" -maxdepth 4 -name sdkmanager -type f || true
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          echo "Using Android SDK at $SDK"
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          test -d "${ANDROID_HOME}/ndk/28.0.13004108"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" version
+          "$(go env GOPATH)/bin/gomobile" init || true
+
+      - name: Build libbox AAR
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
+          export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+          java --version
+          export ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME
+          go run ./cmd/internal/build_libbox -target android -platform android/amd64 -debug
+          mkdir -p ../sing-box-for-android/app/libs
+          FOUND=$(find . .. -name 'libbox.aar' -type f 2>/dev/null | head -n1 || true)
+          if [ -z "$FOUND" ]; then
+            echo "libbox.aar not produced; falling back to gomobile bind"
+            TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0"
+            gomobile bind -v -o libbox.aar -target android/amd64 -androidapi 24 \
+              -javapkg=io.nekohasekai -libname=box -trimpath -tags "$TAGS" ./experimental/libbox
+            FOUND=libbox.aar
+          fi
+          cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox.aar
+          if [ -f libbox-legacy.aar ]; then
+            cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar
+          else
+            cp -f "$FOUND" ../sing-box-for-android/app/libs/libbox-legacy.aar
+          fi
+          ls -lah ../sing-box-for-android/app/libs/
+          test -s ../sing-box-for-android/app/libs/libbox.aar
+
+      - name: Build debug x86_64 APK
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt; fi
+          # Test-only ABI override, not a production source change.
+          sed -i 's/abiFilters += "arm64-v8a"/abiFilters += "x86_64"/' app/build.gradle.kts
+          grep -q 'abiFilters += "x86_64"' app/build.gradle.kts
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests '*PerAppPackageSnapshotTest' --no-daemon --stacktrace
+          find app/build/outputs/apk -name '*.apk' -print
+      - name: Install emulator and enable KVM
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'emulator' 'system-images;android-28;google_apis;x86_64'
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | avdmanager create avd -n recent28 -p "$HOME/.android/avd/recent28.avd" -k 'system-images;android-28;google_apis;x86_64' --force
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
+          ls -la "$ANDROID_AVD_HOME"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/wabi-avds.txt
+          grep -x recent28 /tmp/wabi-avds.txt
+      - name: Boot emulator and inspect real app
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/emulator/emulator" -avd recent28 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > /tmp/emu.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 120); do
+            if ! kill -0 "$pid" 2>/dev/null; then cat /tmp/emu.log; exit 1; fi
+            if timeout 5s adb get-state 2>/dev/null | grep -qx device; then break; fi
+            sleep 2
+          done
+          if ! timeout 5s adb get-state | grep -qx device; then cat /tmp/emu.log; exit 1; fi
+          for i in $(seq 1 180); do
+            if timeout 5s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -qx 1; then break; fi
+            sleep 2
+          done
+          if ! timeout 5s adb shell getprop sys.boot_completed | tr -d '\r' | grep -qx 1; then tail -100 /tmp/emu.log; exit 1; fi
+          adb shell input keyevent 82
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -n "$APK"; unzip -l "$APK" | grep 'lib/x86_64/'
+          adb install "$APK"
+          adb shell monkey -p io.chainbox.app -c android.intent.category.LAUNCHER 1
+          sleep 20
+          adb shell uiautomator dump /sdcard/window.xml >/dev/null
+          adb shell cat /sdcard/window.xml
+          echo '--- activity task evidence ---'
+          adb shell dumpsys activity recents | grep -C 5 -i 'io.chainbox.app' || true
+          echo '--- errors ---'
+          adb logcat -d -s AndroidRuntime:E ActivityManager:E | tail -100
+
+      - name: Start local deterministic HTTP fixture
+        run: |
+          mkdir -p /tmp/wabi-http
+          echo ANGELABOX_ACCEPTANCE_OK > /tmp/wabi-http/index.html
+          nohup python3 -m http.server 18080 --directory /tmp/wabi-http >/tmp/wabi-http.log 2>&1 &
+          nohup python3 -m http.server 18081 --directory /tmp/wabi-http >/tmp/wabi-http-reject-control.log 2>&1 &
+
+      - name: Build and install independent route probe
+        working-directory: sing-box-for-android
+        run: bash scripts/wabi_probe/build.sh
+
+      - name: Exercise profiles VPN TUN and persistence
+        working-directory: sing-box-for-android
+        run: python3 scripts/wabi_full_acceptance.py
+
+      - name: Capture final emulator state and logcat
+        if: always()
+        working-directory: sing-box-for-android
+        run: |
+          mkdir -p wabi-evidence
+          adb logcat -d > wabi-evidence/final-logcat.txt || true
+          adb shell dumpsys connectivity > wabi-evidence/final-connectivity.txt || true
+          adb shell ip addr > wabi-evidence/final-addresses.txt || true
+
+      - name: Save recent-app screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-acceptance-evidence
+          path: |
+            sing-box-for-android/wabi-evidence/
+            /tmp/emu.log
+            /tmp/wabi-http.log
+          if-no-files-found: ignore
+          retention-days: 7
