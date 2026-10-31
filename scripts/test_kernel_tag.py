@@ -34,9 +34,10 @@ def main():
             props.write_text(f'KERNEL_TAG={tag}\nKERNEL_COMMIT={commit}\n')
             def shell_path(path):
                 if os.name == 'nt':
-                    return run('bash', '-c', 'cygpath -u "$1"', '_', str(path)).stdout.strip()
+                    drive = path.drive.rstrip(':').lower()
+                    return '/' + drive + path.as_posix()[2:]
                 return str(path)
-            return run('bash', shell_path(SCRIPT), shell_path(props), shell_path(checkout), check=False)
+            return run(os.environ.get('WABI_GIT_BASH', 'bash'), shell_path(SCRIPT), shell_path(props), shell_path(checkout), check=False)
         matching = verify(TAG, first)
         assert matching.returncode == 0, f'matching published tag must pass: {matching.stdout} {matching.stderr}'
         (src/'content').write_text('two\n')

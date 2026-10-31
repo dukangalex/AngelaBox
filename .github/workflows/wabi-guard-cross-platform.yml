@@ -39,4 +39,8 @@ jobs:
         run: ./angelabox/scripts/verify_kernel_tag.sh '${{ steps.pin.outputs.props }}' sing-box
       - name: Check mismatched missing and forged tags
         shell: bash
-        run: python angelabox/scripts/test_kernel_tag.py
+        run: |
+          if [[ "${{ matrix.os }}" == windows-latest ]]; then
+            export WABI_GIT_BASH="$(cygpath -w "$(command -v bash)")"
+          fi
+          python angelabox/scripts/test_kernel_tag.py
