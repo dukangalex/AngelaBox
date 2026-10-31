@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
 concurrency:
@@ -26,6 +27,12 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: sing-box-for-android
+
+      - name: Require tested dev tip
+        working-directory: sing-box-for-android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"
 
       - name: Pre-flight release gate
         working-directory: sing-box-for-android
