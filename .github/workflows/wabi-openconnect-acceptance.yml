@@ -1,7 +1,7 @@
 name: Temporary OpenConnect interoperability verification
 on:
   push:
-    branches: [wabi/openconnect-acceptance]
+    branches: [wabi/reconciled-openconnect]
 permissions:
   contents: read
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          ref: 44835be29d186b8fbf955147d383562474ca8a18
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
@@ -20,7 +20,7 @@ jobs:
         working-directory: test
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          test "$(git rev-parse HEAD)" = 44835be29d186b8fbf955147d383562474ca8a18
           sudo mkdir -p /dev/net
           if [ ! -c /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; fi
           sudo chmod 666 /dev/net/tun
