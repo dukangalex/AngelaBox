@@ -289,6 +289,7 @@ jobs:
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \
             --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \
             --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
             --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
