@@ -1,0 +1,45 @@
+name: Temporary Brutal integration diagnostics
+on:
+  push:
+    branches: [wabi/brutal-kernel-diagnosis]
+permissions:
+  contents: read
+jobs:
+  brutal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Build official v1 TCP Brutal kernel module
+        run: |
+          set -euxo pipefail
+          uname -a
+          if [ ! -e /lib/modules/$(uname -r)/build/Makefile ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y "linux-headers-$(uname -r)"
+          fi
+          git clone -q https://github.com/HyNetworks/tcp-brutal.git /tmp/wabi-tcp-brutal
+          git -C /tmp/wabi-tcp-brutal checkout --detach f11e52d88c7ad2285896de018c2d96d4687f0ab6
+          make -C /tmp/wabi-tcp-brutal
+          sudo insmod /tmp/wabi-tcp-brutal/brutal.ko
+          cat /proc/sys/net/ipv4/tcp_available_congestion_control
+          grep -qw brutal /proc/sys/net/ipv4/tcp_available_congestion_control
+      - name: Run candidate Brutal integration tests
+        working-directory: test
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 20m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestBrutal' . 2>&1 | tee /tmp/wabi-brutal-integration.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: brutal-integration-log
+          path: /tmp/wabi-brutal-integration.log
+          if-no-files-found: ignore
+          retention-days: 7
