@@ -209,11 +209,16 @@ def test_source_guards() -> None:
     assert "fun display" in core_id
     assert "Libbox.version()" in core_id
 
-    assert "Stamp kernel version tag" in release
-    assert 'git tag -f "$KTAG" HEAD' in release
+    assert "Verify published kernel tag" in release
+    assert "scripts/verify_kernel_tag.sh" in release
+    assert "git tag -f" not in release
     ci = read(".github/workflows/ci.yml")
-    assert "Stamp kernel version tag" in ci
-    assert 'git tag -f "$KTAG" HEAD' in ci
+    assert "Verify published kernel tag" in ci
+    assert "scripts/verify_kernel_tag.sh" in ci
+    assert "git tag -f" not in ci
+    for workflow in (".github/workflows/release-stable.yml", ".github/workflows/release-windows-desktop.yml"):
+        assert "scripts/verify_kernel_tag.sh" in read(workflow)
+        assert "git tag -f" not in read(workflow)
     assert "steps.pin.outputs.commit" in ci
     assert "5e1593f0f5bf1110a94aab71e55244ceb4ccceba" not in ci
 
