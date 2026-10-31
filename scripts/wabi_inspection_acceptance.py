@@ -11,10 +11,15 @@ def snap(tag):
 def tap(n):
  b=list(map(int,re.findall(r'\d+',n.attrib['bounds'])));shell('input','tap',str((b[0]+b[2])//2),str((b[1]+b[3])//2));time.sleep(2)
 def find(text,tag,scroll=0):
+ # Emulator dimensions vary; keep the swipe inside the display and move upward
+ # so Compose scroll containers reveal controls below the current viewport.
+ size=shell('wm','size').strip().split()[-1]
+ width,height=map(int,size.split('x'))
  for i in range(scroll+1):
   root=snap(tag+str(i)); nodes=[n for n in root.iter('node') if text in n.attrib.get('text','') or text==n.attrib.get('content-desc')]
   if nodes:return nodes[0]
-  shell('input','swipe','500','1600','500','600','350');time.sleep(1)
+  if i < scroll:
+   shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.25)),'450');time.sleep(1)
  raise AssertionError('UI control absent: '+text)
 def local(name):
  try:return shell('run-as',P,'cat','no_backup/inspection-'+name+'.json').strip()
