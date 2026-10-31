@@ -9,6 +9,7 @@ on:
     branches:
       - dev
       - chain-dev
+      - wabi/integrated-app-ci
 
 permissions:
   contents: read
