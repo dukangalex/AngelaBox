@@ -34,21 +34,23 @@ jobs:
           cp -r "$MODULE_DIR" /tmp/wabi-sing-quic-compat
           chmod -R u+w /tmp/wabi-sing-quic-compat
           cd /tmp/wabi-sing-quic-compat
-          sha256sum "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
-          git apply --check "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
-          git apply "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-client-1200.patch"
+          sha256sum "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-bidirectional-1200.patch"
+          git apply --check "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-bidirectional-1200.patch"
+          git apply "$GITHUB_WORKSPACE/app/.wabi-evidence/hysteria-v1-bidirectional-1200.patch"
           cd "$GITHUB_WORKSPACE/kernel/test"
           go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-compat
           cp clash_test.go /tmp/wabi-original-clash-test.go
+          rc=0
           for size in 1500 1100; do
             cp /tmp/wabi-original-clash-test.go clash_test.go
             if [ "$size" = 1100 ]; then sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go; fi
             echo "=== Hysteria v1 UDP $size ==="
-            go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound|Outbound)$' . 2>&1 | tee "/tmp/compat-${size}.log"
+            go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria(Self|Inbound|Outbound)$' . 2>&1 | tee "/tmp/compat-${size}.log" || rc=1
           done
           cp /tmp/wabi-original-clash-test.go clash_test.go
-          echo '=== Hysteria2 self regression ==='
-          go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria2Self$' . 2>&1 | tee /tmp/compat-hysteria2.log
+          echo '=== Hysteria2 bidirectional regression ==='
+          go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor' -run '^TestHysteria2(Self|Inbound|Outbound)$' . 2>&1 | tee /tmp/compat-hysteria2.log || rc=1
+          exit "$rc"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,0 +1,28 @@
+diff --git a/hysteria/client.go b/hysteria/client.go
+index 0801062..d4e4814 100644
+--- a/hysteria/client.go
++++ b/hysteria/client.go
+@@ -67,6 +67,9 @@ func NewClient(options ClientOptions) (*Client, error) {
+ 	quicConfig := &quic.Config{
+ 		DisablePathMTUDiscovery:        !(runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "android" || runtime.GOOS == "darwin"),
+ 		EnableDatagrams:                true,
++		// Legacy Hysteria v1 peers use a 1200-byte QUIC datagram frame limit.
++		// Advertise the same limit so they fragment oversized UDP replies.
++		MaxDatagramFrameSize:           1200,
+ 		InitialStreamReceiveWindow:     DefaultStreamReceiveWindow,
+ 		MaxStreamReceiveWindow:         DefaultStreamReceiveWindow,
+ 		InitialConnectionReceiveWindow: DefaultConnReceiveWindow,
+diff --git a/hysteria/service.go b/hysteria/service.go
+index c36d055..f1c656e 100644
+--- a/hysteria/service.go
++++ b/hysteria/service.go
+@@ -62,6 +62,9 @@ func NewService[U comparable](options ServiceOptions) (*Service[U], error) {
+ 	quicConfig := &quic.Config{
+ 		DisablePathMTUDiscovery:        !(runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "android" || runtime.GOOS == "darwin"),
+ 		EnableDatagrams:                !options.UDPDisabled,
++		// Legacy Hysteria v1 peers use a 1200-byte QUIC datagram frame limit.
++		// Advertise the same limit so they fragment oversized UDP requests.
++		MaxDatagramFrameSize:           1200,
+ 		MaxIncomingStreams:             1 << 60,
+ 		InitialStreamReceiveWindow:     DefaultStreamReceiveWindow,
+ 		MaxStreamReceiveWindow:         DefaultStreamReceiveWindow,
