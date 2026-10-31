@@ -1,7 +1,7 @@
 name: Temporary full acceptance
 on:
   push:
-    branches: [wabi/perapp-acceptance]
+    branches: [wabi/perapp-retry-fix]
   workflow_dispatch:
 permissions:
   contents: read

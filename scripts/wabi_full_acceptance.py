@@ -209,6 +209,8 @@ assert any(n.get('text','').startswith('org.wabi.vpnprobe (') for n in row.iter(
 assert len([n for n in row.iter() if n.get('checkable')=='true' and n.get('clickable')=='true'])==1,'probe selection control ambiguous'
 r=set_switch(r,'VPN Route Probe','true'); save('perapp-selection','excluded probe selected, unmanaged mode')
 shell('input','keyevent','4'); shell('input','keyevent','4'); shell('input','keyevent','4'); r=dashboard(); r=power(r,'Start'); assert '172.19.0.1' in shell('ip','addr')
+save('perapp-vpn-connectivity', shell('dumpsys','connectivity'))
+save('perapp-debug-logcat', adb('logcat','-d'))
 excluded=getfixture(18081); save('perapp-excluded-result',excluded); assert 'WABI_PROBE_HTTP_200_ANGELABOX_ACCEPTANCE_OK' in excluded,'excluded app did not route direct'
 r=home(); r=power(r,'Stop')
 # Turn the setting off and verify the same app is once again subject to the VPN rule.

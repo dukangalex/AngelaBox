@@ -369,6 +369,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         autoRedirect = Settings.autoRedirect
         if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
             val appList = Settings.getEffectivePerAppProxyList()
+            android.util.Log.i("WabiPerAppDebug", "effective mode=${Settings.getEffectivePerAppProxyMode()} managed=${Settings.perAppProxyManagedMode} packages=$appList")
             if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
                 includePackage =
                     PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
