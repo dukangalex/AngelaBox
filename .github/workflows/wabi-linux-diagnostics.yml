@@ -47,7 +47,7 @@ jobs:
             cp /tmp/wabi-original-clash-test.go clash_test.go
             cp /tmp/wabi-original-hysteria-test.go hysteria_test.go
             # Diagnose datagrams independently of the preceding 6.4 MiB TCP transfer.
-            sed -i '/require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))/d' box_test.go
+            sed -i '/^func testSuit(/,/^}/ { /require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))/d; }' box_test.go
             sed -i 's/testSuitSimple1(t, clientPort, testPort)/testSuit(t, clientPort, testPort)/' hysteria_test.go
             if [ "$size" = 1100 ]; then sed -i 's/testLargeDataWithPacketConnSize(t, port, 1500, pcc)/testLargeDataWithPacketConnSize(t, port, 1100, pcc)/' clash_test.go; fi
             echo "=== Hysteria v1 UDP $size ==="
