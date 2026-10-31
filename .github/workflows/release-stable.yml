@@ -57,6 +57,7 @@ jobs:
           python3 scripts/test_inbound_compat.py
           python3 scripts/test_unit_test_whitelist.py
           python3 scripts/test_pin_guards.py
+          python3 scripts/test_kernel_tag.py
 
       - name: Read kernel pin
         id: pin
@@ -87,15 +88,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
           echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Stamp kernel version tag
+      - name: Verify published kernel tag
         working-directory: sing-box
         run: |
           set -euo pipefail
-          KTAG=$(grep '^KERNEL_TAG=' ../sing-box-for-android/version-stable.properties | cut -d= -f2 | tr -d '\r')
-          echo "$KTAG" | grep -Eq '^v[0-9]'
-          git tag -f "$KTAG" HEAD
-          git describe --tags --abbrev=0
-          test "$(git describe --tags --abbrev=0)" = "$KTAG"
+          ../sing-box-for-android/scripts/verify_kernel_tag.sh ../sing-box-for-android/version-stable.properties .
 
       - name: Verify official types in audited kernel
         run: |
