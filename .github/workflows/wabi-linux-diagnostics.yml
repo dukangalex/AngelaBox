@@ -1,7 +1,7 @@
 name: Temporary Hysteria reply diagnosis
 on:
   push:
-    branches: [wabi/hysteria-reply-diagnosis]
+    branches: [wabi/hysteria-fragment-diagnosis]
 permissions:
   contents: read
 jobs:
@@ -29,6 +29,12 @@ jobs:
           git apply ../app/.wabi-evidence/candidate.patch
           cd test
           python3 ../../app/scripts/wabi_hysteria_reply_diagnose.py
+          go mod download github.com/sagernet/sing-quic
+          MODULE_DIR="$(go list -mod=mod -m -f '{{.Dir}}' github.com/sagernet/sing-quic)"
+          cp -r "$MODULE_DIR" /tmp/wabi-sing-quic-fragment
+          chmod -R u+w /tmp/wabi-sing-quic-fragment
+          python3 ../../app/scripts/wabi_hysteria_fragment_diagnose.py /tmp/wabi-sing-quic-fragment
+          go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-fragment
           gofmt -w clash_test.go
           cp clash_test.go /tmp/diag-clash-1500.go
           set +e
