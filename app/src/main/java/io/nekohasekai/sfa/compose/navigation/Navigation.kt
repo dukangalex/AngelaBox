@@ -72,6 +72,7 @@ import io.nekohasekai.sfa.compose.screen.tools.STUNTestScreen
 import io.nekohasekai.sfa.compose.screen.tools.ScriptListScreen
 import io.nekohasekai.sfa.compose.screen.tools.TailscaleSSHSharedViewModel
 import io.nekohasekai.sfa.compose.screen.tools.TailscaleStatusViewModel
+import io.nekohasekai.sfa.compose.screen.tools.InspectionScreen
 import io.nekohasekai.sfa.compose.screen.tools.ToolsScreen
 import io.nekohasekai.sfa.compose.screen.usbip.USBIPStatusViewModel
 import io.nekohasekai.sfa.constant.Status
@@ -339,6 +340,9 @@ fun NavHost(
         }
         composable(route = "tools/scripts", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
             ScriptListScreen(navController = navController, serviceStatus = serviceStatus)
+        }
+        composable(route = "tools/inspection", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
+            InspectionScreen(navController = navController)
         }
         composable(route = "tools/network_quality", enterTransition = slideInFromRight, exitTransition = slideOutToLeft, popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight) {
             NetworkQualityScreen(navController = navController, serviceStatus = serviceStatus)

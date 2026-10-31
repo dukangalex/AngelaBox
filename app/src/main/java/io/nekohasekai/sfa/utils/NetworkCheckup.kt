@@ -456,8 +456,17 @@ object NetworkCheckup {
 
     private suspend fun checkSubscription(context: Context): Item {
         val issues = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
-            runCatching { SubscriptionUpdateHealth.evaluate(context) }.getOrDefault(emptyList())
-        }.orEmpty()
+            try {
+                SubscriptionUpdateHealth.evaluate(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+        if (issues == null) {
+            return Item(ItemId.SUBSCRIPTION, ItemStatus.WARN, "unknown", context.getString(R.string.inspection_subscription_unknown))
+        }
         if (issues.isEmpty()) {
             return Item(
                 ItemId.SUBSCRIPTION,

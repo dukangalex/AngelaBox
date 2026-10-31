@@ -970,4 +970,36 @@
     <string name="onboarding_guide_step3">Tap Start and you are online.</string>
     <string name="onboarding_guide_action_import">Import now</string>
     <string name="onboarding_guide_action_later">Later</string>
+
+    <string name="inspection_title">App inspector</string>
+    <string name="inspection_tools_desc">Local observations and optional AI explanations</string>
+    <string name="inspection_intro">Inspect first, explain with evidence. AI can suggest checks but cannot change profiles, routes, DNS or service state. You decide what to do.</string>
+    <string name="inspection_auto">Automatic local observations</string>
+    <string name="inspection_auto_desc">Off by default. Approximately every 15 minutes, subject to Android scheduling. Observes only network availability and local service state. No probes, cloud calls, uploads or notifications. This is not a full connectivity test.</string>
+    <string name="inspection_observed_at">Observed: %1$s</string>
+    <string name="inspection_point_in_time">Point-in-time evidence, not a guarantee of health</string>
+    <string name="inspection_stale">Old or changed context — rerun before relying on it</string>
+    <string name="inspection_evidence_limit">OBSERVED = observation, not a root cause. ATTENTION = investigate. UNKNOWN / NOT_CHECKED = no conclusion. Probes reflect this app only; node latency is not measured here. Passive runs contain no active checks. A config edit or network switch can invalidate earlier evidence.</string>
+    <string name="inspection_run">Run local checks</string>
+    <string name="inspection_model_settings">AI model settings</string>
+    <string name="inspection_ai_review">Review evidence for AI</string>
+    <string name="inspection_no_model">Local inspection works without AI. No model is configured; no AI request will be made.</string>
+    <string name="inspection_clear">Clear local report</string>
+    <string name="inspection_probe_consent">This manual check contacts gstatic.com and cloudflare.com and compares public DNS answers through the current network path. It also reads local subscription health. It does not upload logs, subscriptions or configuration to AI, and does not change routing. A small amount of traffic may be used. Continue?</string>
+    <string name="inspection_send_title">Review before sending</string>
+    <string name="inspection_send_desc">Destination: %1$s\nModel: %2$s\nOnly the evidence below plus a fixed read-only instruction will be sent. Your API key is sent in the Authorization header to this destination. The provider sees your request IP and may charge API fees. Cancel to keep this local.</string>
+    <string name="inspection_prompt_disclosure">Fixed instruction: explain observed evidence and possible causes in Chinese; distinguish uncertainty and skipped checks; offer user-controlled checks only; never request secrets or execute changes. No raw logs, URLs, node names, profiles, IPs or subscription content are included in the evidence.</string>
+    <string name="inspection_send">Send this evidence once</string>
+    <string name="inspection_config_desc">Optional OpenAI-compatible chat/completions HTTPS endpoint, model and API key. No default provider and no request on Save. The entire configuration is encrypted using Android Keystore and excluded from backups. No background AI calls.</string>
+    <string name="inspection_endpoint">Full HTTPS chat/completions URL</string>
+    <string name="inspection_model">Model identifier</string>
+    <string name="inspection_key">API key</string>
+    <string name="inspection_key_keep">API key (blank keeps key for the same endpoint)</string>
+    <string name="inspection_remove_model">Delete saved model and key</string>
+    <string name="inspection_save_failed">Could not save. Use a public HTTPS endpoint without query/fragment, a model identifier and a valid API key. No request was sent.</string>
+    <string name="inspection_failed">Checks failed or the context changed. No reliable new report; rerun when the network and profile are stable.</string>
+    <string name="inspection_ai_failed">AI analysis failed or became stale. No automatic retry or settings change. A request may already have reached the provider; check its usage before retrying.</string>
+    <string name="inspection_cancelled">Cancelled locally. An AI request may already have reached the provider. Nothing is retried or changed.</string>
+    <string name="inspection_ai_untrusted">AI interpretation — may be wrong; suggestions only, no changes executed</string>
+    <string name="inspection_subscription_unknown">Subscription health was not available; no conclusion</string>
 </resources>

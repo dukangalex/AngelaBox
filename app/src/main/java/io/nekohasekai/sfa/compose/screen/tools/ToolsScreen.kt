@@ -439,6 +439,13 @@ fun ToolsScreen(
             ),
         ) {
             ListItem(
+                headlineContent = { Text(stringResource(R.string.inspection_title)) },
+                supportingContent = { Text(stringResource(R.string.inspection_tools_desc)) },
+                leadingContent = { Icon(Icons.Outlined.BugReport, contentDescription = null) },
+                modifier = Modifier.clickable { navController.navigate("tools/inspection") },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+            ListItem(
                 headlineContent = {
                     Text(
                         stringResource(R.string.network_quality),

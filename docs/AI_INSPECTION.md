@@ -1,0 +1,15 @@
+# App inspector (initial implementation)
+
+Tools → App inspector. This is a real Android feature, not the Wabi maintenance widget.
+
+- Default off automatic *local observations*: WorkManager, nominal minimum 15 minutes, Android may defer. Reads OS network presence and actual same-process local service flag only. No active traffic, notifications or AI requests in the worker. The report clearly labels passive coverage.
+- User-triggered local checks reuse NetworkCheckup (two connectivity targets, DNS canary, aggregate subscription health); consent names traffic destinations. No selected-outbound latency is fabricated. Only the latest structured local report is retained, in noBackupFilesDir, and can be deleted.
+- Optional OpenAI-compatible **full HTTPS chat/completions URL**, model and key are configured in App. No default provider. Entire config encrypted with AES-GCM / Android Keystore, no backup/export. Keys are never put in diagnostics, saved UI state, logs or error text. A changed endpoint requires a new key. Save sends no request.
+- AI call requires a separate preview and Send for every round. Exact structured evidence, destination, model, fixed instruction summary, Authorization use, visible-IP and possible provider cost disclosed. Payload uses an allowlist of check IDs/status/codes plus safe version identifiers: no raw logs, node tags, subscription URLs/content, profile identifiers, IP addresses or settings.
+- No automatic model invocation, automatic repair, route/profile/DNS edits, fallback bypass, redirects or retry. Response is plain untrusted text, never executable commands/actions. Model tool/function output rejected. The user has final authority.
+- HTTPS targets checked using existing SSRF guard and pinned resolved public IP; normal TLS verification, no bypassTunnel. 64 KiB response, 6,000-character output, connect/read/deadline bounds; no secret-bearing HTTP body in errors. Cancellation does not guarantee an already-sent request is unbilled.
+- AI requires evidence at most five minutes old, same profile, service state, network and process/context generation before/after request. Profile writes, network callbacks and tunnel restarts invalidate evidence; app restart makes persisted evidence stale. This still is not a guarantee that every global setting/runtime mutation is detected. Rerun after edits. No automatic claim of root cause or universal health.
+
+## Verification / limitations
+
+Unit tests cover freshness, clock rollback, profile/network/service/context changes, payload allowlisting, secret injection, HTTPS/private targets, request shape and tool/oversize response rejection. No provider credentials are bundled. A real provider response/billing behavior is **not verified** without owner-configured service and per-run permission. Passive worker does not establish end-to-end connectivity; app probes cannot prove other apps' VPN routing. Subscription health is aggregate across local profiles. Android OEM background scheduling and real-device lifecycle still need acceptance testing; do not call this exhaustive health coverage.
