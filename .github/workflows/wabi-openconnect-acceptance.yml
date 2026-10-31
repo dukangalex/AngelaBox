@@ -24,7 +24,7 @@ jobs:
           sudo mkdir -p /dev/net
           if [ ! -c /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; fi
           sudo chmod 666 /dev/net/tun
-          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN OPENCONNECT_IT=1 go test -mod=mod -count=1 -v -timeout 15m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestOpenConnectDockerInterop$' . 2>&1 | tee /tmp/wabi-openconnect-interop.log
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN OPENCONNECT_IT=1 go test -mod=mod -count=1 -v -timeout 15m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn,with_openconnect' -run '^TestOpenConnectDockerInterop$' . 2>&1 | tee /tmp/wabi-openconnect-interop.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
