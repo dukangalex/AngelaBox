@@ -1,0 +1,42 @@
+name: Validate published kernel guard across platforms
+on:
+  push:
+    branches: [wabi/guard-cross-platform]
+  workflow_dispatch:
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        variant: [beta, stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout app guard
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: angelabox
+      - name: Read target commit
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          props=angelabox/version.properties
+          if [[ '${{ matrix.variant }}' == stable ]]; then props=angelabox/version-stable.properties; fi
+          commit=$(grep '^KERNEL_COMMIT=' "$props" | cut -d= -f2 | tr -d '\r')
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "props=$props" >> "$GITHUB_OUTPUT"
+      - name: Checkout pinned kernel
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+          submodules: false
+      - name: Check real published tag
+        shell: bash
+        run: ./angelabox/scripts/verify_kernel_tag.sh '${{ steps.pin.outputs.props }}' sing-box
+      - name: Check mismatched missing and forged tags
+        shell: bash
+        run: python angelabox/scripts/test_kernel_tag.py
