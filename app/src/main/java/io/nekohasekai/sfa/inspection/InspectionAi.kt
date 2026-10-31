@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
 import java.net.URI
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
@@ -41,7 +42,10 @@ object InspectionAi {
 
     /** Only called from the preview's explicit Send button with the exact reviewed payload. */
     suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing(config, payload, stillCurrent) { url, headers ->
-        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers)
+        // Do not use RemoteUrlGuard's general resolver: its fake-IP recovery may
+        // query protected public DNS. AI must never reveal a provider hostname
+        // outside the current system/tunnel DNS path as an implicit fallback.
+        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers, resolve = { host -> InetAddress.getAllByName(host).toList() })
     }
 
     /** Transport seam for deterministic tests; production always uses the guarded pinned client. */
