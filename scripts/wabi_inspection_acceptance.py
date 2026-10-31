@@ -60,6 +60,9 @@ for i in range(60):
  time.sleep(2)
 report=json.loads(local('result'));assert len(report['facts'])>=2
 assert not local('ai'), 'probes must not auto-configure AI'
-snap('local-report');button('Clear local report','clear');assert not local('result')
-(out/'acceptance.json').write_text(json.dumps({'default_off':True,'probe_consent_cancel_no_report':True,'setting_restart_persistence':True,'disable_saved':True,'local_probe_report':report,'clear_report':True,'live_ai_not_tested':True},indent=2))
+snap('local-report');button('Clear local report','clear');time.sleep(2);assert not local('result')
+root=snap('after-clear');assert not any('SUBSCRIPTION:' in n.attrib.get('text','') for n in root.iter('node')), 'cleared report still visible'
+shell('am','force-stop',P);launch();inspector();assert not local('result')
+root=snap('after-clear-restart');assert not any('SUBSCRIPTION:' in n.attrib.get('text','') for n in root.iter('node')), 'cleared report returned after restart'
+(out/'acceptance.json').write_text(json.dumps({'default_off':True,'probe_consent_cancel_no_report':True,'setting_restart_persistence':True,'disable_saved':True,'local_probe_report':report,'clear_report_and_ui':True,'cleared_report_stays_absent_after_restart':True,'live_ai_not_tested':True},indent=2))
 print('PASS: consent, opt-out, saved settings, local diagnostics and clearing; live AI not tested')
