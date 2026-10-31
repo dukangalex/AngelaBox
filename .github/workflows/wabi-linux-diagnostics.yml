@@ -1,7 +1,7 @@
-name: Temporary Hysteria legacy fragmentation diagnosis
+name: Temporary Hysteria client datagram advertisement diagnosis
 on:
   push:
-    branches: [wabi/hysteria-legacy-fragment-diagnosis]
+    branches: [wabi/hysteria-client-advertise-diagnosis]
 permissions:
   contents: read
 jobs:
@@ -17,32 +17,6 @@ jobs:
           repository: dukangalex/sing-box
           ref: e086d9de7653adba08133ecb6257b40370b0f20c
           path: kernel
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: HyNetwork/hysteria
-          ref: 57c5164854d6cfe00bead730cce731da2babe406
-          path: upstream-hysteria
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version: '1.20.14'
-      - name: Build instrumented upstream server
-        run: |
-          set -euo pipefail
-          python3 app/scripts/wabi_hysteria_server_diagnose.py upstream-hysteria/core/cs/server_client.go
-          cd upstream-hysteria
-          (cd app && GOWORK=off go mod download github.com/quic-go/quic-go)
-          QUIC_DIR="$(cd app && GOWORK=off go list -m -f '{{.Dir}}' github.com/quic-go/quic-go)"
-          cp -r "$QUIC_DIR" /tmp/wabi-hy-old-quic
-          chmod -R u+w /tmp/wabi-hy-old-quic
-          python3 ../app/scripts/wabi_hysteria_legacy_cap.py /tmp/wabi-hy-old-quic/connection.go
-          go work edit -replace github.com/quic-go/quic-go=/tmp/wabi-hy-old-quic
-          CGO_ENABLED=0 go build -tags=gpl -o /tmp/wabi-hysteria-server ./app/cmd/
-          cd ..
-          mkdir -p /tmp/wabi-hysteria-image
-          cp /tmp/wabi-hysteria-server /tmp/wabi-hysteria-image/hysteria
-          printf 'FROM tobyxdd/hysteria:v1.3.5\nCOPY hysteria /usr/local/bin/hysteria\n' > /tmp/wabi-hysteria-image/Dockerfile
-          docker build -t wabi/hysteria-diag:v1.3.5 /tmp/wabi-hysteria-image
-          docker tag wabi/hysteria-diag:v1.3.5 tobyxdd/hysteria:v1.3.5
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
@@ -60,6 +34,7 @@ jobs:
           cp -r "$MODULE_DIR" /tmp/wabi-sing-quic-fragment
           chmod -R u+w /tmp/wabi-sing-quic-fragment
           python3 ../../app/scripts/wabi_hysteria_fragment_diagnose.py /tmp/wabi-sing-quic-fragment
+          python3 ../../app/scripts/wabi_hysteria_client_cap.py /tmp/wabi-sing-quic-fragment/hysteria/client.go
           go mod edit -replace github.com/sagernet/sing-quic=/tmp/wabi-sing-quic-fragment
           gofmt -w clash_test.go
           cp clash_test.go /tmp/diag-clash-1500.go
