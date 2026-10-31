@@ -1,0 +1,34 @@
+name: Temporary OpenConnect interoperability verification
+on:
+  push:
+    branches: [wabi/openconnect-acceptance]
+permissions:
+  contents: read
+jobs:
+  openconnect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Test OpenConnect against ocserv in Docker
+        working-directory: test
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          sudo mkdir -p /dev/net
+          if [ ! -c /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; fi
+          sudo chmod 666 /dev/net/tun
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN OPENCONNECT_IT=1 go test -mod=mod -count=1 -v -timeout 15m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestOpenConnectDockerInterop$' . 2>&1 | tee /tmp/wabi-openconnect-interop.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openconnect-interop-log
+          path: /tmp/wabi-openconnect-interop.log
+          if-no-files-found: ignore
+          retention-days: 7
