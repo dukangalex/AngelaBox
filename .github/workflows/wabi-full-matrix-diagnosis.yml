@@ -1,7 +1,7 @@
-name: Temporary complete candidate kernel verification
+name: Temporary reconciled candidate kernel verification
 on:
   push:
-    branches: [wabi/full-matrix-diagnosis]
+    branches: [wabi/reconcile-full-matrix]
 permissions:
   contents: read
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          ref: 44835be29d186b8fbf955147d383562474ca8a18
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
@@ -32,7 +32,7 @@ jobs:
         working-directory: test
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          test "$(git rev-parse HEAD)" = 44835be29d186b8fbf955147d383562474ca8a18
           sudo -E env -u GITHUB_TOKEN -u GH_TOKEN go test -mod=mod -count=1 -v -timeout 30m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' . 2>&1 | tee /tmp/wabi-full-matrix.log
       - uses: actions/upload-artifact@v4
         if: always()
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dukangalex/sing-box
-          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          ref: 44835be29d186b8fbf955147d383562474ca8a18
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: '1.25.5'
@@ -56,7 +56,7 @@ jobs:
         working-directory: test
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          test "$(git rev-parse HEAD)" = 44835be29d186b8fbf955147d383562474ca8a18
           go list -m -f '{{.Dir}}' github.com/sagernet/sing-quic
           go test -mod=mod -count=3 -v -timeout 18m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestHysteria(Self|Inbound|Outbound)$|^TestHysteria2(Self|Inbound|Outbound)$' . 2>&1 | tee /tmp/wabi-hysteria-repeat.log
       - uses: actions/upload-artifact@v4
