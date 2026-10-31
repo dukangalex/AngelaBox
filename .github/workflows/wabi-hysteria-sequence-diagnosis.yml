@@ -1,0 +1,49 @@
+name: Temporary Hysteria UDP TCP ordering diagnosis
+on:
+  push:
+    branches: [wabi/hysteria-sequence-diagnosis]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: 3ae0e4b7a3d857592ced6783d248bcd425be335a
+          fetch-depth: 1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+      - name: Compare unchanged suite to diagnostic TCP-only on same runner
+        run: |
+          set -uo pipefail
+          rc_all=0
+          for mode in full-first tcp-only full-last; do
+            git reset --hard 3ae0e4b7a3d857592ced6783d248bcd425be335a || exit 1
+            if [ "$mode" = tcp-only ]; then
+              python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('test/box_test.go'); s=p.read_text()
+          for name in ('testSuit','testSuitLargeUDP'):
+              start=s.index('func '+name+'('); end=s.index('\nfunc ',start+5)
+              section=s[start:end]
+              section='\n'.join(line for line in section.split('\n') if not ('require.NoError' in line and 'PacketConn' in line))
+              i=section.rfind('}'); section=section[:i]+'\t_ = dialUDP\n'+section[i:]
+              s=s[:start]+section+s[end:]
+          p.write_text(s)
+          PY
+            fi
+            echo "=== $mode ref=$(git rev-parse HEAD) ===" | tee -a /tmp/hy-sequence.log
+            (cd test && go test -mod=mod -count=1 -v -timeout 8m -ldflags='-checklinkname=0' -tags 'badlinkname,with_quic,with_utls,with_wireguard,with_clash_api,with_gvisor,with_openvpn' -run '^TestHysteria(Self|Inbound|Outbound)$|^TestHysteria2Self/self$' .) 2>&1 | tee -a /tmp/hy-sequence.log
+            rc=${PIPESTATUS[0]}; echo "=== $mode exit=$rc ===" | tee -a /tmp/hy-sequence.log; [ "$rc" = 0 ] || rc_all=1
+          done
+          exit "$rc_all"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hysteria-sequence-log
+          path: /tmp/hy-sequence.log
+          retention-days: 7
