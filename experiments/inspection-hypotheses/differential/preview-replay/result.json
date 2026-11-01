@@ -1,0 +1,31 @@
+{
+  "synthetic_only": true,
+  "source_run": "41275900770",
+  "not_app_execution": true,
+  "status": 200,
+  "bytes": 2145,
+  "response": {
+    "id": "pllns_c73831c16e183509f8d4996dbe35d2a6",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "**观察结果**\n\n| 检测项 | 状态 | 代码 |\n|--------|------|------|\n| TUNNEL | ATTENTION | timeout |\n| DNS | UNKNOWN | canary_not_resolved |\n| LATENCY | NOT_CHECKED | skipped |\n\n**可能原因（不确定）**\n\n- **TUNNEL**  \n  - 路由器或防火墙导致 VPN 隧道丢包或超时。  \n  - VPN 服务器不可达或消耗高。  \n  - 本地网络延迟或拥塞。  \n\n- **DNS**  \n  - 解析请求被本地解析器忽略或返回 NXDOMAIN（因使用 .invalid 名称）。  \n  - DNS 服务器响应不可用或网络路由错误。  \n\n- **LATENCY**  \n  - 检测被跳过，尚未获取任何延迟信息。  \n\n**建议检查（由您自行执行）**\n\n1. 重新启动 VPN 并尝试再次连接，观察是否仍出现 timeout。  \n2. 在同一网络下使用其它设备或客户端执行相同的隧道和 DNS 检测，确认是否为设备特有。  \n3. 查看本地机器的网络路由表和防火墙日志，确认 VPN 端口和协议是否被拦截。  \n4. 通过非受控 DNS 服务器（如 8.8.8.8）查询其它同一域名，验证 DNS 路由是否正常。  \n5. 手动 ping VPN 服务器 IP，确认可达性与 RTT。  \n\n请根据需要自行执行上述检查，任何更进一步的操作和结果均需由您决定。",
+          "tool_calls": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "created": 1793507955,
+    "model": "gpt-oss-20b",
+    "object": "chat.completion",
+    "usage": {
+      "prompt_tokens": 447,
+      "completion_tokens": 473,
+      "total_tokens": 920
+    },
+    "user_tier": "anonymous"
+  },
+  "seconds": 0.34
+}

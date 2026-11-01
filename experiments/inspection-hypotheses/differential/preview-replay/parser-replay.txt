@@ -1,0 +1,3 @@
+original synthetic replay: REJECTED
+only log mention replaced: ACCEPTED; prohibited public DNS advice still present
+log-mention guard is a sufficient rejection cause; arbitrary semantics are not validated
