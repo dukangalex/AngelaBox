@@ -101,7 +101,31 @@ object InspectionAi {
         // Do not use RemoteUrlGuard's general resolver: its fake-IP recovery may
         // query protected public DNS. AI must never reveal a provider hostname
         // outside the current system/tunnel DNS path as an implicit fallback.
-        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers, resolve = { host -> resolveSystem(host) })
+        withPreservedDnsFailure { resolve ->
+            HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers, resolve = resolve)
+        }
+    }
+
+    // RemoteUrlGuard intentionally folds resolver errors into a denied URL. Keep
+    // this request's sanitized DNS failure/cancellation outside that guard so a
+    // bounded timeout cannot become an unrelated format/URL failure in the UI.
+    internal fun <T> withPreservedDnsFailure(
+        resolve: (String) -> List<InetAddress> = { resolveSystem(it) },
+        open: ((String) -> List<InetAddress>) -> T,
+    ): T {
+        var dnsFailure: Exception? = null
+        return try {
+            open { host ->
+                try {
+                    resolve(host)
+                } catch (error: Exception) {
+                    dnsFailure = error
+                    throw error
+                }
+            }
+        } catch (error: Exception) {
+            throw dnsFailure ?: error
+        }
     }
 
     // Native system DNS may ignore interruption. Bound both the caller's wait and
