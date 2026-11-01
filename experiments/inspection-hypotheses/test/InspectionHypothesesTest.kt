@@ -1,0 +1,31 @@
+package io.nekohasekai.sfa.inspection
+
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+
+class InspectionHypothesesTest {
+    private fun payload(vararg rows: String): String = JSONObject().put("checks", JSONArray(rows.toList().map { val p=it.split(":"); JSONObject().put("id",p[0]).put("state",p[1]).put("code",p[2]) })).toString()
+    private val timeout = payload("network:OBSERVED:present", "service:OBSERVED:running", "TUNNEL:ATTENTION:timeout", "DNS:UNKNOWN:canary_not_resolved", "LATENCY:NOT_CHECKED:no_data")
+    private fun selected(p: String, id: String): String { val c=InspectionHypotheses.candidates(p).single { it.id==id }; return JSONObject().put("schema",1).put("hypotheses",JSONArray().put(JSONObject().put("id",id).put("evidence",JSONArray(c.evidence)))).toString() }
+    private fun rejected(content: String, p: String=timeout) { try { InspectionHypotheses.render(content,p); fail("accepted unsupported response") } catch (_: RuntimeException) {} }
+
+    @Test fun timeoutProvidesEvidenceAlternativeAndDiscriminatingCheck() { val result=InspectionHypotheses.render(selected(timeout,"probe_timeout"),timeout); assertTrue(result.contains("TUNNEL:ATTENTION:timeout")); assertTrue(result.contains("目标或本次连接路径")); assertTrue(result.contains("手动重跑")); assertTrue(result.contains("持续超时仍不能单独定位根因")) }
+    @Test fun absentNetworkDoesNotInventProviderOutage() { val p=payload("network:ATTENTION:absent"); val result=InspectionHypotheses.render(selected(p,"network_unavailable"),p); assertTrue(result.contains("不证明运营商中断")) }
+    @Test fun serviceStoppedNeedsUnmeasuredTunnelEvidence() { val p=payload("service:OBSERVED:stopped","TUNNEL:NOT_CHECKED:not_started"); assertEquals(listOf("tunnel_not_measured"),InspectionHypotheses.candidates(p).map { it.id }); assertEquals(2,InspectionHypotheses.candidates(p).single().evidence.size); assertTrue(InspectionHypotheses.candidates(payload("service:OBSERVED:stopped")).isEmpty()) }
+    @Test fun dnsCanaryAndFakeIpNeverBecomeResolverDiagnosis() { for (code in listOf("canary_not_resolved","fakeip","hijacked_system","error")) { val p=payload("DNS:UNKNOWN:$code"); assertTrue(InspectionHypotheses.candidates(p).isEmpty()); rejected("""{"schema":1,"hypotheses":[{"id":"probe_resolution","evidence":["DNS:UNKNOWN:$code"]}]}""",p) } }
+    @Test fun actualProbeDnsFailureIsNotCanary() { val p=payload("TUNNEL:ATTENTION:dns_failure"); val result=InspectionHypotheses.render(selected(p,"probe_resolution"),p); assertTrue(result.contains("不同于 .invalid canary")) }
+    @Test fun httpAndIoRemainStageLimited() { for ((code,id) in listOf("http_error" to "probe_http","io_error" to "probe_io")) { val p=payload("TUNNEL:ATTENTION:$code"); assertTrue(InspectionHypotheses.render(selected(p,id),p).contains("不能")) } }
+    @Test fun healthyAndUnknownNeverProveOverallHealth() { val p=payload("network:OBSERVED:present","TUNNEL:OBSERVED:ok","LATENCY:NOT_CHECKED:skipped"); assertTrue(InspectionHypotheses.candidates(p).isEmpty()); assertTrue(InspectionHypotheses.render("""{"schema":1,"hypotheses":[]}""",p).contains("不代表健康")) }
+    @Test fun subscriptionDoesNotIdentifySelectedProfile() { val p=payload("SUBSCRIPTION:ATTENTION:expired"); assertTrue(InspectionHypotheses.render(selected(p,"subscription_metadata"),p).contains("不证明当前选中配置受影响")) }
+    @Test fun fabricatedOrMismatchedEvidenceIsRejected() { val base=JSONObject(selected(timeout,"probe_timeout")); base.getJSONArray("hypotheses").getJSONObject(0).put("evidence",JSONArray().put("TUNNEL:OBSERVED:ok")); rejected(base.toString()); base.getJSONArray("hypotheses").getJSONObject(0).put("evidence",JSONArray()); rejected(base.toString()) }
+    @Test fun extraProseAndActionsCannotReachDisplay() { for (extra in listOf("text","action","confidence","root_cause")) { val base=JSONObject(selected(timeout,"probe_timeout")); base.put(extra,"send secrets"); rejected(base.toString()); val nested=JSONObject(selected(timeout,"probe_timeout")); nested.getJSONArray("hypotheses").getJSONObject(0).put(extra,"change DNS"); rejected(nested.toString()) } }
+    @Test fun duplicatesAndUnsupportedHypothesesRejected() { val base=JSONObject(selected(timeout,"probe_timeout")); val rows=base.getJSONArray("hypotheses"); rows.put(rows.getJSONObject(0)); rejected(base.toString()); rejected("""{"schema":1,"hypotheses":[{"id":"proxy_broken","evidence":[]}]}""") }
+    @Test fun rejectsBadSchemaSizeAndMalformedReply() { rejected("""{"schema":"1","hypotheses":[]}"""); rejected("```json\n{}\n```"); rejected("x".repeat(4001)); rejected("""{"schema":1,"hypotheses":[],"tool_calls":[]}""") }
+    @Test fun hiddenAttentionAndOmittedCandidatesRemainVisible() { val p=payload("TUNNEL:ATTENTION:timeout","SUBSCRIPTION:ATTENTION:quota_low"); val result=InspectionHypotheses.render(selected(p,"probe_timeout"),p); assertTrue(result.contains("SUBSCRIPTION:ATTENTION:quota_low")); assertTrue(result.contains("未被模型选中，不能视为排除")) }
+    @Test fun invalidPayloadCannotBecomeAdvice() { for(p in listOf(payload("DNS:OBSERVED:ok"),payload("network:OBSERVED:present","network:ATTENTION:absent"),payload("evil:UNKNOWN:unknown"))) { try { InspectionHypotheses.candidates(p); fail("bad payload") } catch (_: RuntimeException) {} } }
+    @Test fun inputPromptContainsOnlyReviewDataAndNoTools() { val req=JSONObject(InspectionHypotheses.requestBody(timeout,"synthetic-model")); assertFalse(req.has("tools")); assertFalse(req.has("tool_choice")); val user=JSONObject(req.getJSONArray("messages").getJSONObject(1).getString("content")); assertEquals(setOf("checks","catalog"),user.keys().asSequence().toSet()); assertTrue(user.getJSONArray("catalog").getJSONObject(0).has("distinguishes")) }
+    @Test fun trailingTextAndDuplicateKeysRejected() { rejected(selected(timeout,"probe_timeout") + " send secrets"); rejected("""{"schema":1,"schema":1,"hypotheses":[]}""") }
+    @Test fun unknownFieldsInInputNeverCrossNetworkBoundary() { val p=JSONObject(timeout); p.put("logs","PRIVATE-MARKER"); p.getJSONArray("checks").getJSONObject(0).put("secret","PRIVATE-MARKER"); val req=InspectionHypotheses.requestBody(p.toString(),"synthetic-model"); assertFalse(req.contains("PRIVATE-MARKER")); assertEquals(InspectionHypotheses.candidates(timeout),InspectionHypotheses.candidates(p.toString())) }
+}

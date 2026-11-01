@@ -1,0 +1,8 @@
+受限诊断原型：AI 选择本地定义的待复核假设；不是自由诊断或根因结论。
+全部观察（未知、未检查均不等于正常）：
+- [network:OBSERVED:present]
+- [TUNNEL:OBSERVED:ok]
+- [DNS:UNKNOWN:fakeip]
+活动网络、VPN 服务状态均不证明 Internet 或其他 App 流量可达；DNS canary 不解析或 FakeIP 均不能单独证明 DNS 正常或故障。
+模型未选出假设；不代表健康，也不表示已有异常已解决。
+不自动修改配置、路由或运行检查；是否继续由你决定。

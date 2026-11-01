@@ -1,0 +1,1 @@
+{"schema":1,"hypotheses":[{"id":"network_unavailable","evidence":["network:ATTENTION:absent"]},{"id":"tunnel_not_measured","evidence":["service:OBSERVED:stopped","TUNNEL:NOT_CHECKED:not_started"]}]}

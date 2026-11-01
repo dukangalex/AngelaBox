@@ -1,0 +1,34 @@
+[
+  {
+    "case": "timeout",
+    "synthetic_only": true,
+    "status": 200,
+    "accepted": true,
+    "validation": "ACCEPTED timeout\n",
+    "seconds": 15.48
+  },
+  {
+    "case": "fakeip",
+    "synthetic_only": true,
+    "status": 200,
+    "accepted": true,
+    "validation": "ACCEPTED fakeip\n",
+    "seconds": 9.89
+  },
+  {
+    "case": "offline",
+    "synthetic_only": true,
+    "status": 200,
+    "accepted": true,
+    "validation": "ACCEPTED offline\n",
+    "seconds": 13.28
+  },
+  {
+    "case": "subscription",
+    "synthetic_only": true,
+    "status": 200,
+    "accepted": true,
+    "validation": "ACCEPTED subscription\n",
+    "seconds": 10.95
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "checks": [
+    {
+      "code": "present",
+      "id": "network",
+      "state": "OBSERVED"
+    },
+    {
+      "code": "ok",
+      "id": "TUNNEL",
+      "state": "OBSERVED"
+    },
+    {
+      "code": "fakeip",
+      "id": "DNS",
+      "state": "UNKNOWN"
+    }
+  ],
+  "app_version": "synthetic-test",
+  "kernel_version": "synthetic-test",
+  "limitations": "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; The DNS canary is an intentionally nonexistent .invalid name. Nonresolution may be expected NXDOMAIN or a resolver error and proves neither working nor broken DNS; FakeIP may intentionally return a synthetic address; do not treat either result as proof of a resolver fault. No root cause established; skipped/unknown is not healthy."
+}

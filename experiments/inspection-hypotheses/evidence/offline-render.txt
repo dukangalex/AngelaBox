@@ -1,0 +1,17 @@
+受限诊断原型：AI 选择本地定义的待复核假设；不是自由诊断或根因结论。
+全部观察（未知、未检查均不等于正常）：
+- [network:ATTENTION:absent]
+- [service:OBSERVED:stopped]
+- [TUNNEL:NOT_CHECKED:not_started]
+活动网络、VPN 服务状态均不证明 Internet 或其他 App 流量可达；DNS canary 不解析或 FakeIP 均不能单独证明 DNS 正常或故障。
+待复核：系统没有报告活动网络，可能阻止本次探测。
+证据：network:ATTENTION:absent
+限制：不证明运营商中断，也不说明设备为何未报告网络。
+可选检查：仅在你确认网络已连接后，手动重新巡检并对照 network 和 TUNNEL。
+能区分什么：若网络出现且探测恢复，支持瞬时网络状态相关；若仍失败，需继续检查，不能归因配置。
+待复核：VPN 服务停止，本次没有隧道探测结果。
+证据：service:OBSERVED:stopped, TUNNEL:NOT_CHECKED:not_started
+限制：这是覆盖缺口，不是隧道故障诊断。
+可选检查：若你本来希望使用 VPN，自行决定是否启动后再运行同一巡检。
+能区分什么：启动后的新结果才能区分未运行与运行后仍失败；不会替你启动。
+不自动修改配置、路由或运行检查；是否继续由你决定。

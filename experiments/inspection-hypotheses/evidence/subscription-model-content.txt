@@ -1,0 +1,1 @@
+{"schema":1,"hypotheses":[{"id":"probe_resolution","evidence":["TUNNEL:ATTENTION:dns_failure"]},{"id":"latency_record","evidence":["LATENCY:ATTENTION:slow_stale"]},{"id":"subscription_metadata","evidence":["SUBSCRIPTION:ATTENTION:expired"]}]}
