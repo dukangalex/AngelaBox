@@ -48,7 +48,7 @@ def dialog_tap(word, tag):
  matches=[]
  for line in tsv.splitlines()[1:]:
   cols=line.split('\t')
-  if len(cols)==12 and cols[11].strip().lower().strip(':')==word.lower():
+  if len(cols)==12 and cols[11].strip().lower().strip('_:')==word.lower():
    x,y,w,h=map(int,cols[6:10]); matches.append((y,x,w,h))
  if not matches: raise AssertionError(f'dialog button {word} not found by OCR: {tsv}')
  y,x,w,h=max(matches); shell('input','tap',str(x+w//2),str(y+h//2));time.sleep(2)
