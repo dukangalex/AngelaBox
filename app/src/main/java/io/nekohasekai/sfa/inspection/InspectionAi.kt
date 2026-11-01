@@ -39,8 +39,9 @@ object InspectionAi {
     // Rejecting any mention (including a benign warning) favors privacy over availability.
     private val sensitiveAdvice = Regex(
         "日志|日誌|logcat|\\blogs?\\b|\\blogging\\b|密码|密碼|口令|凭证|憑證|" +
-            "订阅链接|訂閱連結|订阅地址|訂閱地址|\\bpasswords?\\b|\\bcredentials?\\b|" +
-            "\\bapi[ _-]?keys?\\b|\\bsubscription[ _-]?(url|link)s?\\b",
+            "运行记录|運行記錄|诊断记录|診斷記錄|调试信息|調試資訊|错误报告|錯誤報告|令牌|" +
+            "订阅链接|訂閱連結|订阅地址|訂閱地址|订阅内容|訂閱內容|\\bpasswords?\\b|\\bcredentials?\\b|" +
+            "\\bapi[ _-]?keys?\\b|\\btokens?\\b|\\bsubscription[ _-]?(url|link)s?\\b",
         RegexOption.IGNORE_CASE,
     )
 
