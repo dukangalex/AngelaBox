@@ -55,6 +55,18 @@ class InspectionAiTransportTest {
         assertTrue(connection.disconnected)
     }
 
+    @Test fun acceptsOpenAiCompatibleEmptyToolCalls() {
+        val json = """{"choices":[{"message":{"content":"TEST_OK","tool_calls":[],"reasoning":"synthetic"}}]}"""
+        assertEquals("TEST_OK", InspectionAi.parseResponse(json.toByteArray()))
+    }
+
+    @Test fun rejectsNonEmptyToolCalls() {
+        val json = """{"choices":[{"message":{"content":"unsafe","tool_calls":[{"type":"function","function":{"name":"change_route","arguments":"{}"}}]}}]}"""
+        assertThrows(IllegalArgumentException::class.java) {
+            InspectionAi.parseResponse(json.toByteArray())
+        }
+    }
+
     @Test fun staleEvidenceNeverOpensAConnection() {
         var opens = 0
         assertThrows(IllegalArgumentException::class.java) {
