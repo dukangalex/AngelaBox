@@ -89,7 +89,7 @@ for case,expected_message in [(1,'provider returned an unsuccessful HTTP status'
   assert '切换 DNS 模式' not in text,'unsafe model advice displayed'
  results.append({'case':case,'expected_ui_message':expected_message,'attempts':attempts()})
 (out/'synthetic-request-diagnostics.txt').write_text(adb('logcat','-d','-s','WABI_TEST:I','*:S'))
-(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'8cde5350ccd46829f707c3c888dacd93bbe6895f', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
+(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'e164338cb8e311562565bdbc450b7572a50e5e6f', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
 import base64
 bodies=[line.split('WABI_BODY:',1)[1].strip() for line in adb('logcat','-d','-s','WABI_BODY:I','*:S').splitlines() if 'WABI_BODY:' in line]
 assert len(bodies)==3, ('request_body_count', len(bodies))
