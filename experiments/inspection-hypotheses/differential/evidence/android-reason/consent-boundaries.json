@@ -1,0 +1,6 @@
+{
+  "cancel_no_attempt": true,
+  "send_one_attempt": true,
+  "synthetic_fixture": true,
+  "production_modified": true
+}

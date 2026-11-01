@@ -26,3 +26,6 @@ For each target, state exactly the observed TCP, TLS, HTTP-header and status fac
 - HTTP 200 observations: repeat the same measured transaction at a separate defined sample, distinguishing observed persistence from a changed result; no broader health claim.
 
 Ground-truth injection labels are reserved for outcome assessment and never sent to the model. All suggested checks remain descriptions until independently reviewed; this experiment only sends existing synthetic field-allowlisted measurements.
+
+## Transport recovery amendment (before v2b output)
+The first eight-case call returned HTTP 400 output_token_limit_exceeded and no visible answer. Record as unavailable, not a scored semantic answer. A single recovery call uses four cases selected now (34a6defd healthy, 5e00e846 header timeout with measured control, 22e6d856 TLS failure, d0010e4e timeout with unmeasured control), low reasoning effort, and 8192 completion budget. Same criteria, denominator four. Full eight-case gate remains unfulfilled; no passing subset may imply it passed. This is not a retry of an uncertain write or a paid request.

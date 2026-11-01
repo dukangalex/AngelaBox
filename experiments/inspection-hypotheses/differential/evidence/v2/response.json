@@ -1,0 +1,9 @@
+{
+  "synthetic_only": true,
+  "cases": 8,
+  "ground_truth_sent": false,
+  "plan_commit": "4282d357db24838cae82bd4235ffeaecb70e85bc",
+  "status": 400,
+  "error": "{\"success\":false,\"error\":{\"message\":\"The model exhausted its output token limit before producing an answer. Increase the token limit or reduce reasoning effort.\",\"code\":\"output_token_limit_exceeded\",\"timestamp\":\"2026-11-01T05:33:54.857Z\",\"details\":{\"name\":\"UpstreamError\",\"upstreamHost\":\"portkey.myceli.ai\"}},\"status\":400}",
+  "seconds": 59.76
+}
