@@ -237,4 +237,58 @@ class InspectionAiTransportTest {
         }
         assertTrue(connection.disconnected)
     }
+
+    @Test fun blockedSystemDnsHasBoundedWaitAndNoUnboundedQueue() {
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val exited = java.util.concurrent.CountDownLatch(1)
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            val start = System.nanoTime()
+            assertThrows(SocketTimeoutException::class.java) {
+                InspectionAi.resolveSystem("synthetic.invalid", 100) {
+                    calls.incrementAndGet()
+                    started.countDown()
+                    try {
+                        while (release.count > 0) {
+                            try {
+                                release.await()
+                            } catch (_: InterruptedException) { /* emulate native DNS */ }
+                        }
+                        emptyList()
+                    } finally {
+                        exited.countDown()
+                    }
+                }
+            }
+            assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 2000)
+            repeat(5) {
+                assertThrows(SocketTimeoutException::class.java) {
+                    InspectionAi.resolveSystem("synthetic.invalid", 100) {
+                        calls.incrementAndGet()
+                        emptyList()
+                    }
+                }
+            }
+            assertEquals(1, calls.get())
+        } finally {
+            release.countDown()
+            assertTrue(exited.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun openConsumesRequestBudgetAndExpiredOpenNeverSends() {
+        val connection = Connection(200, response)
+        failure(InspectionAi.FailureReason.TIMEOUT) {
+            runBlocking {
+                InspectionAi.analyzeUsing(config, "{}", { true }, requestBudgetMillis = 1) { _, _ ->
+                    Thread.sleep(25)
+                    connection
+                }
+            }
+        }
+        assertEquals(0, connection.sent.size())
+        assertTrue(connection.disconnected)
+    }
 }

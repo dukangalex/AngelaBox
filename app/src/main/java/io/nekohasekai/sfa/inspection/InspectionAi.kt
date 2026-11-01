@@ -16,6 +16,12 @@ import java.net.URI
 import java.text.Normalizer
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
@@ -95,7 +101,44 @@ object InspectionAi {
         // Do not use RemoteUrlGuard's general resolver: its fake-IP recovery may
         // query protected public DNS. AI must never reveal a provider hostname
         // outside the current system/tunnel DNS path as an implicit fallback.
-        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers, resolve = { host -> InetAddress.getAllByName(host).toList() })
+        HTTPClient.openPinned(url, RemoteUrlGuard.Kind.SCRIPT, headers, resolve = { host -> resolveSystem(host) })
+    }
+
+    // Native system DNS may ignore interruption. Bound both the caller's wait and
+    // outstanding work: one daemon, no queue, no fallback resolver and no retries.
+    // If DNS remains stuck, later requests fail closed instead of accumulating threads.
+    private val dnsExecutor = ThreadPoolExecutor(
+        0,
+        1,
+        30L,
+        TimeUnit.SECONDS,
+        SynchronousQueue(),
+        { task -> Thread(task, "inspection-system-dns").apply { isDaemon = true } },
+    )
+
+    internal fun resolveSystem(
+        host: String,
+        timeoutMillis: Long = 10_000L,
+        resolve: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
+    ): List<InetAddress> {
+        val future = try {
+            dnsExecutor.submit<List<InetAddress>> { resolve(host) }
+        } catch (_: RejectedExecutionException) {
+            throw SocketTimeoutException()
+        }
+        try {
+            return future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            throw SocketTimeoutException()
+        } catch (_: ExecutionException) {
+            // Keep native error text out of displayable failures; no second query.
+            throw IOException()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw kotlinx.coroutines.CancellationException("DNS wait cancelled")
+        } finally {
+            future.cancel(true)
+        }
     }
 
     /** Transport seam for deterministic tests; production always uses the guarded pinned client. */
@@ -103,12 +146,14 @@ object InspectionAi {
         config: InspectionStore.AiConfig,
         payload: String,
         stillCurrent: () -> Boolean,
+        requestBudgetMillis: Long = 90_000L,
         open: (String, Map<String, String>) -> HttpsURLConnection,
     ): String = withContext(Dispatchers.IO) {
         validateConfig(config)
         coroutineContext.ensureActive()
         checkEvidence(stillCurrent)
         val body = requestBody(payload, config.model).toByteArray(Charsets.UTF_8)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(requestBudgetMillis)
         val connection = try {
             open(
                 config.endpoint,
@@ -123,9 +168,14 @@ object InspectionAi {
         } catch (_: IOException) {
             throw Failure(FailureReason.NETWORK_ERROR)
         }
-        // Non-streaming model generation can exceed an ordinary HTTP read timeout.
-        // Keep connect bounded separately and disconnect the entire request at 90s,
-        // including a blocked write/header wait. Never retry a possibly billed request.
+        // DNS consumes the same 90s budget (and has its own bounded 10s wait).
+        // Reject an expired open before any POST; never retry a possibly billed request.
+        val remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
+        if (remainingMillis <= 0) {
+            connection.disconnect()
+            throw Failure(FailureReason.TIMEOUT)
+        }
+        // Disconnect blocked writes/headers/reads when the remaining budget expires.
         val watchdog = Timer("inspection-request-deadline", true)
         val timedOut = AtomicBoolean(false)
         watchdog.schedule(
@@ -135,7 +185,7 @@ object InspectionAi {
                     connection.disconnect()
                 }
             },
-            90_000L,
+            remainingMillis,
         )
         try {
             // Resolve once and pin; HTTPClient never follows a redirect here. Never bypass VPN.
@@ -147,9 +197,11 @@ object InspectionAi {
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setFixedLengthStreamingMode(body.size)
-            val deadline = System.nanoTime() + 90_000_000_000L
+            if (timedOut.get() || System.nanoTime() >= deadline) throw Failure(FailureReason.TIMEOUT)
             connection.outputStream.use { it.write(body) }
-            if (connection.responseCode !in 200..299) throw Failure(FailureReason.HTTP_ERROR)
+            val status = connection.responseCode
+            if (timedOut.get() || System.nanoTime() >= deadline) throw Failure(FailureReason.TIMEOUT)
+            if (status !in 200..299) throw Failure(FailureReason.HTTP_ERROR)
             if (connection.contentLengthLong > MAX_RESPONSE_BYTES) throw Failure(FailureReason.RESPONSE_LIMIT)
             val bytes = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -165,7 +217,7 @@ object InspectionAi {
             }
             coroutineContext.ensureActive()
             checkEvidence(stillCurrent)
-            if (timedOut.get()) throw Failure(FailureReason.TIMEOUT)
+            if (timedOut.get() || System.nanoTime() >= deadline) throw Failure(FailureReason.TIMEOUT)
             parseResponse(bytes.toByteArray())
         } catch (_: SocketTimeoutException) {
             throw Failure(FailureReason.TIMEOUT)
