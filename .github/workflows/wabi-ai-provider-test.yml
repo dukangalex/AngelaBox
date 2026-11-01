@@ -1,7 +1,7 @@
 name: AI provider consent test (non-publishing)
 on:
   push:
-    branches: [wabi/ai-provider-consent]
+    branches: [wabi/ai-provider-final-c26a239]
   workflow_dispatch:
 permissions:
   contents: read
