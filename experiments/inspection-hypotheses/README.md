@@ -16,7 +16,7 @@ Consequently, successful structured responses establish format compatibility and
 
 ## Validation
 
-17 isolated Kotlin/JUnit tests pass using Kotlin 2.2.21, JUnit 4.13.2, and `org.json:json:20240303` (the JSON dependency version in the project's app unit tests). Tested source: `src/InspectionHypotheses.kt`, `test/InspectionHypothesesTest.kt`, plus the existing `InspectionPolicy.kt` at base commit 491be5c. Tests cover evidence binding, DNS/FakeIP ambiguity, incomplete observations, aggregated subscription limits, omitted candidates, duplicate IDs/keys, extra advice/tool fields, trailing prose, and request allowlisting of unknown input fields.
+18 isolated Kotlin/JUnit tests pass using Kotlin 2.2.21, JUnit 4.13.2, and `org.json:json:20240303` (the JSON dependency version in the project's app unit tests). Tested source: `src/InspectionHypotheses.kt`, `test/InspectionHypothesesTest.kt`, plus the existing `InspectionPolicy.kt` at base commit 491be5c. Tests cover evidence binding, DNS/FakeIP ambiguity, incomplete observations, aggregated subscription limits, omitted candidates, duplicate IDs/keys, extra advice/tool fields, trailing prose, and request allowlisting of unknown input fields.
 
 Raw outputs from four sequential synthetic-only provider requests, bounded to a small catalogue, are saved in `evidence/`. They are a tiny convenience sample, not a quality estimate, reliability guarantee, SLA, or production acceptance. No App/UI/provider consent flow was exercised by those requests. One response per scenario cannot establish generalization or stability.
 

@@ -31,8 +31,8 @@ object InspectionHypotheses {
         fun add(id: String, ids: List<String>, hypothesis: String, limitation: String, check: String, distinguishes: String) {
             result += Candidate(id, ids.map { ref(byId.getValue(it)) }, hypothesis, limitation, check, distinguishes)
         }
-        if (byId["network"]?.code == "absent") add("network_unavailable", listOf("network"), "系统没有报告活动网络，可能阻止本次探测。", "不证明运营商中断，也不说明设备为何未报告网络。", "仅在你确认网络已连接后，手动重新巡检并对照 network 和 TUNNEL。", "若网络出现且探测恢复，支持瞬时网络状态相关；若仍失败，需继续检查，不能归因配置。")
-        if (byId["service"]?.code == "stopped" && byId["TUNNEL"]?.code == "not_started") add("tunnel_not_measured", listOf("service", "TUNNEL"), "VPN 服务停止，本次没有隧道探测结果。", "这是覆盖缺口，不是隧道故障诊断。", "若你本来希望使用 VPN，自行决定是否启动后再运行同一巡检。", "启动后的新结果才能区分未运行与运行后仍失败；不会替你启动。")
+        if (byId["network"] == InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent")) add("network_unavailable", listOf("network"), "系统没有报告活动网络，可能阻止本次探测。", "不证明运营商中断，也不说明设备为何未报告网络。", "仅在你确认网络已连接后，手动重新巡检并对照 network 和 TUNNEL。", "若网络出现且探测恢复，支持瞬时网络状态相关；若仍失败，需继续检查，不能归因配置。")
+        if (byId["service"] == InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, "stopped") && byId["TUNNEL"] == InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.NOT_CHECKED, "not_started")) add("tunnel_not_measured", listOf("service", "TUNNEL"), "VPN 服务停止，本次没有隧道探测结果。", "这是覆盖缺口，不是隧道故障诊断。", "若你本来希望使用 VPN，自行决定是否启动后再运行同一巡检。", "启动后的新结果才能区分未运行与运行后仍失败；不会替你启动。")
         val tunnel = byId["TUNNEL"]
         if (tunnel?.state == InspectionPolicy.State.ATTENTION) when (tunnel.code) {
             "timeout", "timeout_downgraded" -> add("probe_timeout", listOf("TUNNEL"), "App 探测在期限内未完成，可能涉及探测目标或本次连接路径的响应延迟。", "不能区分目标慢、网络慢或代理问题，也不证明其他 App 的路由。", "手动重跑相同探测，对照新旧结果；若已有节点延迟记录，再对照其时间与状态，不额外发送数据。", "同条件恢复只支持瞬时现象；持续超时仍不能单独定位根因。")
@@ -40,8 +40,8 @@ object InspectionHypotheses {
             "http_error" -> add("probe_http", listOf("TUNNEL"), "探测未取得预期 HTTP 结果，目标服务响应或路径行为可能不符预期。", "现有摘要没有状态码，不能区分目标拒绝与中间路径影响。", "稍后手动重跑同一探测，比较结果类型。", "恢复可支持暂时性现象；重复 HTTP 错误并不能单独证明代理配置错误。")
             "io_error" -> add("probe_io", listOf("TUNNEL"), "探测报告 I/O 失败，连接路径或目标服务异常均是待复核方向。", "摘要没有失败阶段，不能判定握手、连接还是读取错误。", "在相同配置和当前 DNS 路径下重新运行巡检，对比是否稳定复现。", "可区分一次失败与重复失败，仍不能确定故障阶段。")
         }
-        if (byId["LATENCY"]?.code in setOf("slow", "slow_stale", "ok_stale")) add("latency_record", listOf("LATENCY"), "已有节点延迟记录可能值得复核。", "历史记录可能过期，不等于当前实际流量延迟，也不等于 App 探测的同一路径。", "如你愿意，手动运行现有节点延迟测试，并核对新记录是否仍慢。", "新记录可区分历史残留与当前重复变慢；不能直接归因线路或节点。")
-        if (byId["SUBSCRIPTION"]?.code in setOf("expired", "quota_exhausted", "quota_low", "update_failed", "import_warnings")) add("subscription_metadata", listOf("SUBSCRIPTION"), "本地订阅汇总提示限制或更新问题，可能影响部分订阅的可用性。", "汇总涉及多个本地配置，不证明当前选中配置受影响；没有服务器侧核验。", "在本地订阅页核对当前配置是否属于被提示的订阅及其时间信息；不要向模型提供内容。", "可区分无关订阅警告与当前配置相关警告，后者仍不是流量故障根因证明。")
+        if (byId["LATENCY"]?.state == InspectionPolicy.State.ATTENTION && byId["LATENCY"]?.code in setOf("slow", "slow_stale", "ok_stale")) add("latency_record", listOf("LATENCY"), "已有节点延迟记录可能值得复核。", "历史记录可能过期，不等于当前实际流量延迟，也不等于 App 探测的同一路径。", "如你愿意，手动运行现有节点延迟测试，并核对新记录是否仍慢。", "新记录可区分历史残留与当前重复变慢；不能直接归因线路或节点。")
+        if (byId["SUBSCRIPTION"]?.state == InspectionPolicy.State.ATTENTION && byId["SUBSCRIPTION"]?.code in setOf("expired", "quota_exhausted", "quota_low", "update_failed", "import_warnings")) add("subscription_metadata", listOf("SUBSCRIPTION"), "本地订阅汇总提示限制或更新问题，可能影响部分订阅的可用性。", "汇总涉及多个本地配置，不证明当前选中配置受影响；没有服务器侧核验。", "在本地订阅页核对当前配置是否属于被提示的订阅及其时间信息；不要向模型提供内容。", "可区分无关订阅警告与当前配置相关警告，后者仍不是流量故障根因证明。")
         return result
     }
 
