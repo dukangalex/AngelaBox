@@ -89,5 +89,5 @@ for case,expected_message in [(1,'provider returned an unsuccessful HTTP status'
   assert '仅为此时点观察，未确定根因' not in text,'unexpected interpretation'
  results.append({'case':case,'expected_ui_message':expected_message,'attempts':attempts()})
 (out/'synthetic-request-diagnostics.txt').write_text(adb('logcat','-d','-s','WABI_TEST:I','*:S'))
-(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True},ensure_ascii=False,indent=2))
+(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_base_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
 print('PASS: cancel zero attempts; HTTP rejection, sensitive rejection and synthetic text have distinct UI results; no automatic retry')
