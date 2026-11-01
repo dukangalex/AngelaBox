@@ -153,10 +153,20 @@ jobs:
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'emulator' 'system-images;android-28;google_apis;x86_64'
+          mkdir -p sing-box-for-android/wabi-evidence
+          # SDK mirrors occasionally fail; preserve diagnostics and bound each attempt.
+          installed=false
+          for attempt in 1 2 3; do
+            if timeout 300s sdkmanager 'emulator' 'system-images;android-28;google_apis;x86_64' 2>&1 | tee "sing-box-for-android/wabi-evidence/sdk-install-$attempt.txt"; then
+              installed=true
+              break
+            fi
+            sleep 10
+          done
+          test "$installed" = true
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          printf 'no\n' | avdmanager create avd -n recent28 -p "$HOME/.android/avd/recent28.avd" -k 'system-images;android-28;google_apis;x86_64' --force
+          printf 'no\n' | timeout 60s avdmanager create avd -n recent28 -p "$HOME/.android/avd/recent28.avd" -k 'system-images;android-28;google_apis;x86_64' --force
           echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
           ls -la "$ANDROID_AVD_HOME"
           "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/wabi-avds.txt
@@ -201,9 +211,9 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           mkdir -p wabi-evidence
-          adb logcat -d > wabi-evidence/logcat.txt || true
-          adb shell dumpsys jobscheduler > wabi-evidence/jobscheduler.txt || true
-          adb exec-out screencap -p > wabi-evidence/final.png || true
+          timeout 15s adb logcat -d > wabi-evidence/logcat.txt || true
+          timeout 15s adb shell dumpsys jobscheduler > wabi-evidence/jobscheduler.txt || true
+          timeout 15s adb exec-out screencap -p > wabi-evidence/final.png || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
