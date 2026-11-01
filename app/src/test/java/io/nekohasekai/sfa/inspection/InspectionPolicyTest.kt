@@ -51,6 +51,14 @@ class InspectionPolicyTest {
         assertEquals(fact, InspectionPolicy.normalized(fact))
     }
 
+    @Test fun payloadExplainsWhyDnsCanaryNonresolutionIsAmbiguous() {
+        val limitations = JSONObject(InspectionPolicy.payload(snapshot(), "1.0.138-beta", "v1.15.0-chain.11")).getString("limitations")
+        assertTrue(limitations.contains("intentionally nonexistent .invalid"))
+        assertTrue(limitations.contains("NXDOMAIN or a resolver error"))
+        assertTrue(limitations.contains("neither working nor broken DNS"))
+        assertTrue(limitations.contains("do not suggest that this name should resolve"))
+    }
+
     @Test fun unknownNeverBecomesHealthy() {
         val result = InspectionPolicy.normalized(InspectionPolicy.Fact("DNS", InspectionPolicy.State.OBSERVED, "future-code"))
         assertEquals(InspectionPolicy.State.UNKNOWN, result.state)

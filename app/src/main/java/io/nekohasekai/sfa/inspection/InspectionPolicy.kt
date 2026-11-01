@@ -58,7 +58,7 @@ object InspectionPolicy {
                     }
                 },
             )
-            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; DNS canary nonresolution is not proof of working DNS; no root cause established; skipped/unknown is not healthy.")
+            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; The DNS canary is an intentionally nonexistent .invalid name. Nonresolution may be expected NXDOMAIN or a resolver error and proves neither working nor broken DNS; do not suggest that this name should resolve. No root cause established; skipped/unknown is not healthy.")
             .toString(2)
     }
 
