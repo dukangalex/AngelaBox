@@ -36,7 +36,9 @@ object InspectionAi {
     fun parseResponse(bytes: ByteArray): String {
         require(bytes.size <= MAX_RESPONSE_BYTES)
         val message = JSONObject(String(bytes, Charsets.UTF_8)).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
-        require(!message.has("tool_calls") && !message.has("function_call"))
+        val toolCalls = message.opt("tool_calls")
+        require(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0))
+        require(!message.has("function_call"))
         return message.getString("content").trim().also { require(it.isNotBlank() && it.length <= 6000) }
     }
 
