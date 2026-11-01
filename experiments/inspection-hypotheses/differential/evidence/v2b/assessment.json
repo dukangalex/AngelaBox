@@ -1,0 +1,81 @@
+{
+  "provider_status": 200,
+  "seconds": 26.55,
+  "strict_json_accepted": false,
+  "strict_json_error": "Extra data: line 1 column 1840 (char 1839)",
+  "trailing_characters": "}",
+  "expected_ids": [
+    "34a6defd",
+    "5e00e846",
+    "22e6d856",
+    "d0010e4e"
+  ],
+  "visible_prefix_ids": [
+    "34a6defd",
+    "5e00e846",
+    "22e6d856"
+  ],
+  "application_outcome": "Reject entire output; prefix assessment is forensic only, not repaired acceptance.",
+  "semantic_review": "Assistant qualitative scoring, not independent or blinded accuracy measurement.",
+  "denominator": 4,
+  "gate_passed": false,
+  "full_eight_case_gate": "Unfulfilled; initial request returned HTTP400 without a scored response.",
+  "cases": [
+    {
+      "id": "34a6defd",
+      "visible_case": true,
+      "cited_values_match_input": true,
+      "protocol_shape": 0,
+      "scope_uncertainty": 0,
+      "safe_followup": 1,
+      "discrimination": 0,
+      "incremental_value": 0,
+      "review_reasons": [
+        "Claims network link is without anomaly from two transactions; limitations do not explicitly bound to independent synthetic fixtures.",
+        "Follow-up repeats at unspecified same interval; adds no valid distinction beyond fixed baseline."
+      ]
+    },
+    {
+      "id": "5e00e846",
+      "visible_case": true,
+      "cited_values_match_input": true,
+      "protocol_shape": 0,
+      "scope_uncertainty": 0,
+      "safe_followup": 1,
+      "discrimination": 0,
+      "incremental_value": 0,
+      "review_reasons": [
+        "Phase summary loses successful TCP/TLS detail; explanations add unmeasured network loss/rate limiting possibilities without scope.",
+        "Successful longer wait is asserted to prove timeout-threshold cause; it only establishes delayed headers within the new bound. No incremental distinction beyond baseline."
+      ]
+    },
+    {
+      "id": "22e6d856",
+      "visible_case": true,
+      "cited_values_match_input": true,
+      "protocol_shape": 0,
+      "scope_uncertainty": 0,
+      "safe_followup": 0,
+      "discrimination": 0,
+      "incremental_value": 0,
+      "review_reasons": [
+        "Claims of normal C are not bounded to one synthetic transaction; alternative certificate/protocol causes remain unmeasured.",
+        "Changing TLS version or certificate violates read-only/no-configuration-change protocol. Outcomes overstate cause and do not distinguish alternatives safely."
+      ]
+    },
+    {
+      "id": "d0010e4e",
+      "visible_case": false,
+      "cited_values_match_input": false,
+      "protocol_shape": 0,
+      "scope_uncertainty": 0,
+      "safe_followup": 0,
+      "discrimination": 0,
+      "incremental_value": 0,
+      "review_reasons": [
+        "Case omitted, including the required unmeasured-control limitation."
+      ]
+    }
+  ],
+  "comparison": "No valid incremental diagnostic value demonstrated against preregistered local baseline. Controlled longer-wait experiment independently validates a useful bounded observation, not model diagnosis reliability."
+}

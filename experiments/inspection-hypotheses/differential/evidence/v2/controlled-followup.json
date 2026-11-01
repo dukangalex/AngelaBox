@@ -1,0 +1,48 @@
+{
+  "scope": "controlled synthetic loopback, not App/Internet",
+  "same_initial_observable_pattern": true,
+  "results": [
+    {
+      "opaque_id": "A",
+      "initial": {
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null,
+        "header_wait_seconds": 0.15,
+        "header_seconds": 0.15
+      },
+      "longer_bound": {
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200,
+        "header_wait_seconds": 1.0,
+        "header_seconds": 0.4
+      },
+      "injected_delay_seconds": 0.4
+    },
+    {
+      "opaque_id": "B",
+      "initial": {
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null,
+        "header_wait_seconds": 0.15,
+        "header_seconds": 0.15
+      },
+      "longer_bound": {
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null,
+        "header_wait_seconds": 1.0,
+        "header_seconds": 1.001
+      },
+      "injected_delay_seconds": 1.4
+    }
+  ],
+  "interpretation": "A: headers observed within 1s but not .15s; B: still unobserved by 1s. This distinguishes only bounded response behavior, not unique root cause. B also eventually responds at 1.4s: no finite timeout establishes permanently absent service.",
+  "model_executed_checks": false
+}

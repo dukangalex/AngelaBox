@@ -1,0 +1,31 @@
+{
+  "synthetic_only": true,
+  "cases": 4,
+  "ground_truth_sent": false,
+  "plan_commit": "3576cd554df54a6d3c4b5424ac82a5251bfe0f3e",
+  "status": 200,
+  "response": {
+    "id": "pllns_91e43c0006f8ef90984929cccbd02de7",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"cases\":[{\"id\":\"34a6defd\",\"facts\":[{\"ref\":\"P\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"http_status\",\"value\":200},{\"ref\":\"C\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"http_status\",\"value\":200}],\"phase_summary\":\"两端均成功完成HTTP 200请求\",\"possible_explanations\":[\"网络链路无异常，服务端正常响应\",\"客户端与服务端TLS握手无问题\"],\"limitations\":\"仅能说明单次成功，无法排除偶发性问题\",\"follow_up\":{\"test\":\"在相同时间间隔内再次执行相同的synthetic_loopback请求\",\"if_a\":\"再次成功，说明问题不在此时段\",\"if_b\":\"再次失败，提示可能存在间歇性网络或服务问题\"}},{\"id\":\"5e00e846\",\"facts\":[{\"ref\":\"P\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"headers\",\"value\":\"timeout\"},{\"ref\":\"P\",\"field\":\"http_status\",\"value\":null},{\"ref\":\"C\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"http_status\",\"value\":200}],\"phase_summary\":\"P端请求超时，C端正常\",\"possible_explanations\":[\"P端与服务器之间的网络延迟或丢包导致超时\",\"P端请求被服务器限流或拒绝\"],\"limitations\":\"无法确定超时是网络层还是应用层原因\",\"follow_up\":{\"test\":\"在P端使用更长的请求超时阈值重新发送相同请求\",\"if_a\":\"请求成功，说明是超时阈值问题\",\"if_b\":\"仍超时，提示网络或服务器问题\"}},{\"id\":\"22e6d856\",\"facts\":[{\"ref\":\"P\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"tls\",\"value\":\"failed\"},{\"ref\":\"P\",\"field\":\"headers\",\"value\":\"not_checked\"},{\"ref\":\"P\",\"field\":\"http_status\",\"value\":null},{\"ref\":\"C\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"http_status\",\"value\":200}],\"phase_summary\":\"P端TLS握手失败，C端正常\",\"possible_explanations\":[\"P端证书链不完整或不受信任\",\"P端TLS配置与服务器不兼容\"],\"limitations\":\"无法确认是证书问题还是协议版本问题\",\"follow_up\":{\"test\":\"在P端使用不同的TLS版本或证书重新尝试连接\",\"if_a\":\"握手成功，说明TLS版本或证书问题\",\"if_b\":\"仍失败，提示更深层次的TLS兼容性问题\"}}]}}",
+          "tool_calls": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "created": 1793511275,
+    "model": "gpt-oss-20b",
+    "object": "chat.completion",
+    "usage": {
+      "prompt_tokens": 746,
+      "completion_tokens": 743,
+      "total_tokens": 1489
+    },
+    "user_tier": "anonymous"
+  },
+  "seconds": 26.55
+}
