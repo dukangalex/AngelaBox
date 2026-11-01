@@ -1,0 +1,9 @@
+# Official Qwen3 anonymous candidate, prospective plan
+
+This is a different model and hosting path, not another prompt rewrite of gpt-oss-20b. Use only the official Qwen/Qwen3-Demo public Gradio `/add_message` API advertised at `/gradio_api/info`. Default advertised model qwen3-235b-a22b. No sign-in, user credentials, payment, private data or model suggestions execution. The public app source forwards chat text to DashScope and prints output; only synthetic allowlisted fixtures are suitable. Public demo availability is not production API permission/SLA.
+
+Reuse PROTOCOL_V2_PLAN.md criteria and original baseline unchanged. Run eight previously measured exploratory cases separately (not held-out), exact same content contract restricted to one case per call. Source does not forward its sys_prompt setting; include that contract in the user message instead and record this limitation. Disable thinking using its public toggle if needed. No JSON repair, no unscored omissions. Gate remains all 8 pass shape/evidence/scope/safety, >=7 discrimination, >=2 incremental value, then independent holdout/adversarial and App tests required.
+
+First attempt one complete case via the anonymous documented API. On service/auth/quota failure do not keep retrying or fall back to an undocumented upstream. On success finish the remaining seven with new_chat to avoid cross-case contamination. Store visible final answer only (never internal reasoning), exact input, model label, durations and errors. If blocked, record access failure as unavailable, not quality failure.
+
+Local inference considered but this available Computer has 3.8 GiB RAM (2.9 GiB available), 2 vCPUs, no swap; official Qwen3-8B Q4_K_M weights alone are 5.03 GB. No reliable inference test of that candidate fits current resident memory budget. Smaller models remain untested; no claim that all local/other models fail.
