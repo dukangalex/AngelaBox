@@ -98,6 +98,11 @@ link='sing-box://import-remote-profile?url='+urllib.parse.quote(fixture,safe='')
 shell('am','start','-a','android.intent.action.VIEW','-d',link,'-p',P)
 time.sleep(4)
 button('OK','fixture-import-confirm');button('Create','fixture-create');time.sleep(12)
+# Creation navigates to Edit Profile, not the tabbed root (observed in run
+# 41355568772). Exit using its observed Back control before selecting a tab.
+root=snap('fixture-created')
+assert any(n.attrib.get('text')=='Edit Profile' for n in root.iter('node')), 'fixture was not created'
+button('Back','fixture-edit-back')
 # All controls must be observed in accessibility before input.
 button('Dashboard','fixture-dashboard')
 button('Start','fixture-start')

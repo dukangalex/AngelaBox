@@ -19,3 +19,9 @@ The continuation imports an immutable public synthetic direct-TUN profile using 
 starts VPN with ordinary OS consent, and requires actual probe outcomes in the reviewed
 payload. It also requires network change to disable further review until recollection.
 No model request or production config mutation is permitted by the acceptance script.
+
+Run 41355568772 repeated the stopped-service online/offline privacy controls,
+but the continuation stopped at test navigation: profile creation opens Edit Profile,
+not the tabbed Dashboard. Raw screenshot/XML show the fixture was created; the test
+now exits via its observed Back control before choosing Dashboard. This is not
+evidence of a running-VPN product failure or a successful running-VPN acceptance.
