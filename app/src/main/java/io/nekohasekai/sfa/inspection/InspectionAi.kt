@@ -10,6 +10,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.URI
+import java.text.Normalizer
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
 
@@ -33,13 +34,26 @@ object InspectionAi {
         )
         .toString()
 
+    // Conservative guard for known sensitive-data suggestions. This is not a semantic
+    // safety guarantee: a model can paraphrase or make unsupported diagnostic claims.
+    // Rejecting any mention (including a benign warning) favors privacy over availability.
+    private val sensitiveAdvice = Regex(
+        "日志|日誌|logcat|\\blogs?\\b|\\blogging\\b|密码|密碼|口令|凭证|憑證|" +
+            "订阅链接|訂閱連結|订阅地址|訂閱地址|\\bpasswords?\\b|\\bcredentials?\\b|" +
+            "\\bapi[ _-]?keys?\\b|\\bsubscription[ _-]?(url|link)s?\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
     fun parseResponse(bytes: ByteArray): String {
         require(bytes.size <= MAX_RESPONSE_BYTES)
         val message = JSONObject(String(bytes, Charsets.UTF_8)).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
         val toolCalls = message.opt("tool_calls")
         require(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0))
         require(!message.has("function_call"))
-        return message.getString("content").trim().also { require(it.isNotBlank() && it.length <= 6000) }
+        return message.getString("content").trim().also {
+            require(it.isNotBlank() && it.length <= 6000)
+            require(!sensitiveAdvice.containsMatchIn(Normalizer.normalize(it, Normalizer.Form.NFKC)))
+        }
     }
 
     /** Only called from the preview's explicit Send button with the exact reviewed payload. */

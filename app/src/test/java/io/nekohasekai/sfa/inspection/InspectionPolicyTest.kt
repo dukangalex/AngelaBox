@@ -72,6 +72,17 @@ class InspectionPolicyTest {
         assertTrue(InspectionPolicy.attention(listOf(InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent"))))
     }
 
+    @Test fun aiResponseRejectsKnownSensitiveDataTermsConservatively() {
+        fun response(content: String) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString().toByteArray()
+        val examples = listOf("请检查设备日志", "請提供日誌", "look at system logs", "run LOGCAT", "分享密码", "send your API key", "提供订阅链接", "ＬＯＧＳ")
+        for (example in examples) {
+            assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response(example)) }
+        }
+        // Conservative: even a benign negative statement is rejected.
+        assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response("不要发送日志")) }
+        assertEquals("网络暂不可用，请稍后重试。", InspectionAi.parseResponse(response("网络暂不可用，请稍后重试。")))
+    }
+
     @Test fun aiResponseAllowsEmptyToolCallsButRejectsToolsOrUnboundedContent() {
         fun response(content: String) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString().toByteArray()
         assertEquals("建议先复测", InspectionAi.parseResponse(response("建议先复测")))
