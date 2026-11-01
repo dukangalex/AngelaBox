@@ -1,0 +1,7 @@
+# Local official Qwen3-1.7B Q4_K_M candidate
+
+Prospective plan: unlike both remote anonymous models, run the official public Apache-2.0 Qwen3-1.7B-GGUF Q4_K_M locally via official llama.cpp CPU runtime. Pin model revision cd3d34a469f89b12676edce7d272750201959466 and runtime release. This requires no account, key, payment or sending test data to a model provider. Download only public weights; inference listens on loopback, then shuts down. This is not an Android performance or offline-product integration test.
+
+Preserve protocol v2 evidence-only baseline and six criteria, exact input contract, temperature zero, thinking disabled, one measured fixture per call. Do not use grammar to hide semantic failure or repair malformed text. First test the healthy fixture 34a6defd; if any of criteria 1–4 fails, stop this candidate as not meeting the full eight-case gate; leave untested cases explicit. If it passes, continue remaining fixtures one by one and apply the same stop rule. Even a full exploratory pass would require independent holdout/adversarial and unmodified App acceptance before integrating. No production modifications or release.
+
+Record exact settings, input, visible response, runtime measurements and checksum receipts. No hidden reasoning collection. A resource failure is unavailable, not a model-quality failure; do not generalize this quantization/candidate to all local models.
