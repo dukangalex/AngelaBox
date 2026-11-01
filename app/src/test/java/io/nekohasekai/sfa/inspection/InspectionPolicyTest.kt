@@ -63,13 +63,17 @@ class InspectionPolicyTest {
         assertTrue(InspectionPolicy.attention(listOf(InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent"))))
     }
 
-    @Test fun aiResponseCannotReturnToolsOrUnboundedContent() {
+    @Test fun aiResponseAllowsEmptyToolCallsButRejectsToolsOrUnboundedContent() {
         fun response(content: String) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString().toByteArray()
         assertEquals("建议先复测", InspectionAi.parseResponse(response("建议先复测")))
         assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response("x".repeat(6001))) }
         assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response("")) }
-        val tools = """{"choices":[{"message":{"tool_calls":[],"content":"x"}}]}""".toByteArray()
-        assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(tools) }
+        val emptyTools = """{"choices":[{"message":{"tool_calls":[],"content":"x"}}]}""".toByteArray()
+        assertEquals("x", InspectionAi.parseResponse(emptyTools))
+        val nonEmptyTools = """{"choices":[{"message":{"tool_calls":[{"type":"function","function":{"name":"change_route","arguments":"{}"}}],"content":"x"}}]}""".toByteArray()
+        assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(nonEmptyTools) }
+        val legacyFunctionCall = """{"choices":[{"message":{"function_call":{"name":"change_route","arguments":"{}"},"content":"x"}}]}""".toByteArray()
+        assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(legacyFunctionCall) }
         assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(ByteArray(65537)) }
     }
 
