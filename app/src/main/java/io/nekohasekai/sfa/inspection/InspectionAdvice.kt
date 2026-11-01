@@ -1,22 +1,58 @@
 package io.nekohasekai.sfa.inspection
 
 import org.json.JSONObject
-import org.json.JSONTokener
 
 /** A model may order existing checks; it can never supply displayed prose or actions. */
 object InspectionAdvice {
     private val labels = mapOf("network" to "活动网络", "service" to "VPN 服务", "TUNNEL" to "App HTTPS 探测", "DNS" to "DNS canary", "LATENCY" to "节点延迟记录", "SUBSCRIPTION" to "订阅汇总元数据", "TUNNEL_1A" to "HTTPS 第一轮目标 A", "TUNNEL_1B" to "HTTPS 第一轮目标 B", "TUNNEL_2A" to "HTTPS 第二轮目标 A", "TUNNEL_2B" to "HTTPS 第二轮目标 B")
     private val states = mapOf("OBSERVED" to "已观察", "ATTENTION" to "需关注", "UNKNOWN" to "未知", "NOT_CHECKED" to "未检查")
 
-    // Fixed grammar intentionally rejects JSON extensions, escapes, additional fields and prose.
-    private val responseGrammar = Regex("""^\s*\{\s*"review"\s*:\s*\[\s*(?:"(?:network|service|TUNNEL|DNS|LATENCY|SUBSCRIPTION|TUNNEL_1A|TUNNEL_1B|TUNNEL_2A|TUNNEL_2B)"(?:\s*,\s*"(?:network|service|TUNNEL|DNS|LATENCY|SUBSCRIPTION|TUNNEL_1A|TUNNEL_1B|TUNNEL_2A|TUNNEL_2B)")*)?\s*]\s*}\s*$""")
+    // Parse the tiny strict JSON grammar without platform-dependent regex or lenient JSON extensions.
+    private fun parseReview(content: String): List<String> {
+        require(content.length <= 2048)
+        var pos = 0
+        fun whitespace() {
+            while (pos < content.length && content[pos] in " \t\n\r") pos++
+        }
+        fun token(value: String) {
+            whitespace()
+            require(content.startsWith(value, pos))
+            pos += value.length
+        }
+        token("{")
+        token("\"review\"")
+        token(":")
+        token("[")
+        val selected = mutableListOf<String>()
+        whitespace()
+        if (pos < content.length && content[pos] != ']') {
+            while (true) {
+                token("\"")
+                val start = pos
+                while (pos < content.length && content[pos] != '"') {
+                    require(content[pos].isLetterOrDigit() || content[pos] == '_')
+                    pos++
+                }
+                require(pos < content.length)
+                val id = content.substring(start, pos)
+                require(id in labels)
+                pos++
+                selected.add(id)
+                require(selected.size <= labels.size)
+                whitespace()
+                if (pos >= content.length || content[pos] != ',') break
+                pos++
+            }
+        }
+        token("]")
+        token("}")
+        whitespace()
+        require(pos == content.length)
+        return selected
+    }
 
     fun render(content: String, payload: String): String {
-        require(content.length <= 2048 && responseGrammar.matches(content))
-        val tokener = JSONTokener(content)
-        val reply = tokener.nextValue() as? JSONObject ?: throw IllegalArgumentException("expected object")
-        require(tokener.nextClean() == '\u0000')
-        require(reply.keys().asSequence().toSet() == setOf("review"))
+        val selected = parseReview(content)
         val checks = JSONObject(payload).getJSONArray("checks")
         require(checks.length() in 1..10)
         val facts = (0 until checks.length()).map { index ->
@@ -27,9 +63,7 @@ object InspectionAdvice {
         }
         require(facts.map { it.id }.distinct().size == facts.size)
         val eligible = facts.filter { it.state != InspectionPolicy.State.OBSERVED }.map { it.id }.toSet()
-        val review = reply.getJSONArray("review")
-        require(review.length() <= eligible.size)
-        val selected = (0 until review.length()).map { review.getString(it) }
+        require(selected.size <= eligible.size)
         require(selected.distinct().size == selected.size && eligible.containsAll(selected))
         require(eligible.isEmpty() || selected.isNotEmpty())
         return buildString {
