@@ -1,0 +1,30 @@
+{
+  "synthetic_only": true,
+  "cases": 8,
+  "ground_truth_sent": false,
+  "status": 200,
+  "response": {
+    "id": "pllns_acbeb3c7195977d7bc142ae8f46da4ab",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"cases\":[{\"id\":\"34a6defd\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 与 C 均返回 200，表示两者正常。\",\"uncertainty\":\"无异常。\",\"next_check\":\"继续监测。\"},{\"id\":\"95ad4a4c\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 返回 503，可能是服务端错误。\",\"uncertainty\":\"需确认 P 服务状态。\",\"next_check\":\"检查 P 服务日志。\"},{\"id\":\"5e00e846\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 请求超时，C 正常。\",\"uncertainty\":\"可能是 P 端网络延迟。\",\"next_check\":\"重试 P 请求或检查网络。\"},{\"id\":\"65e334dd\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 与 C 均超时，网络或服务不可达。\",\"uncertainty\":\"需排查网络连通性。\",\"next_check\":\"检查网络路径。\"},{\"id\":\"22e6d856\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P TLS 握手失败，C 正常。\",\"uncertainty\":\"证书或协议不匹配。\",\"next_check\":\"检查 P 证书。\"},{\"id\":\"ecc2b7e5\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 连接被拒绝，C 正常。\",\"uncertainty\":\"端口未开放或防火墙。\",\"next_check\":\"检查 P 端口。\"},{\"id\":\"13c3bfef\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 与 C 均被拒绝，端口未开放。\",\"uncertainty\":\"两端服务未启动。\",\"next_check\":\"检查两端端口。\"},{\"id\":\"d0010e4e\",\"evidence\":[\"P\",\"C\"],\"hypothesis\":\"P 请求超时，C 未测。\",\"uncertainty\":\"可能是 P 服务未响应。\",\"next_check\":\"重试 P 或检查 C。\"}]}",
+          "tool_calls": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "created": 1793510691,
+    "model": "gpt-oss-20b",
+    "object": "chat.completion",
+    "usage": {
+      "prompt_tokens": 955,
+      "completion_tokens": 1487,
+      "total_tokens": 2442
+    },
+    "user_tier": "anonymous"
+  },
+  "seconds": 46.89
+}

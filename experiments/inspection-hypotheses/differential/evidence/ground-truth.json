@@ -1,0 +1,34 @@
+[
+  {
+    "id": "34a6defd",
+    "injected": "healthy"
+  },
+  {
+    "id": "95ad4a4c",
+    "injected": "target_status"
+  },
+  {
+    "id": "5e00e846",
+    "injected": "target_delay"
+  },
+  {
+    "id": "65e334dd",
+    "injected": "shared_delay"
+  },
+  {
+    "id": "22e6d856",
+    "injected": "target_tls"
+  },
+  {
+    "id": "ecc2b7e5",
+    "injected": "target_connect"
+  },
+  {
+    "id": "13c3bfef",
+    "injected": "both_connect"
+  },
+  {
+    "id": "d0010e4e",
+    "injected": "unmeasured_control"
+  }
+]

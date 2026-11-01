@@ -1,0 +1,186 @@
+[
+  {
+    "id": "34a6defd",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      }
+    ]
+  },
+  {
+    "id": "95ad4a4c",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 503
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      }
+    ]
+  },
+  {
+    "id": "5e00e846",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      }
+    ]
+  },
+  {
+    "id": "65e334dd",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null
+      }
+    ]
+  },
+  {
+    "id": "22e6d856",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "failed",
+        "headers": "not_checked",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      }
+    ]
+  },
+  {
+    "id": "ecc2b7e5",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "refused",
+        "tls": "not_checked",
+        "headers": "not_checked",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "ok",
+        "http_status": 200
+      }
+    ]
+  },
+  {
+    "id": "13c3bfef",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "refused",
+        "tls": "not_checked",
+        "headers": "not_checked",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "refused",
+        "tls": "not_checked",
+        "headers": "not_checked",
+        "http_status": null
+      }
+    ]
+  },
+  {
+    "id": "d0010e4e",
+    "observations": [
+      {
+        "id": "P",
+        "scope": "synthetic_loopback",
+        "resolution": "fixture_loopback",
+        "connect": "ok",
+        "tls": "ok",
+        "headers": "timeout",
+        "http_status": null
+      },
+      {
+        "id": "C",
+        "scope": "synthetic_loopback",
+        "resolution": "unknown",
+        "connect": "not_checked",
+        "tls": "not_checked",
+        "headers": "not_checked",
+        "http_status": null
+      }
+    ]
+  }
+]
