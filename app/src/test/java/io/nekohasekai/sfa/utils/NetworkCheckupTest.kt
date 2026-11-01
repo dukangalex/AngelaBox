@@ -356,4 +356,63 @@ class NetworkCheckupTest {
             ),
         )
     }
+
+    @Test fun tunnelAttemptsPreserveFailureBeforeSuccessWithoutChangingVerdict() {
+        val observations = mutableListOf<String>()
+        val responses = listOf(NetworkCheckup.TunnelProbe.IoError to "tls_failure", NetworkCheckup.TunnelProbe.Ok to "ok").iterator()
+        val result = NetworkCheckup.probeTunnel({ round, target, code -> observations.add("$round:$target:$code") }) { responses.next() }
+        assertEquals(NetworkCheckup.TunnelProbe.Ok, result)
+        assertEquals(listOf("0:0:tls_failure", "0:1:ok"), observations)
+    }
+
+    @Test fun distinctProbeFailuresNeverCopyExceptionText() {
+        assertEquals("tls_failure", NetworkCheckup.probeFailureObservation(javax.net.ssl.SSLHandshakeException("private host")))
+        assertEquals("dns_failure", NetworkCheckup.probeFailureObservation(java.net.UnknownHostException("private host")))
+        assertEquals("timeout", NetworkCheckup.probeFailureObservation(java.net.SocketTimeoutException("private host")))
+        assertEquals("io_error", NetworkCheckup.probeFailureObservation(java.net.ConnectException("private host")))
+    }
+
+    @Test fun actualLoopbackHttpProbeCapturesNormalAndHttpError() {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(204))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(503))
+            server.start()
+            assertEquals(NetworkCheckup.TunnelProbe.Ok to "ok", NetworkCheckup.probeTunnelOnce(server.url("/").toString()))
+            assertEquals(NetworkCheckup.TunnelProbe.HttpError(503) to "http_error", NetworkCheckup.probeTunnelOnce(server.url("/").toString()))
+        }
+    }
+
+    @Test fun actualLoopbackTlsCertificateFailureDiffersFromConnectionRefused() {
+        val cert = okhttp3.tls.HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val tls = okhttp3.tls.HandshakeCertificates.Builder().heldCertificate(cert).build()
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.useHttps(tls.sslSocketFactory(), false)
+            server.start()
+            val observed = NetworkCheckup.probeTunnelOnce(server.url("/").toString())
+            assertEquals(NetworkCheckup.TunnelProbe.IoError, observed.first)
+            assertEquals("tls_failure", observed.second)
+        }
+        val closedPort = java.net.ServerSocket(0).use { it.localPort }
+        val refused = NetworkCheckup.probeTunnelOnce("http://127.0.0.1:$closedPort/")
+        assertEquals(NetworkCheckup.TunnelProbe.IoError, refused.first)
+        assertEquals("io_error", refused.second)
+    }
+
+    @Test fun actualLoopbackTrustedTlsIsSuccessfulControl() {
+        val cert = okhttp3.tls.HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val serverTls = okhttp3.tls.HandshakeCertificates.Builder().heldCertificate(cert).build()
+        val clientTls = okhttp3.tls.HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
+        val previous = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
+        try {
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(clientTls.sslSocketFactory())
+            okhttp3.mockwebserver.MockWebServer().use { server ->
+                server.useHttps(serverTls.sslSocketFactory(), false)
+                server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(204))
+                server.start()
+                assertEquals(NetworkCheckup.TunnelProbe.Ok to "ok", NetworkCheckup.probeTunnelOnce(server.url("/").toString()))
+            }
+        } finally {
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(previous)
+        }
+    }
 }

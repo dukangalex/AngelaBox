@@ -18,7 +18,7 @@ import javax.net.ssl.HttpsURLConnection
 /** Fixtures exercise transport and consent guards, not real model accuracy or provider billing. */
 class InspectionAiTransportTest {
     private val config = InspectionStore.AiConfig("https://example.com/v1/chat/completions", "test-model", "synthetic-test-token")
-    private val response = """{"choices":[{"message":{"content":"可能是 DNS 问题，需进一步验证"}}]}""".toByteArray()
+    private val response = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", """{"review":["network"]}""")))).toString().toByteArray()
 
     private open class Connection(private val status: Int, private val bytes: ByteArray) : HttpsURLConnection(URL("https://example.com/v1/chat/completions")) {
         val sent = ByteArrayOutputStream()
@@ -42,7 +42,7 @@ class InspectionAiTransportTest {
     @Test fun sendsExactReviewedEvidenceOnceAndReturnsOnlyAdvice() = runBlocking {
         val connection = Connection(200, response)
         var opens = 0
-        val payload = """{"checks":[{"id":"network","code":"absent"}]}"""
+        val payload = """{"checks":[{"id":"network","state":"ATTENTION","code":"absent"}]}"""
         val answer = InspectionAi.analyzeUsing(config, payload, { true }) { url, headers ->
             opens++
             assertEquals(config.endpoint, url)
@@ -55,7 +55,8 @@ class InspectionAiTransportTest {
         assertFalse(connection.sent.toString("UTF-8").contains(config.key))
         assertEquals("POST", connection.requestMethod)
         assertFalse(connection.instanceFollowRedirects)
-        assertEquals("可能是 DNS 问题，需进一步验证", answer)
+        assertTrue(answer.contains("AI 建议优先复核：活动网络"))
+        assertFalse(answer.contains("DNS 问题"))
         assertTrue(connection.disconnected)
     }
 
