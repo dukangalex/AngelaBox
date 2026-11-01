@@ -1000,6 +1000,6 @@
     <string name="inspection_failed">Checks failed or the context changed. No reliable new report; rerun when the network and profile are stable.</string>
     <string name="inspection_ai_failed">AI analysis failed or became stale. No automatic retry or settings change. A request may already have reached the provider; check its usage before retrying.</string>
     <string name="inspection_cancelled">Cancelled locally. An AI request may already have reached the provider. Nothing is retried or changed.</string>
-    <string name="inspection_ai_untrusted">AI interpretation — may be wrong; suggestions only, no changes executed</string>
+    <string name="inspection_ai_untrusted">AI interpretation may be wrong or go beyond the evidence. Suggestions only; do not share passwords, subscription contents, or logs. No changes were made.</string>
     <string name="inspection_subscription_unknown">Subscription health was not available; no conclusion</string>
 </resources>

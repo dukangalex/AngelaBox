@@ -103,6 +103,9 @@ class InspectionPolicyTest {
         assertEquals("example-model", body.getString("model"))
         assertFalse(body.has("tools"))
         assertFalse(body.has("api_key"))
+        val system = body.getJSONArray("messages").getJSONObject(0).getString("content")
+        assertTrue(system.contains("Tunnel status alone does not verify NAT, proxy configuration, or traffic routing"))
+        assertTrue(system.contains("Never suggest bypassing the VPN or directly querying public DNS"))
         assertEquals(payload, body.getJSONArray("messages").getJSONObject(1).getString("content"))
     }
 
