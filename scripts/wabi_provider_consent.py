@@ -75,6 +75,19 @@ assert 'pollinations' in review.lower() and 'gpt-oss-20b' in review.lower(), 'pr
 dialog_tap('Send','live-send')
 time.sleep(105)
 root=snap('live-result'); text=ET.tostring(root,encoding='unicode')
+# HTTP is not a completed UI outcome. Require a living app and a visible handled
+# response or explicit bounded error; preserve the outcome rather than assuming success.
+markers = ['AI 仅排列可复核项目', 'provider response format could not be read',
+           'provider returned an unsuccessful HTTP status', 'AI request timed out',
+           'AI connection could not complete', 'provider response exceeded',
+           'provider response was incomplete', 'response matched a local sensitive-advice',
+           'evidence became stale', 'AI analysis failed or became stale']
+size=shell('wm','size').strip().split()[-1]; width,height=map(int,size.split('x'))
+for i in range(10):
+ if any(marker in text for marker in markers): break
+ shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.25)),'450');time.sleep(1)
+ text += ET.tostring(snap('live-outcome-'+str(i)),encoding='unicode')
+
 logs=adb('logcat','-d','-s','WABI_LIVE:I','*:S')
 (out/'live-network.txt').write_text(logs)
 (out/'live-ui.xml').write_text(text)
@@ -89,4 +102,10 @@ assert payload['checks']==expected
 assert all(set(f)=={'id','state','code'} for f in payload['checks'])
 assert not any(x in json.dumps(payload).lower() for x in ['secret.invalid','10.99.88.77','private-host'])
 assert summary['http_status'], 'No HTTP status; request outcome unknown'
+assert shell('pidof',P).strip(), 'App died during provider response handling'
+crashes=adb('logcat','-d','-s','AndroidRuntime:E','*:S')
+assert 'Process: '+P not in crashes, 'App crashed during provider response handling'
+assert any(marker in text for marker in markers), 'No visible interpretation or handled error'
+assert summary['no_unsafe_advice_displayed'], 'Unsafe free-text advice appeared in UI'
+
 print(json.dumps(summary,ensure_ascii=False))
