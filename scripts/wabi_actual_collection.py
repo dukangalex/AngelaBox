@@ -60,7 +60,7 @@ launch();inspector()
 assert local('ai'), 'test-only configuration not installed'
 def take_collection(name):
  before=json.loads(local('result'))['at'] if local('result') else -1
- button('Run local checks',name+'-start');snap(name+'-probe-dialog');tap_dialog_button('Run local checks')
+ button('Run local checks',name+'-start');snap(name+'-probe-dialog');dialog_tap('checks',name+'-probe-confirm')
  for i in range(90):
   value=local('result')
   if value and json.loads(value)['at']>before: break
@@ -78,10 +78,16 @@ def take_collection(name):
  dialog_tap('Cancel',name+'-cancel');assert attempts()==0
  return r
 online=take_collection('online')
+assert next(f for f in online['facts'] if f['id']=='network') == {'id':'network','state':'OBSERVED','code':'present'}
 shell('svc','wifi','disable');shell('svc','data','disable');time.sleep(8)
 try: offline=take_collection('offline')
 finally: shell('svc','wifi','enable');shell('svc','data','enable')
 def field(report,id):return next((x for x in report['facts'] if x['id']==id),None)
 summary={'production_collection_unchanged':True,'pre_send_payload_instrumented':True,'provider_sent':False,'online':{'network':field(online,'network'),'service':field(online,'service'),'tunnel':field(online,'TUNNEL'),'dns':field(online,'DNS')},'offline':{'network':field(offline,'network'),'service':field(offline,'service'),'tunnel':field(offline,'TUNNEL'),'dns':field(offline,'DNS')},'offline_loss_observed':field(offline,'network')=={'id':'network','state':'ATTENTION','code':'absent'},'app_version':'e164338cb8e311562565bdbc450b7572a50e5e6f','test_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+assert summary['offline_loss_observed'], 'offline control did not observe network loss'
+log=adb('logcat','-d')
+(out/'collection-logcat.txt').write_text(log)
+assert 'FATAL EXCEPTION' not in log, 'crash observed during acceptance'
+assert attempts()==0, 'AI request occurred despite cancellation'
 print(json.dumps(summary,indent=2))

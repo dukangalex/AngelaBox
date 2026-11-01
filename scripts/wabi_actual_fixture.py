@@ -4,7 +4,7 @@ p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScre
 s=p.read_text();old='    LaunchedEffect(changes) {'
 new='''    LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            InspectionStore.saveConfig(context, InspectionStore.AiConfig("https://example.com/v1/chat/completions", "local-android-test", ""))
+            InspectionStore.saveConfig(context, InspectionStore.AiConfig("https://example.com/v1/chat/completions", "local-android-test", "synthetic-not-a-real-key"))
         }
     }
     LaunchedEffect(changes) {'''
