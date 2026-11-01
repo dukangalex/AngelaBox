@@ -56,7 +56,8 @@ class InspectionPolicyTest {
         assertTrue(limitations.contains("intentionally nonexistent .invalid"))
         assertTrue(limitations.contains("NXDOMAIN or a resolver error"))
         assertTrue(limitations.contains("neither working nor broken DNS"))
-        assertTrue(limitations.contains("do not suggest that this name should resolve"))
+        assertTrue(limitations.contains("FakeIP may intentionally return a synthetic address"))
+        assertTrue(limitations.contains("do not treat either result as proof of a resolver fault"))
     }
 
     @Test fun unknownNeverBecomesHealthy() {
