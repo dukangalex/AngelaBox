@@ -1,0 +1,8 @@
+{
+  "tag": "b7633",
+  "name": "llama-b7633-bin-ubuntu-x64.tar.gz",
+  "url": "https://github.com/ggml-org/llama.cpp/releases/download/b7633/llama-b7633-bin-ubuntu-x64.tar.gz",
+  "advertised_digest": "sha256:4e1c950afc022c8d1c8ffe108d6607f30d2840f33eb70320f1f683b8c8bfa2fb",
+  "checked_digest": "sha256:4e1c950afc022c8d1c8ffe108d6607f30d2840f33eb70320f1f683b8c8bfa2fb",
+  "digest_match": true
+}

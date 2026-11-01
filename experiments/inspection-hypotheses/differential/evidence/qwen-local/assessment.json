@@ -1,0 +1,27 @@
+{
+  "preregistered_plan_commit": "a497e83a3310b42a4a9d147d8190749146ba0acb",
+  "candidate": "Official Qwen3-1.7B Q4_K_M, llama.cpp b7633, local CPU, thinking disabled",
+  "availability": "Completed local inference; not an Android feasibility test",
+  "tested_cases": 1,
+  "required_exploratory_cases": 8,
+  "untested_cases": 7,
+  "early_stop": "Preregistered stop after first case fails criteria 1–4",
+  "strict_json_accepted": false,
+  "json_error": "Extra data: line 1 column 370 (char 369)",
+  "schema_pass": false,
+  "shape": 0,
+  "evidence_fidelity": 0,
+  "scope_uncertainty": 0,
+  "safety": 0,
+  "discrimination": 0,
+  "incremental_value": 0,
+  "gate_passed": false,
+  "review_reasons": [
+    "Output consists of multiple disconnected JSON objects and a stray quote; missing top-level cases array and required types. Entire answer rejected; no repair.",
+    "Cited field values appear copied correctly but generated text claims P/C are virtual devices and no real network connection, though measurements were real loopback TLS transactions; these assertions are not supplied evidence.",
+    "Follow-up asks to test actual network rather than optional controlled synthetic observations, then treats success/failure as actual network health. It does not provide a valid case-specific controlled distinction.",
+    "No incremental value over preregistered local baseline demonstrated."
+  ],
+  "review_method": "Assistant qualitative review and mechanical strict JSON check, not blinded or general model accuracy research",
+  "production_integration": false
+}

@@ -1,0 +1,47 @@
+[
+  {
+    "label": "parameter_33",
+    "parameter_name": "input_value",
+    "parameter_has_default": false,
+    "parameter_default": null,
+    "type": {
+      "type": "string"
+    },
+    "python_type": {
+      "type": "str",
+      "description": ""
+    },
+    "component": "Antdxsender",
+    "example_input": null
+  },
+  {
+    "label": "parameter_38",
+    "parameter_name": "settings_form_value",
+    "parameter_has_default": true,
+    "parameter_default": {
+      "model": "qwen3-235b-a22b",
+      "sys_prompt": "You are a helpful and harmless assistant.",
+      "thinking_budget": 38
+    },
+    "type": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "AntdFormData",
+      "additional_description": null
+    },
+    "python_type": {
+      "type": "dict(str, Any) | None",
+      "description": null
+    },
+    "component": "Antdform",
+    "example_input": {}
+  }
+]

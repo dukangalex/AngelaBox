@@ -1,0 +1,46 @@
+{
+  "command": [
+    "/home/user/workspace/local-qwen/llama-b7633/llama-server",
+    "-m",
+    "/home/user/workspace/local-qwen/model.gguf",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "18762",
+    "-c",
+    "4096",
+    "-np",
+    "1",
+    "-t",
+    "2",
+    "--reasoning-budget",
+    "0",
+    "--no-webui"
+  ],
+  "runtime": "b7633",
+  "model_revision": "cd3d34a469f89b12676edce7d272750201959466",
+  "model_sha256": "228fb5627f7510b8b3516cdb6435e4b0d2a2bf330fe5b0ab19284a3570a8bb1f",
+  "plan_commit": "a497e83a3310b42a4a9d147d8190749146ba0acb",
+  "available": true,
+  "seconds": 43.83,
+  "status": 200,
+  "usage": {
+    "completion_tokens": 314,
+    "prompt_tokens": 447,
+    "total_tokens": 761
+  },
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 447,
+    "prompt_ms": 9366.114,
+    "prompt_per_token_ms": 20.953275167785232,
+    "prompt_per_second": 47.72523588758369,
+    "predicted_n": 314,
+    "predicted_ms": 34453.035,
+    "predicted_per_token_ms": 109.7230414012739,
+    "predicted_per_second": 9.11385600717034
+  },
+  "finish_reason": "stop",
+  "visible_answer": "{\"id\":\"34a6defd\",\"facts\":[{\"ref\":\"P\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"connect\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"tls\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"C\",\"field\":\"headers\",\"value\":\"ok\"},{\"ref\":\"P\",\"field\":\"http_status\",\"value\":200},{\"ref\":\"C\",\"field\":\"http_status\",\"value\":200}]}\"  \n{\"phase_summary\":\"合成环回测试中，P和C均显示连接正常，TLS和HTTP头验证通过，HTTP状态码为200。\"}  \n{\"possible_explanations\":\"1. 该测试环境为合成环回测试，P和C均为虚拟设备，无实际网络连接，因此所有测试结果均为模拟结果。2. 该测试未涉及真实网络连接，因此无法判断实际网络状态。\"}  \n{\"limitations\":\"该测试仅针对合成环回环境进行，无法反映真实网络状态。\"}  \n{\"follow_up\":{\"test\":\"对P和C进行独立的网络连接测试，确认其实际网络连接状态。\",\"if_a\":\"若P和C的网络连接状态正常，则说明该测试环境为合成环回测试，实际网络状态正常。\",\"if_b\":\"若P和C的网络连接状态异常，则说明该测试环境为合成环回测试，实际网络状态异常。\"}}",
+  "server_stopped": true
+}
