@@ -240,6 +240,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("com.github.jeziellago:compose-markdown:0.7.2")
     implementation("org.kodein.emoji:emoji-kt:2.5.0")
