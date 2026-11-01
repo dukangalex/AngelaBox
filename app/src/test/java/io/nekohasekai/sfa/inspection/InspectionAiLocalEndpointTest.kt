@@ -71,4 +71,31 @@ class InspectionAiLocalEndpointTest {
             assertTrue(connection!!.instanceFollowRedirects.not())
         }
     }
+
+    @Test fun waitsForBoundedModelGenerationBeyondTenSecondsWithoutRetry() = runBlocking {
+        val certificate = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val serverTls = HandshakeCertificates.Builder().heldCertificate(certificate).build()
+        val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
+        MockWebServer().use { server ->
+            server.useHttps(serverTls.sslSocketFactory(), false)
+            server.enqueue(
+                MockResponse().setResponseCode(200)
+                    .setHeadersDelay(11, java.util.concurrent.TimeUnit.SECONDS)
+                    .setBody("""{"choices":[{"message":{"content":"合成诊断：TEST_OK","tool_calls":[]}}]}"""),
+            )
+            server.start()
+            val config = InspectionStore.AiConfig("https://example.com/v1/chat/completions", "synthetic-model", "synthetic-test-token")
+            var opens = 0
+            val answer = InspectionAi.analyzeUsing(config, "{}", { true }) { _, headers ->
+                opens++
+                (URL(server.url("/v1/chat/completions").toString()).openConnection() as HttpsURLConnection).also {
+                    it.sslSocketFactory = clientTls.sslSocketFactory()
+                    headers.forEach(it::setRequestProperty)
+                }
+            }
+            assertEquals("合成诊断：TEST_OK", answer)
+            assertEquals(1, opens)
+            assertEquals(1, server.requestCount)
+        }
+    }
 }
