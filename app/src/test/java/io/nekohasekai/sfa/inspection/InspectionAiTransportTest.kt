@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.inspection
 
+import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -312,5 +313,31 @@ class InspectionAiTransportTest {
                 InspectionAi.withPreservedDnsFailure<Unit>(resolve = { emptyList() }) { throw denied }
             },
         )
+    }
+
+    @Test fun actualGuardCannotEraseTypedResolverFailures() {
+        for (error in listOf(SocketTimeoutException(), IOException(), CancellationException("cancelled"))) {
+            var resolutions = 0
+            val actual = assertThrows(error.javaClass) {
+                InspectionAi.withPreservedDnsFailure(resolve = {
+                    resolutions++
+                    throw error
+                }) { resolve ->
+                    RemoteUrlGuard.validate("https://example.com/v1/chat/completions", RemoteUrlGuard.Kind.SCRIPT, resolve)
+                }
+            }
+            assertSame(error, actual)
+            assertEquals(1, resolutions)
+        }
+    }
+
+    @Test fun realGuardStillRejectsPrivateOrUnresolvedAddresses() {
+        for (addresses in listOf(emptyList(), listOf(java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))))) {
+            assertThrows(IllegalArgumentException::class.java) {
+                InspectionAi.withPreservedDnsFailure(resolve = { addresses }) { resolve ->
+                    RemoteUrlGuard.validate("https://example.com/v1/chat/completions", RemoteUrlGuard.Kind.SCRIPT, resolve)
+                }
+            }
+        }
     }
 }
