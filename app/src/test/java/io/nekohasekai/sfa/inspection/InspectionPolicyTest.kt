@@ -141,9 +141,19 @@ class InspectionPolicyTest {
             """{review:["DNS"]}""",
             """{"review":["DNS"]} extra""",
             """{"review":["network"]}""",
+            """{"review":["DNS",]}""",
+            """{"review":[,"DNS"]}""",
+            """{"review":["DNS" "DNS"]}""",
+            """{"review":["DNS"],"review":["DNS"]}""",
+            """{"review":["D\u004eS"]}""",
+            """{"review":["UNKNOWN"]}""",
+            """{'review':['DNS']}""",
+            """{"review":["DNS"] // extra
+            }""",
         )
         candidates.forEach { bad -> assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render(bad, evidence) } }
         val rendered = InspectionAdvice.render("""{"review":["DNS"]}""", evidence)
+        assertEquals(rendered, InspectionAdvice.render("  { \n \"review\" : [ \"DNS\" ] } \t", evidence))
         assertTrue(rendered.contains("DNS canary"))
         assertTrue(rendered.contains("根因尚未确定"))
         assertFalse(rendered.contains("切换 DNS"))
