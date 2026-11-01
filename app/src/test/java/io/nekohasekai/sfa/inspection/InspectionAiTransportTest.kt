@@ -291,4 +291,26 @@ class InspectionAiTransportTest {
         assertEquals(0, connection.sent.size())
         assertTrue(connection.disconnected)
     }
+
+    @Test fun guardCannotEraseDnsTimeoutNetworkErrorOrCancellation() {
+        for (error in listOf(SocketTimeoutException(), IOException(), CancellationException("cancelled"))) {
+            val actual = assertThrows(error.javaClass) {
+                InspectionAi.withPreservedDnsFailure<Unit>(resolve = { throw error }) { resolve ->
+                    // Mirror RemoteUrlGuard.validate's intentional exception folding.
+                    try {
+                        resolve("synthetic.invalid")
+                    } catch (_: Exception) { }
+                    throw IllegalArgumentException("unresolved host")
+                }
+            }
+            assertSame(error, actual)
+        }
+        val denied = IllegalArgumentException("blocked IP")
+        assertSame(
+            denied,
+            assertThrows(IllegalArgumentException::class.java) {
+                InspectionAi.withPreservedDnsFailure<Unit>(resolve = { emptyList() }) { throw denied }
+            },
+        )
+    }
 }
