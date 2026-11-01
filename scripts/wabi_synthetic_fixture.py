@@ -65,3 +65,18 @@ for a,b in [
     assert s.count(a) == 1, a
     s = s.replace(a,b)
 p.write_text(s)
+
+# Fixed reason codes only: never expose provider content or exception messages.
+p = Path("app/src/main/java/io/nekohasekai/sfa/inspection/InspectionAi.kt")
+s = p.read_text()
+for a,b in [
+    ('require(bytes.size <= MAX_RESPONSE_BYTES)', 'require(bytes.size <= MAX_RESPONSE_BYTES) { "RESPONSE_SIZE" }'),
+    ('require(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0))', 'require(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0)) { "TOOL_CALLS" }'),
+    ('require(!message.has("function_call"))', 'require(!message.has("function_call")) { "FUNCTION_CALL" }'),
+    ('require(it.isNotBlank() && it.length <= 6000)', 'require(it.isNotBlank() && it.length <= 6000) { "CONTENT_SIZE" }'),
+    ('require(!sensitiveAdvice.containsMatchIn(Normalizer.normalize(it, Normalizer.Form.NFKC)))', 'require(!sensitiveAdvice.containsMatchIn(Normalizer.normalize(it, Normalizer.Form.NFKC))) { "SENSITIVE_ADVICE" }'),
+    ('android.util.Log.i("WABI_TEST", "AI_PARSE_REJECT=" + e.javaClass.simpleName)', 'android.util.Log.i("WABI_TEST", "AI_PARSE_REJECT=" + e.javaClass.simpleName)\n                val reason = e.message?.takeIf { it in setOf("RESPONSE_SIZE", "TOOL_CALLS", "FUNCTION_CALL", "CONTENT_SIZE", "SENSITIVE_ADVICE") } ?: "JSON_OR_UNCLASSIFIED"\n                android.util.Log.i("WABI_TEST", "AI_REJECT_REASON=" + reason)'),
+]:
+    assert s.count(a) == 1, a
+    s = s.replace(a,b)
+p.write_text(s)
