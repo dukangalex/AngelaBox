@@ -22,3 +22,32 @@ b = """                            android.util.Log.i(\"WABI_TEST\", \"AI_REQUES
 assert s.count(a) == 1
 p.write_text(s.replace(a,b))
 print("Applied synthetic fixture only in ephemeral CI checkout; no production changes")
+
+# Synthetic-only diagnostics: never install this instrumentation in production.
+p = Path("app/src/main/java/io/nekohasekai/sfa/inspection/InspectionAi.kt")
+s = p.read_text()
+a = "            require(connection.responseCode in 200..299)"
+b = """            val syntheticStatus = connection.responseCode
+            android.util.Log.i("WABI_TEST", "AI_HTTP_STATUS=" + syntheticStatus)
+            require(syntheticStatus in 200..299)"""
+assert s.count(a) == 1
+s = s.replace(a, b)
+a = "            parseResponse(bytes.toByteArray())"
+b = """            android.util.Log.i("WABI_TEST", "AI_RESPONSE_BYTES=" + bytes.size())
+            try {
+                parseResponse(bytes.toByteArray()).also { android.util.Log.i("WABI_TEST", "AI_PARSE_OK") }
+            } catch (e: Exception) {
+                android.util.Log.i("WABI_TEST", "AI_PARSE_REJECT=" + e.javaClass.simpleName)
+                throw e
+            }"""
+assert s.count(a) == 1
+p.write_text(s.replace(a, b))
+p = Path("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt")
+s = p.read_text()
+a = """                        } catch (_: Exception) {
+                            message = R.string.inspection_ai_failed"""
+b = """                        } catch (e: Exception) {
+                            android.util.Log.i("WABI_TEST", "AI_EXCEPTION=" + e.javaClass.simpleName)
+                            message = R.string.inspection_ai_failed"""
+assert s.count(a) == 1
+p.write_text(s.replace(a, b))

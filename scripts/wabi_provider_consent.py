@@ -81,6 +81,8 @@ for i in range(45):
 attempt_count=attempts()
 assert attempt_count == 1, f'expected one attempt, got {attempt_count}'
 (out/'ai-result-tree.xml').write_text(text)
+(out/'synthetic-request-diagnostics.txt').write_text(adb('logcat','-d','-s','WABI_TEST:I','*:S'))
+(out/'consent-boundaries.json').write_text(json.dumps({'cancel_no_attempt':True,'send_one_attempt':True,'synthetic_fixture':True,'production_modified':True},indent=2))
 if 'AI analysis failed' in text: raise AssertionError('Application reported AI analysis failed; provider response and cause not yet established')
 assert 'AI interpretation' in text, 'No AI result visible before deadline'
 (out/'acceptance-ai.json').write_text(json.dumps({'synthetic_fixture':True,'facts':expected,'cancel_no_attempt':True,'send_one_attempt':True,'real_provider_result_visible':True,'production_build_modified_for_fixture':True},indent=2))
