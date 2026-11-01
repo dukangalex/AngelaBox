@@ -900,6 +900,6 @@
     <string name="inspection_failed">巡检失败或环境发生变化，未获得可靠的新报告。请在网络与配置稳定后重新巡检。</string>
     <string name="inspection_ai_failed">AI 分析失败或证据已失效。不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
     <string name="inspection_cancelled">已在本地取消。AI 请求可能已送达服务商；不会自动重试或修改设置。</string>
-    <string name="inspection_ai_untrusted">AI 分析可能有误，仅供参考，未执行任何修改</string>
+    <string name="inspection_ai_untrusted">AI 分析可能有误或超出证据，仅供参考。请勿分享密码、订阅内容或日志；未执行任何修改。</string>
     <string name="inspection_subscription_unknown">未能读取订阅健康状态，不能判定正常</string>
 </resources>
