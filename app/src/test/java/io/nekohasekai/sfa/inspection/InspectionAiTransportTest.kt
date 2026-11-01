@@ -1,11 +1,14 @@
 package io.nekohasekai.sfa.inspection
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.security.Principal
 import java.security.cert.Certificate
@@ -16,7 +19,7 @@ class InspectionAiTransportTest {
     private val config = InspectionStore.AiConfig("https://example.com/v1/chat/completions", "test-model", "synthetic-test-token")
     private val response = """{"choices":[{"message":{"content":"可能是 DNS 问题，需进一步验证"}}]}""".toByteArray()
 
-    private class Connection(private val status: Int, private val bytes: ByteArray) : HttpsURLConnection(URL("https://example.com/v1/chat/completions")) {
+    private open class Connection(private val status: Int, private val bytes: ByteArray) : HttpsURLConnection(URL("https://example.com/v1/chat/completions")) {
         val sent = ByteArrayOutputStream()
         var disconnected = false
         override fun disconnect() {
@@ -120,6 +123,116 @@ class InspectionAiTransportTest {
     @Test fun oversizedResponseClosesWithoutReturningAdvice() {
         val connection = Connection(200, ByteArray(65537))
         assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ -> connection } }
+        }
+        assertTrue(connection.disconnected)
+    }
+    private fun failure(reason: InspectionAi.FailureReason, block: () -> Unit) {
+        val error = assertThrows(InspectionAi.Failure::class.java, block)
+        assertEquals(reason, error.reason)
+        assertEquals(reason.name, error.message)
+        assertNull(error.cause)
+    }
+
+    @Test fun responseRejectionsHaveFixedLocalReasons() {
+        val fixtures = listOf(
+            "not JSON with provider-private-text" to InspectionAi.FailureReason.RESPONSE_FORMAT,
+            """{"choices":[{"message":{"content":null}}]}""" to InspectionAi.FailureReason.RESPONSE_FORMAT,
+            """{"choices":[{"message":{"content":{"text":"not a text response"}}}]}""" to InspectionAi.FailureReason.RESPONSE_FORMAT,
+            """{"choices":[]}""" to InspectionAi.FailureReason.RESPONSE_FORMAT,
+            """{"choices":[{"message":{"content":" "}}]}""" to InspectionAi.FailureReason.RESPONSE_FORMAT,
+            """{"choices":[{"message":{"content":"请提供日志 provider-private-text"}}]}""" to InspectionAi.FailureReason.SENSITIVE_ADVICE,
+            """{"choices":[{"finish_reason":"length","message":{"content":"a plausible but truncated answer"}}]}""" to InspectionAi.FailureReason.UNSUPPORTED_RESPONSE,
+            """{"choices":[{"finish_reason":"content_filter","message":{"content":"partial"}}]}""" to InspectionAi.FailureReason.UNSUPPORTED_RESPONSE,
+            """{"choices":[{"message":{"content":"text","function_call":{}}}]}""" to InspectionAi.FailureReason.UNSUPPORTED_RESPONSE,
+        )
+        fixtures.forEach { (body, expected) ->
+            failure(expected) { InspectionAi.parseResponse(body.toByteArray()) }
+        }
+        failure(InspectionAi.FailureReason.RESPONSE_LIMIT) { InspectionAi.parseResponse(ByteArray(65537)) }
+        val longContent = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", "x".repeat(6001)))))
+        failure(InspectionAi.FailureReason.RESPONSE_LIMIT) { InspectionAi.parseResponse(longContent.toString().toByteArray()) }
+    }
+
+    @Test fun acceptsStopOrMissingFinishReasonWithoutWeakeningToolGuard() {
+        for (finish in listOf("stop", null)) {
+            val choice = JSONObject().put("finish_reason", finish ?: JSONObject.NULL)
+                .put("message", JSONObject().put("content", "仅此时点的观察，不代表根因").put("tool_calls", org.json.JSONArray()))
+            val body = JSONObject().put("choices", org.json.JSONArray().put(choice)).toString()
+            assertEquals("仅此时点的观察，不代表根因", InspectionAi.parseResponse(body.toByteArray()))
+        }
+    }
+
+    @Test fun failedOpenIsSanitizedAndNeverRetried() {
+        for ((exception, expected) in listOf(
+            SocketTimeoutException("provider-private-text") to InspectionAi.FailureReason.TIMEOUT,
+            IOException("provider-private-text") to InspectionAi.FailureReason.NETWORK_ERROR,
+        )) {
+            var opens = 0
+            failure(expected) {
+                runBlocking {
+                    InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ ->
+                        opens++
+                        throw exception
+                    }
+                }
+            }
+            assertEquals(1, opens)
+        }
+    }
+
+    @Test fun headerTimeoutIsNotHttpFailureAndDisconnectsOnceAttempted() {
+        var opens = 0
+        val connection = object : Connection(200, response) {
+            override fun getResponseCode(): Int = throw SocketTimeoutException("provider-private-text")
+        }
+        failure(InspectionAi.FailureReason.TIMEOUT) {
+            runBlocking {
+                InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ ->
+                    opens++
+                    connection
+                }
+            }
+        }
+        assertEquals(1, opens)
+        assertTrue(connection.sent.size() > 0)
+        assertTrue(connection.disconnected)
+    }
+
+    @Test fun readErrorIsNotFormatRejectionAndDisconnects() {
+        val connection = object : Connection(200, response) {
+            override fun getInputStream(): ByteArrayInputStream = throw IOException("provider-private-text")
+        }
+        failure(InspectionAi.FailureReason.NETWORK_ERROR) {
+            runBlocking { InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ -> connection } }
+        }
+        assertTrue(connection.disconnected)
+    }
+
+    @Test fun httpFailureDoesNotReadOrExposeProviderErrorBody() {
+        for (status in listOf(302, 401, 402, 429, 500)) {
+            val connection = object : Connection(status, response) {
+                override fun getErrorStream(): ByteArrayInputStream = throw AssertionError("must not read error body")
+                override fun getInputStream(): ByteArrayInputStream = throw AssertionError("must not read response body")
+            }
+            failure(InspectionAi.FailureReason.HTTP_ERROR) {
+                runBlocking { InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ -> connection } }
+            }
+            assertTrue(connection.disconnected)
+        }
+    }
+
+    @Test fun staleIsDistinctFromInvalidResponse() {
+        failure(InspectionAi.FailureReason.STALE_EVIDENCE) {
+            runBlocking { InspectionAi.analyzeUsing(config, "{}", { false }) { _, _ -> throw AssertionError("must not open") } }
+        }
+    }
+
+    @Test fun cancellationIsNeverReclassifiedAsProviderFailure() {
+        val connection = object : Connection(200, response) {
+            override fun getResponseCode(): Int = throw CancellationException("cancelled")
+        }
+        assertThrows(CancellationException::class.java) {
             runBlocking { InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ -> connection } }
         }
         assertTrue(connection.disconnected)

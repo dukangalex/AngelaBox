@@ -6,19 +6,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.InetAddress
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.text.Normalizer
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
 
 /** No tools, config writes, redirects, retry, direct-network fallback, or automatic model calls. */
 object InspectionAi {
     private const val MAX_RESPONSE_BYTES = 64 * 1024
+
+    enum class FailureReason { TIMEOUT, HTTP_ERROR, NETWORK_ERROR, RESPONSE_FORMAT, RESPONSE_LIMIT, UNSUPPORTED_RESPONSE, SENSITIVE_ADVICE, STALE_EVIDENCE }
+
+    // Only a fixed local code crosses into UI; never retain the provider body, URL,
+    // key, HTTP error body or underlying exception message in a displayable error.
+    class Failure(val reason: FailureReason) : IllegalArgumentException(reason.name)
+
+    private fun checkEvidence(stillCurrent: () -> Boolean) {
+        if (!stillCurrent()) throw Failure(FailureReason.STALE_EVIDENCE)
+    }
     fun validateConfig(config: InspectionStore.AiConfig) {
         RemoteUrlGuard.validateWithoutDns(config.endpoint, RemoteUrlGuard.Kind.SCRIPT)
         val uri = URI(config.endpoint)
@@ -48,14 +62,31 @@ object InspectionAi {
     )
 
     fun parseResponse(bytes: ByteArray): String {
-        require(bytes.size <= MAX_RESPONSE_BYTES)
-        val message = JSONObject(String(bytes, Charsets.UTF_8)).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
-        val toolCalls = message.opt("tool_calls")
-        require(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0))
-        require(!message.has("function_call"))
-        return message.getString("content").trim().also {
-            require(it.isNotBlank() && it.length <= 6000)
-            require(!sensitiveAdvice.containsMatchIn(Normalizer.normalize(it, Normalizer.Form.NFKC)))
+        if (bytes.size > MAX_RESPONSE_BYTES) throw Failure(FailureReason.RESPONSE_LIMIT)
+        try {
+            val choice = JSONObject(String(bytes, Charsets.UTF_8)).getJSONArray("choices").getJSONObject(0)
+            // A partial answer can look plausible but omit qualifications. Missing/null
+            // finish_reason is allowed for compatible servers; explicit truncation is not.
+            val finishReason = choice.opt("finish_reason")
+            if (finishReason != null && finishReason !== JSONObject.NULL && finishReason != "stop") {
+                throw Failure(FailureReason.UNSUPPORTED_RESPONSE)
+            }
+            val message = choice.getJSONObject("message")
+            val toolCalls = message.opt("tool_calls")
+            if (!(toolCalls == null || toolCalls === JSONObject.NULL || (toolCalls is JSONArray && toolCalls.length() == 0)) || message.has("function_call")) {
+                throw Failure(FailureReason.UNSUPPORTED_RESPONSE)
+            }
+            val rawContent = message.opt("content")
+            if (rawContent !is String) throw Failure(FailureReason.RESPONSE_FORMAT)
+            val content = rawContent.trim()
+            if (content.isBlank()) throw Failure(FailureReason.RESPONSE_FORMAT)
+            if (content.length > 6000) throw Failure(FailureReason.RESPONSE_LIMIT)
+            if (sensitiveAdvice.containsMatchIn(Normalizer.normalize(content, Normalizer.Form.NFKC))) {
+                throw Failure(FailureReason.SENSITIVE_ADVICE)
+            }
+            return content
+        } catch (_: JSONException) {
+            throw Failure(FailureReason.RESPONSE_FORMAT)
         }
     }
 
@@ -76,23 +107,31 @@ object InspectionAi {
     ): String = withContext(Dispatchers.IO) {
         validateConfig(config)
         coroutineContext.ensureActive()
-        require(stillCurrent())
+        checkEvidence(stillCurrent)
         val body = requestBody(payload, config.model).toByteArray(Charsets.UTF_8)
-        val connection = open(
-            config.endpoint,
-            mapOf(
-                "Authorization" to "Bearer ${config.key}",
-                "Content-Type" to "application/json",
-                "Accept" to "application/json",
-            ),
-        )
+        val connection = try {
+            open(
+                config.endpoint,
+                mapOf(
+                    "Authorization" to "Bearer ${config.key}",
+                    "Content-Type" to "application/json",
+                    "Accept" to "application/json",
+                ),
+            )
+        } catch (_: SocketTimeoutException) {
+            throw Failure(FailureReason.TIMEOUT)
+        } catch (_: IOException) {
+            throw Failure(FailureReason.NETWORK_ERROR)
+        }
         // Non-streaming model generation can exceed an ordinary HTTP read timeout.
         // Keep connect bounded separately and disconnect the entire request at 90s,
         // including a blocked write/header wait. Never retry a possibly billed request.
         val watchdog = Timer("inspection-request-deadline", true)
+        val timedOut = AtomicBoolean(false)
         watchdog.schedule(
             object : TimerTask() {
                 override fun run() {
+                    timedOut.set(true)
                     connection.disconnect()
                 }
             },
@@ -101,7 +140,7 @@ object InspectionAi {
         try {
             // Resolve once and pin; HTTPClient never follows a redirect here. Never bypass VPN.
             coroutineContext.ensureActive()
-            require(stillCurrent())
+            checkEvidence(stillCurrent)
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 10_000
             connection.readTimeout = 60_000
@@ -110,23 +149,29 @@ object InspectionAi {
             connection.setFixedLengthStreamingMode(body.size)
             val deadline = System.nanoTime() + 90_000_000_000L
             connection.outputStream.use { it.write(body) }
-            require(connection.responseCode in 200..299)
-            require(connection.contentLengthLong <= MAX_RESPONSE_BYTES)
+            if (connection.responseCode !in 200..299) throw Failure(FailureReason.HTTP_ERROR)
+            if (connection.contentLengthLong > MAX_RESPONSE_BYTES) throw Failure(FailureReason.RESPONSE_LIMIT)
             val bytes = ByteArrayOutputStream()
             connection.inputStream.use { input ->
                 val buffer = ByteArray(4096)
                 while (true) {
                     coroutineContext.ensureActive()
-                    require(System.nanoTime() < deadline)
+                    if (timedOut.get() || System.nanoTime() >= deadline) throw Failure(FailureReason.TIMEOUT)
                     val size = input.read(buffer)
                     if (size < 0) break
-                    require(bytes.size() + size <= MAX_RESPONSE_BYTES)
+                    if (bytes.size() + size > MAX_RESPONSE_BYTES) throw Failure(FailureReason.RESPONSE_LIMIT)
                     bytes.write(buffer, 0, size)
                 }
             }
             coroutineContext.ensureActive()
-            require(stillCurrent())
+            checkEvidence(stillCurrent)
+            if (timedOut.get()) throw Failure(FailureReason.TIMEOUT)
             parseResponse(bytes.toByteArray())
+        } catch (_: SocketTimeoutException) {
+            throw Failure(FailureReason.TIMEOUT)
+        } catch (_: IOException) {
+            // Disconnect at the local deadline may surface as a generic I/O error.
+            throw Failure(if (timedOut.get()) FailureReason.TIMEOUT else FailureReason.NETWORK_ERROR)
         } finally {
             watchdog.cancel()
             connection.disconnect()

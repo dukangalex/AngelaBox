@@ -874,4 +874,12 @@
     <string name="inspection_cancelled">已在本地取消。AI 请求可能已送达服务商；不会自动重试或修改设置。</string>
     <string name="inspection_ai_untrusted">AI 分析可能有誤或超出證據，僅供參考。請勿分享密碼、訂閱內容或日誌；未執行任何修改。</string>
     <string name="inspection_subscription_unknown">未能讀取訂閱健康狀態，不能判定正常</string>
+    <string name="inspection_ai_timeout">AI 請求逾時，未顯示解釋。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_http_error">服務商回傳非成功 HTTP 狀態；這不能診斷你的網路。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_network_error">AI 連線未完成；僅憑此失敗無法確定網路原因。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_response_format">無法讀取服務商回應格式，未顯示解釋。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_response_limit">服務商回應超出本機長度限制，未顯示解釋。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_unsupported_response">服務商回應不完整或包含不支援的動作，已拒絕顯示。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_sensitive_advice">回應符合本機敏感建議規則，已拒絕顯示。此過濾器無法保證診斷準確，也無法攔截所有不安全建議。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_stale">證據已過期或環境已改變，未顯示解釋。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
 </resources>

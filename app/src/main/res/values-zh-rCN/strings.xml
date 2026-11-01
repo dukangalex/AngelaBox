@@ -902,4 +902,12 @@
     <string name="inspection_cancelled">已在本地取消。AI 请求可能已送达服务商；不会自动重试或修改设置。</string>
     <string name="inspection_ai_untrusted">AI 分析可能有误或超出证据，仅供参考。请勿分享密码、订阅内容或日志；未执行任何修改。</string>
     <string name="inspection_subscription_unknown">未能读取订阅健康状态，不能判定正常</string>
+    <string name="inspection_ai_timeout">AI 请求超时，未展示解释。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_http_error">服务商返回非成功 HTTP 状态；这不能诊断你的网络。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_network_error">AI 连接未完成；仅凭此失败无法确定网络原因。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_response_format">无法读取服务商响应格式，未展示解释。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_response_limit">服务商响应超出本地长度限制，未展示解释。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_unsupported_response">服务商响应不完整或包含不支持的动作，已拒绝展示。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_sensitive_advice">响应命中了本地敏感建议规则，已拒绝展示。该过滤器不能保证诊断准确，也不能拦截所有不安全建议。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_stale">证据已过期或环境已改变，未展示解释。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
 </resources>
