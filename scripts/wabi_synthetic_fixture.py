@@ -51,3 +51,17 @@ b = """                        } catch (e: Exception) {
                             message = R.string.inspection_ai_failed"""
 assert s.count(a) == 1
 p.write_text(s.replace(a, b))
+
+# Identify the last completed transport stage using constants only. This is a
+# synthetic fixture; never log a real payload, key, URL, IP or exception message.
+p = Path("app/src/main/java/io/nekohasekai/sfa/inspection/InspectionAi.kt")
+s = p.read_text()
+for a,b in [
+    ('        val connection = open(', '        android.util.Log.i("WABI_TEST", "AI_STAGE=before_open")\n        val connection = open('),
+    ('        try {\n            // Resolve once', '        android.util.Log.i("WABI_TEST", "AI_STAGE=opened")\n        try {\n            // Resolve once'),
+    ('            connection.outputStream.use { it.write(body) }', '            android.util.Log.i("WABI_TEST", "AI_STAGE=before_output")\n            connection.outputStream.use { it.write(body) }\n            android.util.Log.i("WABI_TEST", "AI_STAGE=output_sent")'),
+    ('            val syntheticStatus = connection.responseCode', '            android.util.Log.i("WABI_TEST", "AI_STAGE=before_response")\n            val syntheticStatus = connection.responseCode'),
+]:
+    assert s.count(a) == 1, a
+    s = s.replace(a,b)
+p.write_text(s)
