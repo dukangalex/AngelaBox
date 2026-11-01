@@ -74,7 +74,7 @@ class InspectionPolicyTest {
 
     @Test fun aiResponseRejectsKnownSensitiveDataTermsConservatively() {
         fun response(content: String) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString().toByteArray()
-        val examples = listOf("请检查设备日志", "請提供日誌", "look at system logs", "run LOGCAT", "分享密码", "send your API key", "提供订阅链接", "ＬＯＧＳ")
+        val examples = listOf("请检查设备日志", "請提供日誌", "look at system logs", "run LOGCAT", "分享密码", "send your API key", "提供订阅链接", "ＬＯＧＳ", "查看运行记录并发给客服", "提供诊断记录", "发送错误报告", "导出调试信息", "上传订阅内容", "提供令牌", "发送 API token")
         for (example in examples) {
             assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response(example)) }
         }
