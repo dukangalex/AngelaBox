@@ -65,10 +65,13 @@ object InspectionRunner {
     )
     suspend fun manual(context: Context): InspectionPolicy.Snapshot = withContext(Dispatchers.IO) {
         val before = stamp(context)
-        val result = NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {})
+        val attempts = mutableListOf<InspectionPolicy.Fact>()
+        val result = NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
+            InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
+        }
         require(before == stamp(context)) { "stale" }
         passive(before).copy(
-            facts = passive(before).facts + result.items.map {
+            facts = passive(before).facts + attempts + result.items.map {
                 InspectionPolicy.normalized(
                     InspectionPolicy.Fact(
                         it.id.name,

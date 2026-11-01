@@ -118,4 +118,34 @@ class InspectionPolicyTest {
         assertThrows(IllegalArgumentException::class.java) { InspectionAi.validateConfig(config(key = "abc\r\nInjected: x")) }
         assertThrows(IllegalArgumentException::class.java) { InspectionAi.validateConfig(config(key = "")) }
     }
+
+    @Test fun probeAttemptsAreBoundedAndNeverContainPrivateStrings() {
+        assertNull(InspectionPolicy.tunnelAttempt(2, 0, "ok"))
+        assertNull(InspectionPolicy.tunnelAttempt(0, 2, "ok"))
+        assertNull(InspectionPolicy.tunnelAttempt(0, 0, "private.example secret"))
+        val first = InspectionPolicy.tunnelAttempt(0, 0, "tls_failure")!!
+        val second = InspectionPolicy.tunnelAttempt(0, 1, "ok")!!
+        assertEquals(InspectionPolicy.Fact("TUNNEL_1A", InspectionPolicy.State.ATTENTION, "tls_failure"), first)
+        assertEquals(InspectionPolicy.Fact("TUNNEL_1B", InspectionPolicy.State.OBSERVED, "ok"), second)
+        val payload = InspectionPolicy.payload(snapshot().copy(facts = listOf(first, second)), "1", "1")
+        assertTrue(payload.contains("tls_failure"))
+        assertFalse(payload.contains("private.example"))
+    }
+
+    @Test fun safeRendererRejectsRealUnsupportedDnsAdviceAndOutputInjection() {
+        val evidence = InspectionPolicy.payload(snapshot(), "1", "1")
+        val candidates = listOf(
+            "建议切换 DNS 模式",
+            """{"review":["DNS"],"advice":"切换 DNS"}""",
+            """{"review":["DNS","DNS"]}""",
+            """{review:["DNS"]}""",
+            """{"review":["DNS"]} extra""",
+            """{"review":["network"]}""",
+        )
+        candidates.forEach { bad -> assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render(bad, evidence) } }
+        val rendered = InspectionAdvice.render("""{"review":["DNS"]}""", evidence)
+        assertTrue(rendered.contains("DNS canary"))
+        assertTrue(rendered.contains("根因尚未确定"))
+        assertFalse(rendered.contains("切换 DNS"))
+    }
 }
