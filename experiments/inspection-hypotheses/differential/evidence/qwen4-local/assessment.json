@@ -1,0 +1,28 @@
+{
+  "preregistered_plan_commit": "493c70207b162849d9d76c3ddae5e134821f0588",
+  "tested_cases": 1,
+  "required_cases": 8,
+  "untested_cases": 7,
+  "strict_json_accepted": true,
+  "mechanical_schema_pass": true,
+  "cited_observation_values_match": true,
+  "scores": {
+    "shape": 1,
+    "evidence": 1,
+    "scope_uncertainty": 0,
+    "safety": 1,
+    "discrimination": 0,
+    "incremental_value": 0
+  },
+  "gate_passed": false,
+  "early_stop": "Criterion 3 failed; do not run other seven cases under the preregistered rule.",
+  "review_reasons": [
+    "Explanations assert the fixture configuration correctly simulates expected behavior and functions as intended; supplied point-in-time transactions establish neither intended configuration nor general operation.",
+    "A later HTTP 200 is said to confirm stability and reliability rather than only another successful sampled transaction. A changed result is linked to configuration or external-network factors that the independent synthetic-loopback evidence does not support.",
+    "Retest after an unspecified delay does not give the defined later sample or defensible bounded causal implications required by the baseline. No incremental diagnostic distinction over the evidence-only baseline.",
+    "Required generated Chinese text was returned in English; this is an additional protocol-following failure, independent of the scope failure."
+  ],
+  "availability": "Local CPU inference completed in 87.23s; server bound to loopback and stopped. Not Android performance, production provider integration or representative accuracy evidence.",
+  "method": "Assistant qualitative semantic review with mechanical JSON/schema/fact checks; not blinded or independent scoring.",
+  "production_modified": false
+}
