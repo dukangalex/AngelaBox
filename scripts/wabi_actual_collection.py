@@ -102,9 +102,17 @@ button('OK','fixture-import-confirm');button('Create','fixture-create');time.sle
 # 41355568772). Exit using its observed Back control before selecting a tab.
 root=snap('fixture-created')
 assert any(n.attrib.get('text')=='Edit Profile' for n in root.iter('node')), 'fixture was not created'
-button('Back','fixture-edit-back')
-# All controls must be observed in accessibility before input.
-button('Dashboard','fixture-dashboard')
+# The import can originate in the inspector sub-screen, whose tab bar is hidden.
+# Walk only observed Back/Close controls until the actual Dashboard tab appears.
+for depth in range(4):
+ root=snap('fixture-return-root'+str(depth))
+ tabs=[n for n in root.iter('node') if n.attrib.get('text')=='Dashboard']
+ if tabs:
+  tap(tabs[0]);break
+ backs=[n for n in root.iter('node') if n.attrib.get('content-desc') in ('Back','Close')]
+ assert len(backs)==1, 'no unique observed Back/Close navigation control'
+ tap(backs[0])
+else: raise AssertionError('tabbed root did not appear after profile creation')
 button('Start','fixture-start')
 root=snap('fixture-start-result')
 if any('Connection request' in n.attrib.get('text','') for n in root.iter('node')):
