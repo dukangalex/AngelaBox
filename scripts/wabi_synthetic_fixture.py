@@ -17,7 +17,7 @@ b='''    LaunchedEffect(Unit) {
     LaunchedEffect(changes) {'''
 assert s.count(a)==1; p.write_text(s.replace(a,b))
 p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionAi.kt')
-s=p.read_text(); start=s.index('    suspend fun analyze(config:'); end=s.index('    /** Transport seam',start)
+s=p.read_text(); start=s.index('    suspend fun analyze(config:'); end=s.index('    // Native system DNS',start)
 s=s[:start]+'''    private val syntheticAttempt = java.util.concurrent.atomic.AtomicInteger(0)
     suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing(config, payload, stillCurrent) { url, _ ->
         val attempt = syntheticAttempt.incrementAndGet()

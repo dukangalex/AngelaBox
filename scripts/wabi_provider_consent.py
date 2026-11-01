@@ -71,14 +71,15 @@ review = subprocess.check_output(['tesseract',str(out/'review-before-send.png'),
 (out/'review-ocr.txt').write_text(review)
 assert 'example.com' in review.lower() and 'synthetic-ui' in review.lower(), 'provider/model disclosure not visible'
 # In-memory responses: no network provider or billing claim is possible.
-def top():
- size=shell('wm','size').strip().split()[-1];w,h=map(int,size.split('x'))
- for _ in range(6):shell('input','swipe',str(w//2),str(round(h*.25)),str(w//2),str(round(h*.83)),'250')
- time.sleep(1)
+def reopen_inspector():
+ # After a result, return explicitly through navigation rather than making six
+ # blind downward swipes (the prior run left this screen during those swipes).
+ shell('input','keyevent','4');time.sleep(2)
+ tap(find('App inspector','reenter',5))
 results=[]
 for case,expected_message in [(1,'provider returned an unsuccessful HTTP status'),(2,'response matched a local sensitive-advice rule'),(3,'仅为此时点观察，未确定根因')]:
  if case > 1:
-  top();button('Review evidence for AI','review-send-'+str(case));snap('review-before-send-'+str(case))
+  reopen_inspector();button('Review evidence for AI','review-send-'+str(case));snap('review-before-send-'+str(case))
  dialog_tap('Send','send-dialog-'+str(case))
  node=find(expected_message,'result-'+str(case),scroll=12)
  root=snap('result-confirmed-'+str(case));text=ET.tostring(root,encoding='unicode')
