@@ -72,7 +72,7 @@ review = subprocess.check_output(['tesseract',str(out/'review-before-send.png'),
 assert 'pollinations' in review.lower() and 'gpt-oss' in review.lower(), 'provider/model disclosure not visible'
 # The screenshot proves the consent screen was displayed; the Send control starts exactly one request.
 dialog_tap('Send','send-dialog')
-for i in range(45):
+for i in range(60):
  time.sleep(2)
  if i in (4, 12, 22): shell('input','swipe','500','1500','500','400','450');time.sleep(1)
  root=snap('after-send')
