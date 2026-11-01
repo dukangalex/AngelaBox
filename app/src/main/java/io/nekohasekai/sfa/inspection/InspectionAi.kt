@@ -11,6 +11,8 @@ import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.URI
 import java.text.Normalizer
+import java.util.Timer
+import java.util.TimerTask
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
 
@@ -84,17 +86,29 @@ object InspectionAi {
                 "Accept" to "application/json",
             ),
         )
+        // Non-streaming model generation can exceed an ordinary HTTP read timeout.
+        // Keep connect bounded separately and disconnect the entire request at 90s,
+        // including a blocked write/header wait. Never retry a possibly billed request.
+        val watchdog = Timer("inspection-request-deadline", true)
+        watchdog.schedule(
+            object : TimerTask() {
+                override fun run() {
+                    connection.disconnect()
+                }
+            },
+            90_000L,
+        )
         try {
             // Resolve once and pin; HTTPClient never follows a redirect here. Never bypass VPN.
             coroutineContext.ensureActive()
             require(stillCurrent())
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 10_000
-            connection.readTimeout = 10_000
+            connection.readTimeout = 60_000
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setFixedLengthStreamingMode(body.size)
-            val deadline = System.nanoTime() + 45_000_000_000L
+            val deadline = System.nanoTime() + 90_000_000_000L
             connection.outputStream.use { it.write(body) }
             require(connection.responseCode in 200..299)
             require(connection.contentLengthLong <= MAX_RESPONSE_BYTES)
@@ -114,6 +128,7 @@ object InspectionAi {
             require(stillCurrent())
             parseResponse(bytes.toByteArray())
         } finally {
+            watchdog.cancel()
             connection.disconnect()
         }
     }
