@@ -1,0 +1,7 @@
+# Prospective local Qwen3-4B candidate (not production)
+
+Distinct recovery candidate: official Qwen3-4B-GGUF, Q4_K_M, revision bc640142c66e1fdd12af0bd68f40445458f3869b; official LFS SHA-256 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5 (2,497,280,256 bytes). Unlike the tested 1.7B candidate, 4B is larger while its ~2.33 GiB weights can plausibly fit this 3.8 GiB Computer with bounded context and quantized KV. This is a resource estimate, not a performance or quality claim.
+
+Reuse verified llama.cpp b7633. Loopback only, two CPU threads, context 4096, Q8_0 K/V cache, thinking disabled, temperature zero, max_tokens 1800, one fixture per call. No personal credentials, user records, paid service, external inference, Android integration or release. Weight download only from the official repository, verify SHA-256 before loading. If runtime/KV unsupported or insufficient memory, record availability failure without forcing larger resources.
+
+Reuse the exact frozen protocol-v2 prompt, healthy fixture 34a6defd, six criteria and prior 1.7B early-stop rule. No JSON grammar, response repair or prompt retry. Stop on any criteria 1-4 failure; other fixtures remain untested. If the first case passes, proceed through other frozen cases individually with the same gate. Even an exploratory full pass requires independent holdout/adversarial and final unmodified App/provider acceptance, not automatic integration. Model output is data, never an instruction to execute a check or alter configuration.
