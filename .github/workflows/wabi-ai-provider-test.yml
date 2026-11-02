@@ -147,6 +147,21 @@ jobs:
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
           ./gradlew :app:testDebugUnitTest --tests '*InspectionPolicyTest' --tests '*InspectionAiTransportTest' --tests '*NetworkCheckupTest' --no-daemon --stacktrace
           find app/build/outputs/apk -name '*.apk' -print
+      - name: Release completed build scratch space before emulator
+        run: |
+          set -euo pipefail
+          df -h "$HOME" "$GITHUB_WORKSPACE"
+          # Compilation and JVM tests are complete. Retain APKs and test XML,
+          # removing only rebuildable scratch used by this job before AVD extraction.
+          go clean -cache -modcache
+          rm -rf sing-box-for-android/app/build/intermediates \
+                 sing-box-for-android/app/build/tmp \
+                 sing-box-for-android/app/build/kotlin \
+                 sing-box-for-android/.gradle \
+                 "$HOME/.gradle/caches"
+          df -h "$HOME" "$GITHUB_WORKSPACE"
+          available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
+          test "$available" -ge 6442450944
       - name: Install emulator and enable KVM
         run: |
           set -euo pipefail
