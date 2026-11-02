@@ -61,7 +61,7 @@ for i in range(60):
  if local('result'):break
  time.sleep(2)
 report=json.loads(local('result'))
-expected=[{'id':'TUNNEL_1A','state':'ATTENTION','code':'tls_failure'},{'id':'TUNNEL_1B','state':'OBSERVED','code':'ok'},{'id':'TUNNEL','state':'ATTENTION','code':'timeout'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'},{'id':'LATENCY','state':'NOT_CHECKED','code':'skipped'}]
+expected=[{'id':'network','state':'OBSERVED','code':'present'},{'id':'service','state':'OBSERVED','code':'stopped'},{'id':'TUNNEL','state':'NOT_CHECKED','code':'not_started'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'}]
 assert report['facts']==expected, 'unexpected real data; do not send'
 assert attempts()==0
 button('Review evidence for AI','review-cancel');snap('review-before-cancel');assert attempts()==0
@@ -87,9 +87,12 @@ for case,expected_message in [(1,'provider returned an unsuccessful HTTP status'
  if case<3:
   assert 'AI analysis failed' not in text,'generic failure still shown'
   assert '切换 DNS 模式' not in text,'unsafe model advice displayed'
+ if case == 3:
+  priority=find('本地证据优先复核：VPN 服务','stopped-priority',scroll=15)
+  assert '采集时未运行' in priority.attrib.get('text',''), 'stopped-service priority not visible'
  results.append({'case':case,'expected_ui_message':expected_message,'attempts':attempts()})
 (out/'synthetic-request-diagnostics.txt').write_text(adb('logcat','-d','-s','WABI_TEST:I','*:S'))
-(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'e164338cb8e311562565bdbc450b7572a50e5e6f', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
+(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'e1b0580ac5500255185642fa07aea18382e61002', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
 import base64
 bodies=[line.split('WABI_BODY:',1)[1].strip() for line in adb('logcat','-d','-s','WABI_BODY:I','*:S').splitlines() if 'WABI_BODY:' in line]
 assert len(bodies)==3, ('request_body_count', len(bodies))

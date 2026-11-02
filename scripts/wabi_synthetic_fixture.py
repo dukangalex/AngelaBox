@@ -5,7 +5,7 @@ The real parser, local error types, consent UI and rendering remain in use.
 from pathlib import Path
 p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionRunner.kt')
 s=p.read_text(); a='facts = passive(before).facts + attempts + result.items.map {'
-b='facts = listOf(InspectionPolicy.Fact("TUNNEL_1A", InspectionPolicy.State.ATTENTION, "tls_failure"), InspectionPolicy.Fact("TUNNEL_1B", InspectionPolicy.State.OBSERVED, "ok"), InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.ATTENTION, "timeout"), InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"), InspectionPolicy.Fact("LATENCY", InspectionPolicy.State.NOT_CHECKED, "skipped")) + result.items.take(0).map {'
+b='facts = listOf(InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"), InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, "stopped"), InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.NOT_CHECKED, "not_started"), InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved")) + result.items.take(0).map {'
 assert s.count(a)==1; p.write_text(s.replace(a,b))
 p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
 s=p.read_text(); a='    LaunchedEffect(changes) {'
@@ -24,7 +24,7 @@ s=s[:start]+'''    private val syntheticAttempt = java.util.concurrent.atomic.At
         android.util.Log.i("WABI_TEST", "AI_REQUEST_ATTEMPT")
         val bytes = when (attempt) {
             2 -> """{"choices":[{"finish_reason":"stop","message":{"content":"切换 DNS 模式以解决故障"}}]}"""
-            else -> org.json.JSONObject().put("choices", org.json.JSONArray().put(org.json.JSONObject().put("finish_reason", "stop").put("message", org.json.JSONObject().put("content", """{"review":["TUNNEL_1A","DNS"]}""")))).toString()
+            else -> org.json.JSONObject().put("choices", org.json.JSONArray().put(org.json.JSONObject().put("finish_reason", "stop").put("message", org.json.JSONObject().put("content", """{"review":["TUNNEL","DNS"]}""")))).toString()
         }.toByteArray()
         object : HttpsURLConnection(java.net.URL(url)) {
             override fun connect() {}
