@@ -59,6 +59,7 @@ import base64
 launch();inspector()
 assert local('ai'), 'test-only configuration not installed'
 def take_collection(name):
+ previous_attempts=attempts()
  before=json.loads(local('result'))['at'] if local('result') else -1
  button('Run local checks',name+'-start');snap(name+'-probe-dialog');dialog_tap('checks',name+'-probe-confirm')
  for i in range(90):
@@ -74,8 +75,8 @@ def take_collection(name):
  assert p['checks']==r['facts'], (name,p['checks'],r['facts'])
  assert all(set(f)=={'id','state','code'} for f in p['checks'])
  assert all(k not in p for k in ('profile','network','context','at','service'))
- assert attempts()==0
- dialog_tap('Cancel',name+'-cancel');assert attempts()==0
+ assert attempts()==previous_attempts
+ dialog_tap('Cancel',name+'-cancel');assert attempts()==previous_attempts
  return r
 online=take_collection('online')
 assert next(f for f in online['facts'] if f['id']=='network') == {'id':'network','state':'OBSERVED','code':'present'}
@@ -169,6 +170,45 @@ parent=next((n for n in root.iter('node') if reviews[0] in list(n)),None)
 assert reviews[0].attrib.get('enabled')=='false' or (parent is not None and parent.attrib.get('enabled')=='false'), ET.tostring(root,encoding='unicode')
 assert attempts()==1
 shell('svc','wifi','enable');shell('svc','data','enable')
+# Regaining an uplink must not revive the already-invalidated snapshot. Then
+# actual recollection must recover the usable preview without sending anything.
+time.sleep(12)
+(out/'restored-connectivity.txt').write_text(shell('dumpsys','connectivity'))
+assert json.loads(local('result'))==running, 'network restoration silently replaced local evidence'
+def assert_review_disabled(tag):
+ root=snap(tag)
+ reviews=[n for n in root.iter('node') if n.attrib.get('text')=='Review evidence for AI']
+ assert len(reviews)==1, 'expected one review control'
+ parent=next((n for n in root.iter('node') if reviews[0] in list(n)),None)
+ assert reviews[0].attrib.get('enabled')=='false' or (parent is not None and parent.attrib.get('enabled')=='false'), ET.tostring(root,encoding='unicode')
+assert_review_disabled('restored-still-stale')
+assert attempts()==1
+recovered=take_collection('recovered')
+assert recovered['at']>running['at']
+assert field(recovered,'network')=={'id':'network','state':'OBSERVED','code':'present'}
+assert recovered['service'] is True
+assert any(f['id'] in probe_ids and f['code']=='ok' for f in recovered['facts']), 'no actual successful post-recovery TUN probe'
+# Persisted evidence must not become fresh merely by reopening the app process.
+# The Android process is genuinely stopped and relaunched, not a new Activity.
+pid_before=shell('pidof',P).strip()
+shell('am','force-stop',P);time.sleep(2)
+launch();inspector()
+pid_after=shell('pidof',P).strip()
+assert pid_before and pid_after and pid_before!=pid_after
+(out/'restart-pids.json').write_text(json.dumps({'before':pid_before,'after':pid_after}))
+assert json.loads(local('result'))==recovered, 'restart changed persisted local evidence'
+find('Review evidence for AI','restart-review',5)
+assert_review_disabled('restart-still-stale')
+assert attempts()==1
+# Clear must delete the retained report, not AI config, and cause no request.
+button('Clear local report','clear-local-report');time.sleep(2)
+assert not local('result'), 'clear did not remove local report'
+assert local('ai'), 'clear unexpectedly removed model configuration'
+assert_review_disabled('clear-review-disabled')
+assert attempts()==1
+summary['recovery']={'old_evidence_still_stale':True,'new_evidence_at':recovered['at'],'service':field(recovered,'service'),'network':field(recovered,'network'),'successful_tunnel_probe':True,'cancel_no_additional_ai_calls':True}
+summary['restart']={'new_process':True,'persisted_evidence_stale':True,'no_additional_ai_calls':True}
+summary['clear']={'report_deleted':True,'model_config_retained':True,'review_disabled':True,'no_additional_ai_calls':True}
 summary['stale_review_disabled_after_network_change']=True
 summary['cancel_zero_ai_calls']=True  # asserted independently after each of three cancels
 summary['stale_send_analyze_calls']=attempts()
