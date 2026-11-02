@@ -35,7 +35,15 @@ for locale,tools,entry,run,review,expected,priority in [
  ('en-US','Tools','App inspector','Run local checks','Review evidence for AI','AI selections are for reference only','Local evidence to review first: VPN service'),
  ('zh-CN','工具','App 巡检','立即本地巡检','预览 AI 分析数据','AI 选择仅供参考','本地证据优先复核：VPN 服务'),
  ('zh-TW','工具','App 巡檢','立即本機巡檢','預覽 AI 分析資料','AI 選擇僅供參考','本地證據優先複核：VPN 服務')]:
- shell('pm','clear',P); shell('run-as',P,'mkdir','-p','files'); shell(f"run-as {P} sh -c 'echo {locale} > files/wabi-test-locale'")
+ shell('pm','clear',P)
+ sdk=int(shell('getprop','ro.build.version.sdk').strip())
+ if sdk >= 33:
+  shell('cmd','locale','set-app-locales',P,'--user','0','--locales',locale)
+  actual=shell('cmd','locale','get-app-locales',P,'--user','0').strip()
+  assert locale in actual, 'system app locale mismatch: '+actual
+  (out/(locale+'-platform-locale.txt')).write_text(actual)
+ else:
+  shell('run-as',P,'mkdir','-p','files'); shell(f"run-as {P} sh -c 'echo {locale} > files/wabi-test-locale'")
  shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(7)
  root=snap(locale+'-launch')
  for n in root.iter('node'):

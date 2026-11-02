@@ -56,17 +56,27 @@ s=p.read_text(); a='    override fun onCreate(savedInstanceState: Bundle?) {\n  
 b='    override fun onCreate(savedInstanceState: Bundle?) {\n        java.io.File(filesDir, "wabi-test-locale").takeIf { it.exists() }?.readText()?.trim()?.let { androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(androidx.core.os.LocaleListCompat.forLanguageTags(it)) }\n        super.onCreate(savedInstanceState)'
 assert s.count(a)==1; p.write_text(s.replace(a,b))
 
-# Diagnostic-only epoch timing; never log network handles, endpoints, or secrets.
+# Synthetic-only epoch timing: process-local ordinal per Network; never log handles, addresses or secrets.
 p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionRunner.kt')
 s=p.read_text()
+a = '    private val epoch = AtomicLong()'
+b = """    private val epoch = AtomicLong()
+    private val diagNetworks = mutableMapOf<Network, Int>()
+    @Synchronized private fun diagId(network: Network?): Int = if (network == null) 0 else diagNetworks.getOrPut(network) { diagNetworks.size + 1 }"""
+assert s.count(a)==1; s=s.replace(a,b)
+a = 'fun networkCallback() = object : ConnectivityManager.NetworkCallback() {'
+b = 'fun networkCallback(label: String) = object : ConnectivityManager.NetworkCallback() {'
+assert s.count(a)==1; s=s.replace(a,b)
+s=s.replace('manager.registerDefaultNetworkCallback(networkCallback())', 'manager.registerDefaultNetworkCallback(networkCallback("default"))')
+s=s.replace('            networkCallback(),', '            networkCallback("physical"),')
 for callback in ('onAvailable', 'onLost', 'onCapabilitiesChanged'):
     marker = f'override fun {callback}'
     begin=s.index(marker)
     pos=s.index('                epoch.incrementAndGet()', begin)
     if callback == 'onCapabilitiesChanged':
-        repl = """                android.util.Log.i("WABI_EPOCH", "onCapabilitiesChanged epoch=" + epoch.incrementAndGet() + " internet=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) + " validated=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) + " notVpn=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) + " captive=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) + " wifi=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) + " cell=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) + " vpn=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) + " down=" + capabilities.linkDownstreamBandwidthKbps + " up=" + capabilities.linkUpstreamBandwidthKbps + " caps=" + (0..63).filter { capabilities.hasCapability(it) }.joinToString(",") + " transports=" + (0..63).filter { capabilities.hasTransport(it) }.joinToString(","))"""
+        repl = """                android.util.Log.i("WABI_EPOCH", "onCapabilitiesChanged label=" + label + " id=" + diagId(network) + " defaultId=" + diagId(manager.activeNetwork) + " epoch=" + epoch.incrementAndGet() + " internet=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) + " validated=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) + " notVpn=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) + " captive=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) + " wifi=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) + " cell=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) + " vpn=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) + " down=" + capabilities.linkDownstreamBandwidthKbps + " up=" + capabilities.linkUpstreamBandwidthKbps + " caps=" + (0..63).filter { capabilities.hasCapability(it) }.joinToString(",") + " transports=" + (0..63).filter { capabilities.hasTransport(it) }.joinToString(","))"""
     else:
-        repl = f'                android.util.Log.i("WABI_EPOCH", "{callback} epoch=" + epoch.incrementAndGet())'
+        repl = f'                android.util.Log.i("WABI_EPOCH", "{callback} label=" + label + " id=" + diagId(network) + " defaultId=" + diagId(manager.activeNetwork) + " epoch=" + epoch.incrementAndGet())'
     s=s[:pos]+s[pos:].replace('                epoch.incrementAndGet()', repl, 1)
 p.write_text(s)
 p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
