@@ -29,6 +29,16 @@ class InspectionPolicyTest {
         assertFalse(InspectionPolicy.fresh(s, 10_001, 77, true, 42, "new-process:1"))
     }
 
+    @Test fun underlyingNetworkEpochInvalidatesEvenWhenVpnHandleIsUnchanged() {
+        val s = snapshot()
+        // Android's default VPN handle can remain 42 after its physical uplink
+        // changes. The runner's independent NOT_VPN callback advances this token.
+        assertFalse(InspectionPolicy.fresh(s, 10_001, 77, true, 42, "session:2"))
+        val payload = InspectionPolicy.payload(s.copy(contextToken = "private-uplink-epoch"), "1.0", "1.0")
+        assertFalse(payload.contains("private-uplink-epoch"))
+        assertFalse(JSONObject(payload).has("context"))
+    }
+
     @Test fun payloadUsesAnAllowlistNotRawRedaction() {
         val evil = "https://subscription.example/token?key=secret"
         val s = snapshot().copy(facts = snapshot().facts + InspectionPolicy.Fact(evil, InspectionPolicy.State.OBSERVED, evil))
