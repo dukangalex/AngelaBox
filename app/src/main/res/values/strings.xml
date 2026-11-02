@@ -982,6 +982,7 @@
     <string name="inspection_evidence_limit">OBSERVED = observation, not a root cause. ATTENTION = investigate. UNKNOWN / NOT_CHECKED = no conclusion. Probes reflect this app only; node latency is not measured here. Passive runs contain no active checks. A config edit or network switch can invalidate earlier evidence.</string>
     <string name="inspection_run">Run local checks</string>
     <string name="inspection_model_settings">AI model settings</string>
+    <string name="inspection_local_summary">Local evidence summary (no AI)</string>
     <string name="inspection_ai_review">Review evidence for AI</string>
     <string name="inspection_no_model">Local inspection works without AI. No model is configured; no AI request will be made.</string>
     <string name="inspection_clear">Clear local report</string>

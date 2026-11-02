@@ -106,8 +106,12 @@ object InspectionAdvice {
         return selected
     }
 
-    fun render(content: String, payload: String, language: Language = Language.SIMPLIFIED): String {
-        val selected = parseReview(content)
+    fun render(content: String, payload: String, language: Language = Language.SIMPLIFIED): String = renderEvidence(payload, language, parseReview(content))
+
+    /** Deterministic local-only report. No provider request or model response is involved. */
+    fun renderLocal(payload: String, language: Language = Language.SIMPLIFIED): String = renderEvidence(payload, language, null)
+
+    private fun renderEvidence(payload: String, language: Language, selected: List<String>?): String {
         val checks = JSONObject(payload).getJSONArray("checks")
         require(checks.length() in 1..10)
         val facts = (0 until checks.length()).map { index ->
@@ -118,22 +122,26 @@ object InspectionAdvice {
         }
         require(facts.map { it.id }.distinct().size == facts.size)
         val eligible = facts.filter { it.state != InspectionPolicy.State.OBSERVED }.map { it.id }.toSet()
-        require(selected.size <= eligible.size)
-        require(selected.distinct().size == selected.size && eligible.containsAll(selected))
-        require(eligible.isEmpty() || selected.isNotEmpty())
+        if (selected != null) {
+            require(selected.size <= eligible.size)
+            require(selected.distinct().size == selected.size && eligible.containsAll(selected))
+            require(eligible.isEmpty() || selected.isNotEmpty())
+        }
         // A model's arbitrary ordering must not hide a locally observed absent network.
         // This is a point-in-time observation, not proof of a root cause or Internet outage.
         val networkAbsent = facts.any { it.id == "network" && it.state == InspectionPolicy.State.ATTENTION && it.code == "absent" }
         // A stopped service is also an observed, locally known state, not a model inference.
         val serviceStopped = facts.any { it.id == "service" && it.state == InspectionPolicy.State.OBSERVED && it.code == "stopped" }
         return buildString {
-            appendLine(translated("AI 选择仅供参考，不代表优先级或根因，可能遗漏项目；全部本地记录见下方，不显示模型自由文本。", language))
+            if (selected != null) appendLine(translated("AI 选择仅供参考，不代表优先级或根因，可能遗漏项目；全部本地记录见下方，不显示模型自由文本。", language))
             if (networkAbsent) appendLine(translated("本地证据优先复核：活动网络（采集时未发现活动网络）。", language))
             if (serviceStopped) appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
-            if (selected.isEmpty()) {
-                appendLine(translated("AI 未选出可复核项目，这不表示所有功能正常。", language))
-            } else {
-                appendLine(aiItems(selected, language))
+            if (selected != null) {
+                if (selected.isEmpty()) {
+                    appendLine(translated("AI 未选出可复核项目，这不表示所有功能正常。", language))
+                } else {
+                    appendLine(aiItems(selected, language))
+                }
             }
             appendLine(translated("本次本地记录（不是整体健康结论）：", language))
             facts.forEach { appendLine("- ${translated(labels.getValue(it.id), language)}：${translated(states.getValue(it.state.name), language)} / ${it.code}") }

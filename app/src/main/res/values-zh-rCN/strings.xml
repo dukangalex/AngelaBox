@@ -882,6 +882,7 @@
     <string name="inspection_evidence_limit">已观测不等于已确认根因；需关注表示有待排查；未知或未检查不能视为正常。探测仅代表本 App 的路径，本页不测节点延迟。自动巡检不含主动检测。配置修改或网络切换可能使旧证据失效。</string>
     <string name="inspection_run">立即本地巡检</string>
     <string name="inspection_model_settings">AI 模型设置</string>
+    <string name="inspection_local_summary">本地证据摘要（不使用 AI）</string>
     <string name="inspection_ai_review">预览 AI 分析数据</string>
     <string name="inspection_no_model">未配置模型时仍可本地巡检，不会发起 AI 请求。</string>
     <string name="inspection_clear">清除本地报告</string>

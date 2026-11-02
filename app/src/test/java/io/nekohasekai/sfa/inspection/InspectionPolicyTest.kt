@@ -266,4 +266,21 @@ class InspectionPolicyTest {
         assertEquals(InspectionAdvice.Language.TRADITIONAL, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-Hant-HK")))
         assertEquals(InspectionAdvice.Language.SIMPLIFIED, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-Hans-TW")))
     }
+
+    @Test fun localSummaryRetainsAllEvidenceAndItsLimitsWithoutModel() {
+        val payload = """{"checks":[{"id":"network","state":"ATTENTION","code":"absent"},{"id":"service","state":"OBSERVED","code":"stopped"},{"id":"DNS","state":"UNKNOWN","code":"canary_not_resolved"},{"id":"SUBSCRIPTION","state":"ATTENTION","code":"expired"},{"id":"LATENCY","state":"NOT_CHECKED","code":"skipped"}]}"""
+        for (language in InspectionAdvice.Language.values()) {
+            val output = InspectionAdvice.renderLocal(payload, language)
+            assertFalse(output.contains("AI"))
+            for (code in listOf("absent", "stopped", "canary_not_resolved", "expired", "skipped")) assertTrue(output.contains(code))
+            assertTrue(output.indexOf("absent") < output.indexOf("expired"))
+        }
+        val en = InspectionAdvice.renderLocal(payload, InspectionAdvice.Language.ENGLISH)
+        assertTrue(en.contains("not running at collection time"))
+        assertTrue(en.contains("unknown and unchecked do not mean healthy"))
+        assertTrue(en.contains("local summary, not a server verification"))
+        assertFalse(en.any { it in '\u4e00'..'\u9fff' })
+        val bad = """{"checks":[{"id":"DNS","state":"OBSERVED","code":"ok"}]}"""
+        assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.renderLocal(bad) }
+    }
 }

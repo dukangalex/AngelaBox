@@ -77,6 +77,7 @@ fun InspectionScreen(navController: NavController) {
     var running by remember { mutableStateOf(false) }
     var task by remember { mutableStateOf<Job?>(null) }
     var answer by remember { mutableStateOf<String?>(null) }
+    var answerIsLocal by remember { mutableStateOf(false) }
     var answerStamp by remember { mutableStateOf<InspectionRunner.ContextStamp?>(null) }
     var message by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(changes) {
@@ -148,6 +149,20 @@ fun InspectionScreen(navController: NavController) {
             }) { Text(stringResource(R.string.cancel)) }
         }
         Button(enabled = !running, onClick = { showProbeConsent = true }) { Text(stringResource(R.string.inspection_run)) }
+        OutlinedButton(enabled = !running && fresh, onClick = {
+            val result = snapshot ?: return@OutlinedButton
+            val currentStamp = InspectionRunner.stamp(context)
+            if (InspectionPolicy.fresh(result, System.currentTimeMillis(), currentStamp.profile, currentStamp.tunnelUp, currentStamp.network, currentStamp.token)) {
+                val payload = InspectionPolicy.payload(result, BuildConfig.VERSION_NAME, CoreIdentity.libboxOrPin())
+                answer = InspectionAdvice.renderLocal(payload, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
+                answerStamp = currentStamp
+                answerIsLocal = true
+                message = null
+            } else {
+                answer = null
+                message = R.string.inspection_stale
+            }
+        }) { Text(stringResource(R.string.inspection_local_summary)) }
         OutlinedButton(enabled = !running, onClick = { showConfig = true }) { Text(stringResource(R.string.inspection_model_settings)) }
         Button(enabled = !running && fresh && config != null, onClick = {
             val result = snapshot ?: return@Button
@@ -163,7 +178,11 @@ fun InspectionScreen(navController: NavController) {
         }) { Text(stringResource(R.string.inspection_clear)) }
         message?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
         answer?.let {
-            Text(stringResource(R.string.inspection_ai_untrusted), style = MaterialTheme.typography.labelLarge)
+            if (answerIsLocal) {
+                Text(stringResource(R.string.inspection_local_summary), style = MaterialTheme.typography.labelLarge)
+            } else {
+                Text(stringResource(R.string.inspection_ai_untrusted), style = MaterialTheme.typography.labelLarge)
+            }
             SelectionContainer { Text(it) }
         }
     }
@@ -218,6 +237,7 @@ fun InspectionScreen(navController: NavController) {
                             val output = InspectionAi.analyze(approved.config, approved.payload, ::current, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
                             if (current()) {
                                 answer = output
+                                answerIsLocal = false
                                 answerStamp = approved.stamp
                             } else {
                                 message = R.string.inspection_ai_stale
