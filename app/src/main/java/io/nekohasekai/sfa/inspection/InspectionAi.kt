@@ -97,7 +97,7 @@ object InspectionAi {
     }
 
     /** Only called from the preview's explicit Send button with the exact reviewed payload. */
-    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing(config, payload, stillCurrent) { url, headers ->
+    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean, language: InspectionAdvice.Language = InspectionAdvice.Language.SIMPLIFIED): String = analyzeUsing(config, payload, stillCurrent, language = language) { url, headers ->
         // Do not use RemoteUrlGuard's general resolver: its fake-IP recovery may
         // query protected public DNS. AI must never reveal a provider hostname
         // outside the current system/tunnel DNS path as an implicit fallback.
@@ -171,6 +171,7 @@ object InspectionAi {
         payload: String,
         stillCurrent: () -> Boolean,
         requestBudgetMillis: Long = 90_000L,
+        language: InspectionAdvice.Language = InspectionAdvice.Language.SIMPLIFIED,
         open: (String, Map<String, String>) -> HttpsURLConnection,
     ): String = withContext(Dispatchers.IO) {
         validateConfig(config)
@@ -245,7 +246,7 @@ object InspectionAi {
             val content = parseResponse(bytes.toByteArray())
             // Do not display untrusted free text: only locally rendered, evidence-bound output.
             try {
-                InspectionAdvice.render(content, payload)
+                InspectionAdvice.render(content, payload, language)
             } catch (_: Exception) {
                 throw Failure(FailureReason.RESPONSE_FORMAT)
             }

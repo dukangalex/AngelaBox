@@ -227,4 +227,23 @@ class InspectionPolicyTest {
         assertTrue(bothText.contains("本地证据优先复核：活动网络"))
         assertTrue(bothText.contains("本地证据优先复核：VPN 服务"))
     }
+
+    @Test
+    fun adviceUsesTheSelectedLocaleWithoutChangingEvidenceOrOrdering() {
+        val payload = """{"checks":[{"id":"network","state":"ATTENTION","code":"absent"},{"id":"service","state":"OBSERVED","code":"stopped"},{"id":"DNS","state":"UNKNOWN","code":"canary_not_resolved"}]}"""
+        val response = """{"review":["DNS"]}"""
+        val en = InspectionAdvice.render(response, payload, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("en-US")))
+        val tw = InspectionAdvice.render(response, payload, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-TW")))
+        val cn = InspectionAdvice.render(response, payload, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-CN")))
+        assertTrue(en.contains("Local evidence to review first: active network"))
+        assertTrue(en.contains("VPN service (not running at collection time)"))
+        assertFalse(en.any { it in '\u4e00'..'\u9fff' })
+        assertTrue(tw.contains("活動網路"))
+        assertTrue(tw.contains("VPN 服務（採集時未運行）"))
+        assertTrue(cn.contains("活动网络"))
+        assertTrue(cn.contains("VPN 服务（采集时未运行）"))
+        assertTrue(listOf(en, tw, cn).all { it.contains("canary_not_resolved") })
+        assertEquals(InspectionAdvice.Language.TRADITIONAL, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-Hant-HK")))
+        assertEquals(InspectionAdvice.Language.SIMPLIFIED, InspectionAdvice.languageFor(java.util.Locale.forLanguageTag("zh-Hans-TW")))
+    }
 }
