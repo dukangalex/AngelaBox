@@ -56,10 +56,10 @@ for locale,tools,entry,run,review,expected,priority in [
  assert expected not in local_text, repr(local_text)
  logs=adb('logcat','-d','-s','WABI_TEST:I','*:S')
  assert 'AI_REQUEST_ATTEMPT' not in logs, logs
- # Local summary is below the review control; return to the top before looking for it.
- size=shell('wm','size').strip().split()[-1]; width,height=map(int,size.split('x'))
- for _ in range(3):
-  shell('input','swipe',str(width//2),str(round(height*.25)),str(width//2),str(round(height*.82)),'450');time.sleep(0.5)
+ # Navigate back to Tools and reopen the inspector at the top. Long reverse swipes
+ # previously left this screen on both emulators; verify the actual destination.
+ shell('input','keyevent','KEYCODE_BACK'); time.sleep(2)
+ tap(find(entry,locale+'-reenter-inspector',5))
  tap(find(review,locale+'-review',5)); send_label={'en-US':'Send this evidence once','zh-CN':'仅发送本次证据','zh-TW':'僅傳送本次證據'}[locale]; tap(find(send_label,locale+'-send-dialog',3))
  node=find(expected,locale+'-result',12); text=node.attrib.get('text',''); assert expected in text and priority in text, repr(text)
  assert {'en-US':'not priority','zh-CN':'不分优先级','zh-TW':'不分優先順序'}[locale] in text, repr(text)
