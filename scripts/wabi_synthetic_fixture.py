@@ -63,7 +63,11 @@ for callback in ('onAvailable', 'onLost', 'onCapabilitiesChanged'):
     marker = f'override fun {callback}'
     begin=s.index(marker)
     pos=s.index('                epoch.incrementAndGet()', begin)
-    s=s[:pos]+s[pos:].replace('                epoch.incrementAndGet()', f'                android.util.Log.i("WABI_EPOCH", "{callback} epoch=" + epoch.incrementAndGet())', 1)
+    if callback == 'onCapabilitiesChanged':
+        repl = """                android.util.Log.i("WABI_EPOCH", "onCapabilitiesChanged epoch=" + epoch.incrementAndGet() + " internet=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) + " validated=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) + " notVpn=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) + " captive=" + capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) + " wifi=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) + " cell=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) + " vpn=" + capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) + " down=" + capabilities.linkDownstreamBandwidthKbps + " up=" + capabilities.linkUpstreamBandwidthKbps)"""
+    else:
+        repl = f'                android.util.Log.i("WABI_EPOCH", "{callback} epoch=" + epoch.incrementAndGet())'
+    s=s[:pos]+s[pos:].replace('                epoch.incrementAndGet()', repl, 1)
 p.write_text(s)
 p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
 s=p.read_text()

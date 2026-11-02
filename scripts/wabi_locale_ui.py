@@ -48,6 +48,7 @@ for locale,tools,entry,run,review,expected,priority in [
   time.sleep(2)
  report=json.loads(local('result')); assert report['facts']==[{'id':'network','state':'OBSERVED','code':'present'},{'id':'service','state':'OBSERVED','code':'stopped'},{'id':'TUNNEL','state':'NOT_CHECKED','code':'not_started'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'}]
  # A local-only summary must render actual bounded observations without invoking the transport.
+ (out/(locale+'-pre-summary-epoch.txt')).write_text(adb('logcat','-d','-s','WABI_EPOCH:I','*:S'))
  adb('logcat','-c')
  local_label={'en-US':'Local evidence summary (no AI)','zh-CN':'本地证据摘要（不使用 AI）','zh-TW':'本地證據摘要（不使用 AI）'}[locale]
  tap(find(local_label,locale+'-local-button',5))
