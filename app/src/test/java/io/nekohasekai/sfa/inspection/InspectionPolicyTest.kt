@@ -180,6 +180,7 @@ class InspectionPolicyTest {
         for (response in listOf("""{"review":["DNS"]}""", """{"review":["LATENCY"]}""", """{"review":["DNS","network"]}""", """{"review":["network"]}""")) {
             val result = InspectionAdvice.render(response, payload)
             assertTrue(result.contains("本地证据优先复核：活动网络（采集时未发现活动网络）"))
+            assertTrue(result.indexOf("本地证据优先复核：活动网络") < result.indexOf("本次本地记录"))
             assertFalse(result.contains("AI 建议优先复核："))
             assertTrue(result.contains("根因尚未确定"))
         }
@@ -211,6 +212,7 @@ class InspectionPolicyTest {
         val payload = InspectionPolicy.payload(snapshot().copy(facts = facts), "1", "1")
         val text = InspectionAdvice.render("""{"review":["TUNNEL","DNS"]}""", payload)
         assertTrue(text.contains("本地证据优先复核：VPN 服务（采集时未运行）"))
+        assertTrue(text.indexOf("本地证据优先复核：VPN 服务") < text.indexOf("本次本地记录"))
         assertTrue(text.contains("模型选择的其他项目：App HTTPS 探测、DNS canary"))
         assertTrue(text.contains("根因尚未确定"))
         assertFalse(text.contains("AI 建议优先复核："))

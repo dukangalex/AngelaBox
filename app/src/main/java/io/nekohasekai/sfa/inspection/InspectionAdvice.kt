@@ -138,13 +138,6 @@ object InspectionAdvice {
         val reviewOrder = if (networkAbsent) listOf("network") + selected.filterNot { it == "network" } else selected
         return buildString {
             appendLine(translated("AI 仅排列可复核项目；以下文字来自本地证据模板，不显示模型自由文本。", language))
-            appendLine(translated("本次本地记录（不是整体健康结论）：", language))
-            facts.forEach { appendLine("- ${translated(labels.getValue(it.id), language)}：${translated(states.getValue(it.state.name), language)} / ${it.code}") }
-            appendLine(translated("证据边界：活动网络存在不等于 Internet 可达；VPN 服务运行不等于流量可达；App HTTPS 探测不证明其他 App 的 VPN 路由。", language))
-            if (facts.any { it.id == "DNS" }) appendLine(translated("DNS canary 使用故意不存在的 .invalid 名称；不解析或返回 FakeIP 都不能单独证明 DNS 正常或故障。", language))
-            if (facts.any { it.id == "LATENCY" }) appendLine(translated("节点延迟来自已有记录，可能已过期，不代表当前端到端连接。", language))
-            if (facts.any { it.id == "SUBSCRIPTION" }) appendLine(translated("订阅状态只是本地汇总，不是服务端核验。", language))
-            appendLine(translated("根因尚未确定；未知和未检查不能当作正常。", language))
             if (networkAbsent) {
                 appendLine(translated("本地证据优先复核：活动网络（采集时未发现活动网络）；其余项目按模型选择列出。", language))
                 if (serviceStopped) appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
@@ -157,6 +150,13 @@ object InspectionAdvice {
             } else {
                 appendLine(aiItems(selected, language))
             }
+            appendLine(translated("本次本地记录（不是整体健康结论）：", language))
+            facts.forEach { appendLine("- ${translated(labels.getValue(it.id), language)}：${translated(states.getValue(it.state.name), language)} / ${it.code}") }
+            appendLine(translated("证据边界：活动网络存在不等于 Internet 可达；VPN 服务运行不等于流量可达；App HTTPS 探测不证明其他 App 的 VPN 路由。", language))
+            if (facts.any { it.id == "DNS" }) appendLine(translated("DNS canary 使用故意不存在的 .invalid 名称；不解析或返回 FakeIP 都不能单独证明 DNS 正常或故障。", language))
+            if (facts.any { it.id == "LATENCY" }) appendLine(translated("节点延迟来自已有记录，可能已过期，不代表当前端到端连接。", language))
+            if (facts.any { it.id == "SUBSCRIPTION" }) appendLine(translated("订阅状态只是本地汇总，不是服务端核验。", language))
+            appendLine(translated("根因尚未确定；未知和未检查不能当作正常。", language))
             append(translated("可选下一步：重新运行相同的本地巡检，对照新旧记录；是否继续由你决定，不会自动修改配置或路由。", language))
         }
     }
