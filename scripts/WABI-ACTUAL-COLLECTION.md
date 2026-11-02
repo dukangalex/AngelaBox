@@ -32,3 +32,12 @@ disconnected in system logs but the old report stayed reviewable because the
 default network remained the VPN. Candidate 6d9b24d also observes INTERNET +
 NOT_VPN network callbacks; actual Android confirmation is still required.
 No provider send occurred. Old run 41357409731 is confirmed cancelled.
+
+## Stale already-open consent regression
+
+The additional test keeps the evidence review dialog open while disabling the
+underlying Wi-Fi and mobile networks, then presses Send. A test-only transport
+opener records entry and throws locally; it cannot contact a provider. The exact
+production `analyzeUsing` evidence guard is retained. Acceptance requires one
+analyze invocation but zero transport-opener invocations, the local stale-evidence
+error, and the disabled Review control. This does not test provider output quality.

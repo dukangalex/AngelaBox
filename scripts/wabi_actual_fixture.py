@@ -15,11 +15,17 @@ assert s.count(needle)==1;s=s.replace(needle,replacement);p.write_text(s)
 print('Instrumented synthetic config and pre-send review payload only; collection unchanged')
 
 p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionAi.kt')
-s=p.read_text(); needle='    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing(config, payload, stillCurrent) { url, headers ->'
-repl='    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String {\n        android.util.Log.i("WABI_TEST", "AI_REQUEST_ATTEMPT")\n        return analyzeUsing(config, payload, stillCurrent) { url, headers ->'
-assert s.count(needle)==1
-s=s.replace(needle,repl)
-end='    // RemoteUrlGuard intentionally folds'
-pos=s.index(end)
-s=s[:pos]+'    }\n\n'+s[pos:]
-p.write_text(s)
+s=p.read_text()
+start=s.index('    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String = analyzeUsing')
+end=s.index('    // RemoteUrlGuard intentionally folds',start)
+replacement='''    suspend fun analyze(config: InspectionStore.AiConfig, payload: String, stillCurrent: () -> Boolean): String {
+        android.util.Log.i("WABI_TEST", "AI_REQUEST_ATTEMPT")
+        return analyzeUsing(config, payload, stillCurrent) { _, _ ->
+            android.util.Log.i("WABI_TEST", "AI_TRANSPORT_OPEN")
+            throw java.io.IOException("Synthetic acceptance blocks all external transport")
+        }
+    }
+
+'''
+s=s[:start]+replacement+s[end:];p.write_text(s)
+print('Instrumented call counters; transport opener fails locally, never sends externally')

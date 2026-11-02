@@ -148,17 +148,29 @@ button('Review evidence for AI','stale-review');snap('stale-review-open')
 shell('svc','wifi','disable');shell('svc','data','disable');time.sleep(8)
 (out/'stale-connectivity.txt').write_text(shell('dumpsys','connectivity'))
 (out/'stale-addresses.txt').write_text(shell('ip','addr'))
-dialog_tap('Cancel','stale-review-cancel')
+# Exercise the exact previously-open review's Send handler after network loss.
+# The test-only transport seam fails locally if entered: no provider can receive data.
+assert attempts()==0
+dialog_tap('Send','stale-review-send')
+assert attempts()==1, 'stale Send did not exercise production analyzeUsing guard'
+transport_opens=adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_TRANSPORT_OPEN')
+assert transport_opens==0, 'stale evidence reached transport opener'
+root=snap('stale-send-result')
+# Error text is fixed local UI, not provider content.
+assert any('evidence became stale' in n.attrib.get('text','').lower() for n in root.iter('node')), ET.tostring(root,encoding='unicode')
 root=snap('stale-after-network-change')
 reviews=[n for n in root.iter('node') if n.attrib.get('text')=='Review evidence for AI']
 assert len(reviews)==1
 # Compose exposes enabled on its clickable parent rather than its text child.
 parent=next((n for n in root.iter('node') if reviews[0] in list(n)),None)
 assert reviews[0].attrib.get('enabled')=='false' or (parent is not None and parent.attrib.get('enabled')=='false'), ET.tostring(root,encoding='unicode')
-assert attempts()==0
+assert attempts()==1
 shell('svc','wifi','enable');shell('svc','data','enable')
 summary['stale_review_disabled_after_network_change']=True
-summary['cancel_zero_ai_calls']=attempts()==0
+summary['cancel_zero_ai_calls']=True  # asserted independently after each of three cancels
+summary['stale_send_analyze_calls']=attempts()
+summary['stale_send_transport_opens']=transport_opens
+summary['stale_send_rejected_before_transport']=True
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 log=adb('logcat','-d');(out/'collection-logcat.txt').write_text(log)
 assert 'FATAL EXCEPTION' not in log
