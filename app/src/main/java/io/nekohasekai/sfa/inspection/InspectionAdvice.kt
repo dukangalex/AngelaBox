@@ -69,6 +69,8 @@ object InspectionAdvice {
         // A model's arbitrary ordering must not hide a locally observed absent network.
         // This is a point-in-time observation, not proof of a root cause or Internet outage.
         val networkAbsent = facts.any { it.id == "network" && it.state == InspectionPolicy.State.ATTENTION && it.code == "absent" }
+        // A stopped service is also an observed, locally known state, not a model inference.
+        val serviceStopped = facts.any { it.id == "service" && it.state == InspectionPolicy.State.OBSERVED && it.code == "stopped" }
         val reviewOrder = if (networkAbsent) listOf("network") + selected.filterNot { it == "network" } else selected
         return buildString {
             appendLine("AI 仅排列可复核项目；以下文字来自本地证据模板，不显示模型自由文本。")
@@ -81,7 +83,11 @@ object InspectionAdvice {
             appendLine("根因尚未确定；未知和未检查不能当作正常。")
             if (networkAbsent) {
                 appendLine("本地证据优先复核：活动网络（采集时未发现活动网络）；其余项目按模型选择列出。")
+                if (serviceStopped) appendLine("本地证据优先复核：VPN 服务（采集时未运行）。")
                 if (reviewOrder.size > 1) appendLine("模型选择的其他项目：${reviewOrder.drop(1).joinToString("、") { labels.getValue(it) }}。")
+            } else if (serviceStopped) {
+                appendLine("本地证据优先复核：VPN 服务（采集时未运行）。")
+                if (selected.isNotEmpty()) appendLine("模型选择的其他项目：${selected.joinToString("、") { labels.getValue(it) }}。")
             } else if (selected.isEmpty()) {
                 appendLine("AI 未选出可复核项目，这不表示所有功能正常。")
             } else {
