@@ -41,7 +41,7 @@ for locale,tools,entry,run,review,expected,priority in [
   if local('result'):break
   time.sleep(2)
  report=json.loads(local('result')); assert report['facts']==[{'id':'network','state':'OBSERVED','code':'present'},{'id':'service','state':'OBSERVED','code':'stopped'},{'id':'TUNNEL','state':'NOT_CHECKED','code':'not_started'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'}]
- tap(find(review,locale+'-review',5));dialog_confirm(locale+'-send-dialog')
+ tap(find(review,locale+'-review',5)); send_label={'en-US':'Send this evidence once','zh-CN':'仅发送本次证据','zh-TW':'僅傳送本次證據'}[locale]; tap(find(send_label,locale+'-send-dialog',3))
  node=find(expected,locale+'-result',12); text=node.attrib.get('text',''); assert expected in text and priority in text, repr(text)
  assert text.index(priority) < text.index({'en-US':'Local observations from this run','zh-CN':'本次本地记录','zh-TW':'本次本地紀錄'}[locale]), repr(text)
  if locale=='en-US': assert not re.search(r'[\u4e00-\u9fff]',text), repr(text)
