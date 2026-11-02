@@ -155,6 +155,9 @@ dialog_tap('Send','stale-review-send')
 assert attempts()==1, 'stale Send did not exercise production analyzeUsing guard'
 transport_opens=adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_TRANSPORT_OPEN')
 assert transport_opens==0, 'stale evidence reached transport opener'
+# The fixed error is below the viewport after the long observation card.
+# Reveal and record it; do not treat an off-screen node as a product failure.
+find('evidence became stale','stale-error-scroll',5)
 root=snap('stale-send-result')
 # Error text is fixed local UI, not provider content.
 assert any('evidence became stale' in n.attrib.get('text','').lower() for n in root.iter('node')), ET.tostring(root,encoding='unicode')
