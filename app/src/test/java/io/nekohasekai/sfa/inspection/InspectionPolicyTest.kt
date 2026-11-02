@@ -185,8 +185,8 @@ class InspectionPolicyTest {
             assertTrue(result.contains("根因尚未确定"))
         }
         val result = InspectionAdvice.render("""{"review":["DNS","network"]}""", payload)
-        assertTrue(result.contains("模型选择的其他项目：DNS canary。"))
-        assertFalse(result.contains("模型选择的其他项目：DNS canary、活动网络"))
+        assertTrue(result.contains("AI 选择的项目（按 ID 排列，不分优先级）：DNS canary、活动网络。"))
+        assertFalse(result.contains("AI 建议优先复核"))
         val online = InspectionPolicy.payload(
             snapshot().copy(
                 facts = listOf(
@@ -197,7 +197,7 @@ class InspectionPolicyTest {
             "1",
             "1",
         )
-        assertTrue(InspectionAdvice.render("""{"review":["DNS"]}""", online).contains("AI 建议优先复核：DNS canary"))
+        assertTrue(InspectionAdvice.render("""{"review":["DNS"]}""", online).contains("AI 选择的项目（按 ID 排列，不分优先级）：DNS canary"))
         assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":[]}""", payload) }
         assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":["service"]}""", payload) }
     }
@@ -213,7 +213,7 @@ class InspectionPolicyTest {
         val text = InspectionAdvice.render("""{"review":["TUNNEL","DNS"]}""", payload)
         assertTrue(text.contains("本地证据优先复核：VPN 服务（采集时未运行）"))
         assertTrue(text.indexOf("本地证据优先复核：VPN 服务") < text.indexOf("本次本地记录"))
-        assertTrue(text.contains("模型选择的其他项目：App HTTPS 探测、DNS canary"))
+        assertTrue(text.contains("AI 选择的项目（按 ID 排列，不分优先级）：DNS canary、App HTTPS 探测"))
         assertTrue(text.contains("根因尚未确定"))
         assertFalse(text.contains("AI 建议优先复核："))
         val both = InspectionPolicy.payload(
@@ -228,6 +228,24 @@ class InspectionPolicyTest {
         val bothText = InspectionAdvice.render("""{"review":["DNS"]}""", both)
         assertTrue(bothText.contains("本地证据优先复核：活动网络"))
         assertTrue(bothText.contains("本地证据优先复核：VPN 服务"))
+    }
+
+    @Test fun modelSelectionsAreUnrankedAndCannotHideLocalEvidence() {
+        val facts = listOf(
+            InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"),
+            InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"),
+            InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.NOT_CHECKED, "not_started"),
+            InspectionPolicy.Fact("SUBSCRIPTION", InspectionPolicy.State.ATTENTION, "expired"),
+        )
+        val payload = InspectionPolicy.payload(snapshot().copy(facts = facts), "1", "1")
+        for (language in InspectionAdvice.Language.values()) {
+            val a = InspectionAdvice.render("""{"review":["TUNNEL","DNS"]}""", payload, language)
+            val b = InspectionAdvice.render("""{"review":["DNS","TUNNEL"]}""", payload, language)
+            assertEquals(a, b)
+            assertTrue(a.contains("expired")) // Model omitted subscription, local evidence remains.
+            assertTrue(a.contains("not_started"))
+            assertTrue(a.contains("canary_not_resolved"))
+        }
     }
 
     @Test

@@ -3,7 +3,7 @@ package io.nekohasekai.sfa.inspection
 import org.json.JSONObject
 import java.util.Locale
 
-/** A model may order existing checks; it can never supply displayed prose or actions. */
+/** Model-selected checks are unranked; displayed prose and evidence are always local. */
 object InspectionAdvice {
     private val labels = mapOf("network" to "活动网络", "service" to "VPN 服务", "TUNNEL" to "App HTTPS 探测", "DNS" to "DNS canary", "LATENCY" to "节点延迟记录", "SUBSCRIPTION" to "订阅汇总元数据", "TUNNEL_1A" to "HTTPS 第一轮目标 A", "TUNNEL_1B" to "HTTPS 第一轮目标 B", "TUNNEL_2A" to "HTTPS 第二轮目标 A", "TUNNEL_2B" to "HTTPS 第二轮目标 B")
     enum class Language { ENGLISH, SIMPLIFIED, TRADITIONAL }
@@ -32,14 +32,14 @@ object InspectionAdvice {
         "需关注" to ("Needs attention" to "需關注"),
         "未知" to ("Unknown" to "未知"),
         "未检查" to ("Not checked" to "未檢查"),
-        "AI 仅排列可复核项目；以下文字来自本地证据模板，不显示模型自由文本。" to ("AI only orders items for review; the following text comes from local evidence templates, not free-form model output." to "AI 僅排列可複核項目；以下文字來自本地證據範本，不顯示模型自由文字。"),
+        "AI 选择仅供参考，不代表优先级或根因，可能遗漏项目；全部本地记录见下方，不显示模型自由文本。" to ("AI selections are for reference only, not a priority order or diagnosis, and may omit items. All local observations appear below; no free-form model text is shown." to "AI 選擇僅供參考，不代表優先順序或根因，可能遺漏項目；全部本地紀錄見下方，不顯示模型自由文字。"),
         "本次本地记录（不是整体健康结论）：" to ("Local observations from this run (not an overall health verdict):" to "本次本地紀錄（不是整體健康結論）："),
         "证据边界：活动网络存在不等于 Internet 可达；VPN 服务运行不等于流量可达；App HTTPS 探测不证明其他 App 的 VPN 路由。" to ("Limits: an active network does not establish Internet reachability; a running VPN does not prove traffic works; an app HTTPS probe does not prove other apps use the VPN." to "證據限制：活動網路存在不等於 Internet 可達；VPN 服務運行不等於流量可達；App HTTPS 探測不證明其他 App 的 VPN 路由。"),
         "DNS canary 使用故意不存在的 .invalid 名称；不解析或返回 FakeIP 都不能单独证明 DNS 正常或故障。" to ("The DNS canary uses a deliberately nonexistent .invalid name. Failure to resolve or a FakeIP response alone proves neither working nor broken DNS." to "DNS canary 使用故意不存在的 .invalid 名稱；未解析或傳回 FakeIP 都不能單獨證明 DNS 正常或故障。"),
         "节点延迟来自已有记录，可能已过期，不代表当前端到端连接。" to ("Node latency comes from an existing record and may be stale; it does not represent the current end-to-end connection." to "節點延遲來自既有紀錄，可能已過期，不代表目前端到端連線。"),
         "订阅状态只是本地汇总，不是服务端核验。" to ("Subscription status is a local summary, not a server verification." to "訂閱狀態只是本地彙總，不是伺服器驗證。"),
         "根因尚未确定；未知和未检查不能当作正常。" to ("The root cause is unknown; unknown and unchecked do not mean healthy." to "根因尚未確定；未知和未檢查不能當作正常。"),
-        "本地证据优先复核：活动网络（采集时未发现活动网络）；其余项目按模型选择列出。" to ("Local evidence to review first: active network (none was found at collection time); remaining items follow the model selection." to "本地證據優先複核：活動網路（採集時未發現活動網路）；其餘項目依模型選擇列出。"),
+        "本地证据优先复核：活动网络（采集时未发现活动网络）。" to ("Local evidence to review first: active network (none was found at collection time)." to "本地證據優先複核：活動網路（採集時未發現活動網路）。"),
         "本地证据优先复核：VPN 服务（采集时未运行）。" to ("Local evidence to review first: VPN service (not running at collection time)." to "本地證據優先複核：VPN 服務（採集時未運行）。"),
         "AI 未选出可复核项目，这不表示所有功能正常。" to ("AI selected no items for review; this does not mean everything is working." to "AI 未選出可複核項目，這不表示所有功能正常。"),
         "可选下一步：重新运行相同的本地巡检，对照新旧记录；是否继续由你决定，不会自动修改配置或路由。" to ("Optional next step: rerun the same local inspection and compare the records. You decide whether to continue; configuration and routes are never changed automatically." to "可選的下一步：重新執行相同的本地巡檢，對照新舊紀錄；是否繼續由你決定，不會自動修改設定或路由。"),
@@ -51,23 +51,14 @@ object InspectionAdvice {
         Language.TRADITIONAL -> translations[value]?.second ?: value
     }
 
-    private fun otherItems(items: List<String>, language: Language): String {
-        val separator = if (language == Language.ENGLISH) ", " else "、"
-        val names = items.joinToString(separator) { translated(labels.getValue(it), language) }
-        return when (language) {
-            Language.ENGLISH -> "Other items selected by the model: $names."
-            Language.SIMPLIFIED -> "模型选择的其他项目：$names。"
-            Language.TRADITIONAL -> "模型選擇的其他項目：$names。"
-        }
-    }
-
     private fun aiItems(items: List<String>, language: Language): String {
         val separator = if (language == Language.ENGLISH) ", " else "、"
-        val names = items.joinToString(separator) { translated(labels.getValue(it), language) }
+        // Stable code order avoids exposing provider response order as diagnostic priority.
+        val names = items.sorted().joinToString(separator) { translated(labels.getValue(it), language) }
         return when (language) {
-            Language.ENGLISH -> "AI suggests reviewing first: $names."
-            Language.SIMPLIFIED -> "AI 建议优先复核：$names。"
-            Language.TRADITIONAL -> "AI 建議優先複核：$names。"
+            Language.ENGLISH -> "AI-selected items (listed by ID, not priority): $names."
+            Language.SIMPLIFIED -> "AI 选择的项目（按 ID 排列，不分优先级）：$names。"
+            Language.TRADITIONAL -> "AI 選擇的項目（按 ID 排列，不分優先順序）：$names。"
         }
     }
 
@@ -135,17 +126,11 @@ object InspectionAdvice {
         val networkAbsent = facts.any { it.id == "network" && it.state == InspectionPolicy.State.ATTENTION && it.code == "absent" }
         // A stopped service is also an observed, locally known state, not a model inference.
         val serviceStopped = facts.any { it.id == "service" && it.state == InspectionPolicy.State.OBSERVED && it.code == "stopped" }
-        val reviewOrder = if (networkAbsent) listOf("network") + selected.filterNot { it == "network" } else selected
         return buildString {
-            appendLine(translated("AI 仅排列可复核项目；以下文字来自本地证据模板，不显示模型自由文本。", language))
-            if (networkAbsent) {
-                appendLine(translated("本地证据优先复核：活动网络（采集时未发现活动网络）；其余项目按模型选择列出。", language))
-                if (serviceStopped) appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
-                if (reviewOrder.size > 1) appendLine(otherItems(reviewOrder.drop(1), language))
-            } else if (serviceStopped) {
-                appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
-                if (selected.isNotEmpty()) appendLine(otherItems(selected, language))
-            } else if (selected.isEmpty()) {
+            appendLine(translated("AI 选择仅供参考，不代表优先级或根因，可能遗漏项目；全部本地记录见下方，不显示模型自由文本。", language))
+            if (networkAbsent) appendLine(translated("本地证据优先复核：活动网络（采集时未发现活动网络）。", language))
+            if (serviceStopped) appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
+            if (selected.isEmpty()) {
                 appendLine(translated("AI 未选出可复核项目，这不表示所有功能正常。", language))
             } else {
                 appendLine(aiItems(selected, language))
