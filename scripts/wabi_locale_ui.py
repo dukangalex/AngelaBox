@@ -29,7 +29,7 @@ for locale,tools,entry,run,review,expected,priority in [
  ('en-US','Tools','App inspector','Run local checks','Review evidence for AI','AI only orders items for review','Local evidence to review first: VPN service'),
  ('zh-CN','工具','App 巡检','立即本地巡检','预览 AI 分析数据','AI 仅排列可复核项目','本地证据优先复核：VPN 服务'),
  ('zh-TW','工具','App 巡檢','立即本機巡檢','預覽 AI 分析資料','AI 僅排列可複核項目','本地證據優先複核：VPN 服務')]:
- shell('pm','clear',P); shell(f"run-as {P} sh -c 'echo {locale} > files/wabi-test-locale'")
+ shell('pm','clear',P); shell('run-as',P,'mkdir','-p','files'); shell(f"run-as {P} sh -c 'echo {locale} > files/wabi-test-locale'")
  shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(7)
  root=snap(locale+'-launch')
  for n in root.iter('node'):
