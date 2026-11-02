@@ -43,8 +43,9 @@ for locale,tools,entry,run,review,expected,priority in [
  report=json.loads(local('result')); assert report['facts']==[{'id':'network','state':'OBSERVED','code':'present'},{'id':'service','state':'OBSERVED','code':'stopped'},{'id':'TUNNEL','state':'NOT_CHECKED','code':'not_started'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'}]
  tap(find(review,locale+'-review',5));dialog_confirm(locale+'-send-dialog')
  node=find(expected,locale+'-result',12); text=node.attrib.get('text',''); assert expected in text and priority in text, repr(text)
+ assert text.index(priority) < text.index({'en-US':'Local observations from this run','zh-CN':'本次本地记录','zh-TW':'本次本地紀錄'}[locale]), repr(text)
  if locale=='en-US': assert not re.search(r'[\u4e00-\u9fff]',text), repr(text)
  if locale=='zh-TW': assert '採集時未運行' in text and '活动网络' not in text,repr(text)
  results.append({'locale':locale,'result_text':text,'expected_and_priority':True})
-(out/'locale-results.json').write_text(json.dumps({'synthetic_transport':True,'external_provider_requests':False,'locale_set_via_test_only_appcompat_hook':True,'production_source_base':'e901047ed2c12f66d9d209a9d5fb961d5ebd7bd5','locales':results},ensure_ascii=False,indent=2))
+(out/'locale-results.json').write_text(json.dumps({'synthetic_transport':True,'external_provider_requests':False,'locale_set_via_test_only_appcompat_hook':True,'production_source_base':'7d5b952','locales':results},ensure_ascii=False,indent=2))
 print('PASS: real Android UI renders synthetic evidence in each app locale; no external provider')
