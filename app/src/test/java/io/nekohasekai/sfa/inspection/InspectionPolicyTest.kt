@@ -200,4 +200,31 @@ class InspectionPolicyTest {
         assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":[]}""", payload) }
         assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":["service"]}""", payload) }
     }
+
+    @Test fun stoppedServiceIsLocallyPrioritizedWithoutAttributingRootCause() {
+        val facts = listOf(
+            InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"),
+            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, "stopped"),
+            InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.NOT_CHECKED, "not_started"),
+            InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"),
+        )
+        val payload = InspectionPolicy.payload(snapshot().copy(facts = facts), "1", "1")
+        val text = InspectionAdvice.render("""{"review":["TUNNEL","DNS"]}""", payload)
+        assertTrue(text.contains("本地证据优先复核：VPN 服务（采集时未运行）"))
+        assertTrue(text.contains("模型选择的其他项目：App HTTPS 探测、DNS canary"))
+        assertTrue(text.contains("根因尚未确定"))
+        assertFalse(text.contains("AI 建议优先复核："))
+        val both = InspectionPolicy.payload(
+            snapshot().copy(
+                facts = facts.map {
+                    if (it.id == "network") InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent") else it
+                },
+            ),
+            "1",
+            "1",
+        )
+        val bothText = InspectionAdvice.render("""{"review":["DNS"]}""", both)
+        assertTrue(bothText.contains("本地证据优先复核：活动网络"))
+        assertTrue(bothText.contains("本地证据优先复核：VPN 服务"))
+    }
 }
