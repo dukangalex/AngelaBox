@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
@@ -28,7 +29,7 @@ object InspectionRunner {
     private fun initialize(context: Context) {
         if (initialized) return
         val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-        manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+        fun networkCallback() = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 epoch.incrementAndGet()
             }
@@ -38,7 +39,18 @@ object InspectionRunner {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
                 epoch.incrementAndGet()
             }
-        })
+        }
+        manager.registerDefaultNetworkCallback(networkCallback())
+        // Since Android 9 the default network may be our VPN. Its identity can
+        // remain unchanged when Wi-Fi/mobile underneath it disappears or switches.
+        // Invalidate reviewed evidence on those underlying transitions as well.
+        manager.registerNetworkCallback(
+            NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build(),
+            networkCallback(),
+        )
         ProfileManager.registerCallback { epoch.incrementAndGet() }
         initialized = true
     }
