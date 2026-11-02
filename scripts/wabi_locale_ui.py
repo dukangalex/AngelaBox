@@ -6,8 +6,13 @@ P='io.chainbox.app'; out=Path('wabi-evidence');out.mkdir(exist_ok=True)
 def adb(*a): return subprocess.check_output(['adb',*a],text=True,timeout=60)
 def shell(*a): return adb('shell',*a)
 def snap(tag):
- shell('uiautomator','dump','/sdcard/window.xml'); x=shell('cat','/sdcard/window.xml'); (out/(tag+'.xml')).write_text(x)
- (out/(tag+'.png')).write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=60));return ET.fromstring(x[x.index('<hierarchy'):])
+ for attempt in range(5):
+  dump=shell('uiautomator','dump','/sdcard/window.xml')
+  if 'UI hierchary dumped to' in dump or 'UI hierarchy dumped to' in dump:
+   x=shell('cat','/sdcard/window.xml'); (out/(tag+'.xml')).write_text(x)
+   (out/(tag+'.png')).write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=60));return ET.fromstring(x[x.index('<hierarchy'):])
+  time.sleep(2)
+ raise AssertionError('UI hierarchy unavailable after retries: '+tag)
 def tap(n):
  b=list(map(int,re.findall(r'\d+',n.attrib['bounds'])));shell('input','tap',str((b[0]+b[2])//2),str((b[1]+b[3])//2));time.sleep(2)
 def find(text,tag,scroll=0):
@@ -17,10 +22,11 @@ def find(text,tag,scroll=0):
   if nodes:return nodes[0]
   if i<scroll:shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.25)),'450');time.sleep(1)
  raise AssertionError('UI control absent: '+text)
-def dialog_confirm(tag):
- # Dialogs on this emulator aren't exposed in UIAutomator. Screenshot retained; matching button in lower right.
- snap(tag); size=shell('wm','size').strip().split()[-1]; w,h=map(int,size.split('x'))
- shell('input','tap',str(round(w*.72)),str(round(h*.70)));time.sleep(2)
+def dialog_confirm(tag, text):
+ root=snap(tag)
+ nodes=[n for n in root.iter('node') if n.attrib.get('text')==text]
+ assert len(nodes)==2, 'expected title and action in dialog: '+repr([(n.attrib.get('text'),n.attrib.get('bounds')) for n in nodes])
+ tap(nodes[-1])
 def local(name):
  try:return shell('run-as',P,'cat','no_backup/inspection-'+name+'.json').strip()
  except subprocess.CalledProcessError:return ''
@@ -36,7 +42,7 @@ for locale,tools,entry,run,review,expected,priority in [
   if n.attrib.get('text') in ('OK','Continue','Got it','确定','確定'):tap(n);break
  tap(find(tools,locale+'-tools',4));tap(find(entry,locale+'-entry',5))
  assert local('ai'), 'synthetic config absent'
- tap(find(run,locale+'-run',5));dialog_confirm(locale+'-run-dialog')
+ tap(find(run,locale+'-run',5));dialog_confirm(locale+'-run-dialog',run)
  for i in range(60):
   if local('result'):break
   time.sleep(2)
