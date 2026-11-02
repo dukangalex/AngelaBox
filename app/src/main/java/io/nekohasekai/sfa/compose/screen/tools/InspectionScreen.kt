@@ -37,11 +37,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.os.ConfigurationCompat
 import androidx.navigation.NavController
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
+import io.nekohasekai.sfa.inspection.InspectionAdvice
 import io.nekohasekai.sfa.inspection.InspectionAi
 import io.nekohasekai.sfa.inspection.InspectionPolicy
 import io.nekohasekai.sfa.inspection.InspectionRunner
@@ -213,7 +215,7 @@ fun InspectionScreen(navController: NavController) {
                         fun current() = approved.stamp == InspectionRunner.stamp(context) &&
                             InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
                         try {
-                            val output = InspectionAi.analyze(approved.config, approved.payload, ::current)
+                            val output = InspectionAi.analyze(approved.config, approved.payload, ::current, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
                             if (current()) {
                                 answer = output
                                 answerStamp = approved.stamp
