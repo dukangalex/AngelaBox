@@ -55,3 +55,25 @@ p=Path('app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt')
 s=p.read_text(); a='    override fun onCreate(savedInstanceState: Bundle?) {\n        super.onCreate(savedInstanceState)'
 b='    override fun onCreate(savedInstanceState: Bundle?) {\n        java.io.File(filesDir, "wabi-test-locale").takeIf { it.exists() }?.readText()?.trim()?.let { androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(androidx.core.os.LocaleListCompat.forLanguageTags(it)) }\n        super.onCreate(savedInstanceState)'
 assert s.count(a)==1; p.write_text(s.replace(a,b))
+
+# Diagnostic-only epoch timing; never log network handles, endpoints, or secrets.
+p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionRunner.kt')
+s=p.read_text()
+for callback in ('onAvailable', 'onLost', 'onCapabilitiesChanged'):
+    marker = f'override fun {callback}'
+    begin=s.index(marker)
+    pos=s.index('                epoch.incrementAndGet()', begin)
+    s=s[:pos]+s[pos:].replace('                epoch.incrementAndGet()', f'                android.util.Log.i("WABI_EPOCH", "{callback} epoch=" + epoch.incrementAndGet())', 1)
+p.write_text(s)
+p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
+s=p.read_text()
+a='''                        fun current() = approved.stamp == InspectionRunner.stamp(context) &&
+                            InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)'''
+b='''                        fun current(): Boolean {
+                            val same = approved.stamp == InspectionRunner.stamp(context)
+                            val age = System.currentTimeMillis() - approved.snapshot.collectedAt
+                            val fresh = InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
+                            android.util.Log.i("WABI_EPOCH", "current same=$same fresh=$fresh ageMs=$age")
+                            return same && fresh
+                        }'''
+assert s.count(a)==1; p.write_text(s.replace(a,b))
