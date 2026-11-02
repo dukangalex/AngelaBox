@@ -1,9 +1,8 @@
 package io.nekohasekai.sfa.inspection
 
-// Experimental only: FOREGROUND (platform bit 19) indicates app availability versus a
-// background-held network. Ignoring it requires validating that no relevant availability
-// change is missed. Other capability bits remain conservative and invalidate on change.
-internal fun evidenceCapabilityBits(bits: Long): Long = bits and (1L shl 19).inv()
+// Preserve all capability changes, including FOREGROUND: Android documents it as
+// app network availability, not merely an informational background flag.
+internal fun evidenceCapabilityBits(bits: Long): Long = bits
 
 /** One tracker per callback: default and underlying networks have independent lifecycles. */
 internal class NetworkEvidenceTracker<K, C, L>(private val invalidate: () -> Unit) {
