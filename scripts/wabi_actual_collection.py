@@ -83,7 +83,7 @@ shell('svc','wifi','disable');shell('svc','data','disable');time.sleep(8)
 try: offline=take_collection('offline')
 finally: shell('svc','wifi','enable');shell('svc','data','enable')
 def field(report,id):return next((x for x in report['facts'] if x['id']==id),None)
-summary={'production_collection_unchanged':True,'pre_send_payload_instrumented':True,'provider_sent':False,'online':{'network':field(online,'network'),'service':field(online,'service'),'tunnel':field(online,'TUNNEL'),'dns':field(online,'DNS')},'offline':{'network':field(offline,'network'),'service':field(offline,'service'),'tunnel':field(offline,'TUNNEL'),'dns':field(offline,'DNS')},'offline_loss_observed':field(offline,'network')=={'id':'network','state':'ATTENTION','code':'absent'},'app_version':'e164338cb8e311562565bdbc450b7572a50e5e6f','test_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
+summary={'production_collection_unchanged':True,'pre_send_payload_instrumented':True,'provider_sent':False,'online':{'network':field(online,'network'),'service':field(online,'service'),'tunnel':field(online,'TUNNEL'),'dns':field(online,'DNS')},'offline':{'network':field(offline,'network'),'service':field(offline,'service'),'tunnel':field(offline,'TUNNEL'),'dns':field(offline,'DNS')},'offline_loss_observed':field(offline,'network')=={'id':'network','state':'ATTENTION','code':'absent'},'app_version':'6d9b24d','test_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 assert summary['offline_loss_observed'], 'offline control did not observe network loss'
 log=adb('logcat','-d')
@@ -140,11 +140,14 @@ assert all(set(f)=={'id','state','code'} for f in probes)
 assert len(running['facts'])<=10
 assert attempts()==0
 summary['running']={'service':field(running,'service'),'tunnel':field(running,'TUNNEL'),'attempts':probes,'profile_is_synthetic':True,'collection_unchanged':True}
+(out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 # A reviewed payload must not be sent after the evidence context changes.
 button('Review evidence for AI','stale-review');snap('stale-review-open')
 # Network loss invalidates the review. Cancelling remains zero requests, and a new
 # review must be disabled until new local observations exist.
 shell('svc','wifi','disable');shell('svc','data','disable');time.sleep(8)
+(out/'stale-connectivity.txt').write_text(shell('dumpsys','connectivity'))
+(out/'stale-addresses.txt').write_text(shell('ip','addr'))
 dialog_tap('Cancel','stale-review-cancel')
 root=snap('stale-after-network-change')
 reviews=[n for n in root.iter('node') if n.attrib.get('text')=='Review evidence for AI']

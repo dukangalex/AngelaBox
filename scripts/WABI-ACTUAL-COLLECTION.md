@@ -25,3 +25,10 @@ but the continuation stopped at test navigation: profile creation opens Edit Pro
 not the tabbed Dashboard. Raw screenshot/XML show the fixture was created; the test
 now exits via its observed Back control before choosing Dashboard. This is not
 evidence of a running-VPN product failure or a successful running-VPN acceptance.
+
+Run 41357452771 reached a running synthetic VPN with tun0 172.19.0.1 and
+actual TUNNEL_1A=ok. It then exposed a product failure: Wi-Fi and mobile both
+disconnected in system logs but the old report stayed reviewable because the
+default network remained the VPN. Candidate 6d9b24d also observes INTERNET +
+NOT_VPN network callbacks; actual Android confirmation is still required.
+No provider send occurred. Old run 41357409731 is confirmed cancelled.
