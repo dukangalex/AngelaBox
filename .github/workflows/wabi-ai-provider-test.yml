@@ -1,7 +1,7 @@
 name: PR41 real provider path (synthetic, non-publishing)
 on:
   push:
-    branches: [wabi/inspection-e2e-unranked]
+    branches: [wabi/inspection-e2e-local-summary]
   workflow_dispatch:
 permissions:
   contents: read
