@@ -168,4 +168,36 @@ class InspectionPolicyTest {
         assertTrue(rendered.contains("根因尚未确定"))
         assertFalse(rendered.contains("切换 DNS"))
     }
+
+    @Test fun localAbsentNetworkTakesPriorityOverModelChoicesWithoutClaimingRootCause() {
+        val facts = listOf(
+            InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent"),
+            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, "running"),
+            InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"),
+            InspectionPolicy.Fact("LATENCY", InspectionPolicy.State.NOT_CHECKED, "skipped"),
+        )
+        val payload = InspectionPolicy.payload(snapshot().copy(facts = facts), "1", "1")
+        for (response in listOf("""{"review":["DNS"]}""", """{"review":["LATENCY"]}""", """{"review":["DNS","network"]}""", """{"review":["network"]}""")) {
+            val result = InspectionAdvice.render(response, payload)
+            assertTrue(result.contains("本地证据优先复核：活动网络（采集时未发现活动网络）"))
+            assertFalse(result.contains("AI 建议优先复核："))
+            assertTrue(result.contains("根因尚未确定"))
+        }
+        val result = InspectionAdvice.render("""{"review":["DNS","network"]}""", payload)
+        assertTrue(result.contains("模型选择的其他项目：DNS canary。"))
+        assertFalse(result.contains("模型选择的其他项目：DNS canary、活动网络"))
+        val online = InspectionPolicy.payload(
+            snapshot().copy(
+                facts = listOf(
+                    InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"),
+                    InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"),
+                ),
+            ),
+            "1",
+            "1",
+        )
+        assertTrue(InspectionAdvice.render("""{"review":["DNS"]}""", online).contains("AI 建议优先复核：DNS canary"))
+        assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":[]}""", payload) }
+        assertThrows(IllegalArgumentException::class.java) { InspectionAdvice.render("""{"review":["service"]}""", payload) }
+    }
 }

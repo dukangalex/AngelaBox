@@ -55,7 +55,7 @@ class InspectionAiTransportTest {
         assertFalse(connection.sent.toString("UTF-8").contains(config.key))
         assertEquals("POST", connection.requestMethod)
         assertFalse(connection.instanceFollowRedirects)
-        assertTrue(answer.contains("AI 建议优先复核：活动网络"))
+        assertTrue(answer.contains("本地证据优先复核：活动网络"))
         assertFalse(answer.contains("DNS 问题"))
         assertTrue(connection.disconnected)
     }
