@@ -1,5 +1,10 @@
 package io.nekohasekai.sfa.inspection
 
+// FOREGROUND describes request usage, not a connectivity or route property. Keep every
+// other capability bit so validation, restrictions and unknown changes still invalidate.
+// Android's NET_CAPABILITY_FOREGROUND is a hidden platform constant (bit 19).
+internal fun evidenceCapabilityBits(bits: Long): Long = bits and (1L shl 19).inv()
+
 /** One tracker per callback: default and underlying networks have independent lifecycles. */
 internal class NetworkEvidenceTracker<K, C, L>(private val invalidate: () -> Unit) {
     private val capabilities = mutableMapOf<K, C>()

@@ -45,7 +45,7 @@ object InspectionRunner {
                         if (capabilities.hasCapability(bit)) capabilityBits = capabilityBits or (1L shl bit)
                         if (capabilities.hasTransport(bit)) transportBits = transportBits or (1L shl bit)
                     }
-                    tracker.capabilities(network, capabilityBits to transportBits)
+                    tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)
                 }
                 override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
                     // Snapshot the mutable object using its public Parcelable API.

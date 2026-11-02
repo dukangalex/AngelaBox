@@ -30,6 +30,28 @@ class NetworkEvidenceTrackerTest {
         assertEquals(ready + 6, epoch)
     }
 
+    @Test fun foregroundOnlyChangesDoNotInvalidateOtherCapabilityChangesDo() {
+        var epoch = 0
+        val tracker = NetworkEvidenceTracker<String, Pair<Long, Long>, String> { epoch++ }
+        val foreground = 1L shl 19
+        val validated = 1L shl 16
+        val internet = 1L shl 12
+        fun capabilities(bits: Long) = tracker.capabilities("cell", evidenceCapabilityBits(bits) to 1L)
+        tracker.available("cell")
+        capabilities(foreground or internet or validated)
+        val ready = epoch
+        capabilities(internet or validated) // Android usage bookkeeping only
+        assertEquals(ready, epoch)
+        capabilities(internet) // validation lost, still invalidate
+        assertEquals(ready + 1, epoch)
+        capabilities(internet or (1L shl 35)) // unknown capability remains conservative
+        assertEquals(ready + 2, epoch)
+        tracker.link("cell", "route-changed")
+        tracker.blocked("cell", true)
+        tracker.lost("cell")
+        assertEquals(ready + 5, epoch)
+    }
+
     @Test fun initialCallbacksAndReappearingNetworksInvalidateConservatively() {
         var epoch = 0
         val tracker = NetworkEvidenceTracker<String, String, String> { epoch++ }
