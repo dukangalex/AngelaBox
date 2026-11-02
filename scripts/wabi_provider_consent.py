@@ -70,6 +70,15 @@ button('Review evidence for AI','review-send');snap('review-before-send');assert
 review = subprocess.check_output(['tesseract',str(out/'review-before-send.png'),'stdout'],stderr=subprocess.DEVNULL,text=True)
 (out/'review-ocr.txt').write_text(review)
 assert 'example.com' in review.lower() and 'synthetic-ui' in review.lower(), 'provider/model disclosure not visible'
+# Examine the scrollable confirmation before any send. Both captures are saved for manual verification.
+size=shell('wm','size').strip().split()[-1]; width,height=map(int,size.split('x'))
+shell('input','swipe',str(width//2),str(round(height*.60)),str(width//2),str(round(height*.37)),'500');time.sleep(1)
+snap('review-privacy-scrolled')
+privacy_ocr=subprocess.check_output(['tesseract',str(out/'review-privacy-scrolled.png'),'stdout'],stderr=subprocess.DEVNULL,text=True)
+(out/'review-privacy-ocr.txt').write_text(privacy_ocr)
+combined=(review+' '+privacy_ocr).lower()
+assert all(word in combined for word in ('cache','processors','privacy policy')), 'retention or processing disclosure not visible before sending'
+assert attempts()==0, 'privacy inspection initiated AI request'
 # In-memory responses: no network provider or billing claim is possible.
 def reopen_inspector():
  # After a result, return explicitly through navigation rather than making six
@@ -92,7 +101,7 @@ for case,expected_message in [(1,'provider returned an unsuccessful HTTP status'
   assert '采集时未运行' in priority.attrib.get('text',''), 'stopped-service priority not visible'
  results.append({'case':case,'expected_ui_message':expected_message,'attempts':attempts()})
 (out/'synthetic-request-diagnostics.txt').write_text(adb('logcat','-d','-s','WABI_TEST:I','*:S'))
-(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'e1b0580ac5500255185642fa07aea18382e61002', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
+(out/'failure-ui-acceptance.json').write_text(json.dumps({'cancel_no_attempt':True,'cases':results,'synthetic_in_memory_transport':True,'external_provider_requests':False,'production_modified':True,'does_not_validate_model_quality':True,'production_source_base':'5dc1573903dabf18460c0b13c47cc86cac528c8f', 'test_branch_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'guard_helper_preserved':True},ensure_ascii=False,indent=2))
 import base64
 bodies=[line.split('WABI_BODY:',1)[1].strip() for line in adb('logcat','-d','-s','WABI_BODY:I','*:S').splitlines() if 'WABI_BODY:' in line]
 assert len(bodies)==3, ('request_body_count', len(bodies))
