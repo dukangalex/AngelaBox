@@ -30,7 +30,7 @@ import kotlin.coroutines.coroutineContext
 object InspectionAi {
     private const val MAX_RESPONSE_BYTES = 64 * 1024
 
-    enum class FailureReason { TIMEOUT, HTTP_ERROR, NETWORK_ERROR, RESPONSE_FORMAT, RESPONSE_LIMIT, UNSUPPORTED_RESPONSE, SENSITIVE_ADVICE, STALE_EVIDENCE }
+    enum class FailureReason { TIMEOUT, HTTP_ERROR, NETWORK_ERROR, ENDPOINT_ADDRESS_REJECTED, RESPONSE_FORMAT, RESPONSE_LIMIT, UNSUPPORTED_RESPONSE, SENSITIVE_ADVICE, STALE_EVIDENCE }
 
     // Only a fixed local code crosses into UI; never retain the provider body, URL,
     // key, HTTP error body or underlying exception message in a displayable error.
@@ -110,7 +110,7 @@ object InspectionAi {
     // this request's sanitized DNS failure/cancellation outside that guard so a
     // bounded timeout cannot become an unrelated format/URL failure in the UI.
     internal fun <T> withPreservedDnsFailure(
-        resolve: (String) -> List<InetAddress> = { resolveSystem(it) },
+        resolve: (String) -> List<InetAddress> = { checkedSystemAnswers(resolveSystem(it)) },
         open: ((String) -> List<InetAddress>) -> T,
     ): T {
         var dnsFailure: Exception? = null
@@ -126,6 +126,17 @@ object InspectionAi {
         } catch (error: Exception) {
             throw dnsFailure ?: error
         }
+    }
+
+    // Keep the existing all-answer address policy, including our tunnel's FakeIP
+    // refusal. Classify this before opening a connection, without resolver or route
+    // fallback. RemoteUrlGuard folds resolver exceptions, so the wrapper above
+    // preserves this sanitized failure for the UI.
+    internal fun checkedSystemAnswers(addresses: List<InetAddress>): List<InetAddress> {
+        if (addresses.any { !RemoteUrlGuard.isAddressAllowed(it, RemoteUrlGuard.Kind.SCRIPT) }) {
+            throw Failure(FailureReason.ENDPOINT_ADDRESS_REJECTED)
+        }
+        return addresses
     }
 
     // Native system DNS may ignore interruption. Bound both the caller's wait and
