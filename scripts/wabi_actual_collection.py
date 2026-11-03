@@ -166,12 +166,13 @@ dialog_tap('Send','stale-review-send')
 assert attempts()==1, 'stale Send did not exercise production analyzeUsing guard'
 transport_opens=adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_TRANSPORT_OPEN')
 assert transport_opens==0, 'stale evidence reached transport opener'
-# The fixed error is below the viewport after the long observation card.
-# Reveal and record it; do not treat an off-screen node as a product failure.
-find('evidence became stale','stale-error-scroll',5)
+# Fixed error must be immediately visible; below-fold action controls may need
+# scrolling after the error header consumes space on the small emulator.
+find('evidence became stale','stale-error-no-scroll')
 root=snap('stale-send-result')
 # Error text is fixed local UI, not provider content.
 assert any('evidence became stale' in n.attrib.get('text','').lower() for n in root.iter('node')), ET.tostring(root,encoding='unicode')
+find('Review evidence for AI','stale-review-disabled-scroll',5)
 root=snap('stale-after-network-change')
 reviews=[n for n in root.iter('node') if n.attrib.get('text')=='Review evidence for AI']
 assert len(reviews)==1
@@ -186,6 +187,7 @@ time.sleep(12)
 (out/'restored-connectivity.txt').write_text(shell('dumpsys','connectivity'))
 assert json.loads(local('result'))==running, 'network restoration silently replaced local evidence'
 def assert_review_disabled(tag):
+ find('Review evidence for AI',tag+'-scroll',5)
  root=snap(tag)
  reviews=[n for n in root.iter('node') if n.attrib.get('text')=='Review evidence for AI']
  assert len(reviews)==1, 'expected one review control'
