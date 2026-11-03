@@ -119,8 +119,14 @@ button('Start','fixture-start')
 root=snap('fixture-start-result')
 if any('Connection request' in n.attrib.get('text','') for n in root.iter('node')):
  button('OK','fixture-vpn-permission');time.sleep(8)
-for i in range(5):
+for i in range(8):
  root=snap('fixture-running'+str(i))
+ # Notification permission may appear before Android's VPN consent dialog.
+ # Re-evaluate the current tree after each system dialog instead of assuming order.
+ if any('Connection request' in n.attrib.get('text','') for n in root.iter('node')):
+  ok=[n for n in root.iter('node') if n.attrib.get('text')=='OK']
+  assert len(ok)==1, 'VPN consent dialog lacks a unique OK button'
+  tap(ok[0]);time.sleep(8);continue
  if any(n.attrib.get('text')=='Deprecated Warning' for n in root.iter('node')):
   button('OK','fixture-deprecation');continue
  if any(n.attrib.get('text') in ('Allow','ALLOW') for n in root.iter('node')):
