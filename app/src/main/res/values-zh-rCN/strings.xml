@@ -911,4 +911,5 @@
     <string name="inspection_ai_unsupported_response">服务商响应不完整或包含不支持的动作，已拒绝展示。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
     <string name="inspection_ai_sensitive_advice">响应命中了本地敏感建议规则，已拒绝展示。该过滤器不能保证诊断准确，也不能拦截所有不安全建议。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
     <string name="inspection_ai_stale">证据已过期或环境已改变，未展示解释。 不会自动重试或修改设置；请求可能已送达服务商，重试前请留意其用量。</string>
+    <string name="inspection_ai_address_rejected">AI 请求已在连接前停止：当前 DNS 返回的地址被安全策略拦截。本地证据仍可查看；未启用备用 DNS，也未修改路由。</string>
 </resources>

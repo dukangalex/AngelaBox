@@ -341,4 +341,43 @@ class InspectionAiTransportTest {
             }
         }
     }
+
+    @Test fun rejectedSystemDnsAnswersFailBeforeTransportWithoutFallback() {
+        val gate = io.nekohasekai.sfa.utils.TunnelGate
+        val previous = gate.up
+        try {
+            for (up in listOf(false, true)) {
+                gate.setUp(up)
+                val privateAddress = java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+                val publicAddress = java.net.InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))
+                for (addresses in listOf(listOf(privateAddress), listOf(publicAddress, privateAddress))) {
+                    var resolutions = 0
+                    var connects = 0
+                    failure(InspectionAi.FailureReason.ENDPOINT_ADDRESS_REJECTED) {
+                        runBlocking {
+                            InspectionAi.analyzeUsing(config, "{}", { true }) { _, _ ->
+                                InspectionAi.withPreservedDnsFailure(resolve = {
+                                    resolutions++
+                                    InspectionAi.checkedSystemAnswers(addresses)
+                                }) { resolve ->
+                                    RemoteUrlGuard.validate(config.endpoint, RemoteUrlGuard.Kind.SCRIPT, resolve)
+                                    connects++
+                                    Connection(200, response)
+                                }
+                            }
+                        }
+                    }
+                    assertEquals(1, resolutions)
+                    assertEquals(0, connects)
+                }
+                assertEquals(listOf(publicAddress), InspectionAi.checkedSystemAnswers(listOf(publicAddress)))
+            }
+            gate.setUp(true)
+            failure(InspectionAi.FailureReason.ENDPOINT_ADDRESS_REJECTED) {
+                InspectionAi.checkedSystemAnswers(listOf(java.net.InetAddress.getByAddress(byteArrayOf(198.toByte(), 18, 0, 1))))
+            }
+        } finally {
+            gate.setUp(previous)
+        }
+    }
 }

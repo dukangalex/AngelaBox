@@ -249,6 +249,7 @@ fun InspectionScreen(navController: NavController) {
                                 InspectionAi.FailureReason.TIMEOUT -> R.string.inspection_ai_timeout
                                 InspectionAi.FailureReason.HTTP_ERROR -> R.string.inspection_ai_http_error
                                 InspectionAi.FailureReason.NETWORK_ERROR -> R.string.inspection_ai_network_error
+                                InspectionAi.FailureReason.ENDPOINT_ADDRESS_REJECTED -> R.string.inspection_ai_address_rejected
                                 InspectionAi.FailureReason.RESPONSE_FORMAT -> R.string.inspection_ai_response_format
                                 InspectionAi.FailureReason.RESPONSE_LIMIT -> R.string.inspection_ai_response_limit
                                 InspectionAi.FailureReason.UNSUPPORTED_RESPONSE -> R.string.inspection_ai_unsupported_response

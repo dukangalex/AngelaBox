@@ -883,4 +883,5 @@
     <string name="inspection_ai_unsupported_response">服務商回應不完整或包含不支援的動作，已拒絕顯示。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
     <string name="inspection_ai_sensitive_advice">回應符合本機敏感建議規則，已拒絕顯示。此過濾器無法保證診斷準確，也無法攔截所有不安全建議。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
     <string name="inspection_ai_stale">證據已過期或環境已改變，未顯示解釋。 不會自動重試或修改設定；請求可能已送達服務商，重試前請留意其用量。</string>
+    <string name="inspection_ai_address_rejected">AI 請求已在連線前停止：目前 DNS 回傳的位址被安全策略攔截。本機證據仍可查看；未啟用備用 DNS，也未修改路由。</string>
 </resources>

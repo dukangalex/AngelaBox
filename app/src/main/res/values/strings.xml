@@ -1011,4 +1011,5 @@
     <string name="inspection_ai_unsupported_response">The provider response was incomplete or used an unsupported action; it was not displayed. No automatic retry or settings change. The request may already have reached the provider; check its usage before retrying.</string>
     <string name="inspection_ai_sensitive_advice">The response matched a local sensitive-advice rule and was not displayed. This filter cannot guarantee diagnostic accuracy or catch every unsafe suggestion. No automatic retry or settings change. The request may already have reached the provider; check its usage before retrying.</string>
     <string name="inspection_ai_stale">The evidence became stale or the context changed; the interpretation is not displayed. No automatic retry or settings change. The request may already have reached the provider; check its usage before retrying.</string>
+    <string name="inspection_ai_address_rejected">The AI request stopped before connecting: current DNS returned an address blocked by the safety policy. Local evidence is still available. No DNS fallback or routing change was made.</string>
 </resources>
