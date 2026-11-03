@@ -147,7 +147,9 @@ assert 1<=len(probes)<=4, probes
 assert all(set(f)=={'id','state','code'} for f in probes)
 assert len(running['facts'])<=10
 assert attempts()==0
-(out/'route-log.txt').write_text(adb('logcat','-d','-s','WABI_ROUTE:I','*:S'))
+route_log=adb('logcat','-d','-s','WABI_ROUTE:I','*:S')
+(out/'route-log.txt').write_text(route_log)
+assert 'production_resolver_error=endpoint_address_rejected type=Failure' in route_log, 'production resolver did not retain fixed rejection code'
 summary['running']={'service':field(running,'service'),'tunnel':field(running,'TUNNEL'),'attempts':probes,'profile_is_synthetic':True,'test_only_route_probe_added':True}
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 # A reviewed payload must not be sent after the evidence context changes.
@@ -225,4 +227,20 @@ summary['stale_send_rejected_before_transport']=True
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 log=adb('logcat','-d');(out/'collection-logcat.txt').write_text(log)
 assert 'FATAL EXCEPTION' not in log
+# Separately exercise the new fixed UI error through the real parser/renderer,
+# with a synthetic resolver answer. This is not a real model/provider call.
+before_attempts=attempts()
+take_collection('address-rejected-local')
+button('Review evidence for AI','address-rejected-review')
+dialog_tap('Send','address-rejected-send')
+find('AI request stopped before connecting','address-rejected-scroll',5)
+root=snap('address-rejected-result')
+text=' '.join(n.attrib.get('text','') for n in root.iter('node'))
+assert 'AI request stopped before connecting' in text
+assert 'No DNS fallback or routing change was made' in text
+assert '127.0.0.1' not in text and 'IllegalArgumentException' not in text
+assert attempts()==before_attempts+1
+assert local('result'), 'address rejection discarded local evidence'
+summary['address_rejection']={'production_resolver_fixed_code_observed':True,'ui_error_uses_synthetic_loopback_answer':True,'fixed_message_visible':True,'local_evidence_retained':True,'external_provider_requests':False}
+(out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 print(json.dumps(summary,indent=2))

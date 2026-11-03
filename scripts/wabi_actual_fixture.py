@@ -22,7 +22,14 @@ replacement='''    suspend fun analyze(config: InspectionStore.AiConfig, payload
         android.util.Log.i("WABI_TEST", "AI_REQUEST_ATTEMPT")
         return analyzeUsing(config, payload, stillCurrent, language = language) { _, _ ->
             android.util.Log.i("WABI_TEST", "AI_TRANSPORT_OPEN")
-            throw java.io.IOException("Synthetic acceptance blocks all external transport")
+            // UI-only resolver rejection fixture. Validate a fixed loopback answer;
+            // no connection can be opened and no provider data can be sent.
+            InspectionAi.withPreservedDnsFailure(resolve = {
+                InspectionAi.checkedSystemAnswers(listOf(java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))))
+            }) { resolve ->
+                io.nekohasekai.sfa.utils.RemoteUrlGuard.validate(config.endpoint, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT, resolve)
+                error("Synthetic test must stop before connecting")
+            }
         }
     }
 
@@ -47,6 +54,7 @@ b='''        if (before.network != null) {
                 android.util.Log.i("WABI_ROUTE", "system_dns_count=${addresses.size} fake_count=$fake allowed_count=$allowed")
             }.onFailure { android.util.Log.i("WABI_ROUTE", "system_dns_error=${it.javaClass.simpleName}") }
             fun errorKind(e: Throwable): String = when {
+                e is InspectionAi.Failure -> e.reason.name.lowercase(java.util.Locale.ROOT)
                 e.message == "无法解析主机，已拒绝" -> "dns_empty"
                 e.message == "主机解析到禁止地址，已拒绝" -> "address_denied"
                 e is java.net.SocketTimeoutException -> "timeout"
