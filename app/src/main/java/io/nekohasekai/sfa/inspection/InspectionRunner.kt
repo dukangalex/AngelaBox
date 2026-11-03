@@ -2,9 +2,11 @@ package io.nekohasekai.sfa.inspection
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Parcel
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
@@ -29,18 +31,39 @@ object InspectionRunner {
     private fun initialize(context: Context) {
         if (initialized) return
         val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-        fun networkCallback() = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                epoch.incrementAndGet()
-            }
-            override fun onLost(network: Network) {
-                epoch.incrementAndGet()
-            }
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                epoch.incrementAndGet()
+        fun networkCallback(singleNetwork: Boolean = false): ConnectivityManager.NetworkCallback {
+            val tracker = NetworkEvidenceTracker<Network, Pair<Long, Long>, LinkProperties>(singleNetwork) { epoch.incrementAndGet() }
+            return object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = tracker.available(network)
+                override fun onLost(network: Network) = tracker.lost(network)
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    // Capability and transport bits can change route/validation; bandwidth
+                    // and signal estimates alone do not change the evidence context.
+                    var capabilityBits = 0L
+                    var transportBits = 0L
+                    for (bit in 0..63) {
+                        if (capabilities.hasCapability(bit)) capabilityBits = capabilityBits or (1L shl bit)
+                        if (capabilities.hasTransport(bit)) transportBits = transportBits or (1L shl bit)
+                    }
+                    tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)
+                }
+                override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                    // Snapshot the mutable object using its public Parcelable API.
+                    val parcel = Parcel.obtain()
+                    try {
+                        linkProperties.writeToParcel(parcel, 0)
+                        parcel.setDataPosition(0)
+                        tracker.link(network, LinkProperties.CREATOR.createFromParcel(parcel))
+                    } finally {
+                        parcel.recycle()
+                    }
+                }
+                override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                    tracker.blocked(network, blocked)
+                }
             }
         }
-        manager.registerDefaultNetworkCallback(networkCallback())
+        manager.registerDefaultNetworkCallback(networkCallback(singleNetwork = true))
         // Since Android 9 the default network may be our VPN. Its identity can
         // remain unchanged when Wi-Fi/mobile underneath it disappears or switches.
         // Invalidate reviewed evidence on those underlying transitions as well.
