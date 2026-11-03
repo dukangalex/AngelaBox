@@ -56,14 +56,14 @@ for locale,tools,entry,run,review,expected,priority in [
   time.sleep(2)
  report=json.loads(local('result')); assert report['facts']==[{'id':'network','state':'OBSERVED','code':'present'},{'id':'service','state':'OBSERVED','code':'stopped'},{'id':'TUNNEL','state':'NOT_CHECKED','code':'not_started'},{'id':'DNS','state':'UNKNOWN','code':'canary_not_resolved'}]
  # A local-only summary must render actual bounded observations without invoking the transport.
- adb('logcat','-c')
+ before_attempts=adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_REQUEST_ATTEMPT')
  local_label={'en-US':'Local evidence summary (no AI)','zh-CN':'本地证据摘要（不使用 AI）','zh-TW':'本地證據摘要（不使用 AI）'}[locale]
  tap(find(local_label,locale+'-local-button',5))
  local_node=find(priority,locale+'-local-result',12); local_text=local_node.attrib.get('text','')
  assert all(v in local_text for v in ('present','stopped','not_started','canary_not_resolved')), repr(local_text)
  assert expected not in local_text, repr(local_text)
  logs=adb('logcat','-d','-s','WABI_TEST:I','*:S')
- assert 'AI_REQUEST_ATTEMPT' not in logs, logs
+ assert logs.count('AI_REQUEST_ATTEMPT') == before_attempts, logs
  # Navigate back to Tools and reopen the inspector at the top. Long reverse swipes
  # previously left this screen on both emulators; verify the actual destination.
  shell('input','keyevent','KEYCODE_BACK'); time.sleep(2)
