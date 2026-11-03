@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.compose.screen.tools
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -104,86 +105,92 @@ fun InspectionScreen(navController: NavController) {
             IconButton(onClick = { navController.navigateUp() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.close)) }
         })
     }
-    Column(
-        Modifier.padding(LocalScaffoldPadding.current).verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(stringResource(R.string.inspection_intro))
-        Card {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row {
-                    Text(stringResource(R.string.inspection_auto), Modifier.weight(1f))
-                    Switch(checked = enabled, enabled = !running, onCheckedChange = { value ->
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    InspectionRunner.schedule(context, value)
-                                    InspectionStore.setEnabled(context, value)
-                                }
-                            } catch (_: Exception) {
-                                message = R.string.inspection_save_failed
-                            }
-                        }
-                    })
-                }
-                Text(stringResource(R.string.inspection_auto_desc), style = MaterialTheme.typography.bodySmall)
-            }
+    // Keep failures outside the evidence scroller: a long report must not hide
+    // why an action stopped, even when the user was scrolled to the buttons.
+    Column(Modifier.fillMaxSize().padding(LocalScaffoldPadding.current)) {
+        message?.let {
+            Text(stringResource(it), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), color = MaterialTheme.colorScheme.error)
         }
-        snapshot?.let { result ->
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.inspection_intro))
             Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(stringResource(R.string.inspection_observed_at, DateFormat.getDateTimeInstance().format(Date(result.collectedAt))))
-                    Text(stringResource(if (fresh) R.string.inspection_point_in_time else R.string.inspection_stale), color = MaterialTheme.colorScheme.primary)
-                    result.facts.forEach { fact ->
-                        Text("${fact.id}: ${fact.state.name} / ${fact.code}", style = MaterialTheme.typography.bodyMedium)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row {
+                        Text(stringResource(R.string.inspection_auto), Modifier.weight(1f))
+                        Switch(checked = enabled, enabled = !running, onCheckedChange = { value ->
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        InspectionRunner.schedule(context, value)
+                                        InspectionStore.setEnabled(context, value)
+                                    }
+                                } catch (_: Exception) {
+                                    message = R.string.inspection_save_failed
+                                }
+                            }
+                        })
                     }
-                    Text(stringResource(R.string.inspection_evidence_limit), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.inspection_auto_desc), style = MaterialTheme.typography.bodySmall)
                 }
             }
-        }
-        if (running) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            TextButton(onClick = {
-                task?.cancel()
-                message = R.string.inspection_cancelled
-            }) { Text(stringResource(R.string.cancel)) }
-        }
-        Button(enabled = !running, onClick = { showProbeConsent = true }) { Text(stringResource(R.string.inspection_run)) }
-        OutlinedButton(enabled = !running && fresh, onClick = {
-            val result = snapshot ?: return@OutlinedButton
-            val currentStamp = InspectionRunner.stamp(context)
-            if (InspectionPolicy.fresh(result, System.currentTimeMillis(), currentStamp.profile, currentStamp.tunnelUp, currentStamp.network, currentStamp.token)) {
-                val payload = InspectionPolicy.payload(result, BuildConfig.VERSION_NAME, CoreIdentity.libboxOrPin())
-                answer = InspectionAdvice.renderLocal(payload, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
-                answerStamp = currentStamp
-                answerIsLocal = true
-                message = null
-            } else {
-                answer = null
-                message = R.string.inspection_stale
+            snapshot?.let { result ->
+                Card {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(R.string.inspection_observed_at, DateFormat.getDateTimeInstance().format(Date(result.collectedAt))))
+                        Text(stringResource(if (fresh) R.string.inspection_point_in_time else R.string.inspection_stale), color = MaterialTheme.colorScheme.primary)
+                        result.facts.forEach { fact ->
+                            Text("${fact.id}: ${fact.state.name} / ${fact.code}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text(stringResource(R.string.inspection_evidence_limit), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
-        }) { Text(stringResource(R.string.inspection_local_summary)) }
-        OutlinedButton(enabled = !running, onClick = { showConfig = true }) { Text(stringResource(R.string.inspection_model_settings)) }
-        Button(enabled = !running && fresh && config != null, onClick = {
-            val result = snapshot ?: return@Button
-            val ai = config ?: return@Button
-            review = InspectionReview(result, ai, InspectionPolicy.payload(result, BuildConfig.VERSION_NAME, CoreIdentity.libboxOrPin()), InspectionRunner.stamp(context))
-        }) { Text(stringResource(R.string.inspection_ai_review)) }
-        if (config == null) Text(stringResource(R.string.inspection_no_model), style = MaterialTheme.typography.bodySmall)
-        TextButton(enabled = !running, onClick = {
-            scope.launch {
-                withContext(Dispatchers.IO) { InspectionStore.clearResult(context) }
-                answer = null
+            if (running) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                TextButton(onClick = {
+                    task?.cancel()
+                    message = R.string.inspection_cancelled
+                }) { Text(stringResource(R.string.cancel)) }
             }
-        }) { Text(stringResource(R.string.inspection_clear)) }
-        message?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-        answer?.let {
-            if (answerIsLocal) {
-                Text(stringResource(R.string.inspection_local_summary), style = MaterialTheme.typography.labelLarge)
-            } else {
-                Text(stringResource(R.string.inspection_ai_untrusted), style = MaterialTheme.typography.labelLarge)
+            Button(enabled = !running, onClick = { showProbeConsent = true }) { Text(stringResource(R.string.inspection_run)) }
+            OutlinedButton(enabled = !running && fresh, onClick = {
+                val result = snapshot ?: return@OutlinedButton
+                val currentStamp = InspectionRunner.stamp(context)
+                if (InspectionPolicy.fresh(result, System.currentTimeMillis(), currentStamp.profile, currentStamp.tunnelUp, currentStamp.network, currentStamp.token)) {
+                    val payload = InspectionPolicy.payload(result, BuildConfig.VERSION_NAME, CoreIdentity.libboxOrPin())
+                    answer = InspectionAdvice.renderLocal(payload, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
+                    answerStamp = currentStamp
+                    answerIsLocal = true
+                    message = null
+                } else {
+                    answer = null
+                    message = R.string.inspection_stale
+                }
+            }) { Text(stringResource(R.string.inspection_local_summary)) }
+            OutlinedButton(enabled = !running, onClick = { showConfig = true }) { Text(stringResource(R.string.inspection_model_settings)) }
+            Button(enabled = !running && fresh && config != null, onClick = {
+                val result = snapshot ?: return@Button
+                val ai = config ?: return@Button
+                review = InspectionReview(result, ai, InspectionPolicy.payload(result, BuildConfig.VERSION_NAME, CoreIdentity.libboxOrPin()), InspectionRunner.stamp(context))
+            }) { Text(stringResource(R.string.inspection_ai_review)) }
+            if (config == null) Text(stringResource(R.string.inspection_no_model), style = MaterialTheme.typography.bodySmall)
+            TextButton(enabled = !running, onClick = {
+                scope.launch {
+                    withContext(Dispatchers.IO) { InspectionStore.clearResult(context) }
+                    answer = null
+                }
+            }) { Text(stringResource(R.string.inspection_clear)) }
+            answer?.let {
+                if (answerIsLocal) {
+                    Text(stringResource(R.string.inspection_local_summary), style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text(stringResource(R.string.inspection_ai_untrusted), style = MaterialTheme.typography.labelLarge)
+                }
+                SelectionContainer { Text(it) }
             }
-            SelectionContainer { Text(it) }
         }
     }
     if (showProbeConsent) {
