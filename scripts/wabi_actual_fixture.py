@@ -39,15 +39,34 @@ b='''        if (before.network != null) {
             val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
             val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
             android.util.Log.i("WABI_ROUTE", "https_begin tunnel=${before.tunnelUp} active_vpn=${caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)}")
-            runCatching { java.net.InetAddress.getAllByName("example.com").size }
-                .onSuccess { android.util.Log.i("WABI_ROUTE", "system_dns_count=$it") }
-                .onFailure { android.util.Log.i("WABI_ROUTE", "system_dns_error=${it.javaClass.simpleName}") }
+            // Synthetic hostname only. Log counts and fixed failure labels, never DNS addresses or exception text.
+            val resolved = runCatching { java.net.InetAddress.getAllByName("example.com").toList() }
+            resolved.onSuccess { addresses ->
+                val fake = addresses.count { io.nekohasekai.sfa.utils.RemoteUrlGuard.isFakeIp(it.address) }
+                val allowed = addresses.count { io.nekohasekai.sfa.utils.RemoteUrlGuard.isAddressAllowed(it, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT) }
+                android.util.Log.i("WABI_ROUTE", "system_dns_count=${addresses.size} fake_count=$fake allowed_count=$allowed")
+            }.onFailure { android.util.Log.i("WABI_ROUTE", "system_dns_error=${it.javaClass.simpleName}") }
+            fun errorKind(e: Throwable): String = when {
+                e.message == "无法解析主机，已拒绝" -> "dns_empty"
+                e.message == "主机解析到禁止地址，已拒绝" -> "address_denied"
+                e is java.net.SocketTimeoutException -> "timeout"
+                e is java.io.IOException -> "io"
+                e is IllegalArgumentException -> "other_argument"
+                else -> "other"
+            }
+            // Production AI resolver (bounded system DNS, no public-DNS fallback), exercised by synthetic GET only.
+            runCatching {
+                val c = InspectionAi.withPreservedDnsFailure { resolve ->
+                    io.nekohasekai.sfa.utils.HTTPClient.openPinned("https://example.com/", io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT, resolve = resolve)
+                }
+                try { android.util.Log.i("WABI_ROUTE", "production_resolver_https_status=${c.responseCode}") } finally { c.disconnect() }
+            }.onFailure { android.util.Log.i("WABI_ROUTE", "production_resolver_error=${errorKind(it)} type=${it.javaClass.simpleName}") }
             runCatching {
                 val c = io.nekohasekai.sfa.utils.HTTPClient.openPinned(
                     "https://example.com/", io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SCRIPT
                 )
                 try { android.util.Log.i("WABI_ROUTE", "https_status=${c.responseCode}") } finally { c.disconnect() }
-            }.onFailure { android.util.Log.i("WABI_ROUTE", "https_error=${it.javaClass.simpleName}") }
+            }.onFailure { android.util.Log.i("WABI_ROUTE", "https_error=${it.javaClass.simpleName} kind=${errorKind(it)}") }
         }
         require(before == stamp(context)) { "stale" }'''
 assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
