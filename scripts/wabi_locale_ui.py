@@ -68,13 +68,42 @@ for locale,tools,entry,run,review,expected,priority in [
  # previously left this screen on both emulators; verify the actual destination.
  shell('input','keyevent','KEYCODE_BACK'); time.sleep(2)
  tap(find(entry,locale+'-reenter-inspector',5))
- tap(find(review,locale+'-review',5)); send_label={'en-US':'Send this evidence once','zh-CN':'仅发送本次证据','zh-TW':'僅傳送本次證據'}[locale]; tap(find(send_label,locale+'-send-dialog',3))
+ # Preserve fail-closed stale handling. If Android changed context during UI
+ # navigation, explicitly re-collect; never bypass the consent/freshness gate.
+ # Count every such recovery so a green run cannot hide instability.
+ stale_text={'en-US':'Old or changed context','zh-CN':'已过期','zh-TW':'已過期'}[locale]
+ send_label={'en-US':'Send this evidence once','zh-CN':'仅发送本次证据','zh-TW':'僅傳送本次證據'}[locale]
+ recovery_count=0
+ for attempt in range(3):
+  root=snap(locale+'-pre-review-'+str(attempt))
+  nodes=[n for n in root.iter('node') if review in n.attrib.get('text','')]
+  stale=any(stale_text in n.attrib.get('text','') for n in root.iter('node'))
+  if stale or (nodes and nodes[0].attrib.get('enabled')=='false'):
+   before_count=adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_REQUEST_ATTEMPT')
+   previous=json.loads(local('result'))['at']
+   tap(find(run,locale+'-recovery-run-'+str(attempt),5)); dialog_confirm(locale+'-recovery-dialog-'+str(attempt),run)
+   for i in range(60):
+    candidate=local('result')
+    if candidate and json.loads(candidate)['at'] != previous:break
+    time.sleep(2)
+   assert candidate and json.loads(candidate)['at'] != previous, 'recovery did not produce new report'
+   assert adb('logcat','-d','-s','WABI_TEST:I','*:S').count('AI_REQUEST_ATTEMPT') == before_count, 'stale recovery sent AI request'
+   recovery_count+=1
+  try:
+   tap(find(review,locale+'-recovery-review-'+str(attempt),5))
+   node=find(send_label,locale+'-send-dialog-'+str(attempt),1)
+   tap(node);break
+  except AssertionError:
+   root=snap(locale+'-post-review-'+str(attempt))
+   assert any(stale_text in n.attrib.get('text','') for n in root.iter('node')), 'review failed for reason other than observed stale context'
+ else: raise AssertionError('freshness gate repeatedly invalidated; recovery limit reached')
+ print('RECOVERY locale='+locale+' count='+str(recovery_count), flush=True)
  node=find(expected,locale+'-result',12); text=node.attrib.get('text',''); assert expected in text and priority in text, repr(text)
  assert {'en-US':'not priority','zh-CN':'不分优先级','zh-TW':'不分優先順序'}[locale] in text, repr(text)
  assert all(v in text for v in ('present','stopped','not_started','canary_not_resolved')), repr(text)
  assert text.index(priority) < text.index({'en-US':'Local observations from this run','zh-CN':'本次本地记录','zh-TW':'本次本地紀錄'}[locale]), repr(text)
  if locale=='en-US': assert not re.search(r'[\u4e00-\u9fff]',text), repr(text)
  if locale=='zh-TW': assert '採集時未運行' in text and '活动网络' not in text,repr(text)
- results.append({'locale':locale,'result_text':text,'expected_and_priority':True})
+ results.append({'locale':locale,'result_text':text,'expected_and_priority':True,'freshness_recovery_count':recovery_count})
 (out/'locale-results.json').write_text(json.dumps({'synthetic_transport':True,'external_provider_requests':False,'locale_set_via': 'platform_locale_manager_on_api33_plus_otherwise_test_only_appcompat_hook','production_source_base':'a570811','locales':results},ensure_ascii=False,indent=2))
 print('PASS: real Android UI renders synthetic evidence in each app locale; no external provider')
