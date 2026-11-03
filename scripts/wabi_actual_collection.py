@@ -32,6 +32,15 @@ def inspector():
   if n.attrib.get('text') in ('OK','Continue','Got it'):tap(n);break
  tap(find('Tools','tools',4));tap(find('App inspector','entry',5));snap('inspector')
 def button(t,tag):tap(find(t,tag,5))
+def review_enabled(tag):
+ # Compose puts enabled/clickable on the parent of the visible TextView.
+ root=find('Review evidence for AI',tag,5)
+ tree=snap(tag+'-state')
+ parents={child: parent for parent in tree.iter() for child in list(parent)}
+ matches=[n for n in tree.iter() if n.attrib.get('text')=='Review evidence for AI']
+ if len(matches)!=1: raise AssertionError('expected one Review evidence for AI control')
+ parent=parents.get(matches[0])
+ return bool(parent is not None and parent.attrib.get('clickable')=='true' and parent.attrib.get('enabled')=='true')
 def tap_dialog_button(label):
  # Android 9's Compose AlertDialog is visible in screenshots but omitted from
  # UIAutomator's accessibility dump (it returns the underlying screen tree).
@@ -42,7 +51,20 @@ def tap_dialog_button(label):
  shell('input','tap',str(round(width*fraction_x)),str(round(height*0.70)))
  time.sleep(2)
 def dialog_tap(word, tag):
- snap(tag)
+ root=snap(tag)
+ # AlertDialog controls are exposed in Android's accessibility tree. OCR can
+ # miss a legible Cancel label; require the review dialog itself before tapping.
+ if word=='Cancel':
+  nodes=[n for n in root.iter() if n.attrib.get('text')=='Cancel']
+  texts=[n.attrib.get('text','') for n in root.iter()]
+  if 'Review before sending' not in texts:
+   raise AssertionError(f'expected review dialog before Cancel; current screen has no Review before sending title ({tag}.xml)')
+  if len(nodes)!=1: raise AssertionError(f'expected one Cancel button in review dialog, found {len(nodes)}')
+  parents={child: parent for parent in root.iter() for child in list(parent)}
+  parent=parents.get(nodes[0])
+  if parent is None or parent.attrib.get('clickable')!='true' or parent.attrib.get('enabled')!='true':
+   raise AssertionError('Cancel control is not an enabled dialog button')
+  tap(nodes[0]);return
  image=out/(tag+'.png')
  tsv=subprocess.check_output(['tesseract',str(image),'stdout','tsv'],stderr=subprocess.DEVNULL,text=True)
  matches=[]
@@ -69,7 +91,15 @@ def take_collection(name):
  else: raise AssertionError('no new local result: '+name)
  r=json.loads(value);(out/(name+'-local.json')).write_text(value)
  (out/(name+'-route.txt')).write_text(adb('logcat','-d','-s','WABI_ROUTE:I','*:S'))
- button('Review evidence for AI',name+'-review');snap(name+'-review-screen')
+ # Allow the screen's periodic context check to settle, then require the
+ # exact review action to be enabled instead of tapping a disabled text node.
+ for _ in range(12):
+  if review_enabled(name+'-review-ready'): break
+  time.sleep(1)
+ else: raise AssertionError('review action remained disabled after local collection; evidence is not currently fresh')
+ button('Review evidence for AI',name+'-review');root=snap(name+'-review-screen')
+ if not any(n.attrib.get('text')=='Review before sending' for n in root.iter()):
+  raise AssertionError('review action did not open its confirmation dialog')
  lines=[line.split('WABI_REVIEW:',1)[1].strip() for line in adb('logcat','-d','-s','WABI_REVIEW:I','*:S').splitlines() if 'WABI_REVIEW:' in line]
  p=json.loads(base64.b64decode(lines[-1]));(out/(name+'-payload.json')).write_text(json.dumps(p,indent=2))
  assert set(p)=={'schema','app_version','kernel_version','checks','limitations'}
