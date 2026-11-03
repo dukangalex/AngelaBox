@@ -233,14 +233,24 @@ before_attempts=attempts()
 take_collection('address-rejected-local')
 button('Review evidence for AI','address-rejected-review')
 dialog_tap('Send','address-rejected-send')
-find('AI request stopped before connecting','address-rejected-scroll',5)
+# XML membership alone is not visibility: the previous layout exposed only
+# four pixels at the bottom of the viewport. Do not scroll to reveal failures.
+node=find('AI request stopped before connecting','address-rejected-no-scroll')
+width,height=map(int,shell('wm','size').strip().split()[-1].split('x'))
+bounds=list(map(int,re.findall(r'\d+',node.attrib['bounds'])))
+assert bounds[3]-bounds[1]>=48, f'error clipped: {bounds}'
+assert 0<=bounds[0]<bounds[2]<=width and 0<=bounds[1]<height*.3 and bounds[3]<height*.75, f'error outside visible header: {bounds}'
 root=snap('address-rejected-result')
+# The failure remains visible while the report body is scrolled.
+shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.45)),'450');time.sleep(1)
+scrolled=find('AI request stopped before connecting','address-rejected-pinned')
+assert list(map(int,re.findall(r'\d+',scrolled.attrib['bounds'])))==bounds, 'failure moved with report scroller'
 text=' '.join(n.attrib.get('text','') for n in root.iter('node'))
 assert 'AI request stopped before connecting' in text
 assert 'No DNS fallback or routing change was made' in text
 assert '127.0.0.1' not in text and 'IllegalArgumentException' not in text
 assert attempts()==before_attempts+1
 assert local('result'), 'address rejection discarded local evidence'
-summary['address_rejection']={'production_resolver_fixed_code_observed':True,'ui_error_uses_synthetic_loopback_answer':True,'fixed_message_visible':True,'local_evidence_retained':True,'external_provider_requests':False}
+summary['address_rejection']={'production_resolver_fixed_code_observed':True,'ui_error_uses_synthetic_loopback_answer':True,'fixed_message_visible':True,'fixed_message_bounds':bounds,'fixed_message_pinned_while_scrolling':True,'local_evidence_retained':True,'external_provider_requests':False}
 (out/'actual-collection-report.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
 print(json.dumps(summary,indent=2))
