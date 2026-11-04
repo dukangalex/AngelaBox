@@ -886,7 +886,7 @@
     <string name="inspection_ai_review">预览 AI 分析数据</string>
     <string name="inspection_no_model">未配置模型时仍可本地巡检，不会发起 AI 请求。</string>
     <string name="inspection_clear">清除本地报告</string>
-    <string name="inspection_probe_consent">手动巡检会通过当前网络路径访问 gstatic.com、cloudflare.com 并对比公共 DNS 解析结果，同时读取本地订阅健康状态。不会向 AI 上传日志、订阅或配置，也不会改变路由；会消耗少量流量。是否开始？ 巡检会短暂等待网络状态稳定；若网络持续变化，则不会保存新报告。不会自动重试探测或 AI 请求。</string>
+    <string name="inspection_probe_consent">手动巡检会通过当前网络路径访问 gstatic.com、cloudflare.com 并对比公共 DNS 解析结果，同时读取本地订阅健康状态。不会向 AI 上传日志、订阅或配置，也不会改变路由；会消耗少量流量。是否开始？ 巡检会等待网络状态稳定；若采集期间证据失效，最多重新执行一次本地检查并生成新报告，90 秒内最多两轮。若网络持续变化，则不会保存新报告。不会自动重试 AI 请求。</string>
     <string name="inspection_send_title">发送前确认</string>
     <string name="inspection_send_desc">接收地址：%1$s\n模型：%2$s\n仅发送下方证据及固定只读分析指令。API 密钥将通过 Authorization 请求头发送至该地址。服务商可见请求 IP，且可能产生 API 费用。服务商可能保留或缓存请求及响应，也可能交由其他处理方处理；发送前请查看其隐私政策。取消则保持本地。</string>
     <string name="inspection_prompt_disclosure">固定指令：AI 选择已有检查供参考，不代表优先级，可能遗漏项目；应用显示全部本地记录，不显示模型原文。这不是根因诊断。证据不含原始日志、URL、节点名、配置、IP 或订阅内容。</string>

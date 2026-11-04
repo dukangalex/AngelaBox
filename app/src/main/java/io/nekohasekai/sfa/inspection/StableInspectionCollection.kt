@@ -16,6 +16,7 @@ internal suspend fun <S, T> collectStableEvidence(
     current: () -> S,
     pause: suspend (Long) -> Unit,
     elapsed: () -> Long,
+    publicationMillis: Long = 3_000L,
     collect: suspend (S) -> T,
 ): T {
     val quietMillis = 3_000L
@@ -38,7 +39,31 @@ internal suspend fun <S, T> collectStableEvidence(
     while (true) {
         currentCoroutineContext().ensureActive()
         if (current() != context) throw StaleInspectionEvidence()
-        if (elapsed() - completed >= quietMillis) return result
+        if (elapsed() - completed >= publicationMillis) return result
         pause(250)
     }
+}
+
+/**
+ * One consented manual operation may discard and repeat local probes once. A
+ * delayed callback never rebases a report or retries AI. The second report is
+ * collected from scratch, and is still subject to every freshness check.
+ */
+internal suspend fun <S, T> collectRecoveringEvidence(
+    current: () -> S,
+    pause: suspend (Long) -> Unit,
+    elapsed: () -> Long,
+    mayRecollect: (S, S) -> Boolean,
+    collect: suspend (S) -> T,
+): T {
+    val initial = current()
+    repeat(2) { attempt ->
+        try {
+            return collectStableEvidence(current, pause, elapsed, publicationMillis = 10_000L, collect = collect)
+        } catch (stale: StaleInspectionEvidence) {
+            currentCoroutineContext().ensureActive()
+            if (attempt != 0 || !mayRecollect(initial, current())) throw stale
+        }
+    }
+    throw StaleInspectionEvidence()
 }
