@@ -243,7 +243,25 @@ assert attempts()==1
 # previous experiment's 35-second external grace. No UI retries are automatic.
 (out/'recovery-settle-freshness.txt').write_text(adb('logcat','-d','-s','WABI_FRESH:I','*:S'))
 assert attempts()==1
-recovered=take_collection('recovered')
+# A delayed Android background-network transition may invalidate the first new
+# report after publication. That remains a safety success, not fresh evidence.
+# Model one additional explicit user action, never an app/AI automatic retry.
+recovery_recollection=None
+try:
+ recovered=take_collection('recovered')
+except AssertionError as error:
+ if str(error)!='review action remained disabled after local collection; evidence is not currently fresh': raise
+ first=json.loads(local('result'))
+ assert first['at']>running['at'], 'first recovery did not collect new evidence'
+ assert_review_disabled('recovery-first-report-invalidated')
+ assert attempts()==1, 'invalidated report caused an AI request'
+ (out/'recovery-first-invalidated.json').write_text(json.dumps(first,indent=2))
+ recovered=take_collection('recovered-explicit-recollect')
+ assert recovered['at']>first['at'], 'explicit recollection reused stale evidence'
+ recovery_recollection={'first_report_invalidated':True,'first_report_at':first['at'],
+   'explicit_manual_recollections':1,'fresh_report_at':recovered['at'],
+   'old_report_rebased':False,'automatic_ai_retry':False}
+ (out/'recovery-recollection.json').write_text(json.dumps(recovery_recollection,indent=2))
 assert recovered['at']>running['at']
 assert field(recovered,'network')=={'id':'network','state':'OBSERVED','code':'present'}
 assert recovered['service'] is True
@@ -266,7 +284,7 @@ assert not local('result'), 'clear did not remove local report'
 assert local('ai'), 'clear unexpectedly removed model configuration'
 assert_review_disabled('clear-review-disabled')
 assert attempts()==1
-summary['recovery']={'old_evidence_still_stale':True,'new_evidence_at':recovered['at'],'service':field(recovered,'service'),'network':field(recovered,'network'),'successful_tunnel_probe':True,'cancel_no_additional_ai_calls':True}
+summary['recovery']={'explicit_recollection':recovery_recollection,'old_evidence_still_stale':True,'new_evidence_at':recovered['at'],'service':field(recovered,'service'),'network':field(recovered,'network'),'successful_tunnel_probe':True,'cancel_no_additional_ai_calls':True}
 summary['restart']={'new_process':True,'persisted_evidence_stale':True,'no_additional_ai_calls':True}
 summary['clear']={'report_deleted':True,'model_config_retained':True,'review_disabled':True,'no_additional_ai_calls':True}
 summary['stale_review_disabled_after_network_change']=True
