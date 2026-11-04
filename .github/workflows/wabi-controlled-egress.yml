@@ -162,14 +162,19 @@ jobs:
         run: |
           set -euo pipefail
           df -h "$HOME" "$GITHUB_WORKSPACE"
-          # Compilation and JVM tests are complete. Retain APKs and test XML,
-          # removing only rebuildable scratch used by this job before AVD extraction.
+          # Compilation and JVM tests are complete. Retain the APK and test XML;
+          # remove rebuildable compiler caches and SDK components no longer needed
+          # by the emulator before extracting its large API34 userdata image.
           go clean -cache -modcache
           rm -rf sing-box-for-android/app/build/intermediates \
                  sing-box-for-android/app/build/tmp \
                  sing-box-for-android/app/build/kotlin \
                  sing-box-for-android/.gradle \
-                 "$HOME/.gradle/caches"
+                 "$HOME/.gradle/caches" \
+                 "$ANDROID_HOME/ndk/28.0.13004108" \
+                 "$ANDROID_HOME/platforms/android-37.1" \
+                 "$ANDROID_HOME/platforms/android-35" \
+                 "$ANDROID_HOME/build-tools/35.0.0"
           df -h "$HOME" "$GITHUB_WORKSPACE"
           available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
           test "$available" -ge 6442450944
@@ -190,6 +195,11 @@ jobs:
             sleep 10
           done
           test "$installed" = true
+          df -h "$HOME"
+          available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
+          # The API34 image may materialize a 7.2GiB userdata image even with
+          # a smaller AVD override. Ensure it fits before creating/booting AVD.
+          test "$available" -ge 8589934592
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | timeout 60s avdmanager create avd -n route34 -p "$HOME/.android/avd/route34.avd" -k 'system-images;android-34;google_apis;x86_64' --force
