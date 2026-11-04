@@ -71,6 +71,19 @@ def start_vpn(mode):
  tap(choices[0])
  selected=snap(mode+'-selected-before-start')
  assert any(n.attrib.get('text')=='Controlled-'+mode for n in selected.iter('node')),'profile selection did not apply'
+ # Selection persists on Profiles; explicitly return to the observed dashboard.
+ # Do not search/scroll for Start on the Profiles screen.
+ for depth in range(4):
+  root=snap(mode+'-return-dashboard'+str(depth))
+  starts=[n for n in root.iter('node') if n.attrib.get('content-desc')=='Start' or n.attrib.get('text')=='Start']
+  if starts:break
+  tabs=[n for n in root.iter('node') if n.attrib.get('text')=='Dashboard']
+  backs=[n for n in root.iter('node') if n.attrib.get('content-desc') in ('Back','Close')]
+  if len(tabs)==1:tap(tabs[0])
+  elif len(backs)==1:tap(backs[0])
+  else:raise AssertionError('cannot return to Dashboard from observed profile picker')
+ else:raise AssertionError('Dashboard Start did not appear after profile selection')
+ assert any(n.attrib.get('text')=='Controlled-'+mode for n in root.iter('node')),'dashboard selected mode mismatch'
  button('Start',mode+'-start')
  for i in range(10):
   root=snap(mode+'-running'+str(i));texts=[n.attrib.get('text','') for n in root.iter('node')]
