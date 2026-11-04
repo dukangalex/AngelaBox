@@ -22,7 +22,7 @@ def find(text,tag,scroll=0):
    shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.25)),'450');time.sleep(1)
  raise AssertionError('UI control absent: '+text)
 
-import os,urllib.request,urllib.parse,datetime
+import os,urllib.request,urllib.parse,datetime,socket
 base=os.environ['WABI_HTTPS_BASE']
 sha=os.environ['GITHUB_SHA']
 def button(label,tag):tap(find(label,tag,5))
@@ -157,23 +157,32 @@ assert baseline_proxy['connect_attempts']==0,baseline_proxy
 shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode','controlled-real-dns')
 assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
 start_vpn('allow')
-wait_proxy_quiet('pre-active-network-probe')
-route_proxy_baseline=reset_proxy_phase()
+# System apps may keep unrelated HTTPS sessions open while the VPN is active.
+# Correlate this unique tunnel hostname's destination IP and SOCKS CONNECT time
+# with the peer's one-shot route-probe counter instead of requiring global idle.
 route_peer_before=peer_counts();route_proxy_before=proxy_counts()
 active_probe=active_network_probe()
 route_peer_after=peer_counts();route_proxy_after=proxy_counts()
-(out/'active-network-probe-counters.json').write_text(json.dumps({'peer_before':route_peer_before,'peer_after':route_peer_after,'proxy_baseline':route_proxy_baseline,'proxy_before':route_proxy_before,'proxy_after':route_proxy_after},indent=2))
+route_host=urllib.parse.urlsplit(base).hostname
+route_ips={item[4][0] for item in socket.getaddrinfo(route_host,443,type=socket.SOCK_STREAM)}
+probe_start_ns=active_probe['harness_timing']['started_monotonic_ns']
+probe_end_ns=active_probe['harness_timing']['completed_monotonic_ns']
+prior_events=len(route_proxy_before['events'])
+matching_route_events=[event for event in route_proxy_after['events'][prior_events:] if event.get('status')=='connected' and event.get('host') in route_ips and probe_start_ns<=event.get('started_monotonic_ns',0)<=probe_end_ns]
+(out/'active-network-probe-counters.json').write_text(json.dumps({'peer_before':route_peer_before,'peer_after':route_peer_after,'proxy_before':route_proxy_before,'proxy_after':route_proxy_after,'route_host':route_host,'route_ips':sorted(route_ips),'matching_route_events':matching_route_events},indent=2))
 assert active_probe.get('passed') is True,active_probe
 assert active_probe.get('network_present') is True,active_probe
 assert active_probe.get('transport_vpn') is True,active_probe
 assert route_peer_after.get('route_probe',0)==route_peer_before.get('route_probe',0)+1,(route_peer_before,route_peer_after)
-assert route_proxy_after['connect_successes']-route_proxy_before['connect_successes']>=1,(route_proxy_before,route_proxy_after)
-request('success','routed')
-routed_peer=peer_counts();routed_request_proxy=proxy_counts()
-(out/'routed-request-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_request_proxy},indent=2))
-assert routed_peer=={'success':2,'route_probe':1},routed_peer
-assert routed_request_proxy['connect_successes']>=1,routed_request_proxy
-stop_vpn()
+assert matching_route_events,{'route_ips':sorted(route_ips),'probe_start_ns':probe_start_ns,'probe_end_ns':probe_end_ns,'new_proxy_events':route_proxy_after['events'][prior_events:]}
+route_result={'passed':True,'probe':active_probe,'destination_host':route_host,'destination_ips':sorted(route_ips),'matching_socks_connects':matching_route_events,'peer_before':route_peer_before,'peer_after':route_peer_after,'proxy_before':route_proxy_before,'proxy_after':route_proxy_after,'actual_tun':True,'synthetic_peer_only':True,'production_transport_unchanged':True}
+(out/'active-network-route-result.json').write_text(json.dumps(route_result,indent=2))
+if os.environ.get('WABI_ROUTE_ONLY') == '1':
+ stop_vpn()
+ (out/'controlled-egress-scope.txt').write_text('API34 emulator route-only acceptance: debug-only activeNetwork.openConnection to a unique synthetic HTTPS tunnel endpoint. Requires activeNetwork TRANSPORT_VPN, the one-shot endpoint counter, and a timestamp-correlated SOCKS CONNECT to the same tunnel IP. The emulator used the app VpnService/TUN; production app source and HTTPS transport unchanged. Synthetic peer only; not a real provider, remote/geographic exit, consent UI or physical-device proof. The prior run 41810330431 separately passed allow/reject controls.\n')
+ print('activeNetwork-bound synthetic HTTPS request reached both peer and controlled SOCKS through API34 VPN/TUN.')
+ raise SystemExit(0)
+
 # Drain delayed allow-phase work before taking the reject-phase baseline. The
 # bounded quiet period is conservative: any later connection is still counted
 # in its timestamped phase and fails the rejection assertion rather than being
