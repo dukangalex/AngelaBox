@@ -16,6 +16,7 @@ class WabiTransportActivity : Activity() {
         setContentView(TextView(this).apply { text = "Synthetic controlled HTTPS transport test" })
         val base = intent.getStringExtra("endpoint").orEmpty()
         require(Regex("https://[a-z0-9-]+\\.trycloudflare\\.com").matches(base))
+        val mode = intent.getStringExtra("mode") ?: "all"
         val resultFile = File(noBackupFilesDir, "wabi-https-result.json")
         resultFile.delete()
         Thread {
@@ -27,7 +28,7 @@ class WabiTransportActivity : Activity() {
                     "redirect" to "HTTP_ERROR", "malformed" to "RESPONSE_FORMAT", "oversize" to "RESPONSE_LIMIT",
                     "stale-response" to "STALE_EVIDENCE",
                 )
-                for ((name, expected) in cases) {
+                for ((name, expected) in if (mode == "all") cases else listOf("success" to if (mode == "reject") "rejected" else "success")) {
                     val freshnessChecks = AtomicInteger()
                     val outcome = try {
                         val answer = runBlocking {
@@ -42,7 +43,7 @@ class WabiTransportActivity : Activity() {
                         failure.reason.name
                     }
                     results.put(JSONObject().put("case", name).put("expected", expected).put("actual", outcome))
-                    check(outcome == expected) { "case failed: $name" }
+                    check(if (expected == "rejected") outcome in listOf("NETWORK_ERROR", "TIMEOUT") else outcome == expected) { "case failed: $name" }
                 }
                 resultFile.writeText(JSONObject().put("passed", true).put("synthetic_payload", true).put("production_transport_unchanged", true).put("cases", results).toString())
             } catch (failure: Throwable) {

@@ -1,0 +1,43 @@
+{
+  "log": {
+    "level": "debug"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "socks",
+      "tag": "controlled-exit",
+      "server": "10.0.2.2",
+      "server_port": 18971,
+      "version": "5"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "direct",
+    "rules": [
+      {
+        "network": "tcp",
+        "port": [
+          443
+        ],
+        "outbound": "controlled-exit"
+      }
+    ]
+  }
+}

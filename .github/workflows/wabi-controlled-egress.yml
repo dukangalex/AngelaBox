@@ -1,7 +1,7 @@
-name: PR41 production HTTPS transport API34 (controlled synthetic peer, non-publishing)
+name: PR41 production TUN SOCKS egress API34 (controlled peer, non-publishing)
 on:
   push:
-    branches: [wabi/inspection-controlled-https]
+    branches: [wabi/inspection-controlled-egress]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,6 +15,13 @@ jobs:
         with:
           path: sing-box-for-android
           fetch-depth: 0
+
+      - name: Validate controlled egress harness
+        working-directory: sing-box-for-android
+        run: |
+          python3 scripts/test_wabi_socks_peer.py
+          python3 -m py_compile scripts/wabi_socks_peer.py scripts/wabi_egress_android.py
+          git diff --exit-code 8b96d88c39d643b5313c4a216d29883404c17e32 -- app/src/main
 
       - name: Read kernel pin
         id: pin
@@ -220,7 +227,7 @@ jobs:
           echo '--- errors ---'
           adb logcat -d -s AndroidRuntime:E ActivityManager:E | tail -100
 
-      - name: Controlled HTTPS test with production transport
+      - name: Controlled TUN SOCKS egress with production HTTPS transport
         working-directory: sing-box-for-android
         run: |
           set -euo pipefail
@@ -229,9 +236,11 @@ jobs:
           chmod +x /tmp/cloudflared
           python3 scripts/wabi_https_peer.py >/tmp/wabi-peer.log 2>&1 &
           peer=$!
+          python3 scripts/wabi_socks_peer.py >/tmp/wabi-socks.log 2>&1 &
+          socks=$!
           /tmp/cloudflared tunnel --url http://127.0.0.1:18970 --no-autoupdate >/tmp/wabi-tunnel.log 2>&1 &
           tunnel=$!
-          trap 'kill "$tunnel" "$peer" 2>/dev/null || true' EXIT
+          trap 'kill "$tunnel" "$peer" "$socks" 2>/dev/null || true' EXIT
           for i in $(seq 1 60); do
             BASE=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/wabi-tunnel.log | head -1 || true)
             if [ -n "$BASE" ] && curl -fsS --max-time 5 "$BASE/health" | grep -q synthetic-only; then break; fi
@@ -240,7 +249,7 @@ jobs:
           test -n "$BASE"
           curl -fsS --max-time 10 "$BASE/health" | grep -q synthetic-only
           export WABI_HTTPS_BASE="$BASE"
-          python3 scripts/wabi_https_android.py
+          python3 scripts/wabi_egress_android.py
       - name: Save emulator state
         if: always()
         working-directory: sing-box-for-android
@@ -253,7 +262,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: controlled-https-acceptance
+          name: controlled-egress-acceptance
           path: |
             sing-box-for-android/wabi-evidence/
             sing-box-for-android/app/build/test-results/
