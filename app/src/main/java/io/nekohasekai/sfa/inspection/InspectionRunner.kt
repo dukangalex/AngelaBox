@@ -17,6 +17,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.NetworkCheckup
 import io.nekohasekai.sfa.utils.TunnelGate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -36,7 +37,10 @@ object InspectionRunner {
             return object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) = tracker.available(network)
                 override fun onLost(network: Network) = tracker.lost(network)
-                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    capabilities: NetworkCapabilities,
+                ) {
                     // Capability and transport bits can change route/validation; bandwidth
                     // and signal estimates alone do not change the evidence context.
                     var capabilityBits = 0L
@@ -47,7 +51,10 @@ object InspectionRunner {
                     }
                     tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)
                 }
-                override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                override fun onLinkPropertiesChanged(
+                    network: Network,
+                    linkProperties: LinkProperties,
+                ) {
                     // Snapshot the mutable object using its public Parcelable API.
                     val parcel = Parcel.obtain()
                     try {
@@ -58,7 +65,10 @@ object InspectionRunner {
                         parcel.recycle()
                     }
                 }
-                override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                override fun onBlockedStatusChanged(
+                    network: Network,
+                    blocked: Boolean,
+                ) {
                     tracker.blocked(network, blocked)
                 }
             }
@@ -68,7 +78,8 @@ object InspectionRunner {
         // remain unchanged when Wi-Fi/mobile underneath it disappears or switches.
         // Invalidate reviewed evidence on those underlying transitions as well.
         manager.registerNetworkCallback(
-            NetworkRequest.Builder()
+            NetworkRequest
+                .Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build(),
@@ -77,7 +88,12 @@ object InspectionRunner {
         ProfileManager.registerCallback { epoch.incrementAndGet() }
         initialized = true
     }
-    data class ContextStamp(val profile: Long, val tunnelUp: Boolean, val network: Long?, val token: String)
+    data class ContextStamp(
+        val profile: Long,
+        val tunnelUp: Boolean,
+        val network: Long?,
+        val token: String,
+    )
     fun stamp(context: Context): ContextStamp {
         initialize(context)
         return ContextStamp(
@@ -87,49 +103,70 @@ object InspectionRunner {
             "$session:${epoch.get()}:${TunnelGate.generation}",
         )
     }
-    fun passive(stamp: ContextStamp): InspectionPolicy.Snapshot = InspectionPolicy.Snapshot(
-        System.currentTimeMillis(),
-        stamp.profile,
-        stamp.tunnelUp,
-        listOf(
-            InspectionPolicy.Fact("network", if (stamp.network != null) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.ATTENTION, if (stamp.network != null) "present" else "absent"),
-            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, if (stamp.tunnelUp) "running" else "stopped"),
-        ),
-        networkId = stamp.network,
-        contextToken = stamp.token,
-    )
-    suspend fun manual(context: Context): InspectionPolicy.Snapshot = withContext(Dispatchers.IO) {
-        val before = stamp(context)
-        val attempts = mutableListOf<InspectionPolicy.Fact>()
-        val result = NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
-            InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
+    fun passive(stamp: ContextStamp): InspectionPolicy.Snapshot =
+        InspectionPolicy.Snapshot(
+            System.currentTimeMillis(),
+            stamp.profile,
+            stamp.tunnelUp,
+            listOf(
+                InspectionPolicy.Fact("network", if (stamp.network != null) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.ATTENTION, if (stamp.network != null) "present" else "absent"),
+                InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, if (stamp.tunnelUp) "running" else "stopped"),
+            ),
+            networkId = stamp.network,
+            contextToken = stamp.token,
+        )
+    suspend fun manual(context: Context): InspectionPolicy.Snapshot =
+        withContext(Dispatchers.IO) {
+            val result =
+                collectStableEvidence(
+                    current = { stamp(context) },
+                    pause = { delay(it) },
+                    elapsed = { android.os.SystemClock.elapsedRealtime() },
+                ) { before ->
+                    val attempts = mutableListOf<InspectionPolicy.Fact>()
+                    val result =
+                        NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
+                            InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
+                        }
+                    if (before != stamp(context)) throw StaleInspectionEvidence()
+                    passive(before).copy(
+                        facts =
+                            passive(before).facts + attempts +
+                                result.items.map {
+                                    InspectionPolicy.normalized(
+                                        InspectionPolicy.Fact(
+                                            it.id.name,
+                                            when (it.status) {
+                                                NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
+                                                NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
+                                                NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
+                                            },
+                                            it.code,
+                                        ),
+                                    )
+                                },
+                    )
+                }
+            if (result.contextToken != stamp(context).token) throw StaleInspectionEvidence()
+            InspectionStore.save(context, result)
+            result
         }
-        require(before == stamp(context)) { "stale" }
-        passive(before).copy(
-            facts = passive(before).facts + attempts + result.items.map {
-                InspectionPolicy.normalized(
-                    InspectionPolicy.Fact(
-                        it.id.name,
-                        when (it.status) {
-                            NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
-                            NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
-                            NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
-                        },
-                        it.code,
-                    ),
-                )
-            },
-        ).also { InspectionStore.save(context, it) }
-    }
-    fun schedule(context: Context, enabled: Boolean) {
+    fun schedule(
+        context: Context,
+        enabled: Boolean,
+    ) {
         val manager = WorkManager.getInstance(context)
         if (enabled) {
-            manager.enqueueUniquePeriodicWork(
-                "AppLocalInspection",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequest.Builder(InspectionWorker::class.java, InspectionPolicy.INTERVAL_MINUTES, TimeUnit.MINUTES)
-                    .setInitialDelay(InspectionPolicy.INTERVAL_MINUTES, TimeUnit.MINUTES).build(),
-            ).result.get()
+            manager
+                .enqueueUniquePeriodicWork(
+                    "AppLocalInspection",
+                    ExistingPeriodicWorkPolicy.UPDATE,
+                    PeriodicWorkRequest
+                        .Builder(InspectionWorker::class.java, InspectionPolicy.INTERVAL_MINUTES, TimeUnit.MINUTES)
+                        .setInitialDelay(InspectionPolicy.INTERVAL_MINUTES, TimeUnit.MINUTES)
+                        .build(),
+                ).result
+                .get()
         } else {
             manager.cancelUniqueWork("AppLocalInspection").result.get()
         }
@@ -137,7 +174,10 @@ object InspectionRunner {
 }
 
 /** Passive OS/service observations only: no traffic, cloud call, notification spam, or repairs. */
-class InspectionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+class InspectionWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         if (!InspectionStore.enabled(applicationContext)) return Result.success()
         return try {
