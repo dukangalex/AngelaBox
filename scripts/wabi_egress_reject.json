@@ -39,5 +39,17 @@
         "action": "reject"
       }
     ]
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "udp",
+        "tag": "controlled-emulator-dns",
+        "server": "10.0.2.3",
+        "server_port": 53
+      }
+    ],
+    "final": "controlled-emulator-dns",
+    "strategy": "ipv4_only"
   }
 }

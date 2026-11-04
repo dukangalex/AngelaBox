@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.inspection
 import android.app.Activity
 import android.os.Bundle
 import android.widget.TextView
+import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,6 +18,14 @@ class WabiTransportActivity : Activity() {
         val base = intent.getStringExtra("endpoint").orEmpty()
         require(Regex("https://[a-z0-9-]+\\.trycloudflare\\.com").matches(base))
         val mode = intent.getStringExtra("mode") ?: "all"
+        // Test-device choice of existing user setting, not a resolver/guard bypass.
+        // Default FakeIP mode is tested separately and is expected to be rejected.
+        if (mode == "controlled-real-dns") {
+            Settings.dnsProtect = false
+            File(noBackupFilesDir, "wabi-real-dns-setting.txt").writeText("dnsProtect=false; test emulator only")
+            finish()
+            return
+        }
         val resultFile = File(noBackupFilesDir, "wabi-https-result.json")
         resultFile.delete()
         Thread {

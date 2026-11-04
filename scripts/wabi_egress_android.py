@@ -82,6 +82,10 @@ request('success','baseline')
 baseline_peer=peer_counts();baseline_proxy=proxy_counts()
 assert baseline_peer=={'success':1},baseline_peer
 assert baseline_proxy['connect_attempts']==0,baseline_proxy
+# Previous run 41795466117 proves default guard rejection. Select the
+# existing non-FakeIP setting on this synthetic emulator. No transport bypass.
+shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode','controlled-real-dns')
+assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
 start_vpn('allow');request('success','routed')
 routed_peer=peer_counts();routed_proxy=proxy_counts()
 assert routed_peer=={'success':2},routed_peer
@@ -92,7 +96,7 @@ blocked_peer=peer_counts();blocked_proxy=proxy_counts()
 assert blocked_peer==routed_peer,(blocked_peer,routed_peer)
 assert blocked_proxy==routed_proxy,(blocked_proxy,routed_proxy)
 stop_vpn()
-summary={'passed':True,'production_transport_unchanged':True,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'real_model_provider':False,'remote_proxy_exit':False}
+summary={'passed':True,'production_transport_unchanged':True,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'real_model_provider':False,'remote_proxy_exit':False,'dns_mode':'existing DNS protection setting off in controlled emulator; explicit real UDP DNS; production guard unchanged'}
 (out/'controlled-egress-result.json').write_text(json.dumps(summary,indent=2))
 (out/'controlled-egress-scope.txt').write_text('API34 emulator, actual VpnService/TUN and sing-box SOCKS outbound on a controlled runner-host exit. Production InspectionAi/system DNS/HTTPS unchanged; debug synthetic entry only. Reject control must prevent both peer request and SOCKS CONNECT. This is not a real model provider, remote/geographic exit, user-consent UI or physical-device proof. No automatic AI retry.\n')
 print('Controlled TUN/SOCKS allow-vs-reject assertions passed; synthetic peer only.')
