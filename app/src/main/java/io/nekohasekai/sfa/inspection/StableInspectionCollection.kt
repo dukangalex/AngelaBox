@@ -6,6 +6,20 @@ import kotlinx.coroutines.ensureActive
 /** A context transition is not an IO failure and must never publish a partial report. */
 internal class StaleInspectionEvidence : IllegalStateException("stale")
 
+/** Monotonic control identity prevents a stop/start or same-profile edit from
+ * masquerading as a network-only callback eligible for local recollection. */
+data class InspectionCollectionIdentity(
+    val profile: Long,
+    val profileRevision: Long,
+    val tunnelGeneration: Long,
+    val network: Long?,
+)
+
+internal fun mayRecollectInspection(
+    before: InspectionCollectionIdentity,
+    after: InspectionCollectionIdentity,
+): Boolean = before.network != null && before == after
+
 /**
  * Wait out asynchronous Android network callbacks before taking a snapshot, then
  * require the same context throughout collection and a short publication window.
