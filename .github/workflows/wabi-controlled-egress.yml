@@ -20,7 +20,7 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           python3 scripts/test_wabi_socks_peer.py
-          python3 -m py_compile scripts/wabi_socks_peer.py scripts/wabi_egress_android.py
+          python3 -m py_compile scripts/wabi_https_peer.py scripts/wabi_socks_peer.py scripts/wabi_egress_android.py
           git diff --exit-code 8b96d88c39d643b5313c4a216d29883404c17e32 -- app/src/main
 
       - name: Read kernel pin

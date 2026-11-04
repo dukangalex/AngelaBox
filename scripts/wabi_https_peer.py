@@ -15,6 +15,9 @@ class Handler(BaseHTTPRequestHandler):
   except (BrokenPipeError,ConnectionResetError):pass
  def do_GET(self):
   if self.path=='/health':return self.reply(200,{'fixture':'synthetic-only'})
+  if self.path=='/route-probe':
+   with LOCK:COUNTS['route_probe']+=1
+   return self.reply(200,{'fixture':'synthetic-only','probe':'active-network'})
   if self.path=='/stats':
    with LOCK: snapshot=dict(COUNTS)
    return self.reply(200,snapshot)

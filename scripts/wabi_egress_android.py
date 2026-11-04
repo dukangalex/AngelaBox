@@ -67,6 +67,20 @@ def request(mode,stage):
  assert result['passed'],result
  shell('am','force-stop',P) if stage=='baseline' else shell('input','keyevent','4')
  return result
+def active_network_probe():
+ shell('run-as',P,'rm','-f','no_backup/wabi-active-network-result.json')
+ started_at=utc_now();started_ns=time.monotonic_ns()
+ shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode','active-network-probe')
+ for _ in range(40):
+  try:
+   result=json.loads(shell('run-as',P,'cat','no_backup/wabi-active-network-result.json'));break
+  except (subprocess.CalledProcessError,json.JSONDecodeError):time.sleep(2)
+ else:raise AssertionError('activeNetwork-bound route probe did not finish')
+ result['harness_timing']={'started_at':started_at,'started_monotonic_ns':started_ns,'completed_at':utc_now(),'completed_monotonic_ns':time.monotonic_ns()}
+ (out/'active-network-probe-result.json').write_text(json.dumps(result,indent=2))
+ snap('active-network-probe')
+ return result
+
 def start_vpn(mode):
  shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(5)
  uri=f'https://raw.githubusercontent.com/dukangalex/AngelaBox/{sha}/scripts/wabi_egress_{mode}.json'
@@ -142,10 +156,22 @@ assert baseline_proxy['connect_attempts']==0,baseline_proxy
 # existing non-FakeIP setting on this synthetic emulator. No transport bypass.
 shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode','controlled-real-dns')
 assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
-start_vpn('allow');request('success','routed')
+start_vpn('allow')
+wait_proxy_quiet('pre-active-network-probe')
+route_proxy_baseline=reset_proxy_phase()
+route_peer_before=peer_counts();route_proxy_before=proxy_counts()
+active_probe=active_network_probe()
+route_peer_after=peer_counts();route_proxy_after=proxy_counts()
+(out/'active-network-probe-counters.json').write_text(json.dumps({'peer_before':route_peer_before,'peer_after':route_peer_after,'proxy_baseline':route_proxy_baseline,'proxy_before':route_proxy_before,'proxy_after':route_proxy_after},indent=2))
+assert active_probe.get('passed') is True,active_probe
+assert active_probe.get('network_present') is True,active_probe
+assert active_probe.get('transport_vpn') is True,active_probe
+assert route_peer_after.get('route_probe',0)==route_peer_before.get('route_probe',0)+1,(route_peer_before,route_peer_after)
+assert route_proxy_after['connect_successes']-route_proxy_before['connect_successes']>=1,(route_proxy_before,route_proxy_after)
+request('success','routed')
 routed_peer=peer_counts();routed_request_proxy=proxy_counts()
 (out/'routed-request-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_request_proxy},indent=2))
-assert routed_peer=={'success':2},routed_peer
+assert routed_peer=={'success':2,'route_probe':1},routed_peer
 assert routed_request_proxy['connect_successes']>=1,routed_request_proxy
 stop_vpn()
 # Drain delayed allow-phase work before taking the reject-phase baseline. The
@@ -167,7 +193,7 @@ blocked_peer=peer_counts();blocked_proxy=proxy_counts()
 (out/'blocked-counts.json').write_text(json.dumps({'peer':blocked_peer,'socks':blocked_proxy,'drain':blocked_drain},indent=2))
 assert blocked_proxy['connect_attempts']==0,blocked_proxy
 assert blocked_proxy['connect_successes']==0,blocked_proxy
-summary={'passed':True,'production_transport_unchanged':True,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'reject_phase_baseline':reject_baseline,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'allow_quiet_seconds':8,'reject_quiet_seconds':8,'real_model_provider':False,'remote_proxy_exit':False,'dns_mode':'existing DNS protection setting off in controlled emulator; explicit real UDP DNS; production guard unchanged'}
+summary={'passed':True,'production_transport_unchanged':True,'active_network_probe':active_probe,'active_network_route_peer':route_peer_after,'active_network_route_proxy':route_proxy_after,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'reject_phase_baseline':reject_baseline,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'allow_quiet_seconds':8,'reject_quiet_seconds':8,'real_model_provider':False,'remote_proxy_exit':False,'dns_mode':'existing DNS protection setting off in controlled emulator; explicit real UDP DNS; production guard unchanged'}
 (out/'controlled-egress-result.json').write_text(json.dumps(summary,indent=2))
-(out/'controlled-egress-scope.txt').write_text('API34 emulator, actual VpnService/TUN and sing-box SOCKS outbound on a controlled runner-host exit. Production InspectionAi/system DNS/HTTPS unchanged; debug synthetic entry only. Reject control must prevent both peer request and SOCKS CONNECT. This is not a real model provider, remote/geographic exit, user-consent UI or physical-device proof. No automatic AI retry.\n')
+(out/'controlled-egress-scope.txt').write_text('API34 emulator, actual VpnService/TUN and sing-box SOCKS outbound on a controlled runner-host exit. A debug-only activeNetwork.openConnection probe must be identified as VPN and observed at both the synthetic peer and SOCKS exit. Production InspectionAi/system DNS/HTTPS unchanged; no real model provider, remote/geographic exit, user-consent UI or physical-device proof. No automatic AI retry.\n')
 print('Controlled TUN/SOCKS allow-vs-reject assertions passed; synthetic peer only.')
