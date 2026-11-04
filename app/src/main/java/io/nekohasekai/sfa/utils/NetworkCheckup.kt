@@ -12,6 +12,7 @@ import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 /**
  * 一键网络体检：TUN 连通性、DNS、节点延迟、订阅状态四项检查，
@@ -130,10 +131,11 @@ object NetworkCheckup {
         currentDelayMs: () -> Int?,
         triggerUrlTest: (String) -> Unit,
         onStep: (ItemId) -> Unit,
+        onTunnelAttempt: (Int, Int, String) -> Unit = { _, _, _ -> },
     ): Result = withContext(Dispatchers.IO) {
         val items = mutableListOf<Item>()
         onStep(ItemId.TUNNEL)
-        items += checkTunnel(context, tunnelUp)
+        items += checkTunnel(context, tunnelUp, onTunnelAttempt)
         onStep(ItemId.DNS)
         items += checkDns(context, tunnelUp)
         onStep(ItemId.LATENCY)
@@ -179,7 +181,7 @@ object NetworkCheckup {
 
     // ---- TUN 连通性 ----
 
-    private suspend fun checkTunnel(context: Context, tunnelUp: Boolean): Item {
+    private suspend fun checkTunnel(context: Context, tunnelUp: Boolean, onTunnelAttempt: (Int, Int, String) -> Unit): Item {
         if (!tunnelUp) {
             return Item(
                 ItemId.TUNNEL,
@@ -190,7 +192,7 @@ object NetworkCheckup {
         }
         // 外层预算耗尽（withTimeoutOrNull 返回 null）本身就是"没测通"，
         // 归类为超时而不是网络错误（审计 A-3）。
-        val probed = withTimeoutOrNull(TUNNEL_PROBE_BUDGET_MS) { probeTunnel() }
+        val probed = withTimeoutOrNull(TUNNEL_PROBE_BUDGET_MS) { probeTunnel(onTunnelAttempt) }
             ?: TunnelProbe.Timeout
         return when (probed) {
             is TunnelProbe.Ok -> Item(
@@ -256,11 +258,16 @@ object NetworkCheckup {
      * 第一轮顺带把 DNS 与链路预热，单次瞬时抖动/单目标不可达不再定格结论；
      * 总时长由 checkTunnel 的外层预算封顶。
      */
-    private fun probeTunnel(): TunnelProbe {
+    internal fun probeTunnel(
+        onAttempt: (Int, Int, String) -> Unit,
+        probe: (String) -> Pair<TunnelProbe, String> = ::probeTunnelOnce,
+    ): TunnelProbe {
         val attempts = mutableListOf<TunnelProbe>()
-        repeat(PROBE_ROUNDS) {
-            for (url in TUNNEL_PROBE_URLS) {
-                val result = probeTunnelOnce(url)
+        repeat(PROBE_ROUNDS) { round ->
+            TUNNEL_PROBE_URLS.forEachIndexed { target, url ->
+                val (result, observation) = probe(url)
+                // Only a fixed target index and fixed enum-like code leave this function.
+                onAttempt(round, target, observation)
                 if (result is TunnelProbe.Ok) return result
                 attempts += result
             }
@@ -268,7 +275,14 @@ object NetworkCheckup {
         return reduceProbeAttempts(attempts)
     }
 
-    private fun probeTunnelOnce(url: String): TunnelProbe {
+    internal fun probeFailureObservation(error: Exception): String = when (error) {
+        is SocketTimeoutException -> "timeout"
+        is UnknownHostException -> "dns_failure"
+        is SSLException -> "tls_failure"
+        else -> "io_error"
+    }
+
+    internal fun probeTunnelOnce(url: String): Pair<TunnelProbe, String> {
         var conn: HttpURLConnection? = null
         return try {
             conn = URI(url).toURL().openConnection() as HttpURLConnection
@@ -277,17 +291,17 @@ object NetworkCheckup {
             conn.instanceFollowRedirects = false
             conn.connect()
             val code = conn.responseCode
-            if (code in 200..299) TunnelProbe.Ok else TunnelProbe.HttpError(code)
-        } catch (_: SocketTimeoutException) {
-            TunnelProbe.Timeout
-        } catch (_: UnknownHostException) {
-            TunnelProbe.DnsFailure
+            if (code in 200..299) TunnelProbe.Ok to "ok" else TunnelProbe.HttpError(code) to "http_error"
         } catch (e: CancellationException) {
-            // 协程取消不是网络错误：必须上抛，否则外层超时会被吞成
-            // IoError、结论归类错误（审计 A-3）。
             throw e
-        } catch (_: Exception) {
-            TunnelProbe.IoError
+        } catch (e: Exception) {
+            val observation = probeFailureObservation(e)
+            val result = when (observation) {
+                "timeout" -> TunnelProbe.Timeout
+                "dns_failure" -> TunnelProbe.DnsFailure
+                else -> TunnelProbe.IoError
+            }
+            result to observation
         } finally {
             runCatching { conn?.disconnect() }
         }

@@ -20,6 +20,10 @@ object InspectionPolicy {
     )
 
     private val allowedCodes = mapOf(
+        "TUNNEL_1A" to setOf("ok", "http_error", "timeout", "dns_failure", "tls_failure", "io_error"),
+        "TUNNEL_1B" to setOf("ok", "http_error", "timeout", "dns_failure", "tls_failure", "io_error"),
+        "TUNNEL_2A" to setOf("ok", "http_error", "timeout", "dns_failure", "tls_failure", "io_error"),
+        "TUNNEL_2B" to setOf("ok", "http_error", "timeout", "dns_failure", "tls_failure", "io_error"),
         "network" to setOf("present", "absent", "unknown"),
         "service" to setOf("running", "stopped"),
         "TUNNEL" to setOf("ok", "http_error", "timeout", "dns_failure", "io_error", "not_started", "timeout_downgraded"),
@@ -27,6 +31,14 @@ object InspectionPolicy {
         "LATENCY" to setOf("ok", "slow", "ok_stale", "slow_stale", "no_data", "skipped"),
         "SUBSCRIPTION" to setOf("ok", "expired", "quota_exhausted", "update_failed", "quota_low", "import_warnings", "unknown"),
     )
+
+    /** Only outcomes of the already-existing, fixed public probes; no host, IP, path or exception text. */
+    fun tunnelAttempt(round: Int, target: Int, code: String): Fact? {
+        if (round !in 0..1 || target !in 0..1) return null
+        val id = "TUNNEL_${round + 1}${if (target == 0) "A" else "B"}"
+        if (code !in allowedCodes.getValue(id)) return null
+        return Fact(id, if (code == "ok") State.OBSERVED else State.ATTENTION, code)
+    }
 
     fun normalized(fact: Fact): Fact = if (fact.id == "DNS" && fact.code == "ok") {
         // UnknownHostException conflates normal NXDOMAIN and a non-working resolver.
@@ -58,7 +70,7 @@ object InspectionPolicy {
                     }
                 },
             )
-            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; DNS canary nonresolution is not proof of working DNS; no root cause established; skipped/unknown is not healthy.")
+            .put("limitations", "Point-in-time observations only; app traffic is not proof of other apps routing; subscription health is aggregated across local profiles; The DNS canary is an intentionally nonexistent .invalid name. Nonresolution may be expected NXDOMAIN or a resolver error and proves neither working nor broken DNS; FakeIP may intentionally return a synthetic address; do not treat either result as proof of a resolver fault. Individual TUNNEL_1A/1B/2A/2B are sequential attempts to two fixed HTTPS probe endpoints; a TLS error does not identify its cause; missing attempts were not executed. They concern this app only, not other apps. No root cause established; skipped/unknown is not healthy.")
             .toString(2)
     }
 
