@@ -250,9 +250,8 @@ fun InspectionScreen(navController: NavController) {
                     message = null
                     task =
                         scope.launch {
-                            fun current() =
-                                approved.stamp == InspectionRunner.stamp(context) &&
-                                    InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
+                            fun current() = approved.stamp == InspectionRunner.stamp(context) &&
+                                InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
                             try {
                                 val output = InspectionAi.analyze(approved.config, approved.payload, ::current, InspectionAdvice.languageFor(ConfigurationCompat.getLocales(context.resources.configuration)[0] ?: java.util.Locale.getDefault()))
                                 if (current()) {
