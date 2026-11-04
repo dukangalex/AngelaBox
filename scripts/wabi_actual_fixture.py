@@ -95,3 +95,34 @@ b='''    private fun pin(socket: Socket): Socket {
         android.util.Log.i("WABI_ROUTE", "socket_local_interface=$routeClass")
         delegate.setHostname(socket, hostname)'''
 assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
+
+# Diagnostic-only freshness trace: no IDs, addresses, profile contents or data.
+# Keep every production guard and tracker transition unchanged.
+p=Path('app/src/main/java/io/nekohasekai/sfa/inspection/InspectionRunner.kt')
+s=p.read_text()
+a='val tracker = NetworkEvidenceTracker<Network, Pair<Long, Long>, LinkProperties>(singleNetwork) { epoch.incrementAndGet() }'
+b='''var cause = "initial"
+            val tracker = NetworkEvidenceTracker<Network, Pair<Long, Long>, LinkProperties>(singleNetwork) {
+                val next = epoch.incrementAndGet()
+                android.util.Log.i("WABI_FRESH", "invalidate callback=${if (singleNetwork) "default" else "underlying"} cause=$cause epoch=$next")
+            }'''
+assert s.count(a)==1;s=s.replace(a,b)
+s=s.replace('override fun onAvailable(network: Network) = tracker.available(network)', 'override fun onAvailable(network: Network) { cause = "available"; tracker.available(network) }')
+s=s.replace('override fun onLost(network: Network) = tracker.lost(network)', 'override fun onLost(network: Network) { cause = "lost"; tracker.lost(network) }')
+s=s.replace('tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)', 'cause = "capabilities_${capabilityBits.toString(16)}_${transportBits.toString(16)}"\n                    tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)')
+s=s.replace('tracker.link(network, LinkProperties.CREATOR.createFromParcel(parcel))', 'cause = "link"\n                        tracker.link(network, LinkProperties.CREATOR.createFromParcel(parcel))')
+s=s.replace('tracker.blocked(network, blocked)', 'cause = "blocked_$blocked"\n                    tracker.blocked(network, blocked)')
+a='        require(before == stamp(context)) { "stale" }'
+b='''        val afterDiagnostic = stamp(context)
+        android.util.Log.i("WABI_FRESH", "collection_finish equal=${before == afterDiagnostic} token_equal=${before.token == afterDiagnostic.token} network_equal=${before.network == afterDiagnostic.network} service_equal=${before.tunnelUp == afterDiagnostic.tunnelUp}")
+        require(before == stamp(context)) { "stale" }'''
+assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
+p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
+s=p.read_text()
+a='            now = System.currentTimeMillis()'
+b='''            now = System.currentTimeMillis()
+            snapshot?.let { saved ->
+                android.util.Log.i("WABI_FRESH", "ui age_ms=${now - saved.collectedAt} token_equal=${saved.contextToken == stamp.token} network_equal=${saved.networkId == stamp.network} service_equal=${saved.serviceUp == stamp.tunnelUp} profile_equal=${saved.profileId == stamp.profile} running=$running config=${config != null}")
+            }'''
+assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
+print('Added anonymous freshness causes only; all production freshness and networking decisions retained')
