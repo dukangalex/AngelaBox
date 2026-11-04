@@ -19,6 +19,7 @@ import io.nekohasekai.sfa.utils.TunnelGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -115,39 +116,45 @@ object InspectionRunner {
         contextToken = stamp.token,
     )
     suspend fun manual(context: Context): InspectionPolicy.Snapshot = withContext(Dispatchers.IO) {
-        val result =
-            collectStableEvidence(
-                current = { stamp(context) },
-                pause = { delay(it) },
-                elapsed = { android.os.SystemClock.elapsedRealtime() },
-            ) { before ->
-                val attempts = mutableListOf<InspectionPolicy.Fact>()
-                val result =
-                    NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
-                        InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
-                    }
-                if (before != stamp(context)) throw StaleInspectionEvidence()
-                passive(before).copy(
-                    facts =
-                    passive(before).facts + attempts +
-                        result.items.map {
-                            InspectionPolicy.normalized(
-                                InspectionPolicy.Fact(
-                                    it.id.name,
-                                    when (it.status) {
-                                        NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
-                                        NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
-                                        NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
-                                    },
-                                    it.code,
-                                ),
-                            )
-                        },
-                )
-            }
-        if (result.contextToken != stamp(context).token) throw StaleInspectionEvidence()
-        InspectionStore.save(context, result)
-        result
+        withTimeout(90_000L) {
+            val result =
+                collectRecoveringEvidence(
+                    current = { stamp(context) },
+                    pause = { delay(it) },
+                    elapsed = { android.os.SystemClock.elapsedRealtime() },
+                    mayRecollect = { before, after ->
+                        before.network != null && before.network == after.network &&
+                            before.profile == after.profile && before.tunnelUp == after.tunnelUp
+                    },
+                ) { before ->
+                    val attempts = mutableListOf<InspectionPolicy.Fact>()
+                    val result =
+                        NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
+                            InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
+                        }
+                    if (before != stamp(context)) throw StaleInspectionEvidence()
+                    passive(before).copy(
+                        facts =
+                        passive(before).facts + attempts +
+                            result.items.map {
+                                InspectionPolicy.normalized(
+                                    InspectionPolicy.Fact(
+                                        it.id.name,
+                                        when (it.status) {
+                                            NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
+                                            NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
+                                            NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
+                                        },
+                                        it.code,
+                                    ),
+                                )
+                            },
+                    )
+                }
+            if (result.contextToken != stamp(context).token) throw StaleInspectionEvidence()
+            InspectionStore.save(context, result)
+            result
+        }
     }
     fun schedule(
         context: Context,
