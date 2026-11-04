@@ -1,4 +1,4 @@
-name: PR41 stable collection candidate API34 (synthetic, non-publishing)
+name: PR41 bounded recovery candidate API34 (synthetic, non-publishing)
 on:
   push:
     branches: [wabi/inspection-stable-acceptance-manual-only]
@@ -136,9 +136,9 @@ jobs:
       - name: Prepare test-only review instrumentation
         working-directory: sing-box-for-android
         run: |
-          git diff --exit-code 8b96d88c39d643b5313c4a216d29883404c17e32 -- app/src/main
+          git diff --exit-code 42e37d0f53c1f6736bf2f83a10edcf954b9300d1 -- app/src/main
           mkdir -p wabi-evidence
-          printf '%s\n' '8b96d88c39d643b5313c4a216d29883404c17e32' > wabi-evidence/product-source-head.txt
+          printf '%s\n' '42e37d0f53c1f6736bf2f83a10edcf954b9300d1' > wabi-evidence/product-source-head.txt
           python3 scripts/wabi_actual_fixture.py
           git diff --stat -- app/src/main > wabi-evidence/instrumented-source-diff-stat.txt
 
@@ -151,7 +151,7 @@ jobs:
           sed -i 's/abiFilters += "arm64-v8a"/abiFilters += "x86_64"/' app/build.gradle.kts
           grep -q 'abiFilters += "x86_64"' app/build.gradle.kts
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
-          ./gradlew :app:testDebugUnitTest --tests '*InspectionPolicyTest' --tests '*InspectionAiTransportTest' --tests '*NetworkCheckupTest' --tests '*StableInspectionCollectionTest' --tests '*NetworkEvidenceTrackerTest' --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests '*InspectionPolicyTest' --tests '*InspectionAiTransportTest' --tests '*NetworkCheckupTest' --tests '*StableInspectionCollectionTest' --tests '*RecoveringInspectionCollectionTest' --tests '*NetworkEvidenceTrackerTest' --no-daemon --stacktrace
           find app/build/outputs/apk -name '*.apk' -print
       - name: Release completed build scratch space before emulator
         run: |
