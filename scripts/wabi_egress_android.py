@@ -79,9 +79,16 @@ def start_vpn(mode):
   if starts:break
   tabs=[n for n in root.iter('node') if n.attrib.get('text')=='Dashboard']
   backs=[n for n in root.iter('node') if n.attrib.get('content-desc') in ('Back','Close')]
+  # Profiles renders its visible toolbar up-arrow as an unlabeled Android
+  # button, so it is absent from the Back/Close description query. Use the
+  # system Back action only after the observed heading confirms this page,
+  # then re-snapshot and require Dashboard Start before proceeding.
+  profiles=any(n.attrib.get('text')=='Profiles' for n in root.iter('node'))
   if len(tabs)==1:tap(tabs[0])
   elif len(backs)==1:tap(backs[0])
-  else:raise AssertionError('cannot return to Dashboard from observed profile picker')
+  elif profiles:
+   shell('input','keyevent','4');time.sleep(2)
+  else:raise AssertionError('cannot return to Dashboard from observed screen')
  else:raise AssertionError('Dashboard Start did not appear after profile selection')
  assert any(n.attrib.get('text')=='Controlled-'+mode for n in root.iter('node')),'dashboard selected mode mismatch'
  button('Start',mode+'-start')
