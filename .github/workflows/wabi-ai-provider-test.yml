@@ -14,6 +14,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: sing-box-for-android
+          fetch-depth: 0
 
       - name: Read kernel pin
         id: pin
@@ -135,9 +136,9 @@ jobs:
       - name: Prepare test-only review instrumentation
         working-directory: sing-box-for-android
         run: |
-          git diff --exit-code 69f3476cb469c72da38c927485b2d71295825da4 -- app/src/main
+          git diff --exit-code 8b96d88c39d643b5313c4a216d29883404c17e32 -- app/src/main
           mkdir -p wabi-evidence
-          printf '%s\n' '69f3476cb469c72da38c927485b2d71295825da4' > wabi-evidence/product-source-head.txt
+          printf '%s\n' '8b96d88c39d643b5313c4a216d29883404c17e32' > wabi-evidence/product-source-head.txt
           python3 scripts/wabi_actual_fixture.py
           git diff --stat -- app/src/main > wabi-evidence/instrumented-source-diff-stat.txt
 

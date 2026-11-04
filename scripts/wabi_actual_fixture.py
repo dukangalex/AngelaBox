@@ -53,8 +53,8 @@ s=s.replace('override fun onLost(network: Network) = tracker.lost(network)', 'ov
 s=s.replace('tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)', 'cause = "capabilities_${capabilityBits.toString(16)}_${transportBits.toString(16)}"\n                    tracker.capabilities(network, evidenceCapabilityBits(capabilityBits) to transportBits)')
 s=s.replace('tracker.link(network, LinkProperties.CREATOR.createFromParcel(parcel))', 'cause = "link"\n                        tracker.link(network, LinkProperties.CREATOR.createFromParcel(parcel))')
 s=s.replace('tracker.blocked(network, blocked)', 'cause = "blocked_$blocked"\n                    tracker.blocked(network, blocked)')
-a='                    if (before != stamp(context)) throw StaleInspectionEvidence()'
-b='                    val afterDiagnostic = stamp(context)\n                    android.util.Log.i("WABI_FRESH", "collection_finish equal=${before == afterDiagnostic} token_equal=${before.token == afterDiagnostic.token} network_equal=${before.network == afterDiagnostic.network} service_equal=${before.tunnelUp == afterDiagnostic.tunnelUp}")\n                    if (before != stamp(context)) throw StaleInspectionEvidence()'
+a='                if (before != stamp(context)) throw StaleInspectionEvidence()'
+b='                val afterDiagnostic = stamp(context)\n                android.util.Log.i("WABI_FRESH", "collection_finish equal=${before == afterDiagnostic} token_equal=${before.token == afterDiagnostic.token} network_equal=${before.network == afterDiagnostic.network} service_equal=${before.tunnelUp == afterDiagnostic.tunnelUp}")\n                if (before != stamp(context)) throw StaleInspectionEvidence()'
 assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
 p=Path('app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/InspectionScreen.kt')
 s=p.read_text()
