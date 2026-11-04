@@ -193,6 +193,15 @@ jobs:
           export ANDROID_AVD_HOME="$HOME/.android/avd"
           mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | timeout 60s avdmanager create avd -n route34 -p "$HOME/.android/avd/route34.avd" -k 'system-images;android-34;google_apis;x86_64' --force
+          # API34 image defaults request a 7.2GiB userdata partition. The finite
+          # test installs one APK and stores only screenshots/logs; use a bounded
+          # 2GiB userdata disk, preserving disk preflight and all test assertions.
+          sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          echo 'disk.dataPartition.size=2G' >> "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          grep -x 'disk.dataPartition.size=2G' "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          df -h "$HOME"
+          available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
+          test "$available" -ge 3221225472
           echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
           ls -la "$ANDROID_AVD_HOME"
           "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/wabi-avds.txt
