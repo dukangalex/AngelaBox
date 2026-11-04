@@ -52,6 +52,20 @@ def tap_dialog_button(label):
  time.sleep(2)
 def dialog_tap(word, tag):
  root=snap(tag)
+ if word=='checks':
+  # Never OCR a word shared by the heading/body and the positive button.
+  # API34 run 41762027447 hit the heading and left consent open.
+  parents={child: parent for parent in root.iter() for child in list(parent)}
+  nodes=[n for n in root.iter('node') if n.attrib.get('text')=='Run local checks'
+         and parents.get(n) is not None
+         and parents[n].attrib.get('clickable')=='true'
+         and parents[n].attrib.get('enabled')=='true']
+  if len(nodes)!=1: raise AssertionError(f'expected one enabled local-check consent button, found {len(nodes)}')
+  tap(nodes[0])
+  after=snap(tag+'-submitted')
+  if any(n.attrib.get('text','').startswith('This manual check contacts') for n in after.iter('node')):
+   raise AssertionError('local-check consent dialog did not close')
+  return
  # AlertDialog controls are exposed in Android's accessibility tree. OCR can
  # miss a legible Cancel label; require the review dialog itself before tapping.
  if word=='Cancel':
