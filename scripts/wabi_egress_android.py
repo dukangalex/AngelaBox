@@ -22,7 +22,7 @@ def find(text,tag,scroll=0):
    shell('input','swipe',str(width//2),str(round(height*.82)),str(width//2),str(round(height*.25)),'450');time.sleep(1)
  raise AssertionError('UI control absent: '+text)
 
-import os,urllib.request,urllib.parse
+import os,urllib.request,urllib.parse,datetime
 base=os.environ['WABI_HTTPS_BASE']
 sha=os.environ['GITHUB_SHA']
 def button(label,tag):tap(find(label,tag,5))
@@ -30,15 +30,38 @@ def peer_counts():
  with urllib.request.urlopen('http://127.0.0.1:18970/stats',timeout=5) as r:return json.load(r)
 def proxy_counts():
  with urllib.request.urlopen('http://127.0.0.1:18972/stats',timeout=5) as r:return json.load(r)
+def reset_proxy_phase():
+ req=urllib.request.Request('http://127.0.0.1:18972/reset',method='POST',data=b'')
+ with urllib.request.urlopen(req,timeout=5) as r:state=json.load(r)
+ assert state['active_sessions']==0,state
+ assert state['connect_attempts']==0 and state['connect_successes']==0,state
+ return state
+def wait_proxy_quiet(tag,quiet_seconds=8,max_seconds=60):
+ started=time.monotonic();quiet_since=None;previous=None
+ while time.monotonic()-started<max_seconds:
+  state=proxy_counts()
+  counters=(state['connect_attempts'],state['connect_successes'])
+  if state['active_sessions']==0 and counters==previous:
+   if quiet_since is None:quiet_since=time.monotonic()
+   elif time.monotonic()-quiet_since>=quiet_seconds:
+    (out/(tag+'-quiescence.json')).write_text(json.dumps({'quiet_seconds':quiet_seconds,'elapsed_seconds':round(time.monotonic()-started,2),'final_stats':state},indent=2))
+    return state
+  else:quiet_since=None
+  previous=counters
+  time.sleep(1)
+ raise AssertionError(f'proxy did not reach {quiet_seconds}s quiet with no active SOCKS sessions within {max_seconds}s: {proxy_counts()}')
+def utc_now():return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds')
 def request(mode,stage):
  # Remove prior result before starting; missing/new file is never an old success.
  shell('run-as',P,'rm','-f','no_backup/wabi-https-result.json')
+ request_started_at=utc_now();request_started_monotonic_ns=time.monotonic_ns()
  shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode',mode)
  for _ in range(80):
   try:
    raw=shell('run-as',P,'cat','no_backup/wabi-https-result.json');result=json.loads(raw);break
   except (subprocess.CalledProcessError,json.JSONDecodeError):time.sleep(2)
  else:raise AssertionError('bounded synthetic HTTPS entry did not finish')
+ result['harness_timing']={'started_at':request_started_at,'started_monotonic_ns':request_started_monotonic_ns,'completed_at':utc_now(),'completed_monotonic_ns':time.monotonic_ns()}
  (out/(stage+'-result.json')).write_text(json.dumps(result,indent=2))
  snap(stage)
  assert result['passed'],result
@@ -120,18 +143,31 @@ assert baseline_proxy['connect_attempts']==0,baseline_proxy
 shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','mode','controlled-real-dns')
 assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
 start_vpn('allow');request('success','routed')
-routed_peer=peer_counts();routed_proxy=proxy_counts()
-(out/'routed-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_proxy},indent=2))
+routed_peer=peer_counts();routed_request_proxy=proxy_counts()
+(out/'routed-request-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_request_proxy},indent=2))
 assert routed_peer=={'success':2},routed_peer
-assert routed_proxy['connect_successes']>=1,routed_proxy
+assert routed_request_proxy['connect_successes']>=1,routed_request_proxy
 stop_vpn()
+# Drain delayed allow-phase work before taking the reject-phase baseline. The
+# bounded quiet period is conservative: any later connection is still counted
+# in its timestamped phase and fails the rejection assertion rather than being
+# silently attributed away.
+routed_drain=wait_proxy_quiet('allow-drain')
+routed_peer=peer_counts();routed_proxy=proxy_counts()
+(out/'routed-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_proxy,'drain':routed_drain},indent=2))
+reject_baseline=reset_proxy_phase()
+(out/'reject-phase-baseline.json').write_text(json.dumps(reject_baseline,indent=2))
 start_vpn('reject');request('reject','rejected')
-blocked_peer=peer_counts();blocked_proxy=proxy_counts()
-(out/'blocked-counts.json').write_text(json.dumps({'peer':blocked_peer,'socks':blocked_proxy},indent=2))
+blocked_peer=peer_counts();blocked_request_proxy=proxy_counts()
+(out/'blocked-request-counts.json').write_text(json.dumps({'peer':blocked_peer,'socks':blocked_request_proxy},indent=2))
 assert blocked_peer==routed_peer,(blocked_peer,routed_peer)
-assert blocked_proxy==routed_proxy,(blocked_proxy,routed_proxy)
 stop_vpn()
-summary={'passed':True,'production_transport_unchanged':True,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'real_model_provider':False,'remote_proxy_exit':False,'dns_mode':'existing DNS protection setting off in controlled emulator; explicit real UDP DNS; production guard unchanged'}
+blocked_drain=wait_proxy_quiet('reject-drain')
+blocked_peer=peer_counts();blocked_proxy=proxy_counts()
+(out/'blocked-counts.json').write_text(json.dumps({'peer':blocked_peer,'socks':blocked_proxy,'drain':blocked_drain},indent=2))
+assert blocked_proxy['connect_attempts']==0,blocked_proxy
+assert blocked_proxy['connect_successes']==0,blocked_proxy
+summary={'passed':True,'production_transport_unchanged':True,'synthetic_payload':True,'actual_tun':True,'baseline_peer':baseline_peer,'baseline_proxy':baseline_proxy,'routed_peer':routed_peer,'routed_proxy':routed_proxy,'reject_phase_baseline':reject_baseline,'blocked_peer':blocked_peer,'blocked_proxy':blocked_proxy,'allow_quiet_seconds':8,'reject_quiet_seconds':8,'real_model_provider':False,'remote_proxy_exit':False,'dns_mode':'existing DNS protection setting off in controlled emulator; explicit real UDP DNS; production guard unchanged'}
 (out/'controlled-egress-result.json').write_text(json.dumps(summary,indent=2))
 (out/'controlled-egress-scope.txt').write_text('API34 emulator, actual VpnService/TUN and sing-box SOCKS outbound on a controlled runner-host exit. Production InspectionAi/system DNS/HTTPS unchanged; debug synthetic entry only. Reject control must prevent both peer request and SOCKS CONNECT. This is not a real model provider, remote/geographic exit, user-consent UI or physical-device proof. No automatic AI retry.\n')
 print('Controlled TUN/SOCKS allow-vs-reject assertions passed; synthetic peer only.')
