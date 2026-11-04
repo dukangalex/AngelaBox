@@ -31,8 +31,8 @@ object InspectionRunner {
     private fun initialize(context: Context) {
         if (initialized) return
         val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-        fun networkCallback(): ConnectivityManager.NetworkCallback {
-            val tracker = NetworkEvidenceTracker<Network, Pair<Long, Long>, LinkProperties> { epoch.incrementAndGet() }
+        fun networkCallback(singleNetwork: Boolean = false): ConnectivityManager.NetworkCallback {
+            val tracker = NetworkEvidenceTracker<Network, Pair<Long, Long>, LinkProperties>(singleNetwork) { epoch.incrementAndGet() }
             return object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) = tracker.available(network)
                 override fun onLost(network: Network) = tracker.lost(network)
@@ -63,7 +63,7 @@ object InspectionRunner {
                 }
             }
         }
-        manager.registerDefaultNetworkCallback(networkCallback())
+        manager.registerDefaultNetworkCallback(networkCallback(singleNetwork = true))
         // Since Android 9 the default network may be our VPN. Its identity can
         // remain unchanged when Wi-Fi/mobile underneath it disappears or switches.
         // Invalidate reviewed evidence on those underlying transitions as well.

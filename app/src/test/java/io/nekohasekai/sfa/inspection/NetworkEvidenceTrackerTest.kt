@@ -64,4 +64,48 @@ class NetworkEvidenceTrackerTest {
         tracker.capabilities("a", "validated")
         assertEquals(6, epoch)
     }
+
+    @Test fun separateNetworksNeverHideEachOthersChanges() {
+        var epoch = 0
+        val tracker = NetworkEvidenceTracker<String, String, String> { epoch++ }
+        tracker.capabilities("wifi", "same")
+        tracker.capabilities("cell", "same")
+        tracker.link("wifi", "dns-a")
+        tracker.link("cell", "dns-b")
+        val ready = epoch
+        tracker.link("cell", "dns-c")
+        assertEquals(ready + 1, epoch)
+        tracker.capabilities("wifi", "same")
+        assertEquals(ready + 1, epoch)
+        tracker.lost("cell")
+        assertEquals(ready + 2, epoch)
+        tracker.link("wifi", "dns-a")
+        assertEquals(ready + 2, epoch)
+    }
+
+    @Test fun callbackSubscriptionsKeepIndependentInitialState() {
+        var epoch = 0
+        val defaultTracker = NetworkEvidenceTracker<String, String, String> { epoch++ }
+        val physicalTracker = NetworkEvidenceTracker<String, String, String> { epoch++ }
+        defaultTracker.capabilities("wifi", "internet")
+        physicalTracker.capabilities("wifi", "internet")
+        assertEquals(2, epoch)
+        defaultTracker.capabilities("wifi", "internet")
+        physicalTracker.capabilities("wifi", "internet")
+        assertEquals(2, epoch)
+        physicalTracker.blocked("wifi", true)
+        assertEquals(3, epoch)
+    }
+
+    @Test fun bestNetworkSwitchDropsOldSnapshotsEvenWithoutLostCallback() {
+        var epoch = 0
+        val tracker = NetworkEvidenceTracker<String, String, String>(singleNetwork = true) { epoch++ }
+        tracker.available("wifi")
+        tracker.capabilities("wifi", "internet")
+        tracker.available("cell")
+        val switched = epoch
+        tracker.capabilities("wifi", "internet")
+        // A late callback must be treated as new, not suppressed by old state.
+        assertEquals(switched + 1, epoch)
+    }
 }

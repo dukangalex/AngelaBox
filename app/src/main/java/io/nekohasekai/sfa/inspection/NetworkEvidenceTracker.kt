@@ -5,12 +5,19 @@ package io.nekohasekai.sfa.inspection
 internal fun evidenceCapabilityBits(bits: Long): Long = bits
 
 /** One tracker per callback: default and underlying networks have independent lifecycles. */
-internal class NetworkEvidenceTracker<K, C, L>(private val invalidate: () -> Unit) {
+internal class NetworkEvidenceTracker<K, C, L>(private val singleNetwork: Boolean = false, private val invalidate: () -> Unit) {
     private val capabilities = mutableMapOf<K, C>()
     private val links = mutableMapOf<K, L>()
     private val blocked = mutableMapOf<K, Boolean>()
 
     @Synchronized fun available(network: K) {
+        // Default callbacks stop reporting the old best network without onLost.
+        // Do not retain its snapshots indefinitely across default-network switches.
+        if (singleNetwork) {
+            capabilities.clear()
+            links.clear()
+            blocked.clear()
+        }
         capabilities.remove(network)
         links.remove(network)
         blocked.remove(network)
