@@ -115,59 +115,57 @@ object InspectionRunner {
             ),
         )
     }
-    fun passive(stamp: ContextStamp): InspectionPolicy.Snapshot =
-        InspectionPolicy.Snapshot(
-            System.currentTimeMillis(),
-            stamp.profile,
-            stamp.tunnelUp,
-            listOf(
-                InspectionPolicy.Fact("network", if (stamp.network != null) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.ATTENTION, if (stamp.network != null) "present" else "absent"),
-                InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, if (stamp.tunnelUp) "running" else "stopped"),
-            ),
-            networkId = stamp.network,
-            contextToken = stamp.token,
-        )
-    suspend fun manual(context: Context): InspectionPolicy.Snapshot =
-        withContext(Dispatchers.IO) {
-            withTimeout(90_000L) {
-                val result =
-                    collectRecoveringEvidence(
-                        current = { stamp(context) },
-                        pause = { delay(it) },
-                        elapsed = { android.os.SystemClock.elapsedRealtime() },
-                        mayRecollect = { before, after ->
-                            mayRecollectInspection(before.collectionIdentity, after.collectionIdentity)
-                        },
-                    ) { before ->
-                        val attempts = mutableListOf<InspectionPolicy.Fact>()
-                        val result =
-                            NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
-                                InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
-                            }
-                        if (before != stamp(context)) throw StaleInspectionEvidence()
-                        passive(before).copy(
-                            facts =
-                                passive(before).facts + attempts +
-                                    result.items.map {
-                                        InspectionPolicy.normalized(
-                                            InspectionPolicy.Fact(
-                                                it.id.name,
-                                                when (it.status) {
-                                                    NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
-                                                    NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
-                                                    NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
-                                                },
-                                                it.code,
-                                            ),
-                                        )
-                                    },
-                        )
-                    }
-                if (result.contextToken != stamp(context).token) throw StaleInspectionEvidence()
-                InspectionStore.save(context, result)
-                result
-            }
+    fun passive(stamp: ContextStamp): InspectionPolicy.Snapshot = InspectionPolicy.Snapshot(
+        System.currentTimeMillis(),
+        stamp.profile,
+        stamp.tunnelUp,
+        listOf(
+            InspectionPolicy.Fact("network", if (stamp.network != null) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.ATTENTION, if (stamp.network != null) "present" else "absent"),
+            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, if (stamp.tunnelUp) "running" else "stopped"),
+        ),
+        networkId = stamp.network,
+        contextToken = stamp.token,
+    )
+    suspend fun manual(context: Context): InspectionPolicy.Snapshot = withContext(Dispatchers.IO) {
+        withTimeout(90_000L) {
+            val result =
+                collectRecoveringEvidence(
+                    current = { stamp(context) },
+                    pause = { delay(it) },
+                    elapsed = { android.os.SystemClock.elapsedRealtime() },
+                    mayRecollect = { before, after ->
+                        mayRecollectInspection(before.collectionIdentity, after.collectionIdentity)
+                    },
+                ) { before ->
+                    val attempts = mutableListOf<InspectionPolicy.Fact>()
+                    val result =
+                        NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {}) { round, target, code ->
+                            InspectionPolicy.tunnelAttempt(round, target, code)?.let(attempts::add)
+                        }
+                    if (before != stamp(context)) throw StaleInspectionEvidence()
+                    passive(before).copy(
+                        facts =
+                        passive(before).facts + attempts +
+                            result.items.map {
+                                InspectionPolicy.normalized(
+                                    InspectionPolicy.Fact(
+                                        it.id.name,
+                                        when (it.status) {
+                                            NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
+                                            NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
+                                            NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
+                                        },
+                                        it.code,
+                                    ),
+                                )
+                            },
+                    )
+                }
+            if (result.contextToken != stamp(context).token) throw StaleInspectionEvidence()
+            InspectionStore.save(context, result)
+            result
         }
+    }
     fun schedule(
         context: Context,
         enabled: Boolean,
