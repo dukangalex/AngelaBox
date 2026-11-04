@@ -136,9 +136,9 @@ jobs:
       - name: Prepare test-only review instrumentation
         working-directory: sing-box-for-android
         run: |
-          git diff --exit-code 42e37d0f53c1f6736bf2f83a10edcf954b9300d1 -- app/src/main
+          git diff --exit-code 33a25767b84528b53474f8af5f38cc115ac4c4fc -- app/src/main
           mkdir -p wabi-evidence
-          printf '%s\n' '42e37d0f53c1f6736bf2f83a10edcf954b9300d1' > wabi-evidence/product-source-head.txt
+          printf '%s\n' '33a25767b84528b53474f8af5f38cc115ac4c4fc' > wabi-evidence/product-source-head.txt
           python3 scripts/wabi_actual_fixture.py
           git diff --stat -- app/src/main > wabi-evidence/instrumented-source-diff-stat.txt
 
