@@ -58,6 +58,19 @@ def start_vpn(mode):
   assert len(backs)==1,'no unique observed Back/Close control'
   tap(backs[0])
  else:raise AssertionError('root Dashboard did not appear')
+ # Import creates a profile but does not necessarily select it when another
+ # profile already exists. Choose the mode explicitly in the observed picker.
+ dashboard=snap(mode+'-before-select')
+ labels=[n for n in dashboard.iter('node') if n.attrib.get('text','').startswith('Controlled-')]
+ assert labels,'dashboard selected profile label absent'
+ labels.sort(key=lambda n:int(re.findall(r'\d+',n.attrib['bounds'])[1]))
+ tap(labels[0])
+ picker=snap(mode+'-picker')
+ choices=[n for n in picker.iter('node') if n.attrib.get('text')=='Controlled-'+mode]
+ assert len(choices)==1,'requested mode not uniquely present in profile picker'
+ tap(choices[0])
+ selected=snap(mode+'-selected-before-start')
+ assert any(n.attrib.get('text')=='Controlled-'+mode for n in selected.iter('node')),'profile selection did not apply'
  button('Start',mode+'-start')
  for i in range(10):
   root=snap(mode+'-running'+str(i));texts=[n.attrib.get('text','') for n in root.iter('node')]
@@ -88,11 +101,13 @@ shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActi
 assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
 start_vpn('allow');request('success','routed')
 routed_peer=peer_counts();routed_proxy=proxy_counts()
+(out/'routed-counts.json').write_text(json.dumps({'peer':routed_peer,'socks':routed_proxy},indent=2))
 assert routed_peer=={'success':2},routed_peer
 assert routed_proxy['connect_successes']>=1,routed_proxy
 stop_vpn()
 start_vpn('reject');request('reject','rejected')
 blocked_peer=peer_counts();blocked_proxy=proxy_counts()
+(out/'blocked-counts.json').write_text(json.dumps({'peer':blocked_peer,'socks':blocked_proxy},indent=2))
 assert blocked_peer==routed_peer,(blocked_peer,routed_peer)
 assert blocked_proxy==routed_proxy,(blocked_proxy,routed_proxy)
 stop_vpn()
