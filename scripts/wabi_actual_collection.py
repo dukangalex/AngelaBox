@@ -225,6 +225,16 @@ def assert_review_disabled(tag):
  assert reviews[0].attrib.get('enabled')=='false' or (parent is not None and parent.attrib.get('enabled')=='false'), ET.tostring(root,encoding='unicode')
 assert_review_disabled('restored-still-stale')
 assert attempts()==1
+# API 34 run 41756124063 recorded an underlying FOREGROUND capability loss
+# 30 seconds after Wi-Fi returned, 1.75 seconds after collection completed.
+# That MUST invalidate old evidence. Do not mask the bit or relabel the token.
+# Isolate recovery from this late OS transition, then collect NEW evidence.
+# This bounded grace is a test setup condition, not a production freshness fix.
+time.sleep(35)
+(out/'recovery-settle-freshness.txt').write_text(adb('logcat','-d','-s','WABI_FRESH:I','*:S'))
+assert json.loads(local('result'))==running, 'settling silently replaced old evidence'
+assert_review_disabled('settled-old-evidence-still-stale')
+assert attempts()==1
 recovered=take_collection('recovered')
 assert recovered['at']>running['at']
 assert field(recovered,'network')=={'id':'network','state':'OBSERVED','code':'present'}
