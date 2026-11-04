@@ -1,7 +1,7 @@
 name: PR41 production HTTPS transport API34 (controlled synthetic peer, non-publishing)
 on:
   push:
-    branches: [wabi/inspection-controlled-https-manual-only]
+    branches: [wabi/inspection-controlled-https]
   workflow_dispatch:
 permissions:
   contents: read
