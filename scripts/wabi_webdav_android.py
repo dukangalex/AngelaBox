@@ -48,11 +48,21 @@ def start_vpn(tag):
  vpn_checks[tag]={'tun_up':True,'vpn_transport_observed':True,'proxy_before':proxy_stats()}
  shell('input','keyevent','4') if False else None
 
-def route_after(tag):
+def route_after(tag, expected_host, require_tun=True):
  state=proxy_stats();before=vpn_checks[tag]['proxy_before'];vpn_checks[tag]['proxy_after']=state
- assert state['connect_successes']>before['connect_successes'],(tag,before,state)
- assert '172.19.0.1' in shell('ip','addr'),tag
- vpn_checks[tag]['tun_still_up']=True
+ # Persist measurements before any assertion so a later failure still leaves evidence.
+ (out/(tag+'-proxy-stats.json')).write_text(json.dumps({'before':before,'after':state},indent=2))
+ new_targets=state.get('targets',[])[len(before.get('targets',[])):]
+ matched=[x for x in new_targets if x.get('host','').lower()==expected_host.lower() and x.get('port')==443]
+ assert matched,(tag,expected_host,before,state)
+ vpn_checks[tag]['webdav_host_via_socks']=matched
+ if require_tun:
+  assert '172.19.0.1' in shell('ip','addr'),tag
+  vpn_checks[tag]['tun_still_up']=True
+ else:
+  # Successful restore deliberately soft-relaunches the app and stops BoxService;
+  # its VPN may disconnect after the WebDAV GET has completed.
+  vpn_checks[tag]['post_restore_tun_check']='not_required_after_successful_soft_relaunch'
 
 def backup_screen(tag):
  launch()
@@ -102,7 +112,7 @@ def configure(tag):
  backup_screen(tag);click('编辑',tag+'-editor');fill_edits([os.environ['WABI_HTTPS_BASE']+'/dav','fixture','WabiDav2026','backup.zip'],tag+'-fill');click('保存',tag+'-save');time.sleep(10)
 configure('dav-config')
 click('备份数据到 WebDAV','dav-export');fill_edits([password,password],'dav-export-pw');click('Continue','dav-export-confirm');time.sleep(20)
-snap('dav-upload-result');route_after('dav-config')
+snap('dav-upload-result');route_after('dav-config',urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname)
 sealed=(out/'webdav-upload.bin').read_bytes();assert sealed[:5]==b'ABKE\x01'
 events=[json.loads(x) for x in (out/'webdav-events.jsonl').read_text().splitlines()];assert any(x['method']=='PUT' and x['code']==201 for x in events)
 # Modify a synthetic profile only; restore must recover the backed up value.
@@ -111,14 +121,14 @@ adb('push',str(mutated),'/data/local/tmp/wabi-mutated.db');shell('run-as',P,'cp'
 changed=db_snapshot('changed');assert changed[0]['name']=='Changed-after-WebDAV-backup'
 backup_screen('dav-restore');click('通过 WebDAV 恢复数据','dav-restore-click');time.sleep(15)
 fill_edits([password],'dav-restore-pw');click('Restore','dav-restore-submit');time.sleep(20)
-route_after('dav-restore')
+route_after('dav-restore',urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname,require_tun=False)
 after=db_snapshot('after-webdav-restore');assert after[0]['name']=='Backup-Fixture' and after[0]['id']==before[0]['id'],after
 # Invalid/cut responses must not alter data and must leave no restore scratch.
 checks={}
 for mode in ['invalid','truncated']:
  (out/'webdav-mode').write_text(mode)
  backup_screen(mode);click('通过 WebDAV 恢复数据',mode+'-click');time.sleep(40 if mode=='truncated' else 10);snap(mode+'-result')
- route_after(mode)
+ route_after(mode,urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname)
  scratch=shell('run-as',P,'sh','-c',"'if test -e cache/chainbox-restore.zip; then wc -c < cache/chainbox-restore.zip; else echo ABSENT; fi'").strip()
  current=db_snapshot('after-'+mode);assert current==after,(mode,current,after)
  checks[mode]={'data_unchanged':True,'scratch':scratch}
