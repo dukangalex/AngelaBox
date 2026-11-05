@@ -104,12 +104,13 @@ class HTTPClientSubscriptionTest {
     }
 
     @Test
-    fun tunnelUpMessageUnchanged() {
+    fun tunnelUpMessageDoesNotClaimDirectRetry() {
         val msg = HTTPClient.explainProfileUpdate(
             SocketException("Connection reset"),
             tunnelUp = true,
         )
-        assertTrue(msg.contains("当前节点把连接断开了"))
+        assertTrue(msg.contains("未自动绕过 VPN"))
+        assertFalse(msg.contains("不经过节点再试也失败"))
     }
 
     @Test
