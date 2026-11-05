@@ -23,7 +23,7 @@ import javax.net.ssl.SSLSocketFactory
  * are capped.
  */
 class HTTPClient : Closeable {
-    /** First attempt may use the running node. A reset then retries outside, then through the node by real IP. */
+    /** Download routes; subscriptions never retry outside an already-running tunnel. */
     internal enum class Route {
         PROXY,
         DIRECT,
@@ -322,7 +322,7 @@ class HTTPClient : Closeable {
             }
             if (chinese != null) return chinese.take(240)
             if (tunnelUp) {
-                return "订阅没更新上。当前节点把连接断开了，不经过节点再试也失败。"
+                return "订阅更新失败。未自动绕过 VPN；请确认节点可用后重试。"
             }
             // Tunnel down: say what actually failed instead of blaming the
             // user's network. The ladder already retried with public-resolver
@@ -475,15 +475,29 @@ class HTTPClient : Closeable {
     }
 
     /**
-     * One ladder for subscription, script, and app-update downloads.
-     * Our tunnel up: try the current node once. A reset, timeout, or handshake
-     * failure retries outside the tunnel, then through the node by real IP.
+     * Subscriptions with our tunnel up use only the current VPN route: a
+     * failed node must not silently expose the subscription URL/token to a
+     * direct connection or an outside-tunnel DNS lookup.
+     * Scripts and app-update downloads retain their existing retry ladder.
      * Our tunnel down: an update dials the hostname on the current network
      * first, so another VPN can route GitHub. Pinning a pre-resolved address
      * fails when that VPN answers DNS with fake-ip.
      */
-    private fun <T> withUpdateRetry(kind: RemoteUrlGuard.Kind, block: (Route) -> T): T {
-        val tunnel = dialByName(kind, TunnelGate.up)
+    internal fun <T> withUpdateRetry(
+        kind: RemoteUrlGuard.Kind,
+        tunnelUp: Boolean = TunnelGate.up,
+        block: (Route) -> T,
+    ): T {
+        val tunnel = dialByName(kind, tunnelUp)
+        if (kind == RemoteUrlGuard.Kind.SUBSCRIPTION && tunnel) {
+            return try {
+                block(Route.PROXY)
+            } catch (e: Exception) {
+                // Keep the route context captured at the start, even if the
+                // tunnel stopped meanwhile. No direct retry was attempted.
+                throw friendlyFetch(kind, e, tunnelUp = true)
+            }
+        }
         if (!tunnel) {
             // Tunnel down: direct dial first; a poisoned system resolver gets
             // one retry through public resolvers before giving up.
@@ -531,9 +545,13 @@ class HTTPClient : Closeable {
         throw friendlyFetch(kind, last ?: IllegalStateException("下载失败"))
     }
 
-    private fun friendlyFetch(kind: RemoteUrlGuard.Kind, error: Exception): Exception {
+    private fun friendlyFetch(
+        kind: RemoteUrlGuard.Kind,
+        error: Exception,
+        tunnelUp: Boolean = TunnelGate.up,
+    ): Exception {
         val message = when (kind) {
-            RemoteUrlGuard.Kind.SUBSCRIPTION -> explainProfileUpdate(error)
+            RemoteUrlGuard.Kind.SUBSCRIPTION -> explainProfileUpdate(error, tunnelUp)
             RemoteUrlGuard.Kind.UPDATE -> explainUpdateFailure(error)
             else -> return error
         }

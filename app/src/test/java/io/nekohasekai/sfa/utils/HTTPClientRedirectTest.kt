@@ -199,7 +199,7 @@ class HTTPClientRedirectTest {
             tunnelUp = true,
         )
         assertFalse(profile.contains("已拒绝"))
-        assertTrue(profile.contains("订阅没更新上"))
+        assertTrue(profile.contains("未自动绕过 VPN"))
     }
 
     @Test
