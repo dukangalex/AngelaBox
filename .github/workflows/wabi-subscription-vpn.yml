@@ -19,7 +19,7 @@ jobs:
       - name: Validate controlled egress harness
         working-directory: sing-box-for-android
         run: |
-          python3 -m py_compile scripts/wabi_subscription_peer.py scripts/wabi_subscription_android.py
+          python3 -m py_compile scripts/wabi_subscription_peer.py scripts/wabi_subscription_android.py scripts/wabi_subscription_stream_preflight.py
           python3 -m py_compile scripts/wabi_socks_peer.py
           git diff --exit-code b994dfc02f3dfee97a256167bd3dbfcaaac2b727 -- app/src/main
           mkdir -p wabi-evidence
@@ -294,6 +294,7 @@ jobs:
           done
           if [ "$ready" != true ]; then echo '::error::Synthetic HTTPS tunnel did not become healthy; see tunnel logs artifact'; exit 1; fi
           export WABI_HTTPS_BASE="$BASE"
+          python3 scripts/wabi_subscription_stream_preflight.py
           python3 scripts/wabi_subscription_android.py
       - name: Save emulator state
         if: always()

@@ -1,4 +1,4 @@
-import json,threading,time
+import json,threading,time,random
 from collections import Counter
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 counts=Counter();lock=threading.Lock()
@@ -15,14 +15,17 @@ class H(BaseHTTPRequestHandler):
    body=b'synthetic-subscription';code=503 if path=='failure' else 200
    if path=='redirect':code=302
    if path=='mid-failure':time.sleep(45);code=503
-   # A five-byte prefix may remain inside HTTPS proxy/client buffering.
-   # Send enough to cross buffers, while retaining an incomplete body.
-   if path=='mid-file':body=b'synthetic-subscription\n'*(32*1024)
+   # Incompressible synthetic bytes plus explicit streaming headers keep the
+   # controlled HTTPS relay from buffering a highly repetitive prefix.
+   if path in ('mid-file','stream-preflight'):body=random.Random(42).randbytes(2*1024*1024)
   self.send_response(code)
   if path=='redirect':self.send_header('Location','/redirect-target')
-  self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers()
-  if path in ('mid-body','mid-file'):
-   prefix=256*1024 if path=='mid-file' else 5
+  self.send_header('Content-Length',str(len(body)))
+  self.send_header('Cache-Control','no-store, no-transform')
+  self.send_header('Content-Type','application/octet-stream')
+  self.end_headers()
+  if path in ('mid-body','mid-file','stream-preflight'):
+   prefix=1024*1024 if path in ('mid-file','stream-preflight') else 5
    self.wfile.write(body[:prefix]);self.wfile.flush();time.sleep(45)
    self.wfile.write(body[prefix:])
   else:self.wfile.write(body)
