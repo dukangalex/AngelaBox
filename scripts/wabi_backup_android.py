@@ -22,7 +22,11 @@ def click(text,tag,scroll=0):tap(find(text,tag,scroll))
 def launch():
  shell('am','force-stop',P);shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(5)
 def backup_screen(tag):
- launch();click('Settings',tag+'-settings');click('Backup and Restore',tag+'-backup',4)
+ launch()
+ r=snap(tag+'-current')
+ # Android restores the last navigation route after process recreation.
+ if any(n.get('text')=='备份与恢复' for n in r.iter('node')):return
+ click('Settings',tag+'-settings');click('Backup and Restore',tag+'-backup',4)
 def pick_download(filename,tag):
  # DocumentsUI defaults to Recent. Explicitly use the Downloads root.
  r=snap(tag+'-picker')
