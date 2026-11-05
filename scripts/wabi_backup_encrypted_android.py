@@ -61,7 +61,9 @@ before=db_snapshot('before-backup');assert len(before)==1 and before[0]['name']=
 password='WabiFixture2026'
 backup_screen('export-encrypted');click('备份数据到本地','export-local',6)
 r=snap('export-password-dialog');edits=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText'];assert len(edits)==2
-for n in edits:tap(n);shell('input','text',password)
+for index in range(2):
+ r=snap('export-fill-'+str(index));edits=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText'];assert len(edits)==2
+ tap(edits[index]);shell('input','text',password);shell('input','keyevent','4')
 shell('input','keyevent','4');click('Continue','export-encrypted-continue')
 r=snap('export-picker');edits=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText'];assert len(edits)==1
 tap(edits[0]);shell('input','keycombination','113','29');shell('input','text','Wabi-encrypted.zip')
