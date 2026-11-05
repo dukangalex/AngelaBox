@@ -178,8 +178,19 @@ def mid_request_case(name):
  # Peer holds headers/body for 45s. Stop the actual App VPN only after the
  # controlled peer observes this unique request, not before starting it.
  peer_seen=utc_now()
+ partial_bytes_before_stop=None
+ if name=='mid-file':
+  # Require an actual on-device fragment, not merely a peer-side request,
+  # before claiming that the post-failure check validates fragment cleanup.
+  for _ in range(30):
+   try:
+    partial_bytes_before_stop=int(shell('run-as',P,'stat','-c','%s','no_backup/mid-subscription-download.txt').strip())
+    if partial_bytes_before_stop>0:break
+   except (subprocess.CalledProcessError,ValueError):pass
+   time.sleep(.25)
+  else:raise AssertionError('mid-file did not create an on-device partial download before Stop')
  # Save partial progress even when the UI stop or subsequent assertion fails.
- (out/(name+'-started.json')).write_text(json.dumps({'peer_before':before,'peer_at_stop':observed,'started_at':started,'peer_seen_at':peer_seen,'addresses_before_stop':shell('ip','addr')},indent=2))
+ (out/(name+'-started.json')).write_text(json.dumps({'peer_before':before,'peer_at_stop':observed,'started_at':started,'peer_seen_at':peer_seen,'partial_bytes_before_stop':partial_bytes_before_stop,'addresses_before_stop':shell('ip','addr')},indent=2))
  stop_vpn()
  stopped=utc_now()
  for _ in range(80):
@@ -190,7 +201,7 @@ def mid_request_case(name):
  # Observe beyond the server's delayed response and possible retry window.
  time.sleep(15)
  after=peer_counts()
- evidence={'result':result,'peer_before':before,'peer_after':after,'started_at':started,'peer_seen_at':peer_seen,'vpn_stopped_at':stopped,'completed_at':utc_now(),'proxy':proxy_counts(),'addresses_after':shell('ip','addr')}
+ evidence={'result':result,'peer_before':before,'peer_after':after,'started_at':started,'peer_seen_at':peer_seen,'vpn_stopped_at':stopped,'partial_bytes_before_stop':partial_bytes_before_stop,'completed_at':utc_now(),'proxy':proxy_counts(),'addresses_after':shell('ip','addr')}
  (out/(name+'-subscription.json')).write_text(json.dumps(evidence,indent=2))
  assert result['tunnel_up'] and result['active_vpn'],result
  assert not result['tunnel_up_after'] and not result['active_vpn_after'],result
