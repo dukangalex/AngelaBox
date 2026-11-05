@@ -1,0 +1,168 @@
+name: PR43 WebDAV backup API34 (non-publishing)
+on:
+  push:
+    branches: [wabi/webdav-backup-acceptance]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+          fetch-depth: 0
+
+      - name: Validate backup harness and product identity
+        working-directory: sing-box-for-android
+        run: |
+          python3 -m py_compile scripts/wabi_webdav_android.py
+          git diff --exit-code 1bac7830e24b4619d5eb8b9356cfb0e92d409018 -- app/src/main
+          mkdir -p wabi-evidence
+          git rev-parse HEAD > wabi-evidence/test-source-head.txt
+          echo 1bac7830e24b4619d5eb8b9356cfb0e92d409018 > wabi-evidence/product-source-head.txt
+
+      - name: Reuse exact previous product APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          mkdir -p app/build/outputs/apk/debug
+          gh run download 42023144867 -n backup-bounds-debug-apk -D app/build/outputs/apk/debug
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee wabi-evidence/apk-sha256.txt
+          echo 'APK built from PR43 1bac7830e24b4619d5eb8b9356cfb0e92d409018 in run 42023144867' > wabi-evidence/apk-origin.txt
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "${ANDROID_HOME}/platform-tools" >> "$GITHUB_PATH"
+      - name: Install emulator and enable KVM
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          yes | sdkmanager --licenses >/dev/null || true
+          mkdir -p sing-box-for-android/wabi-evidence
+          # SDK mirrors occasionally fail; preserve diagnostics and bound each attempt.
+          installed=false
+          for attempt in 1 2 3; do
+            if timeout 300s sdkmanager 'emulator' 'system-images;android-34;google_apis;x86_64' 2>&1 | tee "sing-box-for-android/wabi-evidence/sdk-install-$attempt.txt"; then
+              installed=true
+              break
+            fi
+            sleep 10
+          done
+          test "$installed" = true
+          df -h "$HOME"
+          available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
+          # The API34 image may materialize a 7.2GiB userdata image even with
+          # a smaller AVD override. Ensure it fits before creating/booting AVD.
+          test "$available" -ge 8589934592
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | timeout 60s avdmanager create avd -n route34 -p "$HOME/.android/avd/route34.avd" -k 'system-images;android-34;google_apis;x86_64' --force
+          # API34 image defaults request a 7.2GiB userdata partition. The finite
+          # test installs one APK and stores only screenshots/logs; use a bounded
+          # 2GiB userdata disk, preserving disk preflight and all test assertions.
+          sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          echo 'disk.dataPartition.size=2G' >> "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          grep -x 'disk.dataPartition.size=2G' "$ANDROID_AVD_HOME/route34.avd/config.ini"
+          df -h "$HOME"
+          available=$(df -PB1 "$HOME" | awk 'NR==2 {print $4}')
+          test "$available" -ge 3221225472
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
+          ls -la "$ANDROID_AVD_HOME"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tee /tmp/wabi-avds.txt
+          grep -x route34 /tmp/wabi-avds.txt
+      - name: Boot emulator and inspect real app
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/emulator/emulator" -avd route34 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on > /tmp/emu.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 120); do
+            if ! kill -0 "$pid" 2>/dev/null; then cat /tmp/emu.log; exit 1; fi
+            if timeout 5s adb get-state 2>/dev/null | grep -qx device; then break; fi
+            sleep 2
+          done
+          if ! timeout 5s adb get-state | grep -qx device; then cat /tmp/emu.log; exit 1; fi
+          for i in $(seq 1 180); do
+            if timeout 5s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -qx 1; then break; fi
+            sleep 2
+          done
+          if ! timeout 5s adb shell getprop sys.boot_completed | tr -d '\r' | grep -qx 1; then tail -100 /tmp/emu.log; exit 1; fi
+          adb shell input keyevent 82
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -n "$APK"; unzip -l "$APK" | grep 'lib/x86_64/'
+          adb install "$APK"
+          adb shell monkey -p io.chainbox.app -c android.intent.category.LAUNCHER 1
+          sleep 20
+          adb shell uiautomator dump /sdcard/window.xml >/dev/null
+          adb shell cat /sdcard/window.xml
+          echo '--- activity task evidence ---'
+          adb shell dumpsys activity recents | grep -C 5 -i 'io.chainbox.app' || true
+          echo '--- errors ---'
+          adb logcat -d -s AndroidRuntime:E ActivityManager:E | tail -100
+
+      - name: Verify WebDAV production UI and failed download cleanup
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 60 -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-amd64
+          echo '1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872  /tmp/cloudflared' | sha256sum -c -
+          chmod +x /tmp/cloudflared
+          python3 scripts/wabi_webdav_peer.py >/tmp/wabi-peer.log 2>&1 &
+          peer=$!
+          tunnel=''
+          cleanup() {
+            rc=$?
+            [ -z "$tunnel" ] || kill "$tunnel" 2>/dev/null || true
+            kill "$peer" 2>/dev/null || true
+            cp /tmp/wabi-peer.log wabi-evidence/ 2>/dev/null || true
+            exit "$rc"
+          }
+          trap cleanup EXIT
+          # Establish the tunnel before executing any app test. Preserve each
+          # attempt's diagnostics; retry only this disposable setup, never a test.
+          BASE=''
+          ready=false
+          for attempt in 1 2 3; do
+            log="wabi-evidence/tunnel-$attempt.log"
+            /tmp/cloudflared tunnel --url http://127.0.0.1:18970 --no-autoupdate >"$log" 2>&1 &
+            tunnel=$!
+            for i in $(seq 1 60); do
+              BASE=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1 || true)
+              if [ -n "$BASE" ] && curl -fsS --max-time 5 "$BASE/health" | grep -q synthetic-only; then ready=true; break; fi
+              kill -0 "$tunnel" 2>/dev/null || break
+              sleep 2
+            done
+            if [ "$ready" = true ]; then break; fi
+            kill "$tunnel" 2>/dev/null || true
+            wait "$tunnel" 2>/dev/null || true
+            tunnel=''
+            BASE=''
+          done
+          if [ "$ready" != true ]; then echo '::error::Synthetic HTTPS tunnel did not become healthy; see tunnel logs artifact'; exit 1; fi
+          export WABI_HTTPS_BASE="$BASE"
+          python3 scripts/wabi_webdav_android.py
+      - name: Save emulator state
+        if: always()
+        working-directory: sing-box-for-android
+        run: |
+          mkdir -p wabi-evidence
+          timeout 15s adb logcat -d > wabi-evidence/logcat.txt || true
+          timeout 15s adb shell dumpsys jobscheduler > wabi-evidence/jobscheduler.txt || true
+          timeout 15s adb exec-out screencap -p > wabi-evidence/final.png || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: webdav-backup-acceptance
+          path: |
+            sing-box-for-android/wabi-evidence/
+            sing-box-for-android/app/build/test-results/
+          retention-days: 7
