@@ -93,5 +93,4 @@ class HTTPClientVpnSubscriptionTest {
         assertEquals("apk", value)
         assertEquals(listOf(HTTPClient.Route.PROXY, HTTPClient.Route.DIRECT), seen)
     }
-
 }
