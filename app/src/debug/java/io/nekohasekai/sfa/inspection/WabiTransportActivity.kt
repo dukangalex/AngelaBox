@@ -17,6 +17,18 @@ class WabiTransportActivity : Activity() {
    File(noBackupFilesDir,"wabi-real-dns-setting.txt").writeText("dnsProtect=false")
    finish(); return
   }
+  if (intent.getStringExtra("mode") == "network-state") {
+   val cm = getSystemService(ConnectivityManager::class.java)
+   val network = cm.activeNetwork
+   val capabilities = network?.let(cm::getNetworkCapabilities)
+   val state = JSONObject().put("observed_epoch_ms", System.currentTimeMillis())
+    .put("tunnel_up", TunnelGate.up)
+    .put("active_network_present", network != null)
+    .put("capabilities_known", network == null || capabilities != null)
+    .put("active_vpn", capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ?: false)
+   File(noBackupFilesDir,"wabi-network-state.json").writeText(state.toString())
+   finish(); return
+  }
   val base = intent.getStringExtra("endpoint").orEmpty()
   require(Regex("https://[a-z0-9-]+\\.trycloudflare\\.com").matches(base))
   val path = intent.getStringExtra("case") ?: "ok"
@@ -39,6 +51,7 @@ class WabiTransportActivity : Activity() {
    } catch (e:Exception) {
     result.put("success",false).put("error_type",e.javaClass.simpleName).put("message",e.message)
    }
+   result.put("request_finished_epoch_ms",System.currentTimeMillis())
    result.put("tunnel_up_after",TunnelGate.up)
    result.put("active_vpn_after",cm.activeNetwork?.let(cm::getNetworkCapabilities)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ?: false)
    result.put("partial_file_exists",File(noBackupFilesDir,"mid-subscription-download.txt").exists())

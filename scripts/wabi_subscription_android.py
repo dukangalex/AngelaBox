@@ -148,6 +148,17 @@ def stop_vpn():
  button('Stop','stop-vpn');time.sleep(5)
  assert '172.19.0.1' not in shell('ip','addr'),'TUN remained after Stop'
 
+def network_state_after_stop():
+ # This separate snapshot is intentionally taken AFTER stop_vpn returns. A
+ # request may complete during Android's asynchronous VPN teardown, so its
+ # own at-completion activeNetwork sample is not a post-stop observation.
+ shell('run-as',P,'rm','-f','no_backup/wabi-network-state.json')
+ shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','mode','network-state')
+ for _ in range(20):
+  try:return json.loads(shell('run-as',P,'cat','no_backup/wabi-network-state.json'))
+  except (subprocess.CalledProcessError,json.JSONDecodeError):time.sleep(.25)
+ raise AssertionError('post-stop network observation unavailable')
+
 def sub_case(name,expected,up):
  before=peer_counts(); shell('run-as',P,'rm','-f','no_backup/subscription-result.json')
  shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','case',name)
@@ -177,7 +188,7 @@ def mid_request_case(name):
  else:raise AssertionError('request did not reach controlled peer while VPN up')
  # Peer holds headers/body for 45s. Stop the actual App VPN only after the
  # controlled peer observes this unique request, not before starting it.
- peer_seen=utc_now()
+ peer_seen=utc_now(); peer_seen_monotonic=time.monotonic()
  partial_bytes_before_stop=None
  if name=='mid-file':
   # Require an actual on-device fragment, not merely a peer-side request,
@@ -198,13 +209,18 @@ def mid_request_case(name):
    result=json.loads(shell('run-as',P,'cat','no_backup/subscription-result.json'));break
   except (subprocess.CalledProcessError,json.JSONDecodeError):time.sleep(1)
  else:raise AssertionError('mid-request call did not finish in bounded window')
- # Observe beyond the server's delayed response and possible retry window.
- time.sleep(15)
+ post_stop=network_state_after_stop()
+ # The peer holds 45 seconds from receiving the request. Its observation can
+ # precede our poll by a little; 50 seconds from the poll exceeds that hold.
+ time.sleep(max(0,50-(time.monotonic()-peer_seen_monotonic)))
  after=peer_counts()
- evidence={'result':result,'peer_before':before,'peer_after':after,'started_at':started,'peer_seen_at':peer_seen,'vpn_stopped_at':stopped,'partial_bytes_before_stop':partial_bytes_before_stop,'completed_at':utc_now(),'proxy':proxy_counts(),'addresses_after':shell('ip','addr')}
+ evidence={'result':result,'peer_before':before,'peer_after':after,'started_at':started,'peer_seen_at':peer_seen,'vpn_stopped_at':stopped,'partial_bytes_before_stop':partial_bytes_before_stop,'post_stop_network':post_stop,'completed_at':utc_now(),'proxy':proxy_counts(),'addresses_after':shell('ip','addr')}
  (out/(name+'-subscription.json')).write_text(json.dumps(evidence,indent=2))
  assert result['tunnel_up'] and result['active_vpn'],result
- assert not result['tunnel_up_after'] and not result['active_vpn_after'],result
+ # Preserve the in-request sample (it can catch the teardown transition),
+ # and require an independently observed post-stop network state.
+ assert not result['tunnel_up_after'],result
+ assert post_stop['capabilities_known'] and not post_stop['tunnel_up'] and not post_stop['active_vpn'],post_stop
  assert not result['success'],result
  assert after.get(name,0)==before.get(name,0)+1,evidence
  if name=='mid-file':assert not result['partial_file_exists'],result
