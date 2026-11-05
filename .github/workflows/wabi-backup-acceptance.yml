@@ -1,4 +1,4 @@
-name: PR43 backup bounds and local restore API34 (non-publishing)
+name: PR43 encrypted local backup roundtrip API34 (non-publishing)
 on:
   push:
     branches: [wabi/backup-bounds-acceptance]
@@ -19,7 +19,7 @@ jobs:
       - name: Validate backup harness and product identity
         working-directory: sing-box-for-android
         run: |
-          python3 -m py_compile scripts/wabi_backup_android.py
+          python3 -m py_compile scripts/wabi_backup_encrypted_android.py
           git diff --exit-code 1bac7830e24b4619d5eb8b9356cfb0e92d409018 -- app/src/main
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
@@ -112,7 +112,7 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           set -euo pipefail
-          python3 scripts/wabi_backup_android.py
+          python3 scripts/wabi_backup_encrypted_android.py
       - name: Save emulator state
         if: always()
         working-directory: sing-box-for-android
