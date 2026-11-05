@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """API34 local backup acceptance; production UI with isolated synthetic profile only."""
-import os,json,re,subprocess,time,xml.etree.ElementTree as ET,sqlite3,hashlib,zipfile,tarfile,io
+import os,json,re,subprocess,time,urllib.request,socket,urllib.parse,xml.etree.ElementTree as ET,sqlite3,hashlib,zipfile,tarfile,io
 from pathlib import Path
 P='io.chainbox.app';out=Path('wabi-evidence');out.mkdir(exist_ok=True)
 def adb(*a):return subprocess.check_output(['adb',*a],text=True,timeout=60)
@@ -21,8 +21,42 @@ def find(text,tag,scroll=0):
 def click(text,tag,scroll=0):tap(find(text,tag,scroll))
 def launch():
  shell('am','force-stop',P);shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(5)
+vpn_checks={}
+def proxy_stats():
+ with urllib.request.urlopen('http://127.0.0.1:18972/stats',timeout=5) as r:return json.load(r)
+def start_vpn(tag):
+ for depth in range(5):
+  r=snap(tag+'-vpn-navigation'+str(depth))
+  tabs=[n for n in r.iter('node') if n.get('text')=='Dashboard']
+  if tabs:tap(tabs[0]);break
+  shell('input','keyevent','4');time.sleep(1)
+ else:raise AssertionError('Dashboard unavailable')
+ click('Start',tag+'-vpn-start')
+ for i in range(12):
+  r=snap(tag+'-vpn-running'+str(i));texts=[n.get('text','') for n in r.iter('node')]
+  if 'Connection request' in texts or 'Deprecated Warning' in texts:
+   click('OK',tag+'-vpn-dialog');time.sleep(3);continue
+  allows=[n for n in r.iter('node') if n.get('text') in ('Allow','ALLOW')]
+  if allows:tap(allows[0]);continue
+  if any(n.get('content-desc')=='Stop' for n in r.iter('node')):break
+  time.sleep(2)
+ else:raise AssertionError('VPN did not reach running UI')
+ addr=shell('ip','addr');assert '172.19.0.1' in addr,addr
+ connectivity=shell('dumpsys','connectivity');assert 'TRANSPORT_VPN' in connectivity or 'Transports: VPN' in connectivity,connectivity[-5000:]
+ (out/(tag+'-vpn-addresses.txt')).write_text(addr)
+ (out/(tag+'-vpn-connectivity.txt')).write_text(connectivity)
+ vpn_checks[tag]={'tun_up':True,'vpn_transport_observed':True,'proxy_before':proxy_stats()}
+ shell('input','keyevent','4') if False else None
+
+def route_after(tag):
+ state=proxy_stats();before=vpn_checks[tag]['proxy_before'];vpn_checks[tag]['proxy_after']=state
+ assert state['connect_successes']>before['connect_successes'],(tag,before,state)
+ assert '172.19.0.1' in shell('ip','addr'),tag
+ vpn_checks[tag]['tun_still_up']=True
+
 def backup_screen(tag):
  launch()
+ start_vpn(tag)
  r=snap(tag+'-current')
  # Android restores the last navigation route after process recreation.
  if any(n.get('text')=='备份与恢复' for n in r.iter('node')):return
@@ -68,7 +102,7 @@ def configure(tag):
  backup_screen(tag);click('编辑',tag+'-editor');fill_edits([os.environ['WABI_HTTPS_BASE']+'/dav','fixture','WabiDav2026','backup.zip'],tag+'-fill');click('保存',tag+'-save');time.sleep(10)
 configure('dav-config')
 click('备份数据到 WebDAV','dav-export');fill_edits([password,password],'dav-export-pw');click('Continue','dav-export-confirm');time.sleep(20)
-snap('dav-upload-result')
+snap('dav-upload-result');route_after('dav-config')
 sealed=(out/'webdav-upload.bin').read_bytes();assert sealed[:5]==b'ABKE\x01'
 events=[json.loads(x) for x in (out/'webdav-events.jsonl').read_text().splitlines()];assert any(x['method']=='PUT' and x['code']==201 for x in events)
 # Modify a synthetic profile only; restore must recover the backed up value.
@@ -77,15 +111,17 @@ adb('push',str(mutated),'/data/local/tmp/wabi-mutated.db');shell('run-as',P,'cp'
 changed=db_snapshot('changed');assert changed[0]['name']=='Changed-after-WebDAV-backup'
 backup_screen('dav-restore');click('通过 WebDAV 恢复数据','dav-restore-click');time.sleep(15)
 fill_edits([password],'dav-restore-pw');click('Restore','dav-restore-submit');time.sleep(20)
+route_after('dav-restore')
 after=db_snapshot('after-webdav-restore');assert after[0]['name']=='Backup-Fixture' and after[0]['id']==before[0]['id'],after
 # Invalid/cut responses must not alter data and must leave no restore scratch.
 checks={}
 for mode in ['invalid','truncated']:
  (out/'webdav-mode').write_text(mode)
  backup_screen(mode);click('通过 WebDAV 恢复数据',mode+'-click');time.sleep(40 if mode=='truncated' else 10);snap(mode+'-result')
+ route_after(mode)
  scratch=shell('run-as',P,'sh','-c',"'if test -e cache/chainbox-restore.zip; then wc -c < cache/chainbox-restore.zip; else echo ABSENT; fi'").strip()
  current=db_snapshot('after-'+mode);assert current==after,(mode,current,after)
  checks[mode]={'data_unchanged':True,'scratch':scratch}
-(out/'webdav-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'613c77d2efb5c07662b568db116820e34b651074','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, VPN off','not_covered':['real provider','physical device','VPN on','all backup combinations']},indent=2))
+(out/'webdav-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'613c77d2efb5c07662b568db116820e34b651074','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'vpn_checks':vpn_checks,'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, actual App VPN/TUN on through controlled SOCKS exit','not_covered':['real provider','physical device','VPN interruption during WebDAV','all backup combinations']},indent=2))
 assert all(x['scratch']=='ABSENT' for x in checks.values()),checks
 print('WEBDAV ACCEPTANCE PASSED')

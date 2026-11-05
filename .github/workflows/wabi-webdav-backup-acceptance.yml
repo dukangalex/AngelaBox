@@ -1,4 +1,4 @@
-name: PR44 WebDAV backup API34 (non-publishing)
+name: PR44 VPN-on WebDAV API34 (non-publishing)
 on:
   push:
     branches: [wabi/webdav-backup-acceptance]
@@ -258,6 +258,8 @@ jobs:
           curl -fsSL --max-time 60 -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-amd64
           echo '1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872  /tmp/cloudflared' | sha256sum -c -
           chmod +x /tmp/cloudflared
+          python3 scripts/wabi_socks_peer.py >/tmp/wabi-socks.log 2>&1 &
+          socks=$!
           python3 scripts/wabi_webdav_peer.py >/tmp/wabi-peer.log 2>&1 &
           peer=$!
           tunnel=''
@@ -265,6 +267,7 @@ jobs:
             rc=$?
             [ -z "$tunnel" ] || kill "$tunnel" 2>/dev/null || true
             kill "$peer" 2>/dev/null || true
+            kill "$socks" 2>/dev/null || true
             cp /tmp/wabi-peer.log wabi-evidence/ 2>/dev/null || true
             exit "$rc"
           }
