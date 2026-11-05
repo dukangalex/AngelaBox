@@ -165,6 +165,38 @@ def sub_case(name,expected,up):
  if expected:assert 'synthetic-subscription' in result['body'],result
  snap(name+'-after')
  return result
+def mid_request_case(name):
+ before=peer_counts()
+ shell('run-as',P,'rm','-f','no_backup/subscription-result.json')
+ started=utc_now()
+ shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','endpoint',base,'--es','case',name)
+ for _ in range(80):
+  observed=peer_counts()
+  if observed.get(name,0)==before.get(name,0)+1:break
+  time.sleep(.25)
+ else:raise AssertionError('request did not reach controlled peer while VPN up')
+ # Peer holds headers/body for 45s. Stop the actual App VPN only after the
+ # controlled peer observes this unique request, not before starting it.
+ peer_seen=utc_now()
+ stop_vpn()
+ stopped=utc_now()
+ for _ in range(80):
+  try:
+   result=json.loads(shell('run-as',P,'cat','no_backup/subscription-result.json'));break
+  except (subprocess.CalledProcessError,json.JSONDecodeError):time.sleep(1)
+ else:raise AssertionError('mid-request call did not finish in bounded window')
+ # Observe beyond the server's delayed response and possible retry window.
+ time.sleep(15)
+ after=peer_counts()
+ evidence={'result':result,'peer_before':before,'peer_after':after,'started_at':started,'peer_seen_at':peer_seen,'vpn_stopped_at':stopped,'completed_at':utc_now(),'proxy':proxy_counts(),'addresses_after':shell('ip','addr')}
+ (out/(name+'-subscription.json')).write_text(json.dumps(evidence,indent=2))
+ assert result['tunnel_up'] and result['active_vpn'],result
+ assert not result['tunnel_up_after'] and not result['active_vpn_after'],result
+ assert not result['success'],result
+ assert after.get(name,0)==before.get(name,0)+1,evidence
+ if name=='mid-file':assert not result['partial_file_exists'],result
+ snap(name+'-after')
+ return evidence
 shell('am','start','-W','-n',P+'/io.nekohasekai.sfa.inspection.WabiTransportActivity','--es','mode','controlled-real-dns')
 assert 'dnsProtect=false' in shell('run-as',P,'cat','no_backup/wabi-real-dns-setting.txt')
 start_vpn('allow')
@@ -177,5 +209,18 @@ sub_case('stopped',True,False)
 start_vpn('reject')
 sub_case('blocked',False,True)
 stop_vpn()
-(out/'subscription-scope.txt').write_text('API34 emulator; real VpnService/TUN and production HTTPClient.getString SUBSCRIPTION; synthetic HTTPS peer via runner SOCKS; tests successful download, redirect, HTTP503 no fallback (exact one peer request), stopped-VPN direct behavior, blocked outbound no peer delivery. Not physical device, real subscription provider, mid-request VPN loss kill-switch, UI subscription persistence or complete release acceptance.\n')
-print('Subscription VPN route and lifecycle controls passed')
+# Reuse the existing Controlled-allow profile rather than reimport duplicates.
+def restart_allow():
+ shell('monkey','-p',P,'-c','android.intent.category.LAUNCHER','1');time.sleep(3)
+ root=snap('restart-allow')
+ labels=[n for n in root.iter('node') if n.attrib.get('text','').startswith('Controlled-')]
+ assert labels
+ labels.sort(key=lambda n:int(re.findall(r'\d+',n.attrib['bounds'])[1]));tap(labels[0])
+ root=snap('restart-picker');choices=[n for n in root.iter('node') if n.attrib.get('text')=='Controlled-allow'];assert len(choices)==1;tap(choices[0])
+ shell('input','keyevent','4');time.sleep(2)
+ button('Start','restart-start');time.sleep(6)
+ assert '172.19.0.1' in shell('ip','addr')
+for case in ('mid-failure','mid-body','mid-file'):
+ restart_allow();mid_request_case(case)
+(out/'subscription-scope.txt').write_text('API34 emulator; real VpnService/TUN and unmodified merged production HTTPClient getString/downloadToFile SUBSCRIPTION; synthetic HTTPS peer via runner SOCKS. Baseline success/redirect/503/blocked/stopped cases plus mid-request App VPN Stop after peer receipt, during delayed headers, partial body and file download. Peer counts prove no duplicate endpoint request; tests assert failure and partial-file cleanup. Not physical device, real subscription provider, crash/OS revoke, interface handover, all redirect/connection races, system kill switch, UI subscription persistence or complete release acceptance.\n')
+print('Subscription VPN route and mid-request controls passed')

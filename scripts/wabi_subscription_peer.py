@@ -1,4 +1,4 @@
-import json,threading
+import json,threading,time
 from collections import Counter
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 counts=Counter();lock=threading.Lock()
@@ -14,8 +14,12 @@ class H(BaseHTTPRequestHandler):
    with lock:counts[path]+=1
    body=b'synthetic-subscription';code=503 if path=='failure' else 200
    if path=='redirect':code=302
+   if path=='mid-failure':time.sleep(45);code=503
   self.send_response(code)
   if path=='redirect':self.send_header('Location','/redirect-target')
   self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers()
-  self.wfile.write(body)
+  if path in ('mid-body','mid-file'):
+   self.wfile.write(body[:5]);self.wfile.flush();time.sleep(45)
+   self.wfile.write(body[5:])
+  else:self.wfile.write(body)
 ThreadingHTTPServer(('127.0.0.1',18970),H).serve_forever()

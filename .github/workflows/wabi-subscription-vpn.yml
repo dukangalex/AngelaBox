@@ -1,4 +1,4 @@
-name: PR42 subscription VPN behavior API34 (non-publishing)
+name: PR42 mid-request VPN Stop API34 (non-publishing)
 on:
   push:
     branches: [wabi/subscription-vpn-acceptance]
@@ -21,7 +21,10 @@ jobs:
         run: |
           python3 -m py_compile scripts/wabi_subscription_peer.py scripts/wabi_subscription_android.py
           python3 -m py_compile scripts/wabi_socks_peer.py
-          git diff --exit-code 44dfe1068361d0ca6044c1331eab7996756bda56 -- app/src/main
+          git diff --exit-code b994dfc02f3dfee97a256167bd3dbfcaaac2b727 -- app/src/main
+          mkdir -p wabi-evidence
+          git rev-parse HEAD > wabi-evidence/test-source-head.txt
+          echo b994dfc02f3dfee97a256167bd3dbfcaaac2b727 > wabi-evidence/product-source-head.txt
 
       - name: Read kernel pin
         id: pin
@@ -143,7 +146,10 @@ jobs:
       - name: Verify unmodified production transport source
         working-directory: sing-box-for-android
         run: |
-          git diff --exit-code 44dfe1068361d0ca6044c1331eab7996756bda56 -- app/src/main
+          git diff --exit-code b994dfc02f3dfee97a256167bd3dbfcaaac2b727 -- app/src/main
+          mkdir -p wabi-evidence
+          git rev-parse HEAD > wabi-evidence/test-source-head.txt
+          echo b994dfc02f3dfee97a256167bd3dbfcaaac2b727 > wabi-evidence/product-source-head.txt
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
           printf '%s\n' '44dfe1068361d0ca6044c1331eab7996756bda56' > wabi-evidence/product-source-head.txt

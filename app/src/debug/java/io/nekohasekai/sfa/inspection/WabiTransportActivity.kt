@@ -20,19 +20,28 @@ class WabiTransportActivity : Activity() {
   val base = intent.getStringExtra("endpoint").orEmpty()
   require(Regex("https://[a-z0-9-]+\\.trycloudflare\\.com").matches(base))
   val path = intent.getStringExtra("case") ?: "ok"
-  require(path in listOf("ok","redirect","failure","blocked","stopped"))
+  require(path in listOf("ok","redirect","failure","blocked","stopped","mid-failure","mid-body","mid-file"))
   val cm=getSystemService(ConnectivityManager::class.java)
   val vpn=cm.activeNetwork?.let(cm::getNetworkCapabilities)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ?: false
   val up=TunnelGate.up
   Thread {
    val result=JSONObject().put("case",path).put("tunnel_up",up).put("active_vpn",vpn)
    try {
-    val body=HTTPClient().use { it.getString("$base/$path",RemoteUrlGuard.Kind.SUBSCRIPTION) }
+    val dest=File(noBackupFilesDir,"mid-subscription-download.txt")
+    if(path=="mid-file") dest.delete()
+    val body=HTTPClient().use {
+     if(path=="mid-file") {
+      it.downloadToFile("$base/$path",RemoteUrlGuard.Kind.SUBSCRIPTION,dest)
+      dest.readText()
+     } else it.getString("$base/$path",RemoteUrlGuard.Kind.SUBSCRIPTION)
+    }
     result.put("success",true).put("body",body)
    } catch (e:Exception) {
     result.put("success",false).put("error_type",e.javaClass.simpleName).put("message",e.message)
    }
    result.put("tunnel_up_after",TunnelGate.up)
+   result.put("active_vpn_after",cm.activeNetwork?.let(cm::getNetworkCapabilities)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ?: false)
+   result.put("partial_file_exists",File(noBackupFilesDir,"mid-subscription-download.txt").exists())
    File(noBackupFilesDir,"subscription-result.json").writeText(result.toString())
    runOnUiThread { finish() }
   }.start()
