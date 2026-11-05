@@ -152,7 +152,7 @@ jobs:
           echo b994dfc02f3dfee97a256167bd3dbfcaaac2b727 > wabi-evidence/product-source-head.txt
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          printf '%s\n' '44dfe1068361d0ca6044c1331eab7996756bda56' > wabi-evidence/product-source-head.txt
+          printf '%s\n' 'b994dfc02f3dfee97a256167bd3dbfcaaac2b727' > wabi-evidence/product-source-head.txt
       - name: Build debug x86_64 APK
         working-directory: sing-box-for-android
         run: |
