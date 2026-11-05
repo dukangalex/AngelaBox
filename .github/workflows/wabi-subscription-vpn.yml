@@ -263,16 +263,36 @@ jobs:
           peer=$!
           python3 scripts/wabi_socks_peer.py >/tmp/wabi-socks.log 2>&1 &
           socks=$!
-          /tmp/cloudflared tunnel --url http://127.0.0.1:18970 --no-autoupdate >/tmp/wabi-tunnel.log 2>&1 &
-          tunnel=$!
-          trap 'kill "$tunnel" "$peer" "$socks" 2>/dev/null || true' EXIT
-          for i in $(seq 1 60); do
-            BASE=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/wabi-tunnel.log | head -1 || true)
-            if [ -n "$BASE" ] && curl -fsS --max-time 5 "$BASE/health" | grep -q synthetic-only; then break; fi
-            sleep 2
+          tunnel=''
+          cleanup() {
+            rc=$?
+            [ -z "$tunnel" ] || kill "$tunnel" 2>/dev/null || true
+            kill "$peer" "$socks" 2>/dev/null || true
+            cp /tmp/wabi-peer.log /tmp/wabi-socks.log wabi-evidence/ 2>/dev/null || true
+            exit "$rc"
+          }
+          trap cleanup EXIT
+          # Establish the tunnel before executing any app test. Preserve each
+          # attempt's diagnostics; retry only this disposable setup, never a test.
+          BASE=''
+          ready=false
+          for attempt in 1 2 3; do
+            log="wabi-evidence/tunnel-$attempt.log"
+            /tmp/cloudflared tunnel --url http://127.0.0.1:18970 --no-autoupdate >"$log" 2>&1 &
+            tunnel=$!
+            for i in $(seq 1 60); do
+              BASE=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1 || true)
+              if [ -n "$BASE" ] && curl -fsS --max-time 5 "$BASE/health" | grep -q synthetic-only; then ready=true; break; fi
+              kill -0 "$tunnel" 2>/dev/null || break
+              sleep 2
+            done
+            if [ "$ready" = true ]; then break; fi
+            kill "$tunnel" 2>/dev/null || true
+            wait "$tunnel" 2>/dev/null || true
+            tunnel=''
+            BASE=''
           done
-          test -n "$BASE"
-          curl -fsS --max-time 10 "$BASE/health" | grep -q synthetic-only
+          if [ "$ready" != true ]; then echo '::error::Synthetic HTTPS tunnel did not become healthy; see tunnel logs artifact'; exit 1; fi
           export WABI_HTTPS_BASE="$BASE"
           python3 scripts/wabi_subscription_android.py
       - name: Save emulator state
