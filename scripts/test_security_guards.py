@@ -324,7 +324,11 @@ def test_source_guards() -> None:
     assert "HTTPClient.openPinned" in dav
     assert "UPDATE remote_servers SET secret" in dav
     assert "url.openConnection()" not in dav
-    assert "WebDAV 下载过大" in dav
+    assert "BackupFileIO.copyToFile(input, localFile, MAX_TOTAL_SIZE)" in dav
+    file_io = read("app/src/main/java/io/nekohasekai/sfa/utils/BackupFileIO.kt")
+    assert "require(total <= maxBytes)" in file_io
+    assert "destination.delete()" in file_io
+    assert "validate(destination)" in file_io
 
     exporter = read("app/src/main/java/io/nekohasekai/sfa/bg/DebugInfoExporter.kt")
     assert "setReadable(true, true)" in exporter
