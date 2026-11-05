@@ -42,7 +42,7 @@ def start_vpn(tag):
   time.sleep(2)
  else:raise AssertionError('VPN did not reach running UI')
  addr=shell('ip','addr');assert '172.19.0.1' in addr,addr
- connectivity=shell('dumpsys','connectivity');assert 'TRANSPORT_VPN' in connectivity or 'Transports: VPN' in connectivity,connectivity[-5000:]
+ connectivity=shell('dumpsys','connectivity');assert 'TRANSPORT_VPN' in connectivity or re.search(r'\bTransports:[^\n]*\bVPN\b',connectivity),connectivity[-5000:]
  (out/(tag+'-vpn-addresses.txt')).write_text(addr)
  (out/(tag+'-vpn-connectivity.txt')).write_text(connectivity)
  vpn_checks[tag]={'tun_up':True,'vpn_transport_observed':True,'proxy_before':proxy_stats()}
