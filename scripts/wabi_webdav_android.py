@@ -86,6 +86,6 @@ for mode in ['invalid','truncated']:
  scratch=shell('run-as',P,'sh','-c',"'if test -e cache/chainbox-restore.zip; then wc -c < cache/chainbox-restore.zip; else echo ABSENT; fi'").strip()
  current=db_snapshot('after-'+mode);assert current==after,(mode,current,after)
  checks[mode]={'data_unchanged':True,'scratch':scratch}
-(out/'webdav-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'1bac7830e24b4619d5eb8b9356cfb0e92d409018','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, VPN off','not_covered':['real provider','physical device','VPN on','all backup combinations']},indent=2))
+(out/'webdav-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'613c77d2efb5c07662b568db116820e34b651074','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, VPN off','not_covered':['real provider','physical device','VPN on','all backup combinations']},indent=2))
 assert all(x['scratch']=='ABSENT' for x in checks.values()),checks
 print('WEBDAV ACCEPTANCE PASSED')
