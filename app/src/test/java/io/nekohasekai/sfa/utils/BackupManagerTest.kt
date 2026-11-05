@@ -214,4 +214,38 @@ class BackupManagerTest {
             file.delete()
         }
     }
+
+    @Test
+    fun backupCopyDeletesRejectedContent() {
+        val file = File.createTempFile("backup-invalid", ".zip")
+        try {
+            val result =
+                runCatching {
+                    BackupFileIO.copyToFile("not a backup".byteInputStream(), file) {
+                        error("invalid archive")
+                    }
+                }
+            assertTrue(result.isFailure)
+            assertFalse(file.exists())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun backupCopyValidatesCompleteFileAndRetainsAcceptedContent() {
+        val file = File.createTempFile("backup-valid", ".zip")
+        try {
+            val bytes = "synthetic archive".toByteArray()
+            var validated = false
+            BackupFileIO.copyToFile(bytes.inputStream(), file) { copied ->
+                assertTrue(bytes.contentEquals(copied.readBytes()))
+                validated = true
+            }
+            assertTrue(validated)
+            assertTrue(file.exists())
+        } finally {
+            file.delete()
+        }
+    }
 }

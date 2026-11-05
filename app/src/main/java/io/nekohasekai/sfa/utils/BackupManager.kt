@@ -717,26 +717,17 @@ object BackupManager {
                     error("WebDAV 下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
                 }
                 localFile.parentFile?.mkdirs()
-                var written = 0L
                 conn.inputStream.use { input ->
-                    FileOutputStream(localFile).use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            written += read
-                            if (written > MAX_TOTAL_SIZE) {
-                                localFile.delete()
-                                error("WebDAV 下载过大")
-                            }
-                            output.write(buffer, 0, read)
+                    BackupFileIO.copyToFile(input, localFile, MAX_TOTAL_SIZE) { downloaded ->
+                        require(isZipFile(downloaded) || isEncryptedBackup(downloaded)) {
+                            "下载内容不是备份文件（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
                         }
                     }
                 }
-                require(isZipFile(localFile) || isEncryptedBackup(localFile)) {
-                    "下载内容不是备份文件（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
-                }
                 localFile
+            } catch (e: Exception) {
+                localFile.delete()
+                throw e
             } finally {
                 conn.disconnect()
             }
