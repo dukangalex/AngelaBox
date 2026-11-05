@@ -153,6 +153,7 @@ object BackupManager {
         password: CharArray? = null,
         includeSensitiveItems: Boolean = false,
     ): Result<RestoreReport> {
+        runCatching { BackupFileIO.requireWithinLimit(src) }.exceptionOrNull()?.let { return Result.failure(it) }
         if (!isEncryptedBackup(src)) return restoreZipFile(context, src, compat, includeSensitiveItems)
         if (password == null || password.isEmpty()) {
             return Result.failure(

@@ -7,7 +7,6 @@ import org.junit.Test
 import java.io.File
 
 class BackupManagerTest {
-
     @Test
     fun probeRejectsCleartext() {
         val result = BackupManager.webdavProbe("http://example.com/dav/", "u", "p")
@@ -17,9 +16,10 @@ class BackupManagerTest {
 
     @Test
     fun sslErrorsGetFriendlyHint() {
-        val raw = RuntimeException(
-            "javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.",
-        )
+        val raw =
+            RuntimeException(
+                "javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.",
+            )
         val wrapped = BackupManager.friendlySsl(raw)
         val msg = wrapped.message.orEmpty()
         assertTrue(msg.contains("证书校验失败"))
@@ -48,9 +48,10 @@ class BackupManagerTest {
         val msg = BackupManager.authFailedMessage("https://app.koofr.net/dav/Koofr", 401, "Unauthorized")
         assertTrue(msg.contains("认证失败"))
         assertTrue(msg.contains("Koofr"))
-        val hidden = BackupManager.friendlyProbeDetail(
-            Exception("Expected one of [OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE, PATCH] but was PROPFIND"),
-        )
+        val hidden =
+            BackupManager.friendlyProbeDetail(
+                Exception("Expected one of [OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE, PATCH] but was PROPFIND"),
+            )
         assertFalse(hidden.contains("PROPFIND"))
         assertTrue(hidden.contains("不受支持"))
     }
@@ -88,12 +89,13 @@ class BackupManagerTest {
     @Test
     fun encryptedBackupRejectsWrongPassword() {
         val sealed = BackupCrypto.encrypt("payload".toByteArray(), "right".toCharArray(), iterations = 1_000)
-        val failure = try {
-            BackupCrypto.decrypt(sealed, "wrong".toCharArray())
-            null
-        } catch (e: BackupCrypto.BackupCryptoException) {
-            e.failure
-        }
+        val failure =
+            try {
+                BackupCrypto.decrypt(sealed, "wrong".toCharArray())
+                null
+            } catch (e: BackupCrypto.BackupCryptoException) {
+                e.failure
+            }
         assertEquals(BackupCrypto.Failure.DECRYPT_FAILED, failure)
     }
 
@@ -106,12 +108,13 @@ class BackupManagerTest {
         val flippedSalt = sealed.copyOf()
         flippedSalt[12] = (flippedSalt[12].toInt() xor 0x01).toByte()
         for (bad in listOf(flippedCipher, flippedSalt)) {
-            val failure = try {
-                BackupCrypto.decrypt(bad, "pw".toCharArray())
-                null
-            } catch (e: BackupCrypto.BackupCryptoException) {
-                e.failure
-            }
+            val failure =
+                try {
+                    BackupCrypto.decrypt(bad, "pw".toCharArray())
+                    null
+                } catch (e: BackupCrypto.BackupCryptoException) {
+                    e.failure
+                }
             assertEquals(BackupCrypto.Failure.DECRYPT_FAILED, failure)
         }
     }
@@ -119,12 +122,13 @@ class BackupManagerTest {
     @Test
     fun decryptRejectsPlainZipAsNotEncrypted() {
         val plain = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x00)
-        val failure = try {
-            BackupCrypto.decrypt(plain, "pw".toCharArray())
-            null
-        } catch (e: BackupCrypto.BackupCryptoException) {
-            e.failure
-        }
+        val failure =
+            try {
+                BackupCrypto.decrypt(plain, "pw".toCharArray())
+                null
+            } catch (e: BackupCrypto.BackupCryptoException) {
+                e.failure
+            }
         assertEquals(BackupCrypto.Failure.NOT_ENCRYPTED, failure)
     }
 
@@ -144,5 +148,70 @@ class BackupManagerTest {
     fun probeRejectsRfc1918Https() {
         val result = BackupManager.webdavProbe("https://192.168.1.8/dav/", "u", "p")
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun localBackupCopyAcceptsExactLimit() {
+        val file = File.createTempFile("backup-copy", ".zip")
+        try {
+            val bytes = ByteArray(16) { it.toByte() }
+            BackupFileIO.copyToFile(bytes.inputStream(), file, 16)
+            assertTrue(bytes.contentEquals(file.readBytes()))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun localBackupCopyRejectsOverflowAndDeletesPartial() {
+        val file = File.createTempFile("backup-copy", ".zip")
+        try {
+            val result =
+                runCatching {
+                    BackupFileIO.copyToFile(ByteArray(17).inputStream(), file, 16)
+                }
+            assertTrue(result.isFailure)
+            assertFalse(file.exists())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun localBackupCopyDeletesPartialAfterReadFailure() {
+        val file = File.createTempFile("backup-copy", ".zip")
+        val input =
+            object : java.io.InputStream() {
+                var calls = 0
+
+                override fun read(): Int = error("unused")
+
+                override fun read(
+                    bytes: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int {
+                    if (calls++ > 0) throw java.io.IOException("document provider failed")
+                    bytes[offset] = 1
+                    return 1
+                }
+            }
+        try {
+            assertTrue(runCatching { BackupFileIO.copyToFile(input, file, 16) }.isFailure)
+            assertFalse(file.exists())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun backupInputLengthRejectsOversize() {
+        val file = File.createTempFile("backup-limit", ".bin")
+        try {
+            java.io.RandomAccessFile(file, "rw").use { it.setLength(128L * 1024 * 1024 + 1) }
+            assertTrue(runCatching { BackupFileIO.requireWithinLimit(file) }.isFailure)
+        } finally {
+            file.delete()
+        }
     }
 }

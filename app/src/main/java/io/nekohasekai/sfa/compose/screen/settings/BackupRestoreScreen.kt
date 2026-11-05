@@ -59,6 +59,7 @@ import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.BackupFileIO
 import io.nekohasekai.sfa.utils.BackupManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -264,7 +265,7 @@ fun BackupRestoreScreen(navController: NavController) {
                 runCatching {
                     val tmp = File(context.cacheDir, "chainbox-restore.zip")
                     context.contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(tmp).use { output -> input.copyTo(output) }
+                        BackupFileIO.copyToFile(input, tmp)
                     } ?: error("无法读取文件")
                     tmp
                 }
