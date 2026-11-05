@@ -44,11 +44,14 @@ def db_snapshot(tag):
  return [{'id':i,'name':n,'typed_sha256':hashlib.sha256(t).hexdigest()} for i,n,t in rows]
 
 launch()
-r=snap('first-launch');decline=[n for n in r.iter('node') if n.get('text')=='No thanks']
+r=snap('first-launch');decline=[n for n in r.iter('node') if n.get('text') in ('No thanks','No, thanks')]
 if decline:tap(decline[0])
 uri='sing-box://import-remote-profile?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdukangalex%2FAngelaBox%2F2c8013aba285be459a65c85747fa2cb224ffb770%2Fscripts%2Fwabi_egress_allow.json#Backup-Fixture'
 shell('am','start','-a','android.intent.action.VIEW','-d',uri,'-p',P);time.sleep(3)
-click('OK','import-confirm');click('Create','import-create');time.sleep(15)
+click('OK','import-confirm');time.sleep(2)
+r=snap('after-import-confirm');decline=[n for n in r.iter('node') if n.get('text') in ('No thanks','No, thanks')]
+if decline:tap(decline[0])
+click('Create','import-create');time.sleep(15)
 before=db_snapshot('before-backup');assert len(before)==1 and before[0]['name']=='Backup-Fixture',before
 backup_screen('export');click('备份数据到本地','export-local',6);click('Continue','export-plain')
 r=snap('export-picker');edits=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText'];assert len(edits)==1
