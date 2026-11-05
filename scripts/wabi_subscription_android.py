@@ -178,6 +178,8 @@ def mid_request_case(name):
  # Peer holds headers/body for 45s. Stop the actual App VPN only after the
  # controlled peer observes this unique request, not before starting it.
  peer_seen=utc_now()
+ # Save partial progress even when the UI stop or subsequent assertion fails.
+ (out/(name+'-started.json')).write_text(json.dumps({'peer_before':before,'peer_at_stop':observed,'started_at':started,'peer_seen_at':peer_seen,'addresses_before_stop':shell('ip','addr')},indent=2))
  stop_vpn()
  stopped=utc_now()
  for _ in range(80):
@@ -218,7 +220,19 @@ def restart_allow():
  labels.sort(key=lambda n:int(re.findall(r'\d+',n.attrib['bounds'])[1]));tap(labels[0])
  root=snap('restart-picker');choices=[n for n in root.iter('node') if n.attrib.get('text')=='Controlled-allow'];assert len(choices)==1;tap(choices[0])
  shell('input','keyevent','4');time.sleep(2)
- button('Start','restart-start');time.sleep(6)
+ button('Start','restart-start')
+ # A restart can show the same deprecated-configuration dialog as first boot.
+ # Finish consent/warnings BEFORE launching the held request: otherwise the
+ # modal obscures Stop and the 45-second peer hold expires during UI search.
+ for i in range(10):
+  root=snap('restart-running'+str(i));texts=[n.attrib.get('text','') for n in root.iter('node')]
+  if 'Connection request' in texts or 'Deprecated Warning' in texts:
+   button('OK','restart-system-dialog');time.sleep(3);continue
+  allowed=[n for n in root.iter('node') if n.attrib.get('text') in ('Allow','ALLOW')]
+  if allowed:tap(allowed[0]);continue
+  if any(n.attrib.get('content-desc')=='Stop' for n in root.iter('node')):break
+  time.sleep(2)
+ else:raise AssertionError('restarted VPN did not reach unobscured running UI')
  assert '172.19.0.1' in shell('ip','addr')
 for case in ('mid-failure','mid-body','mid-file'):
  restart_allow();mid_request_case(case)
