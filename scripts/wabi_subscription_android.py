@@ -199,7 +199,13 @@ def mid_request_case(name):
     if partial_bytes_before_stop>0:break
    except (subprocess.CalledProcessError,ValueError):pass
    time.sleep(.25)
-  else:raise AssertionError('mid-file did not create an on-device partial download before Stop')
+  else:
+   failure={'peer_before':before,'peer_at_stop':observed,'started_at':started,'peer_seen_at':peer_seen,'partial_bytes_before_stop':partial_bytes_before_stop,'addresses_before_stop':shell('ip','addr')}
+   try:failure['request_result']=json.loads(shell('run-as',P,'cat','no_backup/subscription-result.json'))
+   except (subprocess.CalledProcessError,json.JSONDecodeError):pass
+   (out/(name+'-fragment-missing.json')).write_text(json.dumps(failure,indent=2))
+   snap(name+'-fragment-missing')
+   raise AssertionError('mid-file did not create an on-device partial download before Stop')
  # Save partial progress even when the UI stop or subsequent assertion fails.
  (out/(name+'-started.json')).write_text(json.dumps({'peer_before':before,'peer_at_stop':observed,'started_at':started,'peer_seen_at':peer_seen,'partial_bytes_before_stop':partial_bytes_before_stop,'addresses_before_stop':shell('ip','addr')},indent=2))
  stop_vpn()

@@ -15,11 +15,15 @@ class H(BaseHTTPRequestHandler):
    body=b'synthetic-subscription';code=503 if path=='failure' else 200
    if path=='redirect':code=302
    if path=='mid-failure':time.sleep(45);code=503
+   # A five-byte prefix may remain inside HTTPS proxy/client buffering.
+   # Send enough to cross buffers, while retaining an incomplete body.
+   if path=='mid-file':body=b'synthetic-subscription\n'*(32*1024)
   self.send_response(code)
   if path=='redirect':self.send_header('Location','/redirect-target')
   self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers()
   if path in ('mid-body','mid-file'):
-   self.wfile.write(body[:5]);self.wfile.flush();time.sleep(45)
-   self.wfile.write(body[5:])
+   prefix=256*1024 if path=='mid-file' else 5
+   self.wfile.write(body[:prefix]);self.wfile.flush();time.sleep(45)
+   self.wfile.write(body[prefix:])
   else:self.wfile.write(body)
 ThreadingHTTPServer(('127.0.0.1',18970),H).serve_forever()
