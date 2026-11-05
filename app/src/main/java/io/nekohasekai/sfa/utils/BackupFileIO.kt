@@ -4,7 +4,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 
-/** Bounds local restore input just like the existing WebDAV download path. */
+/** Bounds restore input and removes rejected or interrupted copies. */
 internal object BackupFileIO {
     private const val MAX_ARCHIVE_BYTES = 128L * 1024 * 1024
 
@@ -17,6 +17,7 @@ internal object BackupFileIO {
         input: InputStream,
         destination: File,
         maxBytes: Long = MAX_ARCHIVE_BYTES,
+        validate: (File) -> Unit = {},
     ) {
         require(maxBytes >= 0)
         try {
@@ -31,6 +32,7 @@ internal object BackupFileIO {
                     output.write(buffer, 0, read)
                 }
             }
+            validate(destination)
         } catch (e: Exception) {
             destination.delete()
             throw e
