@@ -41,6 +41,7 @@ object InspectionAdvice {
         "根因尚未确定；未知和未检查不能当作正常。" to ("The root cause is unknown; unknown and unchecked do not mean healthy." to "根因尚未確定；未知和未檢查不能當作正常。"),
         "本地证据优先复核：活动网络（采集时未发现活动网络）。" to ("Local evidence to review first: active network (none was found at collection time)." to "本地證據優先複核：活動網路（採集時未發現活動網路）。"),
         "本地证据优先复核：VPN 服务（采集时未运行）。" to ("Local evidence to review first: VPN service (not running at collection time)." to "本地證據優先複核：VPN 服務（採集時未運行）。"),
+        "本地证据优先复核：DNS canary（金丝雀未解析，结果未知，不能当作正常）。" to ("Local evidence to review first: DNS canary (canary not resolved; result unknown, not healthy)." to "本地證據優先複核：DNS canary（金絲雀未解析，結果未知，不能當作正常）。"),
         "AI 未选出可复核项目，这不表示所有功能正常。" to ("AI selected no items for review; this does not mean everything is working." to "AI 未選出可複核項目，這不表示所有功能正常。"),
         "可选下一步：重新运行相同的本地巡检，对照新旧记录；是否继续由你决定，不会自动修改配置或路由。" to ("Optional next step: rerun the same local inspection and compare the records. You decide whether to continue; configuration and routes are never changed automatically." to "可選的下一步：重新執行相同的本地巡檢，對照新舊紀錄；是否繼續由你決定，不會自動修改設定或路由。"),
     )
@@ -132,10 +133,13 @@ object InspectionAdvice {
         val networkAbsent = facts.any { it.id == "network" && it.state == InspectionPolicy.State.ATTENTION && it.code == "absent" }
         // A stopped service is also an observed, locally known state, not a model inference.
         val serviceStopped = facts.any { it.id == "service" && it.state == InspectionPolicy.State.OBSERVED && it.code == "stopped" }
+        // An unresolved DNS canary is unknown, not a fault: it must stay visible even when the model omits DNS.
+        val dnsCanaryUnknown = facts.any { it.id == "DNS" && it.state == InspectionPolicy.State.UNKNOWN && it.code == "canary_not_resolved" }
         return buildString {
             if (selected != null) appendLine(translated("AI 选择仅供参考，不代表优先级或根因，可能遗漏项目；全部本地记录见下方，不显示模型自由文本。", language))
             if (networkAbsent) appendLine(translated("本地证据优先复核：活动网络（采集时未发现活动网络）。", language))
             if (serviceStopped) appendLine(translated("本地证据优先复核：VPN 服务（采集时未运行）。", language))
+            if (dnsCanaryUnknown) appendLine(translated("本地证据优先复核：DNS canary（金丝雀未解析，结果未知，不能当作正常）。", language))
             if (selected != null) {
                 if (selected.isEmpty()) {
                     appendLine(translated("AI 未选出可复核项目，这不表示所有功能正常。", language))

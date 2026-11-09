@@ -230,6 +230,38 @@ class InspectionPolicyTest {
         assertTrue(bothText.contains("本地证据优先复核：VPN 服务"))
     }
 
+    @Test fun dnsCanaryUnknownIsLocallyPrioritizedWithoutClaimingDnsFault() {
+        val facts = listOf(
+            InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"),
+            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, "running"),
+            InspectionPolicy.Fact("TUNNEL", InspectionPolicy.State.ATTENTION, "timeout"),
+            InspectionPolicy.Fact("TUNNEL_1A", InspectionPolicy.State.ATTENTION, "timeout"),
+            InspectionPolicy.Fact("TUNNEL_1B", InspectionPolicy.State.ATTENTION, "timeout"),
+            InspectionPolicy.Fact("TUNNEL_2A", InspectionPolicy.State.ATTENTION, "timeout"),
+            InspectionPolicy.Fact("DNS", InspectionPolicy.State.UNKNOWN, "canary_not_resolved"),
+        )
+        val payload = InspectionPolicy.payload(snapshot().copy(facts = facts), "1", "1")
+        // The model omits DNS here, as in the Colab canary runs; the local priority line must still surface it.
+        val text = InspectionAdvice.render("""{"review":["TUNNEL","TUNNEL_1A","TUNNEL_1B","TUNNEL_2A"]}""", payload)
+        assertTrue(text.contains("本地证据优先复核：DNS canary（金丝雀未解析，结果未知，不能当作正常）"))
+        assertTrue(text.indexOf("本地证据优先复核：DNS canary") < text.indexOf("本次本地记录"))
+        assertTrue(text.contains("根因尚未确定"))
+        assertFalse(text.contains("AI 建议优先复核"))
+        assertTrue(text.contains("AI 选择的项目（按 ID 排列，不分优先级）：App HTTPS 探测、HTTPS 第一轮目标 A、HTTPS 第一轮目标 B、HTTPS 第二轮目标 A。"))
+        val en = InspectionAdvice.render("""{"review":["TUNNEL","TUNNEL_1A","TUNNEL_1B","TUNNEL_2A"]}""", payload, InspectionAdvice.Language.ENGLISH)
+        assertTrue(en.contains("Local evidence to review first: DNS canary (canary not resolved; result unknown, not healthy)."))
+        assertTrue(en.indexOf("Local evidence to review first: DNS canary") < en.indexOf("Local observations from this run"))
+        val tw = InspectionAdvice.render("""{"review":["TUNNEL","TUNNEL_1A","TUNNEL_1B","TUNNEL_2A"]}""", payload, InspectionAdvice.Language.TRADITIONAL)
+        assertTrue(tw.contains("本地證據優先複核：DNS canary（金絲雀未解析，結果未知，不能當作正常）。"))
+        // Without the canary fact the line must not appear.
+        val resolved = InspectionPolicy.payload(
+            snapshot().copy(facts = facts.filter { it.id != "DNS" }),
+            "1",
+            "1",
+        )
+        assertFalse(InspectionAdvice.render("""{"review":["TUNNEL","TUNNEL_1A","TUNNEL_1B","TUNNEL_2A"]}""", resolved).contains("DNS canary（金丝雀未解析"))
+    }
+
     @Test fun modelSelectionsAreUnrankedAndCannotHideLocalEvidence() {
         val facts = listOf(
             InspectionPolicy.Fact("network", InspectionPolicy.State.OBSERVED, "present"),
