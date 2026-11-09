@@ -322,6 +322,9 @@ jobs:
             --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
             --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
             --tests io.nekohasekai.sfa.inspection.InspectionPolicyTest \
+            --tests io.nekohasekai.sfa.inspection.StableInspectionCollectionTest \
+            --tests io.nekohasekai.sfa.inspection.RecoveringInspectionCollectionTest \
+            --tests io.nekohasekai.sfa.inspection.NetworkEvidenceTrackerTest \
             --tests io.nekohasekai.sfa.inspection.InspectionAiTransportTest \
             --tests io.nekohasekai.sfa.inspection.InspectionAiLocalEndpointTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
