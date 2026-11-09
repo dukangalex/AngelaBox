@@ -218,10 +218,21 @@ fun InspectionScreen(navController: NavController) {
                                 answer = output
                                 answerStamp = approved.stamp
                             } else {
-                                message = R.string.inspection_failed
+                                message = R.string.inspection_ai_stale
                             }
                         } catch (e: CancellationException) {
                             throw e
+                        } catch (e: InspectionAi.Failure) {
+                            message = when (e.reason) {
+                                InspectionAi.FailureReason.TIMEOUT -> R.string.inspection_ai_timeout
+                                InspectionAi.FailureReason.HTTP_ERROR -> R.string.inspection_ai_http_error
+                                InspectionAi.FailureReason.NETWORK_ERROR -> R.string.inspection_ai_network_error
+                                InspectionAi.FailureReason.RESPONSE_FORMAT -> R.string.inspection_ai_response_format
+                                InspectionAi.FailureReason.RESPONSE_LIMIT -> R.string.inspection_ai_response_limit
+                                InspectionAi.FailureReason.UNSUPPORTED_RESPONSE -> R.string.inspection_ai_unsupported_response
+                                InspectionAi.FailureReason.SENSITIVE_ADVICE -> R.string.inspection_ai_sensitive_advice
+                                InspectionAi.FailureReason.STALE_EVIDENCE -> R.string.inspection_ai_stale
+                            }
                         } catch (_: Exception) {
                             message = R.string.inspection_ai_failed
                         } finally {

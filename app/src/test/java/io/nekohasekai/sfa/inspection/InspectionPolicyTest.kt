@@ -51,6 +51,15 @@ class InspectionPolicyTest {
         assertEquals(fact, InspectionPolicy.normalized(fact))
     }
 
+    @Test fun payloadExplainsWhyDnsCanaryNonresolutionIsAmbiguous() {
+        val limitations = JSONObject(InspectionPolicy.payload(snapshot(), "1.0.138-beta", "v1.15.0-chain.11")).getString("limitations")
+        assertTrue(limitations.contains("intentionally nonexistent .invalid"))
+        assertTrue(limitations.contains("NXDOMAIN or a resolver error"))
+        assertTrue(limitations.contains("neither working nor broken DNS"))
+        assertTrue(limitations.contains("FakeIP may intentionally return a synthetic address"))
+        assertTrue(limitations.contains("do not treat either result as proof of a resolver fault"))
+    }
+
     @Test fun unknownNeverBecomesHealthy() {
         val result = InspectionPolicy.normalized(InspectionPolicy.Fact("DNS", InspectionPolicy.State.OBSERVED, "future-code"))
         assertEquals(InspectionPolicy.State.UNKNOWN, result.state)
@@ -61,6 +70,17 @@ class InspectionPolicyTest {
         val s = snapshot()
         assertEquals(InspectionPolicy.evidenceKey(s), InspectionPolicy.evidenceKey(s.copy(facts = s.facts.reversed())))
         assertTrue(InspectionPolicy.attention(listOf(InspectionPolicy.Fact("network", InspectionPolicy.State.ATTENTION, "absent"))))
+    }
+
+    @Test fun aiResponseRejectsKnownSensitiveDataTermsConservatively() {
+        fun response(content: String) = JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString().toByteArray()
+        val examples = listOf("请检查设备日志", "請提供日誌", "look at system logs", "run LOGCAT", "分享密码", "send your API key", "提供订阅链接", "ＬＯＧＳ", "查看运行记录并发给客服", "提供诊断记录", "发送错误报告", "导出调试信息", "上传订阅内容", "提供令牌", "发送 API token")
+        for (example in examples) {
+            assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response(example)) }
+        }
+        // Conservative: even a benign negative statement is rejected.
+        assertThrows(IllegalArgumentException::class.java) { InspectionAi.parseResponse(response("不要发送日志")) }
+        assertEquals("网络暂不可用，请稍后重试。", InspectionAi.parseResponse(response("网络暂不可用，请稍后重试。")))
     }
 
     @Test fun aiResponseAllowsEmptyToolCallsButRejectsToolsOrUnboundedContent() {
@@ -83,6 +103,9 @@ class InspectionPolicyTest {
         assertEquals("example-model", body.getString("model"))
         assertFalse(body.has("tools"))
         assertFalse(body.has("api_key"))
+        val system = body.getJSONArray("messages").getJSONObject(0).getString("content")
+        assertTrue(system.contains("Tunnel status alone does not verify NAT, proxy configuration, or traffic routing"))
+        assertTrue(system.contains("Never suggest bypassing the VPN or directly querying public DNS"))
         assertEquals(payload, body.getJSONArray("messages").getJSONObject(1).getString("content"))
     }
 
