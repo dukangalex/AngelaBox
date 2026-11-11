@@ -535,7 +535,8 @@ object ConfigQuicOverride {
      * (NF-7)；dnsProtectLegacyFillOnly 开启时回到旧行为——只补空白。
      *
      * DNS 韧性默认值（1.14+ 内核均支持；已有用户配置只做加法不覆盖）：
-     * - optimistic：过期缓存先返回、后台刷新，弱网/断网瞬间解析成功率更高；
+     * - optimistic：不启用 reverse_mapping 时默认打开；反向映射开启时默认关闭，
+     *   避免过期缓存 TTL 1 缩短仍有效的域名路由映射（上游 #4695）；
      * - timeout：单查询 5s（内核默认 10s），弱网下 fallback 更快；
      * - cache_capacity：LRU 2048（小于 1024 会被内核忽略），提升命中率、省电省流量。
      */
@@ -552,7 +553,10 @@ object ConfigQuicOverride {
             dns.put("strategy", "prefer_ipv4")
         }
         if (!dns.has("optimistic")) {
-            dns.put("optimistic", true)
+            // Upstream #4695 reproduces on pinned chain.11: an optimistic TTL 1
+            // reply can expire a still-valid reverse mapping from another transport.
+            // Only adjust our implicit default; an explicit user value stays theirs.
+            dns.put("optimistic", !dns.optBoolean("reverse_mapping", false))
         }
         if (!dns.has("timeout")) {
             dns.put("timeout", "5s")

@@ -106,6 +106,36 @@ class ConfigQuicOverrideTest {
     }
 
     @Test
+    fun dnsProtectDoesNotDefaultOptimisticWithReverseMapping() {
+        val root = JSONObject().put("dns", JSONObject().put("reverse_mapping", true))
+        ConfigQuicOverride.applyDnsProtect(root)
+        assertFalse(root.getJSONObject("dns").getBoolean("optimistic"))
+        ConfigQuicOverride.applyDnsProtect(root)
+        assertFalse(root.getJSONObject("dns").getBoolean("optimistic"))
+        assertTrue(root.getJSONObject("dns").getBoolean("reverse_mapping"))
+    }
+
+    @Test
+    fun dnsProtectKeepsExplicitOptimisticWithReverseMapping() {
+        for (chosen in listOf(true, false)) {
+            val root =
+                JSONObject().put(
+                    "dns",
+                    JSONObject().put("reverse_mapping", true).put("optimistic", chosen),
+                )
+            ConfigQuicOverride.applyDnsProtect(root)
+            assertEquals(chosen, root.getJSONObject("dns").getBoolean("optimistic"))
+        }
+    }
+
+    @Test
+    fun dnsProtectKeepsOptimisticDefaultWhenReverseMappingDisabled() {
+        val root = JSONObject().put("dns", JSONObject().put("reverse_mapping", false))
+        ConfigQuicOverride.applyDnsProtect(root)
+        assertTrue(root.getJSONObject("dns").getBoolean("optimistic"))
+    }
+
+    @Test
     fun dnsProtectKeepsUserResilienceValues() {
         val root = JSONObject().put(
             "dns",

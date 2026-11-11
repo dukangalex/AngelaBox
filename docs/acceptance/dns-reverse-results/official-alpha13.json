@@ -1,0 +1,28 @@
+[
+  {
+    "case": "ordinary",
+    "first_reply_ttl": 1,
+    "second_reply_ttl": 300,
+    "baseline_domain_route": true,
+    "domain_route_within_second_reply_ttl": true,
+    "domain_route_1_25s_later": true,
+    "earlier_long_reply_still_valid_seconds": 297.537,
+    "requery_ttl": 297,
+    "domain_route_after_requery": true,
+    "short_upstream_queries": 2,
+    "long_upstream_queries": 1
+  },
+  {
+    "case": "optimistic",
+    "first_reply_ttl": 1,
+    "second_reply_ttl": 1,
+    "baseline_domain_route": true,
+    "domain_route_within_second_reply_ttl": true,
+    "domain_route_1_25s_later": false,
+    "earlier_long_reply_still_valid_seconds": 297.542,
+    "requery_ttl": 297,
+    "domain_route_after_requery": true,
+    "short_upstream_queries": 2,
+    "long_upstream_queries": 1
+  }
+]
