@@ -233,10 +233,10 @@ time.sleep(36)
 new=read_events()[len(prior):]
 post=[e for e in new if e['mode']=='probe-mid-headers' and e['monotonic_ns']>stopped]
 (out/'probe-midstop-summary.json').write_text(json.dumps({'stopped_monotonic_ns':stopped,'events':new,'proxy_targets':new_targets},indent=2))
-assert not any(e['method'] in ('OPTIONS','GET') for e in post),post
+assert not post,('automatic probe made a request after VPN Stop',post)
 (out/'webdav-mode').write_text('normal')
 backup_screen('after-probe-stop')
-print('PROBE FALLBACK INTERRUPTION OBSERVATION PASSED')
+print('PROBE FALLBACK AND AUTOMATIC REPROBE INTERRUPTION OBSERVATION PASSED')
 click('备份数据到 WebDAV','dav-export');fill_edits([password,password],'dav-export-pw');click('Continue','dav-export-confirm');time.sleep(20)
 snap('dav-upload-result');route_after('dav-config',urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname)
 sealed=(out/'webdav-upload.bin').read_bytes();assert sealed[:5]==b'ABKE\x01'
@@ -258,7 +258,7 @@ for mode in ['invalid','truncated']:
  scratch=shell('run-as',P,'sh','-c',"'if test -e cache/chainbox-restore.zip; then wc -c < cache/chainbox-restore.zip; else echo ABSENT; fi'").strip()
  current=db_snapshot('after-'+mode);assert current==after,(mode,current,after)
  checks[mode]={'data_unchanged':True,'scratch':scratch}
-(out/'webdav-baseline-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'vpn_checks':vpn_checks,'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, actual App VPN/TUN on through controlled SOCKS exit','not_covered':['real provider','physical device','VPN interruption during WebDAV','all backup combinations']},indent=2))
+(out/'webdav-baseline-summary.json').write_text(json.dumps({'roundtrip_passed':True,'checks':checks,'product_sha':'db7ec229ec42456f1538dc070514944901157481','before':before,'changed':changed,'after':after,'encrypted_size':len(sealed),'vpn_checks':vpn_checks,'scope':'API34 production UI, synthetic HTTPS WebDAV fixture, actual App VPN/TUN on through controlled SOCKS exit','not_covered':['real provider','physical device','VPN interruption during WebDAV','all backup combinations']},indent=2))
 assert all(x['scratch']=='ABSENT' for x in checks.values()),checks
 print('WEBDAV ACCEPTANCE PASSED')
 
@@ -359,7 +359,7 @@ for mode in ('mid-headers','mid-body'):
  state=db_snapshot('after-'+mode)
  check={**started,'vpn_stopped_monotonic_ns':stopped,'completion_monotonic_ns':time.monotonic_ns(),'scratch_after':scratch,'peer_after':captured,'failure_ui_seen':failure_ui,'data_unchanged':state==after,'get_requests':len(gets)}
  midchecks[mode]=check
- (out/'webdav-midstop-summary.json').write_text(json.dumps({'product_sha':'aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6','checks':midchecks,'scope':'API34 emulator; production WebDAV UI and VpnService; synthetic encrypted backup and HTTPS WebDAV fixture through controlled SOCKS; notification Stop during GET headers or partial body','not_covered':['physical device','real WebDAV provider','PUT interruption','all backup combinations','OS revocation/crash','system kill switch']},indent=2))
+ (out/'webdav-midstop-summary.json').write_text(json.dumps({'product_sha':'db7ec229ec42456f1538dc070514944901157481','checks':midchecks,'scope':'API34 emulator; production WebDAV UI and VpnService; synthetic encrypted backup and HTTPS WebDAV fixture through controlled SOCKS; notification Stop during GET headers or partial body','not_covered':['physical device','real WebDAV provider','PUT interruption','all backup combinations','OS revocation/crash','system kill switch']},indent=2))
  assert scratch=='ABSENT',(mode,scratch)
  assert state==after,(mode,state,after)
  assert len(gets)==1,(mode,captured)

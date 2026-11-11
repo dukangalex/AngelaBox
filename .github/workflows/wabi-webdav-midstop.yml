@@ -20,10 +20,10 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           python3 -m py_compile scripts/wabi_webdav_android.py
-          test "$(git rev-parse HEAD:app/src/main)" = "$(git rev-parse aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6:app/src/main)"
+          test "$(git rev-parse HEAD:app/src/main)" = "$(git rev-parse db7ec229ec42456f1538dc070514944901157481:app/src/main)"
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          echo aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6 > wabi-evidence/product-source-head.txt
+          echo db7ec229ec42456f1538dc070514944901157481 > wabi-evidence/product-source-head.txt
 
       - name: Read kernel pin
         id: pin
@@ -145,13 +145,13 @@ jobs:
       - name: Verify production source matches candidate
         working-directory: sing-box-for-android
         run: |
-          test "$(git rev-parse HEAD:app/src/main)" = "$(git rev-parse aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6:app/src/main)"
+          test "$(git rev-parse HEAD:app/src/main)" = "$(git rev-parse db7ec229ec42456f1538dc070514944901157481:app/src/main)"
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          echo aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6 > wabi-evidence/product-source-head.txt
+          echo db7ec229ec42456f1538dc070514944901157481 > wabi-evidence/product-source-head.txt
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          printf '%s\n' 'aeaef2fcb22d590e9f3f7ab17aae0fdb7b9717a6' > wabi-evidence/product-source-head.txt
+          printf '%s\n' 'db7ec229ec42456f1538dc070514944901157481' > wabi-evidence/product-source-head.txt
       - name: Build debug x86_64 APK
         working-directory: sing-box-for-android
         run: |
