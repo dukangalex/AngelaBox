@@ -742,8 +742,10 @@ object BackupManager {
         password: String,
         remoteName: String = "",
         requiredTunnelGeneration: Long? = null,
+        expectedServiceGeneration: Long? = null,
     ): Result<Boolean> = runCatching {
         wrapSsl {
+            TunnelGate.requireGeneration(expectedServiceGeneration)
             if (username.isBlank() || password.isBlank()) {
                 error("请填写 WebDAV 用户名和密码")
             }
@@ -756,7 +758,7 @@ object BackupManager {
             // Do not switch a probe that started inside our VPN to direct for
             // later fallback methods after a stop or restart.
             val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
-            ensureProbeTunnel(tunnelGeneration)
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
             val attempts = listOf(
                 fileUrl to "HEAD",
                 base to "OPTIONS",
@@ -764,21 +766,21 @@ object BackupManager {
                 base to "GET",
             )
             for ((target, method) in attempts) {
-                ensureProbeTunnel(tunnelGeneration)
+                ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                 val conn = try {
-                    openWebDav(target, username, password, tunnelGeneration).apply {
+                    openWebDav(target, username, password, tunnelGeneration, expectedServiceGeneration).apply {
                         requestMethod = method
                         instanceFollowRedirects = false
                     }
                 } catch (e: Exception) {
-                    ensureProbeTunnel(tunnelGeneration)
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     lastDetail = friendlyProbeDetail(e)
                     continue
                 }
                 try {
-                    ensureProbeTunnel(tunnelGeneration)
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     val code = conn.responseCode
-                    ensureProbeTunnel(tunnelGeneration)
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     val loc = conn.getHeaderField("Location").orEmpty()
                     lastDetail = "$method HTTP $code"
                     when (classifyProbe(code)) {
@@ -833,7 +835,7 @@ object BackupManager {
                         ProbeClass.OTHER -> { }
                     }
                 } catch (e: Exception) {
-                    ensureProbeTunnel(tunnelGeneration)
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
                     lastDetail = friendlyProbeDetail(e)
                 } finally {
@@ -847,7 +849,8 @@ object BackupManager {
         }
     }
 
-    internal fun ensureProbeTunnel(generation: Long?) {
+    internal fun ensureProbeTunnel(generation: Long?, expectedServiceGeneration: Long? = null) {
+        TunnelGate.requireGeneration(expectedServiceGeneration)
         if (generation != null && (!TunnelGate.up || TunnelGate.generation != generation)) {
             error("VPN 已中断，已停止 WebDAV 探测")
         }
@@ -934,8 +937,9 @@ object BackupManager {
         username: String,
         password: String,
         requiredTunnelGeneration: Long? = null,
+        expectedServiceGeneration: Long? = null,
     ): HttpsURLConnection {
-        ensureProbeTunnel(requiredTunnelGeneration)
+        ensureProbeTunnel(requiredTunnelGeneration, expectedServiceGeneration)
         val checked = requireHttps(url)
         // When the tunnel is up, system DNS answers fake-ip and direct DNS
         // often fails: dial by name and let the tunnel resolve upstream (same
@@ -943,7 +947,7 @@ object BackupManager {
         // verifies the hostname. Tunnel down keeps the pinned direct connection.
         val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
         val conn = if (tunnelGeneration != null) {
-            ensureProbeTunnel(tunnelGeneration)
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
             // Pin to the VPN Network itself, not merely the current default.
             // Missing/ambiguous VPN visibility fails closed; never retry direct.
             // NORMAL proxy service has no Android VPN Network. Preserve its
@@ -957,7 +961,7 @@ object BackupManager {
             } else {
                 null
             }
-            ensureProbeTunnel(tunnelGeneration)
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
             HTTPClient.openNamed(
                 checked,
                 RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
@@ -967,6 +971,12 @@ object BackupManager {
             )
         } else {
             HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        }
+        try {
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
+        } catch (e: Exception) {
+            conn.disconnect()
+            throw e
         }
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000

@@ -18,6 +18,22 @@ object TunnelGate {
     var vpnUp: Boolean = false
         private set
 
+    data class Snapshot(
+        val generation: Long,
+        val upGeneration: Long?,
+    )
+
+    @Synchronized
+    fun snapshot(): Snapshot = Snapshot(generation, if (up) generation else null)
+
+    /** Includes an initially-down epoch: null must not erase dispatch-time history. */
+    @Synchronized
+    fun requireGeneration(expected: Long?) {
+        if (expected != null && generation != expected) {
+            error("服务状态已变化，已停止 WebDAV 探测")
+        }
+    }
+
     @Synchronized
     fun generationWhenUp(): Long? = if (up) generation else null
 
