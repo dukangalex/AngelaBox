@@ -745,6 +745,9 @@ object BackupManager {
             // PROPFIND throws ProtocolException and is NOT a real connectivity failure — never use it.
             var lastDetail = "no response"
             var sawAuthFailure = false
+            // Do not switch a probe that started inside our VPN to direct for
+            // later fallback methods after a stop or restart.
+            val tunnelGeneration = if (TunnelGate.up) TunnelGate.generation else null
             val attempts = listOf(
                 fileUrl to "HEAD",
                 base to "OPTIONS",
@@ -752,17 +755,21 @@ object BackupManager {
                 base to "GET",
             )
             for ((target, method) in attempts) {
+                ensureProbeTunnel(tunnelGeneration)
                 val conn = try {
-                    openWebDav(target, username, password).apply {
+                    openWebDav(target, username, password, tunnelGeneration).apply {
                         requestMethod = method
                         instanceFollowRedirects = false
                     }
                 } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration)
                     lastDetail = friendlyProbeDetail(e)
                     continue
                 }
                 try {
+                    ensureProbeTunnel(tunnelGeneration)
                     val code = conn.responseCode
+                    ensureProbeTunnel(tunnelGeneration)
                     val loc = conn.getHeaderField("Location").orEmpty()
                     lastDetail = "$method HTTP $code"
                     when (classifyProbe(code)) {
@@ -817,6 +824,7 @@ object BackupManager {
                         ProbeClass.OTHER -> { }
                     }
                 } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration)
                     if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
                     lastDetail = friendlyProbeDetail(e)
                 } finally {
@@ -827,6 +835,12 @@ object BackupManager {
             }
             if (sawAuthFailure) error(lastDetail)
             error("连通性失败：$lastDetail")
+        }
+    }
+
+    internal fun ensureProbeTunnel(generation: Long?) {
+        if (generation != null && (!TunnelGate.up || TunnelGate.generation != generation)) {
+            error("VPN 已中断，已停止 WebDAV 探测")
         }
     }
 
@@ -906,13 +920,19 @@ object BackupManager {
         return if (e is IllegalStateException) e else IllegalStateException(e.message ?: e.javaClass.simpleName, e)
     }
 
-    private fun openWebDav(url: String, username: String, password: String): HttpsURLConnection {
+    private fun openWebDav(
+        url: String,
+        username: String,
+        password: String,
+        requiredTunnelGeneration: Long? = null,
+    ): HttpsURLConnection {
+        ensureProbeTunnel(requiredTunnelGeneration)
         val checked = requireHttps(url)
         // When the tunnel is up, system DNS answers fake-ip and direct DNS
         // often fails: dial by name and let the tunnel resolve upstream (same
         // policy as subscription updates: HTTPClient.Route.PROXY). TLS still
         // verifies the hostname. Tunnel down keeps the pinned direct connection.
-        val conn = if (TunnelGate.up) {
+        val conn = if (requiredTunnelGeneration != null || TunnelGate.up) {
             HTTPClient.openNamed(
                 checked,
                 RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),

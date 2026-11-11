@@ -15,6 +15,22 @@ class BackupManagerTest {
     }
 
     @Test
+    fun probeTunnelGuardRejectsStopAndRestart() {
+        TunnelGate.setUp(true)
+        try {
+            val generation = TunnelGate.generation
+            BackupManager.ensureProbeTunnel(generation)
+            TunnelGate.setUp(false)
+            assertTrue(runCatching { BackupManager.ensureProbeTunnel(generation) }.isFailure)
+            TunnelGate.setUp(true)
+            assertTrue(runCatching { BackupManager.ensureProbeTunnel(generation) }.isFailure)
+            BackupManager.ensureProbeTunnel(null) // a probe started outside the VPN
+        } finally {
+            TunnelGate.setUp(false)
+        }
+    }
+
+    @Test
     fun sslErrorsGetFriendlyHint() {
         val raw =
             RuntimeException(
