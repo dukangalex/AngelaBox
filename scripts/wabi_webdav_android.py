@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """API34 local backup acceptance; production UI with isolated synthetic profile only."""
-import os,json,re,subprocess,time,urllib.request,socket,urllib.parse,xml.etree.ElementTree as ET,sqlite3,hashlib,zipfile,tarfile,io
+import os,json,re,subprocess,time,urllib.request,socket,urllib.parse,xml.etree.ElementTree as ET,sqlite3,hashlib,zipfile,tarfile,io,csv
 from pathlib import Path
 P='io.chainbox.app';out=Path('wabi-evidence');out.mkdir(exist_ok=True)
 def adb(*a):return subprocess.check_output(['adb',*a],text=True,timeout=60)
@@ -138,16 +138,33 @@ print('WEBDAV ACCEPTANCE PASSED')
 
 # Interrupt an actual production WebDAV GET, without navigating away from the
 # backup screen or force-stopping the app: use the observed notification Stop.
+def notification_words(tag):
+ # A busy Compose progress indicator can prevent UIAutomator's idle wait;
+ # its failed dump otherwise leaves a stale app hierarchy on /sdcard. Use
+ # the current screenshot for this system-UI action, retaining OCR evidence.
+ png=out/(tag+'.png')
+ png.write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=15))
+ tsv=subprocess.check_output(['tesseract',str(png),'stdout','--psm','11','tsv'],text=True,timeout=10)
+ (out/(tag+'.tsv')).write_text(tsv)
+ return [row for row in csv.DictReader(io.StringIO(tsv),delimiter='\t') if row.get('text','').strip() and float(row.get('conf','-1'))>=35]
+def word_center(word):
+ return (int(word['left'])+int(word['width'])//2,int(word['top'])+int(word['height'])//2)
 def stop_notification(tag):
- shell('cmd','statusbar','expand-notifications');time.sleep(1)
+ shell('cmd','statusbar','expand-notifications');time.sleep(.4)
  for i in range(4):
-  r=snap(tag+'-notification'+str(i))
-  stops=[n for n in r.iter('node') if n.get('text','').strip().lower()=='stop']
+  words=notification_words(tag+'-notification'+str(i))
+  stops=[w for w in words if w['text'].strip().lower()=='stop']
   if stops:
-   tap(stops[0],0);break
-  expand=[n for n in r.iter('node') if 'expand' in n.get('content-desc','').lower()]
-  if expand:tap(expand[0],.3)
-  else:shell('input','swipe','500','220','500','850','400');time.sleep(.3)
+   x,y=word_center(stops[0])
+   shell('input','tap',str(x),str(y));break
+  # Expand only the actual fixture notification located in the fresh image,
+  # not the unrelated Android System notification. On this API34 emulator the
+  # visible chevron is at the row's right edge, below its title center.
+  fixture=[w for w in words if 'backup-fixture' in w['text'].lower()]
+  if not fixture:raise AssertionError(('Fixture notification not visible',words))
+  w,h=map(int,shell('wm','size').strip().split()[-1].split('x'))
+  _,title_y=word_center(fixture[0])
+  shell('input','tap',str(round(w*.86)),str(title_y+12));time.sleep(.4)
  else:raise AssertionError('Observed notification Stop unavailable')
  stopped=time.monotonic_ns()
  for _ in range(30):

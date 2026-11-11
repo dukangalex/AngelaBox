@@ -186,6 +186,8 @@ jobs:
       - name: Install emulator and enable KVM
         run: |
           set -euo pipefail
+          if ! command -v tesseract >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr; fi
+          tesseract --version
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
           yes | sdkmanager --licenses >/dev/null || true
