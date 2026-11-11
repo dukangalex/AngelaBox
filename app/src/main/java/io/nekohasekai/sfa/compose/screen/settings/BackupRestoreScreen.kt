@@ -126,7 +126,7 @@ fun BackupRestoreScreen(navController: NavController) {
         Settings.webdavProbeOk = value
     }
 
-    fun runProbe(silent: Boolean = false) {
+    fun runProbe() {
         if (webdavUrl.isBlank()) {
             probeState = -1
             probeDetail = null
@@ -134,23 +134,21 @@ fun BackupRestoreScreen(navController: NavController) {
             return
         }
         scope.launch {
-            if (!silent) busy = true
+            busy = true
             val result = withContext(Dispatchers.IO) {
                 BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
             }
             val ok = result.getOrDefault(false)
             persistProbe(ok, result.exceptionOrNull()?.message)
-            if (!silent) {
-                busy = false
-                snackbar.showSnackbar(
-                    when {
-                        ok -> "WebDAV 可访问"
-                        result.exceptionOrNull() != null ->
-                            "连通失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
-                        else -> "WebDAV 不可用"
-                    },
-                )
-            }
+            busy = false
+            snackbar.showSnackbar(
+                when {
+                    ok -> "WebDAV 可访问"
+                    result.exceptionOrNull() != null ->
+                        "连通失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
+                    else -> "WebDAV 不可用"
+                },
+            )
         }
     }
 
@@ -162,12 +160,20 @@ fun BackupRestoreScreen(navController: NavController) {
             return@LaunchedEffect
         }
         while (true) {
+            val serviceState = TunnelGate.snapshot()
             val generation = automaticProbePolicy.requiredGeneration(
-                TunnelGate.generationWhenUp(),
-                TunnelGate.generation,
+                serviceState.upGeneration,
+                serviceState.generation,
             )
             val result = withContext(Dispatchers.IO) {
-                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile, generation)
+                BackupManager.webdavProbe(
+                    webdavUrl,
+                    webdavUser,
+                    webdavPass,
+                    remoteFile,
+                    generation,
+                    expectedServiceGeneration = serviceState.generation,
+                )
             }
             persistProbe(result.getOrDefault(false), result.exceptionOrNull()?.message)
             delay(20_000)
@@ -352,8 +358,6 @@ fun BackupRestoreScreen(navController: NavController) {
                     val savedUser = draftUser
                     val savedPassword = draftPass
                     val savedRemoteFile = draftRemoteFile
-                    val unchanged = savedUrl == webdavUrl && savedUser == webdavUser &&
-                        savedPassword == webdavPass && savedRemoteFile == remoteFile
                     webdavUrl = savedUrl
                     webdavUser = savedUser
                     webdavPass = savedPassword
@@ -365,7 +369,8 @@ fun BackupRestoreScreen(navController: NavController) {
                         Settings.webdavRemoteFile = savedRemoteFile
                     }
                     showWebdavEditor = false
-                    if (unchanged) runProbe(silent = true)
+                    // Saving is not an explicit connectivity test. Changed settings
+                    // restart the guarded automatic effect; unchanged Save sends nothing.
                 }) { Text("保存") }
             },
             dismissButton = {
@@ -628,7 +633,7 @@ fun BackupRestoreScreen(navController: NavController) {
                 ListItem(
                     headlineContent = { Text("测试连通性") },
                     supportingContent = { Text("自动检测（与备份同一接口），绿灯正常、红灯失败") },
-                    modifier = Modifier.clickable(enabled = !busy) { runProbe(silent = false) },
+                    modifier = Modifier.clickable(enabled = !busy) { runProbe() },
                 )
             }
 

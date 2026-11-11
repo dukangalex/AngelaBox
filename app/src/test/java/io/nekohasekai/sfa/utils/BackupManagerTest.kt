@@ -31,6 +31,37 @@ class BackupManagerTest {
     }
 
     @Test
+    fun automaticProbeRejectsInitiallyDownDispatchAfterCompleteCycle() {
+        TunnelGate.setUp(false)
+        val state = TunnelGate.snapshot()
+        val dispatch = java.util.concurrent.CountDownLatch(1)
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val result = executor.submit<Result<Boolean>> {
+                check(dispatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                // A cleartext/local sentinel would fail URL validation if the
+                // actual entry guard did not reject the captured epoch first.
+                BackupManager.webdavProbe(
+                    "http://127.0.0.1/dav/",
+                    "u",
+                    "p",
+                    expectedServiceGeneration = state.generation,
+                )
+            }
+            TunnelGate.setUp(true)
+            TunnelGate.setUp(false)
+            dispatch.countDown()
+            val outcome = result.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue(outcome.isFailure)
+            assertTrue(outcome.exceptionOrNull()?.message?.contains("服务状态已变化") == true)
+        } finally {
+            dispatch.countDown()
+            executor.shutdownNow()
+            TunnelGate.setUp(false)
+        }
+    }
+
+    @Test
     fun sslErrorsGetFriendlyHint() {
         val raw =
             RuntimeException(
