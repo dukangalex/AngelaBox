@@ -93,6 +93,11 @@ fun BackupRestoreScreen(navController: NavController) {
     var webdavUser by remember { mutableStateOf(Settings.webdavUser) }
     var webdavPass by remember { mutableStateOf(Settings.webdavPassword) }
     var remoteFile by remember { mutableStateOf(Settings.webdavRemoteFile.ifEmpty { "backup.zip" }) }
+    // Keep editor input separate: automatic probes must never use unsaved credentials.
+    var draftUrl by remember { mutableStateOf(webdavUrl) }
+    var draftUser by remember { mutableStateOf(webdavUser) }
+    var draftPass by remember { mutableStateOf(webdavPass) }
+    var draftRemoteFile by remember { mutableStateOf(remoteFile) }
     var probeState by remember { mutableIntStateOf(Settings.webdavProbeOk) }
     var probeDetail by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -305,29 +310,29 @@ fun BackupRestoreScreen(navController: NavController) {
             text = {
                 Column {
                     OutlinedTextField(
-                        value = webdavUrl,
-                        onValueChange = { webdavUrl = it },
+                        value = draftUrl,
+                        onValueChange = { draftUrl = it },
                         label = { Text("URL") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = webdavUser,
-                        onValueChange = { webdavUser = it },
+                        value = draftUser,
+                        onValueChange = { draftUser = it },
                         label = { Text("用户名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = webdavPass,
-                        onValueChange = { webdavPass = it },
+                        value = draftPass,
+                        onValueChange = { draftPass = it },
                         label = { Text("密码") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = remoteFile,
-                        onValueChange = { remoteFile = it },
+                        value = draftRemoteFile,
+                        onValueChange = { draftRemoteFile = it },
                         label = { Text("远程文件名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -336,14 +341,24 @@ fun BackupRestoreScreen(navController: NavController) {
             },
             confirmButton = {
                 TextButton(onClick = {
+                    val savedUrl = draftUrl
+                    val savedUser = draftUser
+                    val savedPassword = draftPass
+                    val savedRemoteFile = draftRemoteFile
+                    val unchanged = savedUrl == webdavUrl && savedUser == webdavUser &&
+                        savedPassword == webdavPass && savedRemoteFile == remoteFile
+                    webdavUrl = savedUrl
+                    webdavUser = savedUser
+                    webdavPass = savedPassword
+                    remoteFile = savedRemoteFile
                     scope.launch(Dispatchers.IO) {
-                        Settings.webdavUrl = webdavUrl
-                        Settings.webdavUser = webdavUser
-                        Settings.webdavPassword = webdavPass
-                        Settings.webdavRemoteFile = remoteFile
+                        Settings.webdavUrl = savedUrl
+                        Settings.webdavUser = savedUser
+                        Settings.webdavPassword = savedPassword
+                        Settings.webdavRemoteFile = savedRemoteFile
                     }
                     showWebdavEditor = false
-                    runProbe(silent = true)
+                    if (unchanged) runProbe(silent = true)
                 }) { Text("保存") }
             },
             dismissButton = {
@@ -520,7 +535,13 @@ fun BackupRestoreScreen(navController: NavController) {
                         }
                     },
                     trailingContent = {
-                        TextButton(onClick = { showWebdavEditor = true }) { Text("编辑") }
+                        TextButton(onClick = {
+                            draftUrl = webdavUrl
+                            draftUser = webdavUser
+                            draftPass = webdavPass
+                            draftRemoteFile = remoteFile
+                            showWebdavEditor = true
+                        }) { Text("编辑") }
                     },
                 )
                 ListItem(
