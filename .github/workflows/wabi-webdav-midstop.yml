@@ -7,7 +7,9 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Use a fixed LTS image instead of the rolling Resolute image whose
+    # security mirror DNS prevented both prior attempts from reaching the emulator.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout ChainBox
