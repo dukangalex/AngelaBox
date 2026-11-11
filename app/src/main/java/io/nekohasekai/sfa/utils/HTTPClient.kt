@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import android.net.Network
 import android.net.SSLCertificateSocketFactory
 import java.io.Closeable
 import java.io.File
@@ -159,8 +160,10 @@ class HTTPClient : Closeable {
             endpoint: ValidatedEndpoint,
             kind: RemoteUrlGuard.Kind,
             headers: Map<String, String>,
+            network: Network? = null,
         ): HttpsURLConnection {
-            val conn = URL(url).openConnection()
+            // Binding closes the check/connect race: a lost VPN cannot fall back to the default network.
+            val conn = if (network != null) network.openConnection(URL(url)) else URL(url).openConnection()
             require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
             conn.instanceFollowRedirects = false
             conn.connectTimeout = connectTimeout(kind, viaTunnel = true)

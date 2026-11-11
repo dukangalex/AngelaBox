@@ -61,6 +61,8 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.BackupFileIO
 import io.nekohasekai.sfa.utils.BackupManager
+import io.nekohasekai.sfa.utils.TunnelGate
+import io.nekohasekai.sfa.utils.WebDavAutoProbePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,6 +100,7 @@ fun BackupRestoreScreen(navController: NavController) {
     var draftUser by remember { mutableStateOf(webdavUser) }
     var draftPass by remember { mutableStateOf(webdavPass) }
     var draftRemoteFile by remember { mutableStateOf(remoteFile) }
+    val automaticProbePolicy = remember { WebDavAutoProbePolicy() }
     var probeState by remember { mutableIntStateOf(Settings.webdavProbeOk) }
     var probeDetail by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -159,8 +162,12 @@ fun BackupRestoreScreen(navController: NavController) {
             return@LaunchedEffect
         }
         while (true) {
+            val generation = automaticProbePolicy.requiredGeneration(
+                TunnelGate.generationWhenUp(),
+                TunnelGate.generation,
+            )
             val result = withContext(Dispatchers.IO) {
-                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
+                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile, generation)
             }
             persistProbe(result.getOrDefault(false), result.exceptionOrNull()?.message)
             delay(20_000)

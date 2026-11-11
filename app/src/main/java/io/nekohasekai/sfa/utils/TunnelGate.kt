@@ -15,6 +15,9 @@ object TunnelGate {
         private set
 
     @Synchronized
+    fun generationWhenUp(): Long? = if (up) generation else null
+
+    @Synchronized
     fun setUp(value: Boolean) {
         if (up != value) generation++
         up = value
