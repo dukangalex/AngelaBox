@@ -119,10 +119,7 @@ fun BackupRestoreScreen(navController: NavController) {
     var restorePwError by remember { mutableStateOf<String?>(null) }
     var restoreViaWebdav by remember { mutableStateOf(false) }
 
-    fun persistProbe(
-        ok: Boolean,
-        detail: String?,
-    ) {
+    fun persistProbe(ok: Boolean, detail: String?) {
         val value = if (ok) 1 else 0
         probeState = value
         probeDetail = detail
@@ -138,27 +135,19 @@ fun BackupRestoreScreen(navController: NavController) {
         }
         scope.launch {
             if (!silent) busy = true
-            val result =
-                withContext(Dispatchers.IO) {
-                    BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
-                }
+            val result = withContext(Dispatchers.IO) {
+                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
+            }
             val ok = result.getOrDefault(false)
             persistProbe(ok, result.exceptionOrNull()?.message)
             if (!silent) {
                 busy = false
                 snackbar.showSnackbar(
                     when {
-                        ok -> {
-                            "WebDAV 可访问"
-                        }
-
-                        result.exceptionOrNull() != null -> {
+                        ok -> "WebDAV 可访问"
+                        result.exceptionOrNull() != null ->
                             "连通失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
-                        }
-
-                        else -> {
-                            "WebDAV 不可用"
-                        }
+                        else -> "WebDAV 不可用"
                     },
                 )
             }
@@ -173,73 +162,61 @@ fun BackupRestoreScreen(navController: NavController) {
             return@LaunchedEffect
         }
         while (true) {
-            val generation =
-                automaticProbePolicy.requiredGeneration(
-                    TunnelGate.generationWhenUp(),
-                    TunnelGate.generation,
-                )
-            val result =
-                withContext(Dispatchers.IO) {
-                    BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile, generation)
-                }
+            val generation = automaticProbePolicy.requiredGeneration(
+                TunnelGate.generationWhenUp(),
+                TunnelGate.generation,
+            )
+            val result = withContext(Dispatchers.IO) {
+                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile, generation)
+            }
             persistProbe(result.getOrDefault(false), result.exceptionOrNull()?.message)
             delay(20_000)
         }
     }
 
-    fun runRestore(
-        tmp: File,
-        password: CharArray?,
-        viaWebdav: Boolean,
-        fromDialog: Boolean,
-    ) {
+    fun runRestore(tmp: File, password: CharArray?, viaWebdav: Boolean, fromDialog: Boolean) {
         scope.launch {
             busy = true
-            val result =
-                withContext(Dispatchers.IO) {
-                    BackupManager
-                        .restoreBackupFile(
-                            context,
-                            tmp,
-                            Settings.restoreCompat,
-                            password,
-                            restoreSensitiveItems,
-                        ).also { restored ->
-                            // AB-020: warm the restored configs' rule sets now,
-                            // synchronously — the relaunch below would kill a
-                            // fire-and-forget warm before it downloaded anything.
-                            // Both restore entry points funnel through runRestore,
-                            // so this one call covers local files and WebDAV.
-                            if (restored.isSuccess) {
-                                io.nekohasekai.sfa.bg.RuleSetWarmup.warmRestored(
-                                    System.currentTimeMillis() + 60_000L,
-                                )
-                            }
-                        }
+            val result = withContext(Dispatchers.IO) {
+                BackupManager.restoreBackupFile(
+                    context,
+                    tmp,
+                    Settings.restoreCompat,
+                    password,
+                    restoreSensitiveItems,
+                ).also { restored ->
+                    // AB-020: warm the restored configs' rule sets now,
+                    // synchronously — the relaunch below would kill a
+                    // fire-and-forget warm before it downloaded anything.
+                    // Both restore entry points funnel through runRestore,
+                    // so this one call covers local files and WebDAV.
+                    if (restored.isSuccess) {
+                        io.nekohasekai.sfa.bg.RuleSetWarmup.warmRestored(
+                            System.currentTimeMillis() + 60_000L,
+                        )
+                    }
                 }
+            }
             password?.fill('\u0000')
             busy = false
             if (result.isSuccess) {
                 restorePwFile = null
                 restorePwError = null
-                val summary =
-                    result
-                        .getOrNull()
-                        ?.let { report ->
-                            buildString {
-                                if (report.remoteProfiles.isNotEmpty()) {
-                                    append(" · ${report.remoteProfiles.size} 个远程订阅已恢复（自动更新已关闭）")
-                                }
-                                if (report.skippedScriptNames.isNotEmpty()) {
-                                    append(" · 已跳过 ${report.skippedScriptNames.size} 个叠加脚本")
-                                }
-                                val skippedBindings =
-                                    report.skippedChainBindingCount + report.skippedScriptBindingCount
-                                if (skippedBindings > 0) {
-                                    append(" · 已跳过 $skippedBindings 条绑定")
-                                }
-                            }
-                        }.orEmpty()
+                val summary = result.getOrNull()?.let { report ->
+                    buildString {
+                        if (report.remoteProfiles.isNotEmpty()) {
+                            append(" · ${report.remoteProfiles.size} 个远程订阅已恢复（自动更新已关闭）")
+                        }
+                        if (report.skippedScriptNames.isNotEmpty()) {
+                            append(" · 已跳过 ${report.skippedScriptNames.size} 个叠加脚本")
+                        }
+                        val skippedBindings =
+                            report.skippedChainBindingCount + report.skippedScriptBindingCount
+                        if (skippedBindings > 0) {
+                            append(" · 已跳过 $skippedBindings 条绑定")
+                        }
+                    }
+                }.orEmpty()
                 snackbar.showSnackbar("恢复完成，正在重新加载…$summary")
                 delay(if (summary.isEmpty()) 400 else 1600)
                 softRelaunchApp(context)
@@ -254,10 +231,7 @@ fun BackupRestoreScreen(navController: NavController) {
         }
     }
 
-    fun startRestore(
-        tmp: File,
-        viaWebdav: Boolean,
-    ) {
+    fun startRestore(tmp: File, viaWebdav: Boolean) {
         restoreViaWebdav = viaWebdav
         if (BackupManager.isEncryptedBackup(tmp)) {
             restorePwError = null
@@ -267,58 +241,54 @@ fun BackupRestoreScreen(navController: NavController) {
         }
     }
 
-    val createDoc =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.CreateDocument("application/zip"),
-        ) { uri: Uri? ->
-            val pw = pendingExportPassword
-            pendingExportPassword = null
-            if (uri == null) {
-                pw?.fill('\u0000')
-                return@rememberLauncherForActivityResult
-            }
-            scope.launch {
-                busy = true
-                val result =
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                            BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
-                            context.contentResolver.openOutputStream(uri)?.use { out ->
-                                FileInputStream(tmp).use { it.copyTo(out) }
-                            } ?: error("无法写入文件")
-                        }
-                    }
-                pw?.fill('\u0000')
-                busy = false
-                snackbar.showSnackbar(if (result.isSuccess) "本地备份完成" else "备份失败: ${result.exceptionOrNull()?.message}")
-            }
+    val createDoc = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri: Uri? ->
+        val pw = pendingExportPassword
+        pendingExportPassword = null
+        if (uri == null) {
+            pw?.fill('\u0000')
+            return@rememberLauncherForActivityResult
         }
+        scope.launch {
+            busy = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tmp = File(context.cacheDir, "chainbox-backup.zip")
+                    BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        FileInputStream(tmp).use { it.copyTo(out) }
+                    } ?: error("无法写入文件")
+                }
+            }
+            pw?.fill('\u0000')
+            busy = false
+            snackbar.showSnackbar(if (result.isSuccess) "本地备份完成" else "备份失败: ${result.exceptionOrNull()?.message}")
+        }
+    }
 
-    val openDoc =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocument(),
-        ) { uri: Uri? ->
-            if (uri == null) return@rememberLauncherForActivityResult
-            scope.launch {
-                busy = true
-                val copied =
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            val tmp = File(context.cacheDir, "chainbox-restore.zip")
-                            context.contentResolver.openInputStream(uri)?.use { input ->
-                                BackupFileIO.copyToFile(input, tmp)
-                            } ?: error("无法读取文件")
-                            tmp
-                        }
-                    }
-                busy = false
-                copied.fold(
-                    onSuccess = { startRestore(it, viaWebdav = false) },
-                    onFailure = { snackbar.showSnackbar("恢复失败: ${it.message}") },
-                )
+    val openDoc = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true
+            val copied = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tmp = File(context.cacheDir, "chainbox-restore.zip")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        BackupFileIO.copyToFile(input, tmp)
+                    } ?: error("无法读取文件")
+                    tmp
+                }
             }
+            busy = false
+            copied.fold(
+                onSuccess = { startRestore(it, viaWebdav = false) },
+                onFailure = { snackbar.showSnackbar("恢复失败: ${it.message}") },
+            )
         }
+    }
 
     if (showHelp) {
         AlertDialog(
@@ -382,9 +352,8 @@ fun BackupRestoreScreen(navController: NavController) {
                     val savedUser = draftUser
                     val savedPassword = draftPass
                     val savedRemoteFile = draftRemoteFile
-                    val unchanged =
-                        savedUrl == webdavUrl && savedUser == webdavUser &&
-                            savedPassword == webdavPass && savedRemoteFile == remoteFile
+                    val unchanged = savedUrl == webdavUrl && savedUser == webdavUser &&
+                        savedPassword == webdavPass && savedRemoteFile == remoteFile
                     webdavUrl = savedUrl
                     webdavUser = savedUser
                     webdavPass = savedPassword
@@ -438,28 +407,20 @@ fun BackupRestoreScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     when {
-                        mismatch -> {
-                            Text(
-                                stringResource(R.string.backup_password_mismatch),
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-
-                        pw1.isEmpty() -> {
-                            Text(
-                                stringResource(R.string.backup_password_plaintext_warning),
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-
-                        else -> {
-                            Text(
-                                stringResource(R.string.backup_password_encrypted_note),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+                        mismatch -> Text(
+                            stringResource(R.string.backup_password_mismatch),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        pw1.isEmpty() -> Text(
+                            stringResource(R.string.backup_password_plaintext_warning),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        else -> Text(
+                            stringResource(R.string.backup_password_encrypted_note),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             },
@@ -547,11 +508,10 @@ fun BackupRestoreScreen(navController: NavController) {
     val scaffoldPadding = LocalScaffoldPadding.current
     Box(Modifier.fillMaxSize().padding(scaffoldPadding)) {
         Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
         ) {
             Text("远程", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Card(
@@ -564,22 +524,20 @@ fun BackupRestoreScreen(navController: NavController) {
                     },
                     supportingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val lamp =
-                                when (probeState) {
-                                    1 -> Color(0xFF2E7D32)
-                                    0 -> Color(0xFFC62828)
-                                    else -> Color(0xFF9E9E9E)
-                                }
+                            val lamp = when (probeState) {
+                                1 -> Color(0xFF2E7D32)
+                                0 -> Color(0xFFC62828)
+                                else -> Color(0xFF9E9E9E)
+                            }
                             Box(
                                 modifier = Modifier.size(10.dp).clip(CircleShape).background(lamp),
                             )
                             Spacer(Modifier.width(8.dp))
-                            val status =
-                                when (probeState) {
-                                    1 -> "连通性：正常"
-                                    0 -> "连通性：失败${probeDetail?.let { " · $it" } ?: ""}"
-                                    else -> "连通性：未测试"
-                                }
+                            val status = when (probeState) {
+                                1 -> "连通性：正常"
+                                0 -> "连通性：失败${probeDetail?.let { " · $it" } ?: ""}"
+                                else -> "连通性：未测试"
+                            }
                             Text(status)
                         }
                     },
@@ -600,77 +558,72 @@ fun BackupRestoreScreen(navController: NavController) {
                 ListItem(
                     headlineContent = { Text("备份") },
                     supportingContent = { Text("备份数据到 WebDAV") },
-                    modifier =
-                        Modifier.clickable(enabled = !busy) {
-                            if (webdavUrl.isBlank()) {
-                                scope.launch { snackbar.showSnackbar("请先配置 WebDAV") }
-                                return@clickable
-                            }
-                            exportPasswordAction = { pw ->
-                                scope.launch {
-                                    busy = true
-                                    val result =
-                                        withContext(Dispatchers.IO) {
-                                            runCatching {
-                                                val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                                                BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
-                                                BackupManager
-                                                    .webdavUpload(
-                                                        webdavUrl,
-                                                        webdavUser,
-                                                        webdavPass,
-                                                        remoteFile,
-                                                        tmp,
-                                                    ).getOrThrow()
-                                            }
-                                        }
-                                    pw?.fill('\u0000')
-                                    persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
-                                    busy = false
-                                    snackbar.showSnackbar(
-                                        if (result.isSuccess) {
-                                            "WebDAV 备份完成"
-                                        } else {
-                                            "WebDAV 备份失败: ${result.exceptionOrNull()?.message}"
-                                        },
-                                    )
-                                }
-                            }
-                        },
-                )
-                ListItem(
-                    headlineContent = { Text("恢复") },
-                    supportingContent = { Text("通过 WebDAV 恢复数据") },
-                    modifier =
-                        Modifier.clickable(enabled = !busy) {
+                    modifier = Modifier.clickable(enabled = !busy) {
+                        if (webdavUrl.isBlank()) {
+                            scope.launch { snackbar.showSnackbar("请先配置 WebDAV") }
+                            return@clickable
+                        }
+                        exportPasswordAction = { pw ->
                             scope.launch {
-                                if (webdavUrl.isBlank()) {
-                                    snackbar.showSnackbar("请先配置 WebDAV")
-                                    return@launch
-                                }
                                 busy = true
-                                val tmp = File(context.cacheDir, "chainbox-restore.zip")
-                                val downloaded =
-                                    withContext(Dispatchers.IO) {
-                                        BackupManager.webdavDownload(
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val tmp = File(context.cacheDir, "chainbox-backup.zip")
+                                        BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
+                                        BackupManager.webdavUpload(
                                             webdavUrl,
                                             webdavUser,
                                             webdavPass,
                                             remoteFile,
                                             tmp,
-                                        )
+                                        ).getOrThrow()
                                     }
-                                persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)
-                                busy = false
-                                if (downloaded.isSuccess) {
-                                    startRestore(tmp, viaWebdav = true)
-                                } else {
-                                    snackbar.showSnackbar(
-                                        "WebDAV 恢复失败: ${downloaded.exceptionOrNull()?.message}",
-                                    )
                                 }
+                                pw?.fill('\u0000')
+                                persistProbe(result.isSuccess, result.exceptionOrNull()?.message)
+                                busy = false
+                                snackbar.showSnackbar(
+                                    if (result.isSuccess) {
+                                        "WebDAV 备份完成"
+                                    } else {
+                                        "WebDAV 备份失败: ${result.exceptionOrNull()?.message}"
+                                    },
+                                )
                             }
-                        },
+                        }
+                    },
+                )
+                ListItem(
+                    headlineContent = { Text("恢复") },
+                    supportingContent = { Text("通过 WebDAV 恢复数据") },
+                    modifier = Modifier.clickable(enabled = !busy) {
+                        scope.launch {
+                            if (webdavUrl.isBlank()) {
+                                snackbar.showSnackbar("请先配置 WebDAV")
+                                return@launch
+                            }
+                            busy = true
+                            val tmp = File(context.cacheDir, "chainbox-restore.zip")
+                            val downloaded = withContext(Dispatchers.IO) {
+                                BackupManager.webdavDownload(
+                                    webdavUrl,
+                                    webdavUser,
+                                    webdavPass,
+                                    remoteFile,
+                                    tmp,
+                                )
+                            }
+                            persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)
+                            busy = false
+                            if (downloaded.isSuccess) {
+                                startRestore(tmp, viaWebdav = true)
+                            } else {
+                                snackbar.showSnackbar(
+                                    "WebDAV 恢复失败: ${downloaded.exceptionOrNull()?.message}",
+                                )
+                            }
+                        }
+                    },
                 )
                 ListItem(
                     headlineContent = { Text("测试连通性") },
@@ -692,21 +645,19 @@ fun BackupRestoreScreen(navController: NavController) {
                 ListItem(
                     headlineContent = { Text("备份") },
                     supportingContent = { Text("备份数据到本地") },
-                    modifier =
-                        Modifier.clickable(enabled = !busy) {
-                            exportPasswordAction = { pw ->
-                                pendingExportPassword = pw
-                                createDoc.launch("AngelaBox-backup.zip")
-                            }
-                        },
+                    modifier = Modifier.clickable(enabled = !busy) {
+                        exportPasswordAction = { pw ->
+                            pendingExportPassword = pw
+                            createDoc.launch("AngelaBox-backup.zip")
+                        }
+                    },
                 )
                 ListItem(
                     headlineContent = { Text("恢复") },
                     supportingContent = { Text("通过文件恢复数据") },
-                    modifier =
-                        Modifier.clickable(enabled = !busy) {
-                            openDoc.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-                        },
+                    modifier = Modifier.clickable(enabled = !busy) {
+                        openDoc.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    },
                 )
             }
 
@@ -737,11 +688,10 @@ fun BackupRestoreScreen(navController: NavController) {
                             },
                         )
                     },
-                    modifier =
-                        Modifier.clickable {
-                            restoreCompat = !restoreCompat
-                            Settings.restoreCompat = restoreCompat
-                        },
+                    modifier = Modifier.clickable {
+                        restoreCompat = !restoreCompat
+                        Settings.restoreCompat = restoreCompat
+                    },
                 )
                 ListItem(
                     headlineContent = { Text("恢复脚本与绑定") },
@@ -760,10 +710,9 @@ fun BackupRestoreScreen(navController: NavController) {
                             },
                         )
                     },
-                    modifier =
-                        Modifier.clickable {
-                            restoreSensitiveItems = !restoreSensitiveItems
-                        },
+                    modifier = Modifier.clickable {
+                        restoreSensitiveItems = !restoreSensitiveItems
+                    },
                 )
             }
         }

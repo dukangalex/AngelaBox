@@ -68,10 +68,7 @@ import java.io.File
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
-class BoxService(
-    private val service: Service,
-    private val platformInterface: PlatformInterface,
-) : CommandServerHandler {
+class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
         private const val START_BUDGET_MS = 45_000L
 
@@ -94,11 +91,10 @@ class BoxService(
          * Network.toString() (the netId), which changes on every reconnect
          * and, while the tunnel is up, describes the VPN itself.
          */
-        private fun defaultNetworkKey(): String? =
-            RuleSetStallMemory.networkKey(
-                DefaultNetworkMonitor.currentInterfaceName,
-                DefaultNetworkMonitor.currentTransport(),
-            )
+        private fun defaultNetworkKey(): String? = RuleSetStallMemory.networkKey(
+            DefaultNetworkMonitor.currentInterfaceName,
+            DefaultNetworkMonitor.currentTransport(),
+        )
 
         /**
          * Content dimension for the stall memory (audit X-1): a stall is
@@ -107,10 +103,8 @@ class BoxService(
          * having to reach this in-process memory.
          */
         private fun contentHashOf(rawContent: String): String {
-            val digest =
-                java.security.MessageDigest
-                    .getInstance("SHA-256")
-                    .digest(rawContent.toByteArray(Charsets.UTF_8))
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(rawContent.toByteArray(Charsets.UTF_8))
             return digest.take(8).joinToString("") { "%02x".format(it) }
         }
 
@@ -169,10 +163,7 @@ class BoxService(
     private var receiverRegistered = false
     private val receiver =
         object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
+            override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
                     Action.SERVICE_CLOSE -> {
                         stopService()
@@ -246,15 +237,14 @@ class BoxService(
             // stopService() runs on the main thread and only aborts while the
             // status is Starting. Check the abort and publish Started in the
             // same main-thread step, or a stop tapped in between is lost.
-            val aborted =
-                withContext(Dispatchers.Main) {
-                    if (startAbort.get()) {
-                        true
-                    } else {
-                        status.value = Status.Started
-                        false
-                    }
+            val aborted = withContext(Dispatchers.Main) {
+                if (startAbort.get()) {
+                    true
+                } else {
+                    status.value = Status.Started
+                    false
                 }
+            }
             if (aborted) {
                 stopAndAlert(Alert.StartService, null, silent = true)
                 return
@@ -275,11 +265,9 @@ class BoxService(
     }
 
     private fun notePrivateDns() {
-        val mode =
-            runCatching {
-                android.provider.Settings.Global
-                    .getString(service.contentResolver, "private_dns_mode")
-            }.getOrNull()
+        val mode = runCatching {
+            android.provider.Settings.Global.getString(service.contentResolver, "private_dns_mode")
+        }.getOrNull()
         if (mode != "hostname") return
         OverrideStatus.add(
             OverrideNotice(
@@ -409,7 +397,6 @@ class BoxService(
         freshStart: Boolean,
     ): Boolean {
         val ladderStart = SystemClock.elapsedRealtime()
-
         fun ladderExpired(): Boolean = SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
         val optionsFactory = buildOverrideOptionsFactory()
         val scriptBound = OverlayScripts.isBound(profileId)
@@ -484,10 +471,9 @@ class BoxService(
             // Any triage failure leaves the untriaged config and the
             // ladder exactly as they were — triage must never become
             // a new way for a start to fail.
-            val triage =
-                runCatching {
-                    triageRemoteRuleSets(content, rawContent, profileId)
-                }.getOrNull()
+            val triage = runCatching {
+                triageRemoteRuleSets(content, rawContent, profileId)
+            }.getOrNull()
             if (triage != null && triage.first.isNotEmpty()) {
                 triagedOutTags = triage.first
                 triage.second?.let { content = it }
@@ -508,22 +494,20 @@ class BoxService(
                 // Substitute the cached local copies first (normalization
                 // instead of skipping); only sets with no cache fall back to
                 // the old anti-stall drop.
-                val substituted =
-                    applyForRung(
-                        rawContent,
-                        substituteCachedRuleSets = true,
-                        profileId = profileId,
-                    )
+                val substituted = applyForRung(
+                    rawContent,
+                    substituteCachedRuleSets = true,
+                    profileId = profileId,
+                )
                 if (substituted != null && substituted != content) {
                     content = substituted
                     substitutedRuleSets = true
                 } else {
-                    val dropped =
-                        applyForRung(
-                            rawContent,
-                            dropAllRemoteRuleSets = true,
-                            profileId = profileId,
-                        )
+                    val dropped = applyForRung(
+                        rawContent,
+                        dropAllRemoteRuleSets = true,
+                        profileId = profileId,
+                    )
                     if (dropped != null && dropped != content) {
                         content = dropped
                         droppedRuleSets = true
@@ -531,15 +515,14 @@ class BoxService(
                 }
             }
         } else {
-            val recovered =
-                recoverFromPipelineFatal(
-                    rawContent,
-                    profileId,
-                    firstApply.exceptionOrNull(),
-                    scriptBound,
-                    chainBound,
-                    ladderExpired = { ladderExpired() },
-                )
+            val recovered = recoverFromPipelineFatal(
+                rawContent,
+                profileId,
+                firstApply.exceptionOrNull(),
+                scriptBound,
+                chainBound,
+                ladderExpired = { ladderExpired() },
+            )
             if (recovered == null) {
                 stopAndAlert(
                     Alert.CreateService,
@@ -611,15 +594,14 @@ class BoxService(
         }
 
         if (ConfigDiagnose.looksLikeBadEch(firstErr) || ConfigDiagnose.looksLikeBadEch(err)) {
-            val echContent =
-                applyForRung(
-                    rawContent,
-                    stripEch = true,
-                    dropAllRemoteRuleSets = droppedRuleSets,
-                    substituteCachedRuleSets = substitutedRuleSets,
-                    dropRuleSetTags = triagedOutTags.toSet(),
-                    profileId = profileId,
-                )
+            val echContent = applyForRung(
+                rawContent,
+                stripEch = true,
+                dropAllRemoteRuleSets = droppedRuleSets,
+                substituteCachedRuleSets = substitutedRuleSets,
+                dropRuleSetTags = triagedOutTags.toSet(),
+                profileId = profileId,
+            )
             if (echContent != null) {
                 restartCommandServer()
                 result = attempt(echContent, optionsFactory())
@@ -643,7 +625,6 @@ class BoxService(
         // rungs rebuild from rawContent and would silently lose it, so
         // remember and re-apply it to whatever they produce (reheal).
         var resolverHealed = false
-
         fun reheal(candidate: String): String = if (resolverHealed) ConfigInboundCompat.healRuntimeConfig(candidate) else candidate
 
         if (ConfigDiagnose.looksLikeDomainResolver(firstErr) ||
@@ -664,9 +645,8 @@ class BoxService(
             }
         }
 
-        val ruleSetFail =
-            ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
-                ConfigDiagnose.looksLikeRuleSetFailure(err)
+        val ruleSetFail = ConfigDiagnose.looksLikeRuleSetFailure(firstErr) ||
+            ConfigDiagnose.looksLikeRuleSetFailure(err)
         // A start-budget timeout is NOT proof the rule-sets are at fault
         // (slow device / big config / slow DNS bootstrap all look alike),
         // but dropping the remote sets is still the most effective retry —
@@ -674,9 +654,8 @@ class BoxService(
         // "rule-set" attribution, and the stall memory is only written
         // when the evidence supports it (a real network stall error, or
         // the drop-retry actually rescuing a timed-out start).
-        val timedOut =
-            ConfigDiagnose.looksLikeStartTimeout(firstErr) ||
-                ConfigDiagnose.looksLikeStartTimeout(err)
+        val timedOut = ConfigDiagnose.looksLikeStartTimeout(firstErr) ||
+            ConfigDiagnose.looksLikeStartTimeout(err)
         val stalled = isRuleSetStall(firstErr) || isRuleSetStall(err)
         var needles = ConfigDiagnose.ruleSetNeedles(firstErr)
         if (needles.isEmpty() && ruleSetFail && !stalled) {
@@ -701,13 +680,12 @@ class BoxService(
                 runCatching { learnRuleSetNeedles(profileId, content, needles) }
             }
             if (!stalled && needles.isNotEmpty()) {
-                val replaced =
-                    applyForRung(
-                        rawContent,
-                        replaceRuleSetNeedles = needles,
-                        dropRuleSetTags = triagedOutTags.toSet(),
-                        profileId = profileId,
-                    )
+                val replaced = applyForRung(
+                    rawContent,
+                    replaceRuleSetNeedles = needles,
+                    dropRuleSetTags = triagedOutTags.toSet(),
+                    profileId = profileId,
+                )
                 if (replaced != null) {
                     restartCommandServer()
                     result = attempt(reheal(replaced), optionsFactory())
@@ -735,10 +713,8 @@ class BoxService(
             if (StartRetryPolicy.shouldRetryWithExtendedBudget(
                     timedOut = timedOut,
                     alreadyExtended = false,
-                    uncachedRemoteRuleSets =
-                        RuleSetCacheWarmer
-                            .uncachedRemoteTags(content, ruleSetWorkingDir())
-                            .size,
+                    uncachedRemoteRuleSets = RuleSetCacheWarmer
+                        .uncachedRemoteTags(content, ruleSetWorkingDir()).size,
                     ladderExpired = ladderExpired(),
                 )
             ) {
@@ -758,14 +734,13 @@ class BoxService(
                 // remote sets that have a cached copy for local ones and
                 // retry. Only sets without a cache can still fail here,
                 // and only they reach the drop below.
-                val substitutedRetry =
-                    applyForRung(
-                        rawContent,
-                        replaceRuleSetNeedles = needles,
-                        substituteCachedRuleSets = true,
-                        dropRuleSetTags = triagedOutTags.toSet(),
-                        profileId = profileId,
-                    )
+                val substitutedRetry = applyForRung(
+                    rawContent,
+                    replaceRuleSetNeedles = needles,
+                    substituteCachedRuleSets = true,
+                    dropRuleSetTags = triagedOutTags.toSet(),
+                    profileId = profileId,
+                )
                 if (substitutedRetry != null) {
                     restartCommandServer()
                     result = attempt(reheal(substitutedRetry), optionsFactory())
@@ -777,12 +752,11 @@ class BoxService(
                 }
             }
             dropRungRan = true
-            val droppedAll =
-                applyForRung(
-                    rawContent,
-                    dropAllRemoteRuleSets = true,
-                    profileId = profileId,
-                )
+            val droppedAll = applyForRung(
+                rawContent,
+                dropAllRemoteRuleSets = true,
+                profileId = profileId,
+            )
             if (droppedAll != null) {
                 restartCommandServer()
                 result = attempt(reheal(droppedAll), optionsFactory())
@@ -803,10 +777,9 @@ class BoxService(
                         } else {
                             ConfigDiagnose.RuleSetSkipCause.DOWNLOAD_FAILED
                         },
-                        kernelDetail =
-                            listOf(firstErr, err)
-                                .firstOrNull { ConfigDiagnose.looksLikeRuleSetFailure(it) }
-                                ?: err ?: firstErr,
+                        kernelDetail = listOf(firstErr, err)
+                            .firstOrNull { ConfigDiagnose.looksLikeRuleSetFailure(it) }
+                            ?: err ?: firstErr,
                     )
                     return started(false)
                 }
@@ -824,19 +797,17 @@ class BoxService(
         // longer forks whether the rollback keeps the rule-set needles.
         var scriptRollbackError: String? = null
         if (scriptBound && !ladderExpired()) {
-            val classicScriptFault =
-                ConfigDiagnose.looksLikeScriptFault(firstErr) ||
-                    ConfigDiagnose.looksLikeScriptFault(err)
-            val rolledRaw =
-                applyForRung(
-                    rawContent,
-                    skipScripts = true,
-                    replaceRuleSetNeedles = needles,
-                    dropAllRemoteRuleSets = droppedRuleSets || dropRungRan,
-                    substituteCachedRuleSets = substitutedRuleSets,
-                    dropRuleSetTags = triagedOutTags.toSet(),
-                    profileId = profileId,
-                )
+            val classicScriptFault = ConfigDiagnose.looksLikeScriptFault(firstErr) ||
+                ConfigDiagnose.looksLikeScriptFault(err)
+            val rolledRaw = applyForRung(
+                rawContent,
+                skipScripts = true,
+                replaceRuleSetNeedles = needles,
+                dropAllRemoteRuleSets = droppedRuleSets || dropRungRan,
+                substituteCachedRuleSets = substitutedRuleSets,
+                dropRuleSetTags = triagedOutTags.toSet(),
+                profileId = profileId,
+            )
             if (rolledRaw != null) {
                 restartCommandServer()
                 result = attempt(reheal(rolledRaw), optionsFactory())
@@ -844,12 +815,11 @@ class BoxService(
                     OverrideStatus.add(
                         OverrideNotice(
                             title = "脚本启动失败，已回滚",
-                            reason =
-                                if (classicScriptFault) {
-                                    ConfigDiagnose.explain(firstErr, scriptsBound = true)
-                                } else {
-                                    "脚本改出的配置内核启动不了：${firstErr?.take(120) ?: "未知错误"}"
-                                },
+                            reason = if (classicScriptFault) {
+                                ConfigDiagnose.explain(firstErr, scriptsBound = true)
+                            } else {
+                                "脚本改出的配置内核启动不了：${firstErr?.take(120) ?: "未知错误"}"
+                            },
                             hint = ConfigDiagnose.rollbackHint(),
                             error = true,
                         ),
@@ -877,14 +847,13 @@ class BoxService(
         var quarantineAttempted = false
         if (!recoveredContent && !ladderExpired()) {
             quarantineAttempted = true
-            val quarantined =
-                runCatching {
-                    ConfigQuarantine.degrade(
-                        content,
-                        checkOracle,
-                        QuarantineBudget(expired = { ladderExpired() }),
-                    )
-                }.getOrNull()
+            val quarantined = runCatching {
+                ConfigQuarantine.degrade(
+                    content,
+                    checkOracle,
+                    QuarantineBudget(expired = { ladderExpired() }),
+                )
+            }.getOrNull()
             if (quarantined != null &&
                 (quarantined.removedItems.isNotEmpty() || quarantined.floorUsed)
             ) {
@@ -920,12 +889,11 @@ class BoxService(
             stopAndAlert(Alert.CreateService, scriptRollbackError)
             return false
         }
-        var failureMessage =
-            ConfigDiagnose.explain(
-                err,
-                scriptsBound = scriptBound,
-                ruleSetRetried = ruleSetRetried,
-            )
+        var failureMessage = ConfigDiagnose.explain(
+            err,
+            scriptsBound = scriptBound,
+            ruleSetRetried = ruleSetRetried,
+        )
         if (quarantineAttempted) {
             // Even the check-driven quarantine could not make the
             // kernel accept this config: attach the kernel's own words
@@ -971,23 +939,22 @@ class BoxService(
         // the sets the triage just removed (the 133/134 bug class).
         dropRuleSetTags: Set<String> = emptySet(),
         profileId: Long,
-    ): String? =
-        try {
-            ConfigQuicOverride.apply(
-                rawContent,
-                skipScripts = skipScripts,
-                replaceRuleSetNeedles = replaceRuleSetNeedles,
-                dropAllRemoteRuleSets = dropAllRemoteRuleSets,
-                substituteCachedRuleSets = substituteCachedRuleSets,
-                stripEch = stripEch,
-                dropRuleSetTags = dropRuleSetTags,
-                profileId = profileId,
-            )
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
+    ): String? = try {
+        ConfigQuicOverride.apply(
+            rawContent,
+            skipScripts = skipScripts,
+            replaceRuleSetNeedles = replaceRuleSetNeedles,
+            dropAllRemoteRuleSets = dropAllRemoteRuleSets,
+            substituteCachedRuleSets = substituteCachedRuleSets,
+            stripEch = stripEch,
+            dropRuleSetTags = dropRuleSetTags,
+            profileId = profileId,
+        )
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 
     /**
      * Per-set triage for one start (v1.0.136; the decision logic is
@@ -1013,35 +980,32 @@ class BoxService(
         if (refs.isEmpty()) return emptyList<String>() to null
         val now = System.currentTimeMillis()
         val records = RuleSetAvailabilityStore.load(profileId)
-        val plan =
-            RuleSetTriage.plan(refs, records, profileId, now) { ref ->
-                // Local copies outrank records: the warmer cache file the
-                // substitute rung can serve, a bundled seed the kernel
-                // loads via initial_path (137a), or a localization-store
-                // copy the build stamped as initial_path (137b) — none of
-                // them needs the network at start, so none is ever probed
-                // or stripped. cacheCopyExists takes the external-files
-                // ROOT like every other cacheFile caller (it appends
-                // "rule-sets" itself); this call site used to pass the
-                // pre-nested rule-sets dir, which silently disabled the
-                // warmer tier — the lookup landed in rule-sets/rule-sets.
-                RuleSetTriage.cacheCopyExists(ruleSetWorkingDir(), ref) ||
-                    RuleSetTriage.seedCopyExists(Application.application.filesDir, ref) ||
-                    RuleSetTriage.storeCopyExists(Application.application.filesDir, ref)
-            }
-        val probeResults =
-            withContext(Dispatchers.IO) {
-                RuleSetTriage.probeAll(plan.toProbe, HttpRuleSetProbe)
-            }
+        val plan = RuleSetTriage.plan(refs, records, profileId, now) { ref ->
+            // Local copies outrank records: the warmer cache file the
+            // substitute rung can serve, a bundled seed the kernel
+            // loads via initial_path (137a), or a localization-store
+            // copy the build stamped as initial_path (137b) — none of
+            // them needs the network at start, so none is ever probed
+            // or stripped. cacheCopyExists takes the external-files
+            // ROOT like every other cacheFile caller (it appends
+            // "rule-sets" itself); this call site used to pass the
+            // pre-nested rule-sets dir, which silently disabled the
+            // warmer tier — the lookup landed in rule-sets/rule-sets.
+            RuleSetTriage.cacheCopyExists(ruleSetWorkingDir(), ref) ||
+                RuleSetTriage.seedCopyExists(Application.application.filesDir, ref) ||
+                RuleSetTriage.storeCopyExists(Application.application.filesDir, ref)
+        }
+        val probeResults = withContext(Dispatchers.IO) {
+            RuleSetTriage.probeAll(plan.toProbe, HttpRuleSetProbe)
+        }
         val decision = RuleSetTriage.decide(plan, probeResults, profileId, now)
         RuleSetAvailabilityStore.save(profileId, decision.newRecords, now)
         if (decision.unavailableTags.isEmpty()) return emptyList<String>() to null
-        val rebuilt =
-            applyForRung(
-                rawContent,
-                dropRuleSetTags = decision.unavailableTags.toSet(),
-                profileId = profileId,
-            )
+        val rebuilt = applyForRung(
+            rawContent,
+            dropRuleSetTags = decision.unavailableTags.toSet(),
+            profileId = profileId,
+        )
         return decision.unavailableTags to rebuilt?.takeIf { it != builtContent }
     }
 
@@ -1051,24 +1015,15 @@ class BoxService(
      * strips those sets up front instead of paying a failed kernel
      * attempt to rediscover them.
      */
-    private fun learnRuleSetNeedles(
-        profileId: Long,
-        builtContent: String,
-        needles: List<String>,
-    ) {
+    private fun learnRuleSetNeedles(profileId: Long, builtContent: String, needles: List<String>) {
         val now = System.currentTimeMillis()
         val updates = LinkedHashMap<String, RuleSetTriage.Record>()
         for (ref in RuleSetTriage.enumerate(builtContent)) {
-            val file =
-                ref.url
-                    .substringAfterLast('/')
-                    .substringBefore('?')
-                    .lowercase()
-            val hit =
-                needles.any { needle ->
-                    runCatching { ConfigInboundCompat.ruleSetMatchesNeedle(ref.tag, file, needle) }
-                        .getOrDefault(false)
-                }
+            val file = ref.url.substringAfterLast('/').substringBefore('?').lowercase()
+            val hit = needles.any { needle ->
+                runCatching { ConfigInboundCompat.ruleSetMatchesNeedle(ref.tag, file, needle) }
+                    .getOrDefault(false)
+            }
             if (hit) {
                 updates[RuleSetTriage.recordKey(profileId, ref)] =
                     RuleSetTriage.Record(available = false, checkedAtMs = now)
@@ -1077,10 +1032,7 @@ class BoxService(
         RuleSetAvailabilityStore.save(profileId, updates, now)
     }
 
-    private class PipelineRecovery(
-        val content: String,
-        val notice: OverrideNotice,
-    )
+    private class PipelineRecovery(val content: String, val notice: OverrideNotice)
 
     /**
      * G1 reroute for a pipeline fatal. The fatal says the PROCESSED
@@ -1157,19 +1109,17 @@ class BoxService(
                 )
             }
         }
-        val quarantined =
-            runCatching {
-                ConfigQuarantine.degrade(
-                    healed.content,
-                    checkOracle,
-                    QuarantineBudget(expired = ladderExpired),
-                )
-            }.getOrNull() ?: return null
+        val quarantined = runCatching {
+            ConfigQuarantine.degrade(
+                healed.content,
+                checkOracle,
+                QuarantineBudget(expired = ladderExpired),
+            )
+        }.getOrNull() ?: return null
         if (chainBound) {
-            val chained =
-                runCatching {
-                    ConfigChainReapply.apply(quarantined.content, profileId)
-                }.getOrNull()
+            val chained = runCatching {
+                ConfigChainReapply.apply(quarantined.content, profileId)
+            }.getOrNull()
             if (chained != null && checkOracle.check(chained) == null) {
                 return PipelineRecovery(
                     chained,
@@ -1192,21 +1142,15 @@ class BoxService(
         chainDropped: Boolean,
     ): OverrideNotice {
         val removed = outcome.removedItems
-        val base =
-            when {
-                outcome.floorUsed -> {
-                    "完整配置加工失败，已用还能用的节点拼成最小配置启动"
-                }
-
-                removed.isEmpty() -> {
-                    "完整配置加工失败，已用规范化后的配置启动"
-                }
-
-                else -> {
-                    "完整配置加工失败，已隔离 ${removed.size} 处内核不认的内容后启动：" +
-                        removed.take(6).joinToString("、")
-                }
-            }
+        val base = when {
+            outcome.floorUsed ->
+                "完整配置加工失败，已用还能用的节点拼成最小配置启动"
+            removed.isEmpty() ->
+                "完整配置加工失败，已用规范化后的配置启动"
+            else ->
+                "完整配置加工失败，已隔离 ${removed.size} 处内核不认的内容后启动：" +
+                    removed.take(6).joinToString("、")
+        }
         return OverrideNotice(
             title = if (chainDropped) "链式代理这次没生效" else "配置规范化",
             reason = if (chainDropped) "$base。这次没有走链式。" else "$base。",
@@ -1258,10 +1202,9 @@ class BoxService(
         if (startAbort.get()) return Result.failure(StartCancelled())
         val server = commandServer
         val holder = arrayOfNulls<Result<Unit>>(1)
-        val worker =
-            Thread({
-                holder[0] = runCatching { server.startOrReloadService(content, options) }
-            }, "kernel-start")
+        val worker = Thread({
+            holder[0] = runCatching { server.startOrReloadService(content, options) }
+        }, "kernel-start")
         worker.isDaemon = true
         worker.start()
         val deadline = SystemClock.elapsedRealtime() + budgetMs
@@ -1293,15 +1236,11 @@ class BoxService(
         )
     }
 
-    private fun abandonStart(
-        server: CommandServer,
-        worker: Thread,
-    ) {
+    private fun abandonStart(server: CommandServer, worker: Thread) {
         abandonedStartThreads.add(worker)
-        val closer =
-            Thread({
-                runCatching { server.closeService() }
-            }, "kernel-cancel")
+        val closer = Thread({
+            runCatching { server.closeService() }
+        }, "kernel-cancel")
         closer.isDaemon = true
         closer.start()
         worker.join(8_000)
@@ -1318,9 +1257,8 @@ class BoxService(
     }
 
     /** Same working dir the startup substitute and the cache warmer use. */
-    private fun ruleSetWorkingDir(): File =
-        runCatching { Application.application.getExternalFilesDir(null) }.getOrNull()
-            ?: Application.application.filesDir
+    private fun ruleSetWorkingDir(): File = runCatching { Application.application.getExternalFilesDir(null) }.getOrNull()
+        ?: Application.application.filesDir
 
     private fun noteRuleSetsSkipped(
         cause: ConfigDiagnose.RuleSetSkipCause,
@@ -1447,11 +1385,7 @@ class BoxService(
         }
     }
 
-    private suspend fun stopAndAlert(
-        type: Alert,
-        message: String? = null,
-        silent: Boolean = false,
-    ) {
+    private suspend fun stopAndAlert(type: Alert, message: String? = null, silent: Boolean = false) {
         Settings.startedByUser = false
         val pfd = fileDescriptor
         if (pfd != null) {
@@ -1539,16 +1473,11 @@ class BoxService(
     internal fun sendNotification(notification: Notification) {
         val channel = "notification-${notification.typeID}"
         val builder =
-            NotificationCompat
-                .Builder(service, channel)
-                .setShowWhen(false)
-                .setContentTitle(notification.title)
-                .setContentText(notification.body)
-                .setOnlyAlertOnce(true)
-                .setSmallIcon(R.drawable.ic_qs_tile)
+            NotificationCompat.Builder(service, channel).setShowWhen(false)
+                .setContentTitle(notification.title).setContentText(notification.body)
+                .setOnlyAlertOnce(true).setSmallIcon(R.drawable.ic_qs_tile)
                 .setCategory(NotificationCompat.CATEGORY_EVENT)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true)
         if (!notification.subtitle.isNullOrBlank()) {
             builder.setContentInfo(notification.subtitle)
         }
@@ -1585,10 +1514,7 @@ class BoxService(
         }
     }
 
-    internal fun cancelNotification(
-        identifier: String,
-        typeID: Int,
-    ) {
+    internal fun cancelNotification(identifier: String, typeID: Int) {
         GlobalScope.launch(Dispatchers.Main) {
             Application.notification.cancel(identifier, typeID)
         }

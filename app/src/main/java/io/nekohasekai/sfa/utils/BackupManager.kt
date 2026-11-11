@@ -39,15 +39,10 @@ object BackupManager {
     private const val MAX_TOTAL_SIZE = 128L * 1024 * 1024
 
     /** Size and path limits always abort. Compat may skip unknown entries, not these. */
-    private class BackupRejected(
-        message: String,
-    ) : IllegalStateException(message)
+    private class BackupRejected(message: String) : IllegalStateException(message)
 
     /** A Remote profile a restore created, carried in [RestoreReport] for disclosure. */
-    data class RestoredRemoteProfile(
-        val name: String,
-        val url: String,
-    )
+    data class RestoredRemoteProfile(val name: String, val url: String)
 
     /**
      * What a restore did that the user should see afterwards: the Remote
@@ -74,28 +69,24 @@ object BackupManager {
         context: Context,
         dest: File,
         password: CharArray? = null,
-    ): Result<File> =
-        runCatching {
-            if (password == null || password.isEmpty()) {
-                writeBackupZip(context, dest)
-                return@runCatching dest
-            }
-            val plainTmp = File(context.cacheDir, "chainbox-backup-plain.zip")
-            try {
-                writeBackupZip(context, plainTmp)
-                val sealed = BackupCrypto.encrypt(plainTmp.readBytes(), password)
-                dest.parentFile?.mkdirs()
-                dest.writeBytes(sealed)
-            } finally {
-                plainTmp.delete()
-            }
-            dest
+    ): Result<File> = runCatching {
+        if (password == null || password.isEmpty()) {
+            writeBackupZip(context, dest)
+            return@runCatching dest
         }
+        val plainTmp = File(context.cacheDir, "chainbox-backup-plain.zip")
+        try {
+            writeBackupZip(context, plainTmp)
+            val sealed = BackupCrypto.encrypt(plainTmp.readBytes(), password)
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(sealed)
+        } finally {
+            plainTmp.delete()
+        }
+        dest
+    }
 
-    private fun writeBackupZip(
-        context: Context,
-        dest: File,
-    ) {
+    private fun writeBackupZip(context: Context, dest: File) {
         dest.parentFile?.mkdirs()
         // Checkpoint first so the temp copies below observe the latest committed
         // state. Credentials are blanked in the temp copies only: live Settings
@@ -106,11 +97,10 @@ object BackupManager {
         checkpoint(context, Path.PROFILES_DATABASE_PATH)
         ZipOutputStream(BufferedOutputStream(FileOutputStream(dest))).use { zos ->
             val profiles = runBlocking { ProfileManager.list() }
-            val archive =
-                PortableCloudBackup.buildFromAndroid(
-                    profiles = profiles,
-                    selectedProfileId = Settings.selectedProfile,
-                )
+            val archive = PortableCloudBackup.buildFromAndroid(
+                profiles = profiles,
+                selectedProfileId = Settings.selectedProfile,
+            )
             putEntry(
                 zos,
                 MANIFEST,
@@ -174,14 +164,13 @@ object BackupManager {
         }
         val plainTmp = File(context.cacheDir, "chainbox-restore-plain.zip")
         return try {
-            val plain =
-                try {
-                    BackupCrypto.decrypt(src.readBytes(), password)
-                } catch (e: BackupCrypto.BackupCryptoException) {
-                    return Result.failure(
-                        IllegalStateException(context.getString(R.string.backup_decrypt_failed)),
-                    )
-                }
+            val plain = try {
+                BackupCrypto.decrypt(src.readBytes(), password)
+            } catch (e: BackupCrypto.BackupCryptoException) {
+                return Result.failure(
+                    IllegalStateException(context.getString(R.string.backup_decrypt_failed)),
+                )
+            }
             plainTmp.writeBytes(plain)
             restoreZipFile(context, plainTmp, compat, includeSensitiveItems)
         } finally {
@@ -194,232 +183,211 @@ object BackupManager {
         src: File,
         compat: Boolean = false,
         includeSensitiveItems: Boolean = false,
-    ): Result<RestoreReport> =
-        runCatching {
-            if (!isZipFile(src)) {
-                if (!compat) error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
-            }
-            val keepDav = Settings.webdavPassword
-            val keepTok = Settings.githubToken
-            // M3 snapshot: the pre-restore WebDAV endpoint is the only one the
-            // preserved password may ever be paired with (see the repair at the
-            // end of the overwrite path).
-            val keepDavUrl = Settings.webdavUrl
-            val keepDavUser = Settings.webdavUser
-            val staging =
-                File(context.cacheDir, "restore-staging").also {
-                    it.deleteRecursively()
-                    it.mkdirs()
-                }
-            var entries = 0
-            var total = 0L
-            var hasData = false
-            try {
-                ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        if (++entries > MAX_ENTRIES) {
-                            throw BackupRejected("备份包含过多文件")
+    ): Result<RestoreReport> = runCatching {
+        if (!isZipFile(src)) {
+            if (!compat) error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
+        }
+        val keepDav = Settings.webdavPassword
+        val keepTok = Settings.githubToken
+        // M3 snapshot: the pre-restore WebDAV endpoint is the only one the
+        // preserved password may ever be paired with (see the repair at the
+        // end of the overwrite path).
+        val keepDavUrl = Settings.webdavUrl
+        val keepDavUser = Settings.webdavUser
+        val staging = File(context.cacheDir, "restore-staging").also {
+            it.deleteRecursively()
+            it.mkdirs()
+        }
+        var entries = 0
+        var total = 0L
+        var hasData = false
+        try {
+            ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    if (++entries > MAX_ENTRIES) {
+                        throw BackupRejected("备份包含过多文件")
+                    }
+                    val name = entry.name.trimStart('/')
+                    if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
+                        val outFile = when {
+                            name == MANIFEST ||
+                                name == PortableCloudBackup.PROFILES ||
+                                name == PortableCloudBackup.SETTINGS -> File(staging, name)
+                            name.startsWith("configs/") -> {
+                                val relative = name.removePrefix("configs/")
+                                if (relative.isBlank() || relative.contains('/')) {
+                                    throw BackupRejected("非法备份路径")
+                                } else {
+                                    File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
+                                }
+                            }
+                            name.endsWith(".db") && !name.contains('/') -> File(staging, name)
+                            else -> null
                         }
-                        val name = entry.name.trimStart('/')
-                        if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
-                            val outFile =
-                                when {
-                                    name == MANIFEST ||
-                                        name == PortableCloudBackup.PROFILES ||
-                                        name == PortableCloudBackup.SETTINGS -> {
-                                        File(staging, name)
+                        if (outFile != null) {
+                            if (name.endsWith(".db") || name.startsWith("configs/") ||
+                                name == PortableCloudBackup.PROFILES
+                            ) {
+                                hasData = true
+                            }
+                            outFile.parentFile?.mkdirs()
+                            var entryBytes = 0L
+                            FileOutputStream(outFile).use { fos ->
+                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                while (true) {
+                                    val read = zis.read(buffer)
+                                    if (read < 0) break
+                                    entryBytes += read
+                                    total += read
+                                    if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
+                                        throw BackupRejected("备份展开大小超过限制")
                                     }
-
-                                    name.startsWith("configs/") -> {
-                                        val relative = name.removePrefix("configs/")
-                                        if (relative.isBlank() || relative.contains('/')) {
-                                            throw BackupRejected("非法备份路径")
-                                        } else {
-                                            File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
-                                        }
-                                    }
-
-                                    name.endsWith(".db") && !name.contains('/') -> {
-                                        File(staging, name)
-                                    }
-
-                                    else -> {
-                                        null
-                                    }
-                                }
-                            if (outFile != null) {
-                                if (name.endsWith(".db") || name.startsWith("configs/") ||
-                                    name == PortableCloudBackup.PROFILES
-                                ) {
-                                    hasData = true
-                                }
-                                outFile.parentFile?.mkdirs()
-                                var entryBytes = 0L
-                                FileOutputStream(outFile).use { fos ->
-                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                    while (true) {
-                                        val read = zis.read(buffer)
-                                        if (read < 0) break
-                                        entryBytes += read
-                                        total += read
-                                        if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
-                                            throw BackupRejected("备份展开大小超过限制")
-                                        }
-                                        fos.write(buffer, 0, read)
-                                    }
+                                    fos.write(buffer, 0, read)
                                 }
                             }
                         }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
                     }
-                }
-            } catch (e: BackupRejected) {
-                staging.deleteRecursively()
-                throw e
-            } catch (e: Exception) {
-                if (!compat) throw e
-            }
-            if (!hasData) error("备份里没有配置或数据库，无法恢复")
-
-            val portableProfiles = File(staging, PortableCloudBackup.PROFILES)
-            val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
-            val hasPortable = portableProfiles.isFile
-
-            if (compat) {
-                val restoredRemote =
-                    if (hasPortable) {
-                        mergePortableProfiles(
-                            context,
-                            portableProfiles.readText(),
-                            File(staging, "configs"),
-                        )
-                    } else {
-                        mergeProfilesFromBackup(
-                            context,
-                            File(staging, Path.PROFILES_DATABASE_PATH),
-                            File(staging, "configs"),
-                        )
-                    }
-                staging.deleteRecursively()
-                return@runCatching RestoreReport(remoteProfiles = restoredRemote)
-            }
-
-            runCatching { BoxService.stop() }
-            Thread.sleep(350)
-            Settings.closeDatabase()
-            ProfileManager.closeDatabase()
-
-            val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
-            val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
-            val settingsDbRestored = settingsDb.isFile
-            val profilesDbRestored = profilesDb.isFile
-            if (settingsDbRestored) {
-                val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-                dest.parentFile?.mkdirs()
-                deleteSidecars(dest)
-                settingsDb.copyTo(dest, overwrite = true)
-                deleteSidecars(dest)
-            }
-            if (profilesDbRestored) {
-                val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
-                dest.parentFile?.mkdirs()
-                deleteSidecars(dest)
-                profilesDb.copyTo(dest, overwrite = true)
-                deleteSidecars(dest)
-                pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
-                repairRestoredRemoteServers(dest)
-            }
-            val stagedConfigs = File(staging, "configs")
-            val live = File(context.filesDir, "configs").also { it.mkdirs() }
-            if (stagedConfigs.isDirectory) {
-                val incoming =
-                    stagedConfigs
-                        .listFiles()
-                        ?.filter { it.isFile }
-                        ?.map { it.name }
-                        ?.toSet() ?: emptySet()
-                live.listFiles()?.forEach { f ->
-                    if (f.isFile && f.name !in incoming) f.delete()
-                }
-                stagedConfigs.listFiles()?.forEach { f ->
-                    if (f.isFile) runCatching { f.copyTo(File(live, f.name), overwrite = true) }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
                 }
             }
-
-            val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-            if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
-            if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
-
-            var portableOutcome: PortableRestoreOutcome? = null
-            if (hasPortable) {
-                if (!profilesDbRestored) {
-                    portableOutcome =
-                        restorePortableOverwrite(
-                            context,
-                            portableProfiles.readText(),
-                            if (portableSettings.isFile) portableSettings.readText() else "{}",
-                            File(staging, "configs"),
-                            includeSensitiveItems,
-                        )
-                } else {
-                    runCatching {
-                        val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
-                        val existing = runBlocking { ProfileManager.list() }
-                        val uuidToLocal = linkedMapOf<String, Long>()
-                        profiles.forEach { portable ->
-                            val local =
-                                existing.firstOrNull { it.name.trim() == portable.name.trim() }
-                                    ?: existing.firstOrNull {
-                                        portable.remoteUrl.isNotEmpty() &&
-                                            it.typed.remoteURL.trim() == portable.remoteUrl
-                                    }
-                            if (local != null) uuidToLocal[portable.id] = local.id
-                        }
-                        PortableCloudBackup.importStableIds(profiles, uuidToLocal)
-                        if (!selected.isNullOrBlank()) {
-                            ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
-                        }
-                    }
-                }
-            }
-            if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
-            if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
-            // M3 (same rule the portable path applies in applyPortableSettings):
-            // a backup carries no WebDAV password by design, so the URL/user its
-            // settings.db restored must never be paired with the password
-            // preserved above — the first probe would send that password to the
-            // backup's server as Basic Auth. Keep the pre-restore endpoint
-            // whenever the backup's differs. Gated on the DB actually having
-            // been replaced: without one, the endpoint is either untouched or
-            // came through the portable path, whose M3 gate already ran.
-            // (Every WebDAV use still re-validates the URL through
-            // RemoteUrlGuard in requireHttps before connecting.)
-            if (settingsDbRestored) {
-                if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
-                if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
-            }
-            // A restored activeRemoteServerId points into the backup's server
-            // list, whose rows were just re-validated by
-            // repairRestoredRemoteServers. Never auto-connect on the next
-            // launch: the user re-selects the server in the UI.
-            if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
-
-            val report =
-                if (portableOutcome != null) {
-                    RestoreReport(
-                        remoteProfiles = portableOutcome.remoteProfiles,
-                        skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
-                        skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
-                        skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
-                    )
-                } else {
-                    RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
-                }
+        } catch (e: BackupRejected) {
             staging.deleteRecursively()
-            report
+            throw e
+        } catch (e: Exception) {
+            if (!compat) throw e
         }
+        if (!hasData) error("备份里没有配置或数据库，无法恢复")
+
+        val portableProfiles = File(staging, PortableCloudBackup.PROFILES)
+        val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
+        val hasPortable = portableProfiles.isFile
+
+        if (compat) {
+            val restoredRemote = if (hasPortable) {
+                mergePortableProfiles(
+                    context,
+                    portableProfiles.readText(),
+                    File(staging, "configs"),
+                )
+            } else {
+                mergeProfilesFromBackup(
+                    context,
+                    File(staging, Path.PROFILES_DATABASE_PATH),
+                    File(staging, "configs"),
+                )
+            }
+            staging.deleteRecursively()
+            return@runCatching RestoreReport(remoteProfiles = restoredRemote)
+        }
+
+        runCatching { BoxService.stop() }
+        Thread.sleep(350)
+        Settings.closeDatabase()
+        ProfileManager.closeDatabase()
+
+        val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
+        val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
+        val settingsDbRestored = settingsDb.isFile
+        val profilesDbRestored = profilesDb.isFile
+        if (settingsDbRestored) {
+            val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+            dest.parentFile?.mkdirs()
+            deleteSidecars(dest)
+            settingsDb.copyTo(dest, overwrite = true)
+            deleteSidecars(dest)
+        }
+        if (profilesDbRestored) {
+            val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
+            dest.parentFile?.mkdirs()
+            deleteSidecars(dest)
+            profilesDb.copyTo(dest, overwrite = true)
+            deleteSidecars(dest)
+            pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
+            repairRestoredRemoteServers(dest)
+        }
+        val stagedConfigs = File(staging, "configs")
+        val live = File(context.filesDir, "configs").also { it.mkdirs() }
+        if (stagedConfigs.isDirectory) {
+            val incoming = stagedConfigs.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
+            live.listFiles()?.forEach { f ->
+                if (f.isFile && f.name !in incoming) f.delete()
+            }
+            stagedConfigs.listFiles()?.forEach { f ->
+                if (f.isFile) runCatching { f.copyTo(File(live, f.name), overwrite = true) }
+            }
+        }
+
+        val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+        if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
+        if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
+
+        var portableOutcome: PortableRestoreOutcome? = null
+        if (hasPortable) {
+            if (!profilesDbRestored) {
+                portableOutcome = restorePortableOverwrite(
+                    context,
+                    portableProfiles.readText(),
+                    if (portableSettings.isFile) portableSettings.readText() else "{}",
+                    File(staging, "configs"),
+                    includeSensitiveItems,
+                )
+            } else {
+                runCatching {
+                    val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
+                    val existing = runBlocking { ProfileManager.list() }
+                    val uuidToLocal = linkedMapOf<String, Long>()
+                    profiles.forEach { portable ->
+                        val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
+                            ?: existing.firstOrNull {
+                                portable.remoteUrl.isNotEmpty() &&
+                                    it.typed.remoteURL.trim() == portable.remoteUrl
+                            }
+                        if (local != null) uuidToLocal[portable.id] = local.id
+                    }
+                    PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+                    if (!selected.isNullOrBlank()) {
+                        ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
+                    }
+                }
+            }
+        }
+        if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
+        if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
+        // M3 (same rule the portable path applies in applyPortableSettings):
+        // a backup carries no WebDAV password by design, so the URL/user its
+        // settings.db restored must never be paired with the password
+        // preserved above — the first probe would send that password to the
+        // backup's server as Basic Auth. Keep the pre-restore endpoint
+        // whenever the backup's differs. Gated on the DB actually having
+        // been replaced: without one, the endpoint is either untouched or
+        // came through the portable path, whose M3 gate already ran.
+        // (Every WebDAV use still re-validates the URL through
+        // RemoteUrlGuard in requireHttps before connecting.)
+        if (settingsDbRestored) {
+            if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
+            if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
+        }
+        // A restored activeRemoteServerId points into the backup's server
+        // list, whose rows were just re-validated by
+        // repairRestoredRemoteServers. Never auto-connect on the next
+        // launch: the user re-selects the server in the UI.
+        if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
+
+        val report = if (portableOutcome != null) {
+            RestoreReport(
+                remoteProfiles = portableOutcome.remoteProfiles,
+                skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
+                skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
+                skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
+            )
+        } else {
+            RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
+        }
+        staging.deleteRecursively()
+        report
+    }
 
     /** Remote profiles the wholesale DB restore just installed, read back for the [RestoreReport]. */
     private fun restoredDbRemoteProfiles(profilesDbRestored: Boolean): List<RestoredRemoteProfile> {
@@ -443,10 +411,7 @@ object BackupManager {
      * (the restore result discloses it) — and the interval gets the same
      * 15-minute floor every other import path applies.
      */
-    internal fun pinProfilePathsToConfigs(
-        profilesDb: File,
-        liveConfigs: File,
-    ) {
+    internal fun pinProfilePathsToConfigs(profilesDb: File, liveConfigs: File) {
         if (!profilesDb.isFile) return
         runCatching {
             val root = liveConfigs.canonicalFile
@@ -499,12 +464,10 @@ object BackupManager {
         if (!profilesDb.isFile) return
         runCatching {
             SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-                val hasTable =
-                    db
-                        .rawQuery(
-                            "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
-                            null,
-                        ).use { it.moveToFirst() }
+                val hasTable = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
+                    null,
+                ).use { it.moveToFirst() }
                 if (hasTable) {
                     val rows = mutableListOf<Pair<Long, String>>()
                     db.rawQuery("SELECT id, url FROM remote_servers", null).use { c ->
@@ -620,20 +583,19 @@ object BackupManager {
         val dest = File(liveConfigs, "$fileId.json")
         val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
         if (!copied || !dest.isFile) return null
-        val typed =
-            TypedProfile().apply {
-                path = dest.path
-                type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
-                remoteURL = url
-                lastUpdated = Date(portable.lastUpdated)
-                // A restore never confirms a subscription per URL, so a profile
-                // it creates must not fetch unattended: auto-update is stored
-                // off (the restore result discloses the profile) and turned
-                // back on by the user if wanted. The interval keeps the
-                // 15-minute floor every import path applies.
-                autoUpdate = false
-                autoUpdateInterval = portable.autoUpdateIntervalMinutes.coerceAtLeast(15)
-            }
+        val typed = TypedProfile().apply {
+            path = dest.path
+            type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
+            remoteURL = url
+            lastUpdated = Date(portable.lastUpdated)
+            // A restore never confirms a subscription per URL, so a profile
+            // it creates must not fetch unattended: auto-update is stored
+            // off (the restore result discloses the profile) and turned
+            // back on by the user if wanted. The interval keeps the
+            // 15-minute floor every import path applies.
+            autoUpdate = false
+            autoUpdateInterval = portable.autoUpdateIntervalMinutes.coerceAtLeast(15)
+        }
         return ProfileManager.create(
             Profile(name = portable.name.trim(), icon = portable.icon, typed = typed),
             andSelect = false,
@@ -654,12 +616,11 @@ object BackupManager {
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
         val convertor = TypedProfile.Convertor()
         SQLiteDatabase.openDatabase(backupProfilesDb.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            val cursor =
-                try {
-                    db.rawQuery("SELECT name, icon, typed FROM profiles", null)
-                } catch (_: Exception) {
-                    db.rawQuery("SELECT name, typed FROM profiles", null)
-                }
+            val cursor = try {
+                db.rawQuery("SELECT name, icon, typed FROM profiles", null)
+            } catch (_: Exception) {
+                db.rawQuery("SELECT name, typed FROM profiles", null)
+            }
             cursor.use { c ->
                 val nameIdx = c.getColumnIndex("name")
                 val iconIdx = c.getColumnIndex("icon")
@@ -673,12 +634,11 @@ object BackupManager {
                         val name = c.getString(nameIdx)?.trim().orEmpty()
                         if (name.isEmpty() || name in names) continue
                         val typedBytes = c.getBlob(typedIdx) ?: continue
-                        val typed =
-                            try {
-                                convertor.unmarshall(typedBytes)
-                            } catch (_: Exception) {
-                                continue
-                            }
+                        val typed = try {
+                            convertor.unmarshall(typedBytes)
+                        } catch (_: Exception) {
+                            continue
+                        }
                         val url = typed.remoteURL.trim()
                         if (url.isNotEmpty()) {
                             try {
@@ -696,19 +656,18 @@ object BackupManager {
                         val dest = File(liveConfigs, "$fileId.json")
                         val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
                         if (!copied || !dest.isFile) continue
-                        val imported =
-                            TypedProfile().apply {
-                                path = dest.path
-                                type = typed.type
-                                remoteURL = typed.remoteURL
-                                lastUpdated = typed.lastUpdated
-                                // Same restore policy as importPortableProfile:
-                                // never confirmed per URL, so no unattended
-                                // fetching until the user opts in; interval
-                                // gets the usual 15-minute floor.
-                                autoUpdate = false
-                                autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
-                            }
+                        val imported = TypedProfile().apply {
+                            path = dest.path
+                            type = typed.type
+                            remoteURL = typed.remoteURL
+                            lastUpdated = typed.lastUpdated
+                            // Same restore policy as importPortableProfile:
+                            // never confirmed per URL, so no unattended
+                            // fetching until the user opts in; interval
+                            // gets the usual 15-minute floor.
+                            autoUpdate = false
+                            autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
+                        }
                         val icon = if (iconIdx >= 0 && !c.isNull(iconIdx)) c.getString(iconIdx) else null
                         ProfileManager.create(
                             Profile(name = name, icon = icon, typed = imported),
@@ -726,71 +685,56 @@ object BackupManager {
         return remoteProfiles
     }
 
-    fun webdavUpload(
-        baseUrl: String,
-        username: String,
-        password: String,
-        remoteName: String,
-        localFile: File,
-    ): Result<Unit> =
-        runCatching {
-            require(username.isNotBlank() && password.isNotBlank()) { "请填写 WebDAV 用户名和密码" }
-            wrapSsl {
-                val conn =
-                    openWebDav(joinUrl(baseUrl, remoteName), username, password).apply {
-                        requestMethod = "PUT"
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/octet-stream")
-                        setRequestProperty("Overwrite", "T")
-                        setFixedLengthStreamingMode(localFile.length())
-                    }
-                try {
-                    FileInputStream(localFile).use { input -> conn.outputStream.use { output -> input.copyTo(output) } }
-                    val code = conn.responseCode
-                    val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
-                    if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
-                    if (code !in 200..299) error("WebDAV 上传失败 HTTP $code${err?.let { ": $it" } ?: ""}")
-                } finally {
-                    conn.disconnect()
-                }
+    fun webdavUpload(baseUrl: String, username: String, password: String, remoteName: String, localFile: File): Result<Unit> = runCatching {
+        require(username.isNotBlank() && password.isNotBlank()) { "请填写 WebDAV 用户名和密码" }
+        wrapSsl {
+            val conn = openWebDav(joinUrl(baseUrl, remoteName), username, password).apply {
+                requestMethod = "PUT"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/octet-stream")
+                setRequestProperty("Overwrite", "T")
+                setFixedLengthStreamingMode(localFile.length())
+            }
+            try {
+                FileInputStream(localFile).use { input -> conn.outputStream.use { output -> input.copyTo(output) } }
+                val code = conn.responseCode
+                val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
+                if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
+                if (code !in 200..299) error("WebDAV 上传失败 HTTP $code${err?.let { ": $it" } ?: ""}")
+            } finally {
+                conn.disconnect()
             }
         }
+    }
 
-    fun webdavDownload(
-        baseUrl: String,
-        username: String,
-        password: String,
-        remoteName: String,
-        localFile: File,
-    ): Result<File> =
-        runCatching {
-            require(username.isNotBlank() && password.isNotBlank()) { "请填写 WebDAV 用户名和密码" }
-            wrapSsl {
-                val conn = openWebDav(joinUrl(baseUrl, remoteName), username, password).apply { requestMethod = "GET" }
-                try {
-                    val code = conn.responseCode
-                    val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
-                    if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
-                    if (code !in 200..299) {
-                        error("WebDAV 下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
-                    }
-                    localFile.parentFile?.mkdirs()
-                    conn.inputStream.use { input ->
-                        BackupFileIO.copyToFile(input, localFile, MAX_TOTAL_SIZE) { downloaded ->
-                            require(isZipFile(downloaded) || isEncryptedBackup(downloaded)) {
-                                "下载内容不是备份文件（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
-                            }
+    fun webdavDownload(baseUrl: String, username: String, password: String, remoteName: String, localFile: File): Result<File> = runCatching {
+        require(username.isNotBlank() && password.isNotBlank()) { "请填写 WebDAV 用户名和密码" }
+        wrapSsl {
+            val conn = openWebDav(joinUrl(baseUrl, remoteName), username, password).apply { requestMethod = "GET" }
+            try {
+                val code = conn.responseCode
+                val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
+                if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
+                if (code !in 200..299) {
+                    error("WebDAV 下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
+                }
+                localFile.parentFile?.mkdirs()
+                conn.inputStream.use { input ->
+                    BackupFileIO.copyToFile(input, localFile, MAX_TOTAL_SIZE) { downloaded ->
+                        require(isZipFile(downloaded) || isEncryptedBackup(downloaded)) {
+                            "下载内容不是备份文件（服务器可能返回了错误页）。请确认远程文件名「$remoteName」正确。"
                         }
                     }
-                    localFile
-                } catch (e: Exception) {
-                    localFile.delete()
-                    throw e
-                } finally {
-                    conn.disconnect()
                 }
+                localFile
+            } catch (e: Exception) {
+                localFile.delete()
+                throw e
+            } finally {
+                conn.disconnect()
             }
         }
+    }
 
     fun webdavProbe(
         baseUrl: String,
@@ -798,120 +742,110 @@ object BackupManager {
         password: String,
         remoteName: String = "",
         requiredTunnelGeneration: Long? = null,
-    ): Result<Boolean> =
-        runCatching {
-            wrapSsl {
-                if (username.isBlank() || password.isBlank()) {
-                    error("请填写 WebDAV 用户名和密码")
-                }
-                val base = requireHttps(baseUrl)
-                val fileUrl = if (remoteName.isNotBlank()) joinUrl(base, remoteName) else base
-                // Android HttpURLConnection only allows OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/PATCH.
-                // PROPFIND throws ProtocolException and is NOT a real connectivity failure — never use it.
-                var lastDetail = "no response"
-                var sawAuthFailure = false
-                // Do not switch a probe that started inside our VPN to direct for
-                // later fallback methods after a stop or restart.
-                val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
-                ensureProbeTunnel(tunnelGeneration)
-                val attempts =
-                    listOf(
-                        fileUrl to "HEAD",
-                        base to "OPTIONS",
-                        base to "HEAD",
-                        base to "GET",
-                    )
-                for ((target, method) in attempts) {
-                    ensureProbeTunnel(tunnelGeneration)
-                    val conn =
-                        try {
-                            openWebDav(target, username, password, tunnelGeneration).apply {
-                                requestMethod = method
-                                instanceFollowRedirects = false
-                            }
-                        } catch (e: Exception) {
-                            ensureProbeTunnel(tunnelGeneration)
-                            lastDetail = friendlyProbeDetail(e)
-                            continue
-                        }
-                    try {
-                        ensureProbeTunnel(tunnelGeneration)
-                        val code = conn.responseCode
-                        ensureProbeTunnel(tunnelGeneration)
-                        val loc = conn.getHeaderField("Location").orEmpty()
-                        lastDetail = "$method HTTP $code"
-                        when (classifyProbe(code)) {
-                            ProbeClass.AUTH -> {
-                                sawAuthFailure = true
-                                lastDetail = authFailedMessage(baseUrl, code, BackupFileIO.readWebdavDiagnostic(conn.errorStream))
-                            }
-
-                            ProbeClass.REDIRECT -> {
-                                if (loc.isNotEmpty()) {
-                                    val nextUrl =
-                                        try {
-                                            URI(target).resolve(loc.trim()).toASCIIString()
-                                        } catch (_: Exception) {
-                                            ""
-                                        }
-                                    val next =
-                                        try {
-                                            URI(nextUrl)
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                    val cur =
-                                        try {
-                                            URI(target)
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                    if (
-                                        nextUrl.isEmpty() ||
-                                        next == null ||
-                                        cur == null ||
-                                        next.scheme != "https" ||
-                                        next.host.isNullOrEmpty() ||
-                                        !next.host.equals(cur.host, true)
-                                    ) {
-                                        error("连通性失败：重定向到不安全主机")
-                                    }
-                                    try {
-                                        RemoteUrlGuard.requireAllowed(nextUrl, RemoteUrlGuard.Kind.SUBSCRIPTION)
-                                    } catch (_: Exception) {
-                                        error("连通性失败：重定向到不安全主机")
-                                    }
-                                }
-                                lastDetail = "redirect $code"
-                            }
-
-                            ProbeClass.OK, ProbeClass.MISS -> {
-                                if (code == 405) continue
-                                if (method == "OPTIONS" && code in 200..204) {
-                                    val dav = conn.getHeaderField("DAV").orEmpty()
-                                    val allow = conn.getHeaderField("Allow").orEmpty()
-                                    if (dav.isEmpty() && allow.isEmpty() && code != 204) continue
-                                }
-                                return@runCatching true
-                            }
-
-                            ProbeClass.OTHER -> { }
-                        }
-                    } catch (e: Exception) {
-                        ensureProbeTunnel(tunnelGeneration)
-                        if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
-                        lastDetail = friendlyProbeDetail(e)
-                    } finally {
-                        try {
-                            conn.disconnect()
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-                if (sawAuthFailure) error(lastDetail)
-                error("连通性失败：$lastDetail")
+    ): Result<Boolean> = runCatching {
+        wrapSsl {
+            if (username.isBlank() || password.isBlank()) {
+                error("请填写 WebDAV 用户名和密码")
             }
+            val base = requireHttps(baseUrl)
+            val fileUrl = if (remoteName.isNotBlank()) joinUrl(base, remoteName) else base
+            // Android HttpURLConnection only allows OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/PATCH.
+            // PROPFIND throws ProtocolException and is NOT a real connectivity failure — never use it.
+            var lastDetail = "no response"
+            var sawAuthFailure = false
+            // Do not switch a probe that started inside our VPN to direct for
+            // later fallback methods after a stop or restart.
+            val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
+            ensureProbeTunnel(tunnelGeneration)
+            val attempts = listOf(
+                fileUrl to "HEAD",
+                base to "OPTIONS",
+                base to "HEAD",
+                base to "GET",
+            )
+            for ((target, method) in attempts) {
+                ensureProbeTunnel(tunnelGeneration)
+                val conn = try {
+                    openWebDav(target, username, password, tunnelGeneration).apply {
+                        requestMethod = method
+                        instanceFollowRedirects = false
+                    }
+                } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration)
+                    lastDetail = friendlyProbeDetail(e)
+                    continue
+                }
+                try {
+                    ensureProbeTunnel(tunnelGeneration)
+                    val code = conn.responseCode
+                    ensureProbeTunnel(tunnelGeneration)
+                    val loc = conn.getHeaderField("Location").orEmpty()
+                    lastDetail = "$method HTTP $code"
+                    when (classifyProbe(code)) {
+                        ProbeClass.AUTH -> {
+                            sawAuthFailure = true
+                            lastDetail = authFailedMessage(baseUrl, code, BackupFileIO.readWebdavDiagnostic(conn.errorStream))
+                        }
+                        ProbeClass.REDIRECT -> {
+                            if (loc.isNotEmpty()) {
+                                val nextUrl = try {
+                                    URI(target).resolve(loc.trim()).toASCIIString()
+                                } catch (_: Exception) {
+                                    ""
+                                }
+                                val next = try {
+                                    URI(nextUrl)
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                val cur = try {
+                                    URI(target)
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                if (
+                                    nextUrl.isEmpty() ||
+                                    next == null ||
+                                    cur == null ||
+                                    next.scheme != "https" ||
+                                    next.host.isNullOrEmpty() ||
+                                    !next.host.equals(cur.host, true)
+                                ) {
+                                    error("连通性失败：重定向到不安全主机")
+                                }
+                                try {
+                                    RemoteUrlGuard.requireAllowed(nextUrl, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                                } catch (_: Exception) {
+                                    error("连通性失败：重定向到不安全主机")
+                                }
+                            }
+                            lastDetail = "redirect $code"
+                        }
+                        ProbeClass.OK, ProbeClass.MISS -> {
+                            if (code == 405) continue
+                            if (method == "OPTIONS" && code in 200..204) {
+                                val dav = conn.getHeaderField("DAV").orEmpty()
+                                val allow = conn.getHeaderField("Allow").orEmpty()
+                                if (dav.isEmpty() && allow.isEmpty() && code != 204) continue
+                            }
+                            return@runCatching true
+                        }
+                        ProbeClass.OTHER -> { }
+                    }
+                } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration)
+                    if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
+                    lastDetail = friendlyProbeDetail(e)
+                } finally {
+                    try {
+                        conn.disconnect()
+                    } catch (_: Exception) {}
+                }
+            }
+            if (sawAuthFailure) error(lastDetail)
+            error("连通性失败：$lastDetail")
         }
+    }
 
     internal fun ensureProbeTunnel(generation: Long?) {
         if (generation != null && (!TunnelGate.up || TunnelGate.generation != generation)) {
@@ -929,33 +863,26 @@ object BackupManager {
 
     internal enum class ProbeClass { OK, AUTH, MISS, REDIRECT, OTHER }
 
-    internal fun classifyProbe(code: Int): ProbeClass =
-        when (code) {
-            401, 403 -> ProbeClass.AUTH
-            207, 206 -> ProbeClass.OK
-            in 200..299 -> ProbeClass.OK
-            404, 410, 405 -> ProbeClass.MISS
-            in 300..399 -> ProbeClass.REDIRECT
-            else -> ProbeClass.OTHER
-        }
+    internal fun classifyProbe(code: Int): ProbeClass = when (code) {
+        401, 403 -> ProbeClass.AUTH
+        207, 206 -> ProbeClass.OK
+        in 200..299 -> ProbeClass.OK
+        404, 410, 405 -> ProbeClass.MISS
+        in 300..399 -> ProbeClass.REDIRECT
+        else -> ProbeClass.OTHER
+    }
 
-    internal fun authFailedMessage(
-        baseUrl: String,
-        code: Int,
-        body: String?,
-    ): String {
-        val host =
-            try {
-                URI(baseUrl).host ?: baseUrl
-            } catch (_: Exception) {
-                baseUrl
-            }
-        val extra =
-            if (host.contains("koofr", true)) {
-                " Koofr 请使用账号邮箱 + 在 Koofr 设置里生成的应用密码，不是登录密码。"
-            } else {
-                " 请核对用户名/密码；部分网盘需要单独的应用密码。"
-            }
+    internal fun authFailedMessage(baseUrl: String, code: Int, body: String?): String {
+        val host = try {
+            URI(baseUrl).host ?: baseUrl
+        } catch (_: Exception) {
+            baseUrl
+        }
+        val extra = if (host.contains("koofr", true)) {
+            " Koofr 请使用账号邮箱 + 在 Koofr 设置里生成的应用密码，不是登录密码。"
+        } else {
+            " 请核对用户名/密码；部分网盘需要单独的应用密码。"
+        }
         val snippet = body?.trim()?.take(80).orEmpty()
         return "认证失败 HTTP $code。$extra" + if (snippet.isNotEmpty()) " 服务器：$snippet" else ""
     }
@@ -969,27 +896,25 @@ object BackupManager {
         }
     }
 
-    private inline fun <T> wrapSsl(block: () -> T): T =
-        try {
-            block()
-        } catch (e: Exception) {
-            throw friendlySsl(e)
-        }
+    private inline fun <T> wrapSsl(block: () -> T): T = try {
+        block()
+    } catch (e: Exception) {
+        throw friendlySsl(e)
+    }
 
     internal fun friendlySsl(e: Exception): Exception {
-        val text =
-            buildString {
-                append(e.message ?: "")
-                var c = e.cause
-                var n = 0
-                while (c != null && n++ < 6) {
-                    append(' ')
-                    append(c.javaClass.simpleName)
-                    append(':')
-                    append(c.message ?: "")
-                    c = c.cause
-                }
+        val text = buildString {
+            append(e.message ?: "")
+            var c = e.cause
+            var n = 0
+            while (c != null && n++ < 6) {
+                append(' ')
+                append(c.javaClass.simpleName)
+                append(':')
+                append(c.message ?: "")
+                c = c.cause
             }
+        }
         if (
             text.contains("Trust anchor", true) ||
             text.contains("CertPath", true) ||
@@ -1017,35 +942,32 @@ object BackupManager {
         // policy as subscription updates: HTTPClient.Route.PROXY). TLS still
         // verifies the hostname. Tunnel down keeps the pinned direct connection.
         val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
-        val conn =
-            if (tunnelGeneration != null) {
-                ensureProbeTunnel(tunnelGeneration)
-                // Pin to the VPN Network itself, not merely the current default.
-                // Missing/ambiguous VPN visibility fails closed; never retry direct.
-                // NORMAL proxy service has no Android VPN Network. Preserve its
-                // existing by-name route; only VPNService may require VPN binding.
-                // This is selected by service type, never by a failed VPN lookup.
-                val network =
-                    if (TunnelGate.vpnUp) {
-                        Application.connectivity.allNetworks.singleOrNull {
-                            Application.connectivity
-                                .getNetworkCapabilities(it)
-                                ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                        } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
-                    } else {
-                        null
-                    }
-                ensureProbeTunnel(tunnelGeneration)
-                HTTPClient.openNamed(
-                    checked,
-                    RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
-                    RemoteUrlGuard.Kind.SUBSCRIPTION,
-                    emptyMap(),
-                    network,
-                )
+        val conn = if (tunnelGeneration != null) {
+            ensureProbeTunnel(tunnelGeneration)
+            // Pin to the VPN Network itself, not merely the current default.
+            // Missing/ambiguous VPN visibility fails closed; never retry direct.
+            // NORMAL proxy service has no Android VPN Network. Preserve its
+            // existing by-name route; only VPNService may require VPN binding.
+            // This is selected by service type, never by a failed VPN lookup.
+            val network = if (TunnelGate.vpnUp) {
+                Application.connectivity.allNetworks.singleOrNull {
+                    Application.connectivity.getNetworkCapabilities(it)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
             } else {
-                HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
+                null
             }
+            ensureProbeTunnel(tunnelGeneration)
+            HTTPClient.openNamed(
+                checked,
+                RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
+                RemoteUrlGuard.Kind.SUBSCRIPTION,
+                emptyMap(),
+                network,
+            )
+        } else {
+            HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        }
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000
         conn.instanceFollowRedirects = false
@@ -1063,10 +985,7 @@ object BackupManager {
      * The live Settings are never touched: a process killed mid-backup cannot
      * lose the user's credentials. Mirrors [copyProfilesDbRedacted].
      */
-    private fun copySettingsDbRedacted(
-        zos: ZipOutputStream,
-        context: Context,
-    ) {
+    private fun copySettingsDbRedacted(zos: ZipOutputStream, context: Context) {
         val main = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
         if (!main.isFile) return
         val tmp = File(context.cacheDir, "settings-redacted.db")
@@ -1090,22 +1009,17 @@ object BackupManager {
         }
     }
 
-    private fun copyProfilesDbRedacted(
-        zos: ZipOutputStream,
-        context: Context,
-    ) {
+    private fun copyProfilesDbRedacted(zos: ZipOutputStream, context: Context) {
         val main = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
         if (!main.isFile) return
         val tmp = File(context.cacheDir, "profiles-redacted.db")
         try {
             main.copyTo(tmp, overwrite = true)
             SQLiteDatabase.openDatabase(tmp.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-                val hasTable =
-                    db
-                        .rawQuery(
-                            "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
-                            null,
-                        ).use { it.moveToFirst() }
+                val hasTable = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
+                    null,
+                ).use { it.moveToFirst() }
                 if (hasTable) {
                     db.execSQL("UPDATE remote_servers SET secret = ''")
                 }
@@ -1155,10 +1069,7 @@ object BackupManager {
         return normalized
     }
 
-    private fun checkpoint(
-        context: Context,
-        dbName: String,
-    ) {
+    private fun checkpoint(context: Context, dbName: String) {
         val main = context.getDatabasePath(dbName)
         if (!main.isFile) return
         runCatching {
@@ -1174,11 +1085,7 @@ object BackupManager {
         }
     }
 
-    private fun putSettingString(
-        dbFile: File,
-        key: String,
-        value: String,
-    ) {
+    private fun putSettingString(dbFile: File, key: String, value: String) {
         if (value.isEmpty() || !dbFile.isFile) return
         runCatching {
             SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
@@ -1191,27 +1098,16 @@ object BackupManager {
         }
     }
 
-    private fun putFile(
-        zos: ZipOutputStream,
-        name: String,
-        file: File,
-    ) {
+    private fun putFile(zos: ZipOutputStream, name: String, file: File) {
         require(file.length() <= MAX_ENTRY_SIZE) { "备份文件过大：$name" }
         putEntry(zos, name, file.readBytes())
     }
 
-    private fun putEntry(
-        zos: ZipOutputStream,
-        name: String,
-        bytes: ByteArray,
-    ) {
+    private fun putEntry(zos: ZipOutputStream, name: String, bytes: ByteArray) {
         zos.putNextEntry(ZipEntry(name))
         zos.write(bytes)
         zos.closeEntry()
     }
 
-    private fun joinUrl(
-        base: String,
-        name: String,
-    ): String = base.trimEnd('/') + "/" + name.trimStart('/')
+    private fun joinUrl(base: String, name: String): String = base.trimEnd('/') + "/" + name.trimStart('/')
 }
