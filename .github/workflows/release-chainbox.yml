@@ -283,6 +283,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
             --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.WebDavAutoProbePolicyTest \
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
             --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \

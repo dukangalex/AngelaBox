@@ -3,7 +3,9 @@ package io.nekohasekai.sfa.utils
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.net.NetworkCapabilities
 import android.util.Base64
+import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backup.PortableCloudBackup
 import io.nekohasekai.sfa.backup.ProfileStableIds
@@ -734,7 +736,13 @@ object BackupManager {
         }
     }
 
-    fun webdavProbe(baseUrl: String, username: String, password: String, remoteName: String = ""): Result<Boolean> = runCatching {
+    fun webdavProbe(
+        baseUrl: String,
+        username: String,
+        password: String,
+        remoteName: String = "",
+        requiredTunnelGeneration: Long? = null,
+    ): Result<Boolean> = runCatching {
         wrapSsl {
             if (username.isBlank() || password.isBlank()) {
                 error("请填写 WebDAV 用户名和密码")
@@ -747,7 +755,8 @@ object BackupManager {
             var sawAuthFailure = false
             // Do not switch a probe that started inside our VPN to direct for
             // later fallback methods after a stop or restart.
-            val tunnelGeneration = if (TunnelGate.up) TunnelGate.generation else null
+            val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
+            ensureProbeTunnel(tunnelGeneration)
             val attempts = listOf(
                 fileUrl to "HEAD",
                 base to "OPTIONS",
@@ -932,12 +941,22 @@ object BackupManager {
         // often fails: dial by name and let the tunnel resolve upstream (same
         // policy as subscription updates: HTTPClient.Route.PROXY). TLS still
         // verifies the hostname. Tunnel down keeps the pinned direct connection.
-        val conn = if (requiredTunnelGeneration != null || TunnelGate.up) {
+        val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
+        val conn = if (tunnelGeneration != null) {
+            ensureProbeTunnel(tunnelGeneration)
+            // Pin to the VPN Network itself, not merely the current default.
+            // Missing/ambiguous VPN visibility fails closed; never retry direct.
+            val network = Application.connectivity.allNetworks.singleOrNull {
+                Application.connectivity.getNetworkCapabilities(it)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
+            ensureProbeTunnel(tunnelGeneration)
             HTTPClient.openNamed(
                 checked,
                 RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
                 RemoteUrlGuard.Kind.SUBSCRIPTION,
                 emptyMap(),
+                network,
             )
         } else {
             HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
