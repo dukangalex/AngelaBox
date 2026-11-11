@@ -100,7 +100,7 @@ fun BackupRestoreScreen(navController: NavController) {
     var draftUser by remember { mutableStateOf(webdavUser) }
     var draftPass by remember { mutableStateOf(webdavPass) }
     var draftRemoteFile by remember { mutableStateOf(remoteFile) }
-    val automaticProbePolicy = remember { WebDavAutoProbePolicy() }
+    val automaticProbePolicy = remember { WebDavAutoProbePolicy(TunnelGate.generation) }
     var probeState by remember { mutableIntStateOf(Settings.webdavProbeOk) }
     var probeDetail by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }

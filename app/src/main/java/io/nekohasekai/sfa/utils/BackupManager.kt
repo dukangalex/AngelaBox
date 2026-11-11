@@ -946,10 +946,17 @@ object BackupManager {
             ensureProbeTunnel(tunnelGeneration)
             // Pin to the VPN Network itself, not merely the current default.
             // Missing/ambiguous VPN visibility fails closed; never retry direct.
-            val network = Application.connectivity.allNetworks.singleOrNull {
-                Application.connectivity.getNetworkCapabilities(it)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-            } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
+            // NORMAL proxy service has no Android VPN Network. Preserve its
+            // existing by-name route; only VPNService may require VPN binding.
+            // This is selected by service type, never by a failed VPN lookup.
+            val network = if (TunnelGate.vpnUp) {
+                Application.connectivity.allNetworks.singleOrNull {
+                    Application.connectivity.getNetworkCapabilities(it)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
+            } else {
+                null
+            }
             ensureProbeTunnel(tunnelGeneration)
             HTTPClient.openNamed(
                 checked,

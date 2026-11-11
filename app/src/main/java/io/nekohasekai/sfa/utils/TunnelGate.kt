@@ -14,12 +14,21 @@ object TunnelGate {
     var generation: Long = 0
         private set
 
+    @Volatile
+    var vpnUp: Boolean = false
+        private set
+
     @Synchronized
     fun generationWhenUp(): Long? = if (up) generation else null
 
     @Synchronized
-    fun setUp(value: Boolean) {
-        if (up != value) generation++
+    fun setUp(
+        value: Boolean,
+        vpn: Boolean = true,
+    ) {
+        val nextVpnUp = value && vpn
+        if (up != value || vpnUp != nextVpnUp) generation++
         up = value
+        vpnUp = nextVpnUp
     }
 }
