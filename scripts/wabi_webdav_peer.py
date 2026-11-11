@@ -19,7 +19,14 @@ class Handler(BaseHTTPRequestHandler):
  def do_OPTIONS(self):
   if self.allowed():self.response(200)
  def do_HEAD(self):
-  if self.allowed():self.response(200,head=True)
+  if not self.allowed():return
+  mode=(ROOT/'webdav-mode').read_text().strip() if (ROOT/'webdav-mode').exists() else 'normal'
+  if mode=='probe-mid-headers':
+   self.log(0,0);time.sleep(90)
+   try:self.connection.shutdown(socket.SHUT_RDWR)
+   except OSError:pass
+   self.connection.close();return
+  self.response(200,head=True)
  def do_PUT(self):
   if not self.allowed():return
   data=self.rfile.read(int(self.headers.get('Content-Length','0')));(ROOT/'webdav-upload.bin').write_bytes(data);self.response(201)

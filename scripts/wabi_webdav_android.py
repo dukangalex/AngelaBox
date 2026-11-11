@@ -156,6 +156,77 @@ else:raise AssertionError(('No saved endpoint probe',saved_events))
 # Restore original configuration for the existing encrypted backup tests.
 click('编辑','restore-editor');fill_edits([os.environ['WABI_HTTPS_BASE']+'/dav','fixture','WabiDav2026','backup.zip'],'restore-fill');click('保存','restore-save');time.sleep(8)
 print('EDITOR DRAFT AND SAVE ACCEPTANCE PASSED')
+
+def notification_words(tag):
+ # A busy Compose progress indicator can prevent UIAutomator's idle wait;
+ # its failed dump otherwise leaves a stale app hierarchy on /sdcard. Use
+ # the current screenshot for this system-UI action, retaining OCR evidence.
+ png=out/(tag+'.png')
+ png.write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=15))
+ tsv=subprocess.check_output(['tesseract',str(png),'stdout','--psm','11','tsv'],text=True,timeout=10)
+ (out/(tag+'.tsv')).write_text(tsv)
+ return [row for row in csv.DictReader(io.StringIO(tsv),delimiter='\t') if row.get('text','').strip() and float(row.get('conf','-1'))>=35]
+def word_center(word):
+ return (int(word['left'])+int(word['width'])//2,int(word['top'])+int(word['height'])//2)
+def stop_notification(tag):
+ # Expanding SystemUI is asynchronous. Observe fresh frames and retry the
+ # shade gesture instead of assuming one 400ms delay establishes readiness.
+ w,h=map(int,shell('wm','size').strip().split()[-1].split('x'))
+ shell('cmd','statusbar','expand-notifications');time.sleep(1)
+ for i in range(6):
+  words=notification_words(tag+'-notification'+str(i))
+  fixture=[w for w in words if 'backup-fixture' in w['text'].lower()]
+  stops=[w for w in words if w['text'].strip().lower()=='stop']
+  if fixture and stops:
+   _,title_y=word_center(fixture[0])
+   # Stop must belong to this app notification, not another card above it.
+   stops=[x for x in stops if word_center(x)[1]>title_y]
+   if stops:
+    x,y=word_center(stops[0]);shell('input','tap',str(x),str(y));break
+  if fixture:
+   _,title_y=word_center(fixture[0])
+   shell('input','tap',str(round(w*.86)),str(title_y+12))
+  else:
+   # Only a shade-opening gesture here; never guess a hidden Stop target.
+   shell('cmd','statusbar','expand-notifications')
+   shell('input','swipe',str(w//2),'1',str(w//2),str(round(h*.75)),'350')
+  time.sleep(.8)
+ else:
+  (out/(tag+'-notification-state.txt')).write_text(shell('dumpsys','notification'))
+  (out/(tag+'-statusbar-state.txt')).write_text(shell('dumpsys','statusbar'))
+  raise AssertionError('Fresh fixture notification Stop unavailable')
+ stopped=time.monotonic_ns()
+ for _ in range(30):
+  addr=shell('ip','addr')
+  if '172.19.0.1' not in addr:break
+  time.sleep(.2)
+ else:raise AssertionError('TUN remained after notification Stop')
+ (out/(tag+'-post-stop-addresses.txt')).write_text(addr)
+ (out/(tag+'-post-stop-connectivity.txt')).write_text(shell('dumpsys','connectivity'))
+ shell('cmd','statusbar','collapse');time.sleep(1)
+ return stopped
+
+
+# Start a single long probe while VPN is running and stop during its HEAD.
+# Inspect the peer for fallback methods; this does not establish a kill switch.
+(out/'webdav-mode').write_text('probe-mid-headers')
+prior=read_events();v=proxy_stats();host=urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname
+for _ in range(90):
+ current=read_events()[len(prior):]
+ if any(e['mode']=='probe-mid-headers' and e['method']=='HEAD' and e['code']==0 for e in current):break
+ time.sleep(.4)
+else:raise AssertionError(('probe HEAD did not begin',current))
+new_targets=proxy_stats().get('targets',[])[len(v.get('targets',[])):]
+assert any(x.get('host','').lower()==host.lower() and x.get('port')==443 for x in new_targets),new_targets
+stopped=stop_notification('probe-midstop')
+time.sleep(36)
+new=read_events()[len(prior):]
+post=[e for e in new if e['mode']=='probe-mid-headers' and e['monotonic_ns']>stopped]
+(out/'probe-midstop-summary.json').write_text(json.dumps({'stopped_monotonic_ns':stopped,'events':new,'proxy_targets':new_targets},indent=2))
+assert not any(e['method'] in ('OPTIONS','GET') for e in post),post
+(out/'webdav-mode').write_text('normal')
+backup_screen('after-probe-stop')
+print('PROBE FALLBACK INTERRUPTION OBSERVATION PASSED')
 click('备份数据到 WebDAV','dav-export');fill_edits([password,password],'dav-export-pw');click('Continue','dav-export-confirm');time.sleep(20)
 snap('dav-upload-result');route_after('dav-config',urllib.parse.urlsplit(os.environ['WABI_HTTPS_BASE']).hostname)
 sealed=(out/'webdav-upload.bin').read_bytes();assert sealed[:5]==b'ABKE\x01'
