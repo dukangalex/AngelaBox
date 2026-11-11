@@ -30,8 +30,12 @@ class Handler(BaseHTTPRequestHandler):
   if mode in ('mid-headers','mid-body'):
    self.log(0,0)
    if mode=='mid-body':
-    self.send_response(200);self.send_header('Content-Length','1048576');self.end_headers()
-    self.wfile.write(b'ABKE\x01'+b'X'*65531);self.wfile.flush();self.log(200,65536)
+    self.send_response(200);self.send_header('Content-Length','1048576')
+    self.send_header('Content-Type','application/octet-stream')
+    self.send_header('Cache-Control','no-store, no-transform');self.end_headers()
+    # Stream a substantial prefix but never finish the 1 MiB response; the
+    # test still requires an observed device-side partial before stopping VPN.
+    self.wfile.write(b'ABKE\x01'+b'X'*(262144-5));self.wfile.flush();self.log(200,262144)
    time.sleep(90)
    try:self.connection.shutdown(socket.SHUT_RDWR)
    except OSError:pass

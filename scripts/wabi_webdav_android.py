@@ -221,8 +221,11 @@ for mode in ('mid-headers','mid-body'):
  else:raise AssertionError('WebDAV request not received at fixture')
  partial=scratch_size()
  if mode=='mid-body':
+  samples=[]
   for _ in range(40):
    partial=scratch_size()
+   samples.append({'monotonic_ns':time.monotonic_ns(),'scratch':partial})
+   (out/(mode+'-scratch-samples.json')).write_text(json.dumps(samples,indent=2))
    if partial.isdigit() and int(partial)>0:break
    time.sleep(.2)
   else:raise AssertionError('No device partial download before VPN Stop')
