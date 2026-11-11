@@ -248,4 +248,98 @@ class BackupManagerTest {
             file.delete()
         }
     }
+
+    @Test
+    fun webdavDiagnosticPreservesShortUtf8AndCloses() {
+        var closed = false
+        val input =
+            object : java.io.ByteArrayInputStream("认证失败".toByteArray()) {
+                override fun close() {
+                    closed = true
+                    super.close()
+                }
+            }
+        assertEquals("认证失败", BackupFileIO.readWebdavDiagnostic(input))
+        assertTrue(closed)
+        assertEquals(null, BackupFileIO.readWebdavDiagnostic(null))
+    }
+
+    @Test
+    fun webdavDiagnosticBoundsAnUnendingBodyWithoutReadAhead() {
+        var read = 0
+        var closed = false
+        val input =
+            object : java.io.InputStream() {
+                override fun read(): Int {
+                    read++
+                    return 'x'.code
+                }
+
+                override fun read(
+                    bytes: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int {
+                    java.util.Arrays.fill(bytes, offset, offset + length, 'x'.code.toByte())
+                    read += length
+                    return length
+                }
+
+                override fun close() {
+                    closed = true
+                }
+            }
+        assertEquals("x".repeat(4096), BackupFileIO.readWebdavDiagnostic(input))
+        assertEquals(4096, read)
+        assertTrue(closed)
+    }
+
+    @Test
+    fun webdavDiagnosticHandlesShortReadsAndEmptyBody() {
+        val input =
+            object : java.io.ByteArrayInputStream("denied".toByteArray()) {
+                override fun read(
+                    bytes: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int = super.read(bytes, offset, minOf(1, length))
+            }
+        assertEquals("denied", BackupFileIO.readWebdavDiagnostic(input))
+        assertEquals("", BackupFileIO.readWebdavDiagnostic(byteArrayOf().inputStream()))
+    }
+
+    @Test
+    fun webdavDiagnosticClosesAfterReadFailure() {
+        var closed = false
+        val input =
+            object : java.io.InputStream() {
+                override fun read(): Int = throw java.io.IOException("fixture failure")
+
+                override fun close() {
+                    closed = true
+                }
+            }
+        assertTrue(runCatching { BackupFileIO.readWebdavDiagnostic(input) }.isFailure)
+        assertTrue(closed)
+    }
+
+    @Test
+    fun webdavDiagnosticHandlesZeroLengthReadWithoutSpinning() {
+        var first = true
+        val input =
+            object : java.io.ByteArrayInputStream("error".toByteArray()) {
+                override fun read(
+                    bytes: ByteArray,
+                    offset: Int,
+                    length: Int,
+                ): Int {
+                    if (first) {
+                        first = false
+                        return 0
+                    }
+                    return super.read(bytes, offset, length)
+                }
+            }
+        assertEquals("error", BackupFileIO.readWebdavDiagnostic(input))
+    }
 }
