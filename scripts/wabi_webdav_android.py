@@ -123,7 +123,17 @@ password='WabiFixture2026'
 def fill_edits(values,tag):
  for i,value in enumerate(values):
   r=snap(tag+str(i));edits=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText'];assert len(edits)==len(values),(len(edits),len(values))
-  tap(edits[i]);shell('input','keycombination','113','29');shell('input','text',value);shell('input','keyevent','4')
+  # CTRL+A is not reliably dispatched to Compose by shell keycombination.
+  # Move to the end and delete the observed content, then verify exact value.
+  tap(edits[i]);shell('input','keyevent','123')
+  shell('input','keyevent',*(['67']*max(256,len(edits[i].get('text',''))+16)))
+  shell('input','text',value);shell('input','keyevent','4')
+  verified=snap(tag+str(i)+'-verified')
+  fields=[n for n in verified.iter('node') if n.get('class')=='android.widget.EditText']
+  assert len(fields)==len(values),(tag,i,len(fields))
+  # Password controls mask their UI value; the synthetic peer checks auth.
+  if fields[i].get('password')!='true':
+   assert fields[i].get('text','')==value,(tag,i,'field value mismatch',fields[i].get('text',''),value)
 def configure(tag):
  backup_screen(tag);click('编辑',tag+'-editor');fill_edits([os.environ['WABI_HTTPS_BASE']+'/dav','fixture','WabiDav2026','backup.zip'],tag+'-fill');click('保存',tag+'-save');time.sleep(10)
 configure('dav-config')
@@ -322,7 +332,7 @@ for mode in ('mid-headers','mid-body'):
  partial=scratch_size()
  if mode=='mid-body':
   samples=[]
-  for _ in range(40):
+  for _ in range(80):
    partial=scratch_size()
    samples.append({'monotonic_ns':time.monotonic_ns(),'scratch':partial})
    (out/(mode+'-scratch-samples.json')).write_text(json.dumps(samples,indent=2))
