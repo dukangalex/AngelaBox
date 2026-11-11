@@ -1,7 +1,7 @@
 name: WebDAV mid-request VPN Stop API34 (non-publishing)
 on:
   push:
-    branches: [wabi/webdav-midstop-20261111]
+    branches: [wabi/webdav-midstop-merged-20261111]
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,10 +20,10 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           python3 -m py_compile scripts/wabi_webdav_android.py
-          git diff --exit-code 7cc4ed218f10da5ab09a755d124f6727c05bce85 -- app/src/main
+          git diff --exit-code c237bc2e9190c0799047461d87ce280aa385502f -- app/src/main
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          echo 7cc4ed218f10da5ab09a755d124f6727c05bce85 > wabi-evidence/product-source-head.txt
+          echo c237bc2e9190c0799047461d87ce280aa385502f > wabi-evidence/product-source-head.txt
 
       - name: Read kernel pin
         id: pin
@@ -145,13 +145,13 @@ jobs:
       - name: Verify unmodified production transport source
         working-directory: sing-box-for-android
         run: |
-          git diff --exit-code 7cc4ed218f10da5ab09a755d124f6727c05bce85 -- app/src/main
+          git diff --exit-code c237bc2e9190c0799047461d87ce280aa385502f -- app/src/main
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          echo 7cc4ed218f10da5ab09a755d124f6727c05bce85 > wabi-evidence/product-source-head.txt
+          echo c237bc2e9190c0799047461d87ce280aa385502f > wabi-evidence/product-source-head.txt
           mkdir -p wabi-evidence
           git rev-parse HEAD > wabi-evidence/test-source-head.txt
-          printf '%s\n' '7cc4ed218f10da5ab09a755d124f6727c05bce85' > wabi-evidence/product-source-head.txt
+          printf '%s\n' 'c237bc2e9190c0799047461d87ce280aa385502f' > wabi-evidence/product-source-head.txt
       - name: Build debug x86_64 APK
         working-directory: sing-box-for-android
         run: |
