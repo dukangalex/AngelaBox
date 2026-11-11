@@ -1,4 +1,5 @@
 import express from 'express';
+import { blockedIp, selectUserAgent } from './fetch-policy.mjs';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -23,22 +24,6 @@ const MAX_SUBSCRIPTION_BYTES = 10 * 1024 * 1024;
 const FETCH_HEADER_TIMEOUT_MS = 15000;
 /** Overall budget for a fetch, body streaming included; never reset early. */
 const FETCH_TOTAL_TIMEOUT_MS = 30000;
-
-function blockedIp(ip: string): boolean {
-  const raw = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (raw.startsWith('::ffff:')) return blockedIp(raw.slice(7));
-  if (raw.includes(':')) {
-    return raw === '::1' || raw === '::' || raw.startsWith('fe80:') || raw.startsWith('fc') || raw.startsWith('fd');
-  }
-  const parts = raw.split('.').map((n) => Number(n));
-  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  const [a, b] = parts;
-  return a === 0 || a === 10 || a === 127 || a === 255 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127);
-}
 
 interface PinnedTarget {
   url: URL;
@@ -146,19 +131,14 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // API: Fetch remote subscription with simulated modern proxy user-agents & CORS bypass
 app.post('/api/fetch-subscription', async (req, res) => {
-  const { url, userAgentType = 'singbox' } = req.body;
+  const { url, userAgentType = 'singbox' } = req.body ?? {};
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'URL is required' });
   }
-
-  const userAgents: Record<string, string> = {
-    singbox: 'sing-box/1.11.0 (Linux; x86_64)',
-    clash: 'ClashMeta/v1.18.8 (Mihomo)',
-    v2ray: 'v2rayN/6.39',
-    curl: 'curl/8.4.0',
-  };
-
-  const selectedUa = userAgents[userAgentType] || userAgents.singbox;
+  const selectedUa = selectUserAgent(userAgentType);
+  if (selectedUa === null) {
+    return res.status(400).json({ error: 'userAgentType must be a string' });
+  }
 
   try {
     const total = new AbortController();

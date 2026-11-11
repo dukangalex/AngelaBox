@@ -565,7 +565,6 @@ class MainActivity :
 
         if (showImportLocalProfileDialog && pendingImportLocalProfileUri != null && pendingImportLocalProfileName != null) {
             val importName = pendingImportLocalProfileName!!
-            val importUri = pendingImportLocalProfileUri!!
             val importDetail = pendingImportLocalProfileDetail
             val importSshWarning = pendingImportLocalProfileSshWarning
             val importSnapshot = pendingImportLocalProfileSnapshot
@@ -608,12 +607,13 @@ class MainActivity :
                         scope.launch {
                             // P3-4: import the snapshot bytes that were
                             // hashed and classified for this confirmation;
-                            // only fall back to reading the URI when no
-                            // snapshot could be taken.
+                            // never re-open the provider after confirmation.
                             val result = if (importSnapshot != null) {
                                 importHandler.importFromSnapshot(importSnapshot, importName)
                             } else {
-                                importHandler.importFromUri(importUri)
+                                ProfileImportHandler.ImportResult.Error(
+                                    getString(R.string.error_import_snapshot_mismatch),
+                                )
                             }
                             when (result) {
                                 is ProfileImportHandler.ImportResult.Success -> {

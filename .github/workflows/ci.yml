@@ -42,6 +42,9 @@ jobs:
           python3 scripts/test_pin_guards.py
           python3 scripts/test_kernel_tag.py
 
+      - name: Web configurator security policy tests
+        run: node --test tools/web-configurator/fetch-policy.test.mjs
+
       - name: Read kernel pin
         id: pin
         run: |

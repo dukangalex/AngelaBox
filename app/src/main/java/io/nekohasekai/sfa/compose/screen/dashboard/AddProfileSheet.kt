@@ -205,7 +205,6 @@ fun AddProfileSheet(
                         showImportConfirmDialog = false
                         val qrsData = pendingQrsData
                         val qrCodeData = pendingQrCodeData
-                        val importUri = pendingImportUri
                         val importSnapshot = pendingImportSnapshot
                         val importName = pendingImportName!!
                         clearPendingImport()
@@ -217,8 +216,9 @@ fun AddProfileSheet(
                                 // classified for this confirmation, not a
                                 // fresh read of the URI.
                                 importSnapshot != null -> importHandler.importFromSnapshot(importSnapshot, importName)
-                                importUri != null -> importHandler.importFromUri(importUri)
-                                else -> null
+                                else -> ProfileImportHandler.ImportResult.Error(
+                                    context.getString(R.string.error_import_snapshot_mismatch),
+                                )
                             }
                             when (result) {
                                 is ProfileImportHandler.ImportResult.Success -> {

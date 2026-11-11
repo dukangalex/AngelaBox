@@ -76,23 +76,12 @@ class ProfileImportHandler(private val context: Context) {
     sealed class UriParseResult {
         data class Success(
             val name: String,
+            val snapshot: ImportSnapshot,
             val detail: String? = null,
             val sshWarning: String? = null,
-            val snapshot: ImportSnapshot? = null,
         ) : UriParseResult()
 
         data class Error(val message: String) : UriParseResult()
-    }
-
-    suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
-        try {
-            io.nekohasekai.sfa.utils.ImportPathGuard.requireContentScheme(uri.scheme)
-            val data = readUriBytes(uri)
-                ?: return@withContext ImportResult.Error(context.getString(R.string.error_empty_file))
-            importFromBytes(data, getFileNameFromUri(uri))
-        } catch (e: Exception) {
-            ImportResult.Error(e.message ?: "Unknown error")
-        }
     }
 
     /**
@@ -142,7 +131,7 @@ class ProfileImportHandler(private val context: Context) {
             // The snapshot binds the confirmation to these exact bytes; the
             // import later consumes the snapshot (see importFromSnapshot).
             val data = readUriBytes(uri)
-                ?: return@withContext UriParseResult.Success(filename)
+                ?: return@withContext UriParseResult.Error(context.getString(R.string.error_empty_file))
             val snapshot = ImportSnapshot(data, sha256Hex(data))
             val dataString = String(data)
             if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {

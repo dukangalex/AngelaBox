@@ -136,23 +136,12 @@ class RootServer : RootService() {
                     actualShell
                 }
             } else if (resolved.uid == 0) {
-                val termuxPrefix = File(UserResolver.TERMUX_PREFIX)
-                val termuxAvailable = File(termuxPrefix, "bin").isDirectory
-                if (termuxAvailable) {
-                    shell = UserResolver.findTermuxShell(termuxPrefix, UserResolver.TERMUX_HOME)
-                    cwd = UserResolver.TERMUX_HOME
-                    shellEnv = buildTermuxEnvironment(
-                        env,
-                        shell,
-                        cwd,
-                        termuxPrefix.absolutePath,
-                        term,
-                    )
-                } else {
-                    shell = "/system/bin/sh"
-                    cwd = "/data/local"
-                    shellEnv = buildBasicEnvironment(env, shell, cwd, term)
-                }
+                // A root grant does not delegate root execution to another
+                // app's writable shell or LD_PRELOAD. Termux remains available
+                // through its explicit user identity, with that app's UID.
+                shell = "/system/bin/sh"
+                cwd = "/data/local"
+                shellEnv = buildBasicEnvironment(env, shell, cwd, term)
             } else {
                 shell = UserResolver.findShell(resolved)
                 cwd = resolved.homeDir
