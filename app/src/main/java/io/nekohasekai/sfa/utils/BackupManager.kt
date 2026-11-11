@@ -696,7 +696,7 @@ object BackupManager {
             try {
                 FileInputStream(localFile).use { input -> conn.outputStream.use { output -> input.copyTo(output) } }
                 val code = conn.responseCode
-                val err = conn.errorStream?.bufferedReader()?.readText()
+                val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
                 if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
                 if (code !in 200..299) error("WebDAV 上传失败 HTTP $code${err?.let { ": $it" } ?: ""}")
             } finally {
@@ -711,7 +711,7 @@ object BackupManager {
             val conn = openWebDav(joinUrl(baseUrl, remoteName), username, password).apply { requestMethod = "GET" }
             try {
                 val code = conn.responseCode
-                val err = conn.errorStream?.bufferedReader()?.readText()
+                val err = BackupFileIO.readWebdavDiagnostic(conn.errorStream)
                 if (code == 401 || code == 403) error(authFailedMessage(baseUrl, code, err))
                 if (code !in 200..299) {
                     error("WebDAV 下载失败 HTTP $code${err?.let { ": $it" } ?: ""}")
@@ -768,7 +768,7 @@ object BackupManager {
                     when (classifyProbe(code)) {
                         ProbeClass.AUTH -> {
                             sawAuthFailure = true
-                            lastDetail = authFailedMessage(baseUrl, code, conn.errorStream?.bufferedReader()?.readText())
+                            lastDetail = authFailedMessage(baseUrl, code, BackupFileIO.readWebdavDiagnostic(conn.errorStream))
                         }
                         ProbeClass.REDIRECT -> {
                             if (loc.isNotEmpty()) {
