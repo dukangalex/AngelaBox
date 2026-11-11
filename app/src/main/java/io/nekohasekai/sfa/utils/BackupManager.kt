@@ -3,7 +3,9 @@ package io.nekohasekai.sfa.utils
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.net.NetworkCapabilities
 import android.util.Base64
+import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backup.PortableCloudBackup
 import io.nekohasekai.sfa.backup.ProfileStableIds
@@ -734,8 +736,16 @@ object BackupManager {
         }
     }
 
-    fun webdavProbe(baseUrl: String, username: String, password: String, remoteName: String = ""): Result<Boolean> = runCatching {
+    fun webdavProbe(
+        baseUrl: String,
+        username: String,
+        password: String,
+        remoteName: String = "",
+        requiredTunnelGeneration: Long? = null,
+        expectedServiceGeneration: Long? = null,
+    ): Result<Boolean> = runCatching {
         wrapSsl {
+            TunnelGate.requireGeneration(expectedServiceGeneration)
             if (username.isBlank() || password.isBlank()) {
                 error("请填写 WebDAV 用户名和密码")
             }
@@ -745,6 +755,10 @@ object BackupManager {
             // PROPFIND throws ProtocolException and is NOT a real connectivity failure — never use it.
             var lastDetail = "no response"
             var sawAuthFailure = false
+            // Do not switch a probe that started inside our VPN to direct for
+            // later fallback methods after a stop or restart.
+            val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
             val attempts = listOf(
                 fileUrl to "HEAD",
                 base to "OPTIONS",
@@ -752,17 +766,21 @@ object BackupManager {
                 base to "GET",
             )
             for ((target, method) in attempts) {
+                ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                 val conn = try {
-                    openWebDav(target, username, password).apply {
+                    openWebDav(target, username, password, tunnelGeneration, expectedServiceGeneration).apply {
                         requestMethod = method
                         instanceFollowRedirects = false
                     }
                 } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     lastDetail = friendlyProbeDetail(e)
                     continue
                 }
                 try {
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     val code = conn.responseCode
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     val loc = conn.getHeaderField("Location").orEmpty()
                     lastDetail = "$method HTTP $code"
                     when (classifyProbe(code)) {
@@ -817,6 +835,7 @@ object BackupManager {
                         ProbeClass.OTHER -> { }
                     }
                 } catch (e: Exception) {
+                    ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
                     if (e is IllegalStateException && (e.message?.contains("认证") == true || e.message?.contains("重定向") == true)) throw e
                     lastDetail = friendlyProbeDetail(e)
                 } finally {
@@ -827,6 +846,13 @@ object BackupManager {
             }
             if (sawAuthFailure) error(lastDetail)
             error("连通性失败：$lastDetail")
+        }
+    }
+
+    internal fun ensureProbeTunnel(generation: Long?, expectedServiceGeneration: Long? = null) {
+        TunnelGate.requireGeneration(expectedServiceGeneration)
+        if (generation != null && (!TunnelGate.up || TunnelGate.generation != generation)) {
+            error("VPN 已中断，已停止 WebDAV 探测")
         }
     }
 
@@ -906,21 +932,51 @@ object BackupManager {
         return if (e is IllegalStateException) e else IllegalStateException(e.message ?: e.javaClass.simpleName, e)
     }
 
-    private fun openWebDav(url: String, username: String, password: String): HttpsURLConnection {
+    private fun openWebDav(
+        url: String,
+        username: String,
+        password: String,
+        requiredTunnelGeneration: Long? = null,
+        expectedServiceGeneration: Long? = null,
+    ): HttpsURLConnection {
+        ensureProbeTunnel(requiredTunnelGeneration, expectedServiceGeneration)
         val checked = requireHttps(url)
         // When the tunnel is up, system DNS answers fake-ip and direct DNS
         // often fails: dial by name and let the tunnel resolve upstream (same
         // policy as subscription updates: HTTPClient.Route.PROXY). TLS still
         // verifies the hostname. Tunnel down keeps the pinned direct connection.
-        val conn = if (TunnelGate.up) {
+        val tunnelGeneration = requiredTunnelGeneration ?: TunnelGate.generationWhenUp()
+        val conn = if (tunnelGeneration != null) {
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
+            // Pin to the VPN Network itself, not merely the current default.
+            // Missing/ambiguous VPN visibility fails closed; never retry direct.
+            // NORMAL proxy service has no Android VPN Network. Preserve its
+            // existing by-name route; only VPNService may require VPN binding.
+            // This is selected by service type, never by a failed VPN lookup.
+            val network = if (TunnelGate.vpnUp) {
+                Application.connectivity.allNetworks.singleOrNull {
+                    Application.connectivity.getNetworkCapabilities(it)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                } ?: error("VPN 网络不可用，已停止 WebDAV 请求")
+            } else {
+                null
+            }
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
             HTTPClient.openNamed(
                 checked,
                 RemoteUrlGuard.validateWithoutDns(checked, RemoteUrlGuard.Kind.SUBSCRIPTION),
                 RemoteUrlGuard.Kind.SUBSCRIPTION,
                 emptyMap(),
+                network,
             )
         } else {
             HTTPClient.openPinned(checked, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        }
+        try {
+            ensureProbeTunnel(tunnelGeneration, expectedServiceGeneration)
+        } catch (e: Exception) {
+            conn.disconnect()
+            throw e
         }
         conn.connectTimeout = 15_000
         conn.readTimeout = 30_000

@@ -42,6 +42,9 @@ jobs:
           python3 scripts/test_pin_guards.py
           python3 scripts/test_kernel_tag.py
 
+      - name: Web configurator security policy tests
+        run: node --test tools/web-configurator/fetch-policy.test.mjs
+
       - name: Read kernel pin
         id: pin
         run: |
@@ -272,6 +275,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
             --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.WebDavAutoProbePolicyTest \
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
             --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \

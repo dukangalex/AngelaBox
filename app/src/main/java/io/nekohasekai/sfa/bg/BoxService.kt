@@ -233,7 +233,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            TunnelGate.setUp(true)
+            TunnelGate.setUp(true, vpn = service is VPNService)
             // stopService() runs on the main thread and only aborts while the
             // status is Starting. Check the abort and publish Started in the
             // same main-thread step, or a stop tapped in between is lost.

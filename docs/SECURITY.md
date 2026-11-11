@@ -106,3 +106,16 @@ tag 只在读过上游 diff 之后手动升级，`scripts/test_security_guards.p
 ## 工作目录 DocumentsProvider
 
 `WorkingDirectoryProvider` 按 Android 文档提供者约定导出，并要求系统权限 `MANAGE_DOCUMENTS`。不是对任意应用开放的文件接口。
+
+## 文件导入的确认绑定
+
+content URI 必须先成功读取并生成带 SHA-256 的内容快照，才能进入文件导入确认。
+提供者返回空流时按读取失败处理，不显示仅凭文件名的成功确认；确认后只消费该快照，
+不会再次打开同一 URI。重新读取必须重新经过解析与确认。
+
+## root 与 Termux shell
+
+选择 `root` 身份时使用系统 `/system/bin/sh` 及系统路径，不因安装了 Termux 就自动
+把 root 会话交给 Termux 私有目录中的可写 shell、启动文件或自动注入的库。
+显式选择 Termux 身份仍使用 Termux 的环境和其应用 UID；这不等于给 Termux 代码授予 root。
+调用方显式提供的 root 命令及环境仍属于其 root 会话权限，不能作为不可信输入直接透传。

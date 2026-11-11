@@ -529,9 +529,48 @@ def test_beta_release_requires_tested_dev_tip() -> None:
     assert '[ "$CI_CONCLUSION" != "success" ]' in guard
 
 
+def test_import_confirmation_requires_snapshot() -> None:
+    handler = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/configuration/ProfileImportHandler.kt")
+    activity = read("app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt")
+    sheet = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/AddProfileSheet.kt")
+    # These are source guards, not Android ContentProvider execution tests.
+    assert "val snapshot: ImportSnapshot," in handler
+    assert "val snapshot: ImportSnapshot? = null" not in handler
+    assert "?: return@withContext UriParseResult.Error" in handler
+    assert "importFromUri(" not in handler + activity + sheet
+    assert "importFromSnapshot(importSnapshot, importName)" in activity
+    assert "importFromSnapshot(importSnapshot, importName)" in sheet
+    assert "error_import_snapshot_mismatch" in activity + sheet
+
+
+def test_web_fetch_request_types_are_guarded() -> None:
+    server = read("tools/web-configurator/server.ts")
+    route = server.split("app.post('/api/fetch-subscription'", 1)[1].split("app.post('/api/audit-script'", 1)[0]
+    assert "selectUserAgent(userAgentType)" in route
+    assert "if (selectedUa === null)" in route
+    assert route.index("if (selectedUa === null)") < route.index("try {")
+    assert "userAgents[userAgentType]" not in server
+    assert "from './fetch-policy.mjs'" in server
+
+
+def test_root_shell_does_not_implicitly_trust_termux() -> None:
+    root = read("app/src/main/java/io/nekohasekai/sfa/bg/RootServer.kt")
+    root_branch = root.split("} else if (resolved.uid == 0) {", 1)[1].split("} else {", 1)[0]
+    assert 'shell = "/system/bin/sh"' in root_branch
+    assert "buildBasicEnvironment" in root_branch
+    assert "findTermuxShell" not in root_branch
+    assert "buildTermuxEnvironment" not in root_branch
+    # Preserve explicit Termux sessions under that package's own resolved UID.
+    assert "resolved.packageName == UserResolver.TERMUX_PACKAGE" in root
+    assert "Libbox.openNativeShellSession" in root
+
+
 def main() -> int:
     tests = [
         test_source_guards,
+        test_import_confirmation_requires_snapshot,
+        test_web_fetch_request_types_are_guarded,
+        test_root_shell_does_not_implicitly_trust_termux,
         test_beta_release_requires_tested_dev_tip,
         test_bypass_mixed_or,
         test_update_url_pin,

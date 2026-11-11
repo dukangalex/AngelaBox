@@ -61,6 +61,8 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.BackupFileIO
 import io.nekohasekai.sfa.utils.BackupManager
+import io.nekohasekai.sfa.utils.TunnelGate
+import io.nekohasekai.sfa.utils.WebDavAutoProbePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -93,6 +95,12 @@ fun BackupRestoreScreen(navController: NavController) {
     var webdavUser by remember { mutableStateOf(Settings.webdavUser) }
     var webdavPass by remember { mutableStateOf(Settings.webdavPassword) }
     var remoteFile by remember { mutableStateOf(Settings.webdavRemoteFile.ifEmpty { "backup.zip" }) }
+    // Keep editor input separate: automatic probes must never use unsaved credentials.
+    var draftUrl by remember { mutableStateOf(webdavUrl) }
+    var draftUser by remember { mutableStateOf(webdavUser) }
+    var draftPass by remember { mutableStateOf(webdavPass) }
+    var draftRemoteFile by remember { mutableStateOf(remoteFile) }
+    val automaticProbePolicy = remember { WebDavAutoProbePolicy(TunnelGate.generation) }
     var probeState by remember { mutableIntStateOf(Settings.webdavProbeOk) }
     var probeDetail by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -118,7 +126,7 @@ fun BackupRestoreScreen(navController: NavController) {
         Settings.webdavProbeOk = value
     }
 
-    fun runProbe(silent: Boolean = false) {
+    fun runProbe() {
         if (webdavUrl.isBlank()) {
             probeState = -1
             probeDetail = null
@@ -126,23 +134,21 @@ fun BackupRestoreScreen(navController: NavController) {
             return
         }
         scope.launch {
-            if (!silent) busy = true
+            busy = true
             val result = withContext(Dispatchers.IO) {
                 BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
             }
             val ok = result.getOrDefault(false)
             persistProbe(ok, result.exceptionOrNull()?.message)
-            if (!silent) {
-                busy = false
-                snackbar.showSnackbar(
-                    when {
-                        ok -> "WebDAV 可访问"
-                        result.exceptionOrNull() != null ->
-                            "连通失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
-                        else -> "WebDAV 不可用"
-                    },
-                )
-            }
+            busy = false
+            snackbar.showSnackbar(
+                when {
+                    ok -> "WebDAV 可访问"
+                    result.exceptionOrNull() != null ->
+                        "连通失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
+                    else -> "WebDAV 不可用"
+                },
+            )
         }
     }
 
@@ -154,8 +160,20 @@ fun BackupRestoreScreen(navController: NavController) {
             return@LaunchedEffect
         }
         while (true) {
+            val serviceState = TunnelGate.snapshot()
+            val generation = automaticProbePolicy.requiredGeneration(
+                serviceState.upGeneration,
+                serviceState.generation,
+            )
             val result = withContext(Dispatchers.IO) {
-                BackupManager.webdavProbe(webdavUrl, webdavUser, webdavPass, remoteFile)
+                BackupManager.webdavProbe(
+                    webdavUrl,
+                    webdavUser,
+                    webdavPass,
+                    remoteFile,
+                    generation,
+                    expectedServiceGeneration = serviceState.generation,
+                )
             }
             persistProbe(result.getOrDefault(false), result.exceptionOrNull()?.message)
             delay(20_000)
@@ -305,29 +323,29 @@ fun BackupRestoreScreen(navController: NavController) {
             text = {
                 Column {
                     OutlinedTextField(
-                        value = webdavUrl,
-                        onValueChange = { webdavUrl = it },
+                        value = draftUrl,
+                        onValueChange = { draftUrl = it },
                         label = { Text("URL") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = webdavUser,
-                        onValueChange = { webdavUser = it },
+                        value = draftUser,
+                        onValueChange = { draftUser = it },
                         label = { Text("用户名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = webdavPass,
-                        onValueChange = { webdavPass = it },
+                        value = draftPass,
+                        onValueChange = { draftPass = it },
                         label = { Text("密码") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
                     OutlinedTextField(
-                        value = remoteFile,
-                        onValueChange = { remoteFile = it },
+                        value = draftRemoteFile,
+                        onValueChange = { draftRemoteFile = it },
                         label = { Text("远程文件名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -336,14 +354,23 @@ fun BackupRestoreScreen(navController: NavController) {
             },
             confirmButton = {
                 TextButton(onClick = {
+                    val savedUrl = draftUrl
+                    val savedUser = draftUser
+                    val savedPassword = draftPass
+                    val savedRemoteFile = draftRemoteFile
+                    webdavUrl = savedUrl
+                    webdavUser = savedUser
+                    webdavPass = savedPassword
+                    remoteFile = savedRemoteFile
                     scope.launch(Dispatchers.IO) {
-                        Settings.webdavUrl = webdavUrl
-                        Settings.webdavUser = webdavUser
-                        Settings.webdavPassword = webdavPass
-                        Settings.webdavRemoteFile = remoteFile
+                        Settings.webdavUrl = savedUrl
+                        Settings.webdavUser = savedUser
+                        Settings.webdavPassword = savedPassword
+                        Settings.webdavRemoteFile = savedRemoteFile
                     }
                     showWebdavEditor = false
-                    runProbe(silent = true)
+                    // Saving is not an explicit connectivity test. Changed settings
+                    // restart the guarded automatic effect; unchanged Save sends nothing.
                 }) { Text("保存") }
             },
             dismissButton = {
@@ -520,7 +547,13 @@ fun BackupRestoreScreen(navController: NavController) {
                         }
                     },
                     trailingContent = {
-                        TextButton(onClick = { showWebdavEditor = true }) { Text("编辑") }
+                        TextButton(onClick = {
+                            draftUrl = webdavUrl
+                            draftUser = webdavUser
+                            draftPass = webdavPass
+                            draftRemoteFile = remoteFile
+                            showWebdavEditor = true
+                        }) { Text("编辑") }
                     },
                 )
                 ListItem(
@@ -600,7 +633,7 @@ fun BackupRestoreScreen(navController: NavController) {
                 ListItem(
                     headlineContent = { Text("测试连通性") },
                     supportingContent = { Text("自动检测（与备份同一接口），绿灯正常、红灯失败") },
-                    modifier = Modifier.clickable(enabled = !busy) { runProbe(silent = false) },
+                    modifier = Modifier.clickable(enabled = !busy) { runProbe() },
                 )
             }
 
