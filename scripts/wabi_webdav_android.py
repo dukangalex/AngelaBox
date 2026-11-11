@@ -6,9 +6,25 @@ P='io.chainbox.app';out=Path('wabi-evidence');out.mkdir(exist_ok=True)
 def adb(*a):return subprocess.check_output(['adb',*a],text=True,timeout=60)
 def shell(*a):return adb('shell',*a)
 def snap(tag,photo=True):
- shell('uiautomator','dump','/sdcard/window.xml');x=shell('cat','/sdcard/window.xml');(out/(tag+'.xml')).write_text(x)
- if photo:(out/(tag+'.png')).write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=30))
- return ET.fromstring(x[x.index('<hierarchy'):])
+ # Never consume a hierarchy left by an earlier failed idle-wait/dump.
+ failures=[]
+ for attempt in range(3):
+  remote=f'/sdcard/wabi-{time.monotonic_ns()}.xml'
+  try:
+   subprocess.check_output(['adb','shell','uiautomator','dump',remote],text=True,timeout=15)
+   x=shell('cat',remote)
+   root=ET.fromstring(x[x.index('<hierarchy'):])
+   assert root.tag=='hierarchy' and list(root.iter('node')), 'Empty UI hierarchy'
+   (out/(tag+'.xml')).write_text(x)
+   if photo:(out/(tag+'.png')).write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=15))
+   return root
+  except (subprocess.SubprocessError, ValueError, ET.ParseError, AssertionError) as e:
+   failures.append(repr(e));time.sleep(.3)
+  finally:
+   subprocess.run(['adb','shell','rm','-f',remote],capture_output=True,timeout=5)
+ (out/(tag+'-dump-failures.json')).write_text(json.dumps(failures,indent=2))
+ raise AssertionError(('No fresh UI hierarchy',tag,failures))
+
 def tap(n,delay=1):
  b=list(map(int,re.findall(r'\d+',n.attrib['bounds'])));shell('input','tap',str((b[0]+b[2])//2),str((b[1]+b[3])//2));time.sleep(delay)
 def find(text,tag,scroll=0):
@@ -150,22 +166,32 @@ def notification_words(tag):
 def word_center(word):
  return (int(word['left'])+int(word['width'])//2,int(word['top'])+int(word['height'])//2)
 def stop_notification(tag):
- shell('cmd','statusbar','expand-notifications');time.sleep(.4)
- for i in range(4):
+ # Expanding SystemUI is asynchronous. Observe fresh frames and retry the
+ # shade gesture instead of assuming one 400ms delay establishes readiness.
+ w,h=map(int,shell('wm','size').strip().split()[-1].split('x'))
+ shell('cmd','statusbar','expand-notifications');time.sleep(1)
+ for i in range(6):
   words=notification_words(tag+'-notification'+str(i))
-  stops=[w for w in words if w['text'].strip().lower()=='stop']
-  if stops:
-   x,y=word_center(stops[0])
-   shell('input','tap',str(x),str(y));break
-  # Expand only the actual fixture notification located in the fresh image,
-  # not the unrelated Android System notification. On this API34 emulator the
-  # visible chevron is at the row's right edge, below its title center.
   fixture=[w for w in words if 'backup-fixture' in w['text'].lower()]
-  if not fixture:raise AssertionError(('Fixture notification not visible',words))
-  w,h=map(int,shell('wm','size').strip().split()[-1].split('x'))
-  _,title_y=word_center(fixture[0])
-  shell('input','tap',str(round(w*.86)),str(title_y+12));time.sleep(.4)
- else:raise AssertionError('Observed notification Stop unavailable')
+  stops=[w for w in words if w['text'].strip().lower()=='stop']
+  if fixture and stops:
+   _,title_y=word_center(fixture[0])
+   # Stop must belong to this app notification, not another card above it.
+   stops=[x for x in stops if word_center(x)[1]>title_y]
+   if stops:
+    x,y=word_center(stops[0]);shell('input','tap',str(x),str(y));break
+  if fixture:
+   _,title_y=word_center(fixture[0])
+   shell('input','tap',str(round(w*.86)),str(title_y+12))
+  else:
+   # Only a shade-opening gesture here; never guess a hidden Stop target.
+   shell('cmd','statusbar','expand-notifications')
+   shell('input','swipe',str(w//2),'1',str(w//2),str(round(h*.75)),'350')
+  time.sleep(.8)
+ else:
+  (out/(tag+'-notification-state.txt')).write_text(shell('dumpsys','notification'))
+  (out/(tag+'-statusbar-state.txt')).write_text(shell('dumpsys','statusbar'))
+  raise AssertionError('Fresh fixture notification Stop unavailable')
  stopped=time.monotonic_ns()
  for _ in range(30):
   addr=shell('ip','addr')
