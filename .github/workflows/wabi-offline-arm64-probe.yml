@@ -33,14 +33,22 @@ jobs:
       - name: Verify isolation and smoke-test exact APK offline
         run: |
           set -euo pipefail
+          echo "HOSTED_CPU_COUNT=$(nproc)"
+          test "$(nproc)" -ge 2
           sudo useradd -m -s /bin/bash wabi_trial
           sudo install -m 0755 .github/scripts/android-offline-check.sh /home/wabi_trial/check.sh
-          sudo chown root:root /home/wabi_trial/check.sh
+          sudo install -m 0755 .github/scripts/assert-egress-blocked.py /home/wabi_trial/assert-egress-blocked.py
+          sudo chown root:root /home/wabi_trial/check.sh /home/wabi_trial/assert-egress-blocked.py
           sudo install -o root -g root -m 0444 "$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk" /home/wabi_trial/candidate.apk
-          sudo unshare --net -- bash -euxo pipefail -c '
-            ip link set lo up
-            ip -j link show | python3 -c "import json,sys; links=json.load(sys.stdin); names=[x["ifname"] for x in links]; print("NETNS_LINKS=", names); assert names == ["lo"]"
-            test -z "$(ip -4 route show)"
-            test -z "$(ip -6 route show)"
-            exec runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$1" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
-          ' -- "$ANDROID_HOME"
+          # Only the unprivileged test UID runs the candidate. These runner-host firewall rules
+          # deny every IPv4/IPv6 packet from that UID; fail closed if either rule is unavailable.
+          sudo iptables -I OUTPUT 1 -m owner --uid-owner wabi_trial -m comment --comment wabi_trial_ipv4 -j REJECT
+          sudo ip6tables -I OUTPUT 1 -m owner --uid-owner wabi_trial -m comment --comment wabi_trial_ipv6 -j REJECT
+          sudo iptables -C OUTPUT -m owner --uid-owner wabi_trial -m comment --comment wabi_trial_ipv4 -j REJECT
+          sudo ip6tables -C OUTPUT -m owner --uid-owner wabi_trial -m comment --comment wabi_trial_ipv6 -j REJECT
+          v4_before="$(sudo iptables-save -c | grep 'wabi_trial_ipv4')"
+          sudo runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial PATH=/usr/bin:/bin python3 /home/wabi_trial/assert-egress-blocked.py
+          v4_after="$(sudo iptables-save -c | grep 'wabi_trial_ipv4')"
+          test "$v4_before" != "$v4_after"
+          printf 'EGRESS_BLOCK_RULES_IPV4=%s\nEGRESS_BLOCK_RULES_IPV6=%s\n' "$v4_after" "$(sudo ip6tables-save -c | grep 'wabi_trial_ipv6')"
+          exec runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$ANDROID_HOME" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
