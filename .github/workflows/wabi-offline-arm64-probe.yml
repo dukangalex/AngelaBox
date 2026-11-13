@@ -39,7 +39,7 @@ jobs:
           sudo install -o root -g root -m 0444 "$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk" /home/wabi_trial/candidate.apk
           sudo unshare --net -- bash -euxo pipefail -c '
             ip link set lo up
-            test "$(ls /sys/class/net | tr "\\n" " ")" = "lo "
+            ip -j link show | python3 -c "import json,sys; links=json.load(sys.stdin); names=[x["ifname"] for x in links]; print("NETNS_LINKS=", names); assert names == ["lo"]"
             test -z "$(ip -4 route show)"
             test -z "$(ip -6 route show)"
             exec runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$1" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
