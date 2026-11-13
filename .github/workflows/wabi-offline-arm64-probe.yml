@@ -4,6 +4,7 @@ on:
     branches: [wabi/arm64-offline-accept-20261113]
 permissions:
   contents: read
+  actions: read
 jobs:
   offline-arm64-smoke:
     runs-on: ubuntu-24.04
@@ -20,12 +21,22 @@ jobs:
           printf 'ANDROID_HOME=%s\n' "$SDK" >> "$GITHUB_ENV"
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$SDK/cmdline-tools/latest/bin/sdkmanager" --install 'emulator' 'platform-tools' 'system-images;android-34;google_apis;arm64-v8a'
-      - name: Verify isolation and boot clean offline emulator
+      - name: Obtain and authenticate exact prior build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          gh run download 43346096702 --repo dukangalex/AngelaBox --name angelabox-arm64-debug-candidate --dir "$RUNNER_TEMP/candidate"
+          test -f "$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk"
+          echo '2cece47abcd1433f9459c2dc84db79748caf3addc495d900a3c58ef09c902907  '"$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk" | sha256sum -c -
+      - name: Verify isolation and smoke-test exact APK offline
         run: |
           set -euo pipefail
           sudo useradd -m -s /bin/bash wabi_trial
           sudo install -m 0755 .github/scripts/android-offline-check.sh /home/wabi_trial/check.sh
-          sudo chown wabi_trial:wabi_trial /home/wabi_trial/check.sh
+          sudo chown root:root /home/wabi_trial/check.sh
+          sudo install -o root -g root -m 0444 "$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk" /home/wabi_trial/candidate.apk
           sudo unshare --net -- bash -euo pipefail -c '
             ip link set lo up
             test "$(ls /sys/class/net | tr "\\n" " ")" = "lo "

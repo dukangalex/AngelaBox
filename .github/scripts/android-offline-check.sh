@@ -17,6 +17,15 @@ for i in $(seq 1 180); do
   sleep 5
 done
 if test "$booted" != 1; then echo 'ARM emulator boot timeout'; tail -n 80 "$HOME/emulator.log"; exit 1; fi
-adb shell getprop ro.product.cpu.abilist
-adb shell getprop ro.build.version.sdk
-printf 'SMOKE_RESULT=clean-emulator-boot-only\n'
+abi="$(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
+sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+printf 'EMULATOR_ABI=%s SDK=%s\n' "$abi" "$sdk"
+[[ ",$abi," == *,arm64-v8a,* ]]
+[[ "$sdk" == 34 ]]
+echo '2cece47abcd1433f9459c2dc84db79748caf3addc495d900a3c58ef09c902907  /home/wabi_trial/candidate.apk' | sha256sum -c -
+adb install /home/wabi_trial/candidate.apk
+adb shell pm path io.chainbox.app
+adb shell monkey -p io.chainbox.app -c android.intent.category.LAUNCHER 1
+sleep 10
+adb shell pidof io.chainbox.app
+printf 'SMOKE_RESULT=exact-apk-installed-and-launched-offline\n'
