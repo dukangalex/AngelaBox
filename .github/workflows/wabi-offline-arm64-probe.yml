@@ -51,4 +51,4 @@ jobs:
           v4_after="$(sudo iptables-save -c | grep 'wabi_trial_ipv4')"
           test "$v4_before" != "$v4_after"
           printf 'EGRESS_BLOCK_RULES_IPV4=%s\nEGRESS_BLOCK_RULES_IPV6=%s\n' "$v4_after" "$(sudo ip6tables-save -c | grep 'wabi_trial_ipv6')"
-          exec runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$ANDROID_HOME" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
+          exec sudo runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$ANDROID_HOME" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
