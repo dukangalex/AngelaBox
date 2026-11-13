@@ -14,7 +14,9 @@ export function blockedIp(ip) {
       const low = Number.parseInt(words[1], 16);
       raw = `${high >>> 8}.${high & 255}.${low >>> 8}.${low & 255}`;
     } else {
-      return raw === '::1' || raw === '::' || raw.startsWith('fe80:') || raw.startsWith('fc') || raw.startsWith('fd');
+      // IPv6 link-local unicast is fe80::/10, not just the fe80::/16 subset.
+      const firstWord = Number.parseInt(raw.split(':', 1)[0], 16);
+      return raw === '::1' || raw === '::' || (firstWord & 0xffc0) === 0xfe80 || raw.startsWith('fc') || raw.startsWith('fd');
     }
   }
   if (isIP(raw) !== 4) return true;

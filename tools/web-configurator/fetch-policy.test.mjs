@@ -4,14 +4,14 @@ import { blockedIp, selectUserAgent } from './fetch-policy.mjs';
 
 for (const address of [
   '127.0.0.1', '10.0.0.1', '169.254.169.254', '192.168.1.1',
-  '::1', '0:0:0:0:0:0:0:1', '::', 'fe80::1', 'fd00::1',
+  '::1', '0:0:0:0:0:0:0:1', '::', 'fe80::1', 'fe90::1', 'febf::1', 'fe80:0:0:0:0:0:0:1', 'fd00::1',
   '::ffff:127.0.0.1', '::ffff:7f00:1', '0:0:0:0:0:ffff:7f00:1',
   '::ffff:a00:1', '::ffff:a9fe:a9fe', '::ffff:c0a8:101',
   '[::ffff:7f00:1]', 'garbage',
 ]) {
   test(`reject ${address}`, () => assert.equal(blockedIp(address), true));
 }
-for (const address of ['8.8.8.8', '::ffff:808:808', '::ffff:8.8.8.8', '2606:4700:4700::1111']) {
+for (const address of ['8.8.8.8', '::ffff:808:808', '::ffff:8.8.8.8', '2606:4700:4700::1111', 'fe7f::1', 'fec0::1']) {
   test(`allow public ${address}`, () => assert.equal(blockedIp(address), false));
 }
 test('URL canonicalized mapped loopback is blocked', () => {
