@@ -1,0 +1,35 @@
+name: AngelaBox offline ARM64 emulator probe
+on:
+  push:
+    branches: [wabi/arm64-offline-accept-20261113]
+permissions:
+  contents: read
+jobs:
+  offline-arm64-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout probe branch without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare official emulator and ARM64 system image
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          printf 'ANDROID_HOME=%s\n' "$SDK" >> "$GITHUB_ENV"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install 'emulator' 'platform-tools' 'system-images;android-34;google_apis;arm64-v8a'
+      - name: Verify isolation and boot clean offline emulator
+        run: |
+          set -euo pipefail
+          sudo useradd -m -s /bin/bash wabi_trial
+          sudo install -m 0755 .github/scripts/android-offline-check.sh /home/wabi_trial/check.sh
+          sudo chown wabi_trial:wabi_trial /home/wabi_trial/check.sh
+          sudo unshare --net -- bash -euo pipefail -c '
+            ip link set lo up
+            test "$(ls /sys/class/net | tr "\\n" " ")" = "lo "
+            test -z "$(ip -4 route show)"
+            test -z "$(ip -6 route show)"
+            exec runuser -u wabi_trial -- env -i HOME=/home/wabi_trial USER=wabi_trial ANDROID_HOME="$1" PATH=/usr/bin:/bin /home/wabi_trial/check.sh
+          ' -- "$ANDROID_HOME"
