@@ -1,0 +1,97 @@
+name: AngelaBox non-publishing trial build
+on:
+  push:
+    branches:
+      - wabi/trial-check-20261113
+permissions:
+  contents: read
+jobs:
+  trial-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout candidate without persistent credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: dcda84b6a894314caf258cacfece94003da35466
+          path: sing-box-for-android
+          persist-credentials: false
+      - name: Checkout pinned kernel
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: b4a0320eabbb9b2835055b6dfcc094f25706421f
+          path: sing-box
+          persist-credentials: false
+      - name: Verify source identities
+        run: |
+          set -euo pipefail
+          test "$(git -C sing-box-for-android rev-parse HEAD)" = dcda84b6a894314caf258cacfece94003da35466
+          test "$(git -C sing-box rev-parse HEAD)" = b4a0320eabbb9b2835055b6dfcc094f25706421f
+          grep -Fx 'KERNEL_COMMIT=b4a0320eabbb9b2835055b6dfcc094f25706421f' sing-box-for-android/version.properties
+          mkdir -p "$RUNNER_TEMP/trial-evidence"
+          git -C sing-box-for-android rev-parse HEAD > "$RUNNER_TEMP/trial-evidence/product-commit.txt"
+          git -C sing-box rev-parse HEAD > "$RUNNER_TEMP/trial-evidence/kernel-commit.txt"
+          git -C sing-box-for-android ls-tree -r HEAD > "$RUNNER_TEMP/trial-evidence/product-tree.txt"
+          git -C sing-box ls-tree -r HEAD > "$RUNNER_TEMP/trial-evidence/kernel-tree.txt"
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+      - name: Setup Go without shared cache
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Install SDK components
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/28.0.13004108" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.0.13004108' 'platforms;android-37.1' 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Build pinned arm64 libbox
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?}"; export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          gomobile init || true
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64 -debug
+          FOUND=$(find . -name libbox.aar -type f -print -quit)
+          test -n "$FOUND" && test -s "$FOUND"
+          mkdir -p ../sing-box-for-android/app/libs
+          cp "$FOUND" ../sing-box-for-android/app/libs/libbox.aar
+          if test -s libbox-legacy.aar; then cp libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar; else cp "$FOUND" ../sing-box-for-android/app/libs/libbox-legacy.aar; fi
+          sha256sum ../sing-box-for-android/app/libs/*.aar > "$RUNNER_TEMP/trial-evidence/aar-sha256.txt"
+          go version > "$RUNNER_TEMP/trial-evidence/go-version.txt"
+          cp go.mod go.sum "$RUNNER_TEMP/trial-evidence/"
+      - name: Build debug APK without publishing
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          java -version 2> "$RUNNER_TEMP/trial-evidence/java-version.txt"
+          ./gradlew --version > "$RUNNER_TEMP/trial-evidence/gradle-version.txt"
+          ./gradlew :app:assembleOtherDebug --no-daemon --stacktrace
+          mapfile -t apks < <(find app/build/outputs/apk -type f -name '*.apk')
+          test "${#apks[@]}" -eq 1
+          APK="${apks[0]}"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/trial-evidence/signing.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > "$RUNNER_TEMP/trial-evidence/badging.txt"
+          unzip -l "$APK" | grep 'lib/.*\.so' > "$RUNNER_TEMP/trial-evidence/native-libraries.txt"
+          cp "$APK" "$RUNNER_TEMP/trial-evidence/angelabox-arm64-debug.apk"
+          (cd "$RUNNER_TEMP/trial-evidence"; sha256sum angelabox-arm64-debug.apk > apk-sha256.txt)
+      - name: Save candidate and evidence for private review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: angelabox-arm64-debug-candidate
+          path: ${{ runner.temp }}/trial-evidence/
+          if-no-files-found: error
+          retention-days: 7

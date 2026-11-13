@@ -1,0 +1,54 @@
+name: AngelaBox IPv6 policy audit (non-publishing)
+on:
+  push:
+    branches:
+      - wabi/trial-check-20261113
+permissions:
+  contents: read
+jobs:
+  ipv6-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate without saving credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: dcda84b6a894314caf258cacfece94003da35466
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Record source identity and run offline IPv6 policy case
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = dcda84b6a894314caf258cacfece94003da35466
+          mkdir -p "$RUNNER_TEMP/audit-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/audit-evidence/source-commit.txt"
+          sha256sum tools/web-configurator/fetch-policy.mjs > "$RUNNER_TEMP/audit-evidence/policy-sha256.txt"
+          nodebin="$(readlink -f "$(command -v node)")"
+          "$nodebin" --version > "$RUNNER_TEMP/audit-evidence/node-version.txt"
+          case_dir="$(mktemp -d /tmp/ab-ipv6.XXXXXXXX)"
+          trap 'rm -rf -- "$case_dir"' EXIT
+          chmod 755 "$case_dir"
+          install -m 444 tools/web-configurator/fetch-policy.mjs "$case_dir/fetch-policy.mjs"
+          sudo -n unshare --net -- true
+          set +e
+          timeout 15s sudo -n unshare --net -- setpriv --reuid=65534 --regid=65534 --clear-groups --no-new-privs env -i PATH=/usr/bin:/bin LANG=C "$nodebin" --input-type=module - "$case_dir/fetch-policy.mjs" > "$RUNNER_TEMP/audit-evidence/case.json" 2> "$RUNNER_TEMP/audit-evidence/case.stderr" <<'NODE'
+          import { pathToFileURL } from 'node:url';
+          const {blockedIp} = await import(pathToFileURL(process.argv[2]).href);
+          const tests = [['fe80::1',true],['fe90::1',true],['febf::1',true],['fec0::1',false],['::1',true],['2606:4700:4700::1111',false]];
+          const results = tests.map(([ip, expectedBlocked]) => ({ip, expectedBlocked, actualBlocked: blockedIp(ip)}));
+          console.log(JSON.stringify({results}, null, 2));
+          if (results.some(x => x.expectedBlocked !== x.actualBlocked)) process.exitCode = 1;
+          NODE
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > "$RUNNER_TEMP/audit-evidence/exit-code.txt"
+          exit "$rc"
+      - name: Upload bounded test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ipv6-policy-offline-audit
+          path: ${{ runner.temp }}/audit-evidence/
+          if-no-files-found: error
+          retention-days: 7
