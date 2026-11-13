@@ -2,7 +2,7 @@ name: AngelaBox non-publishing trial build
 on:
   push:
     branches:
-      - wabi/trial-check-20261113
+      - wabi/backup-guard-20261113
 permissions:
   contents: read
 jobs:
@@ -13,7 +13,7 @@ jobs:
       - name: Checkout candidate without persistent credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: dcda84b6a894314caf258cacfece94003da35466
+          ref: ${{ github.sha }}
           path: sing-box-for-android
           persist-credentials: false
       - name: Checkout pinned kernel
@@ -26,7 +26,7 @@ jobs:
       - name: Verify source identities
         run: |
           set -euo pipefail
-          test "$(git -C sing-box-for-android rev-parse HEAD)" = dcda84b6a894314caf258cacfece94003da35466
+          test "$(git -C sing-box-for-android rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git -C sing-box rev-parse HEAD)" = b4a0320eabbb9b2835055b6dfcc094f25706421f
           grep -Fx 'KERNEL_COMMIT=b4a0320eabbb9b2835055b6dfcc094f25706421f' sing-box-for-android/version.properties
           mkdir -p "$RUNNER_TEMP/trial-evidence"
@@ -79,7 +79,7 @@ jobs:
           keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt
           java -version 2> "$RUNNER_TEMP/trial-evidence/java-version.txt"
           ./gradlew --version > "$RUNNER_TEMP/trial-evidence/gradle-version.txt"
-          ./gradlew :app:assembleOtherDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupManagerTest" :app:assembleOtherDebug --no-daemon --stacktrace
           mapfile -t apks < <(find app/build/outputs/apk -type f -name '*.apk')
           test "${#apks[@]}" -eq 1
           APK="${apks[0]}"

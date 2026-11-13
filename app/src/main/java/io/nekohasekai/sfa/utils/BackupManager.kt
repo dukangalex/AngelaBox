@@ -199,7 +199,9 @@ object BackupManager {
             it.mkdirs()
         }
         var entries = 0
-        var total = 0L
+        val expansionLimit = BackupExpansionLimit(MAX_ENTRY_SIZE, MAX_TOTAL_SIZE) {
+            throw BackupRejected("备份展开大小超过限制")
+        }
         var hasData = false
         try {
             ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
@@ -209,44 +211,37 @@ object BackupManager {
                         throw BackupRejected("备份包含过多文件")
                     }
                     val name = entry.name.trimStart('/')
-                    if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
-                        val outFile = when {
-                            name == MANIFEST ||
-                                name == PortableCloudBackup.PROFILES ||
-                                name == PortableCloudBackup.SETTINGS -> File(staging, name)
-                            name.startsWith("configs/") -> {
-                                val relative = name.removePrefix("configs/")
-                                if (relative.isBlank() || relative.contains('/')) {
-                                    throw BackupRejected("非法备份路径")
-                                } else {
-                                    File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
-                                }
-                            }
-                            name.endsWith(".db") && !name.contains('/') -> File(staging, name)
-                            else -> null
-                        }
-                        if (outFile != null) {
-                            if (name.endsWith(".db") || name.startsWith("configs/") ||
-                                name == PortableCloudBackup.PROFILES
-                            ) {
-                                hasData = true
-                            }
-                            outFile.parentFile?.mkdirs()
-                            var entryBytes = 0L
-                            FileOutputStream(outFile).use { fos ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                while (true) {
-                                    val read = zis.read(buffer)
-                                    if (read < 0) break
-                                    entryBytes += read
-                                    total += read
-                                    if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
-                                        throw BackupRejected("备份展开大小超过限制")
+                    val outFile =
+                        if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
+                            when {
+                                name == MANIFEST ||
+                                    name == PortableCloudBackup.PROFILES ||
+                                    name == PortableCloudBackup.SETTINGS -> File(staging, name)
+                                name.startsWith("configs/") -> {
+                                    val relative = name.removePrefix("configs/")
+                                    if (relative.isBlank() || relative.contains('/')) {
+                                        throw BackupRejected("非法备份路径")
+                                    } else {
+                                        File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
                                     }
-                                    fos.write(buffer, 0, read)
                                 }
+                                name.endsWith(".db") && !name.contains('/') -> File(staging, name)
+                                else -> null
                             }
+                        } else {
+                            null
                         }
+                    if (outFile != null) {
+                        if (name.endsWith(".db") || name.startsWith("configs/") ||
+                            name == PortableCloudBackup.PROFILES
+                        ) {
+                            hasData = true
+                        }
+                        outFile.parentFile?.mkdirs()
+                        FileOutputStream(outFile).use { fos -> expansionLimit.consume(zis, fos) }
+                    } else {
+                        // closeEntry() inflates skipped data too, so account for it before closing.
+                        expansionLimit.consume(zis, null)
                     }
                     zis.closeEntry()
                     entry = zis.nextEntry
