@@ -37,7 +37,7 @@ jobs:
           sudo install -m 0755 .github/scripts/android-offline-check.sh /home/wabi_trial/check.sh
           sudo chown root:root /home/wabi_trial/check.sh
           sudo install -o root -g root -m 0444 "$RUNNER_TEMP/candidate/angelabox-arm64-debug.apk" /home/wabi_trial/candidate.apk
-          sudo unshare --net -- bash -euo pipefail -c '
+          sudo unshare --net -- bash -euxo pipefail -c '
             ip link set lo up
             test "$(ls /sys/class/net | tr "\\n" " ")" = "lo "
             test -z "$(ip -4 route show)"
