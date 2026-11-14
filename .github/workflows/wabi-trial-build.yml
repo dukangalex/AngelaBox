@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - wabi/backup-guard-20261113
+      - wabi/backup-operation-gate-20261114
 permissions:
   contents: read
 jobs:
