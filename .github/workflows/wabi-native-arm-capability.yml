@@ -29,3 +29,15 @@ jobs:
           grep -w binder /proc/filesystems || true
           echo '--- container runtime version ---'
           docker version --format '{{.Server.Version}}' 2>&1 || true
+      - name: Test loading binder and mounting binderfs without an APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "PAGE_SIZE=$(getconf PAGESIZE)"
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          cat /sys/module/binder_linux/parameters/devices
+          grep -w binder /proc/filesystems
+          sudo mkdir -p /tmp/wabi-binderfs
+          sudo mount -t binder binder /tmp/wabi-binderfs
+          ls -la /tmp/wabi-binderfs
+          sudo umount /tmp/wabi-binderfs
