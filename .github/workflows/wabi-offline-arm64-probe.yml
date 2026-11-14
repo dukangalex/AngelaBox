@@ -36,6 +36,13 @@ jobs:
           echo "HOSTED_CPU_COUNT=$(nproc)"
           test "$(nproc)" -ge 2
           sudo useradd -m -s /bin/bash wabi_trial
+          # The sandbox account needs KVM for the x86_64 emulator; no host-wide mode change.
+          test -c /dev/kvm
+          KVM_GROUP="$(stat -c %G /dev/kvm)"
+          getent group "$KVM_GROUP" >/dev/null
+          sudo usermod -aG "$KVM_GROUP" wabi_trial
+          sudo -u wabi_trial test -r /dev/kvm
+          sudo -u wabi_trial test -w /dev/kvm
           sudo install -m 0755 .github/scripts/android-offline-check.sh /home/wabi_trial/check.sh
           sudo install -m 0755 .github/scripts/assert-egress-blocked.py /home/wabi_trial/assert-egress-blocked.py
           sudo chown root:root /home/wabi_trial/check.sh /home/wabi_trial/assert-egress-blocked.py
