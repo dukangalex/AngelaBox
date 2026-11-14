@@ -12,7 +12,7 @@ SOURCES=(); CLASSES=()
 for name in RestoreAccessGate RestoreCoroutineOperation RestoreRecoveryJournal ServiceOperationGate ProfileFiles; do
   SOURCES+=("app/src/main/java/io/nekohasekai/sfa/utils/$name.kt")
 done
-for name in RestoreAccessGateTest RestoreSnapshotTest RestoreCoroutineOperationTest RestoreRecoveryJournalTest RestoreStartupRecoveryTest ServiceOperationGateTest ProfileFilesAdmissionTest; do
+for name in RestoreAccessGateTest RestoreSnapshotTest RestoreCoroutineOperationTest RestoreRecoveryJournalTest RestoreStartupRecoveryTest ServiceOperationGateTest ProfileFilesAdmissionTest RestoreTransactionIntegrationTest; do
   SOURCES+=("app/src/test/java/io/nekohasekai/sfa/utils/$name.kt")
   CLASSES+=("io.nekohasekai.sfa.utils.$name")
 done

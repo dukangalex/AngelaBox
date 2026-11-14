@@ -215,3 +215,16 @@ callback rejected during drain may abort startup; the shutdown/rollback paths
 must be tested on Android before enabling restore. No BackupManager transaction
 is enabled. Successful compilation/build, if obtained, remains separate from
 runtime acceptance and source audit.
+
+## Host-only gate/journal composition test (2026-11-14)
+
+`RestoreTransactionIntegrationTest` composes `RestoreAccessGate` and
+`RestoreRecoveryJournal` in two synthetic end-to-end cases: a committed
+replacement remains closed to another thread until the journal completes, and a
+failed replacement poisons the current gate until a new startup gate replays the
+PREPARED journal. It is included in `run_admission_host_tests.sh`.
+
+These tests deliberately do not wire `BackupManager` or claim coverage of Room,
+SQLite/WAL consistency, native/service quiescence, Android storage durability,
+process-kill behavior of the app, or Android/APK acceptance. Those dependencies
+remain required before enabling live restore transactions.
