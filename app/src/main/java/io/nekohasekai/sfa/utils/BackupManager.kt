@@ -289,8 +289,7 @@ object BackupManager {
 
         runCatching { BoxService.stop() }
         Thread.sleep(350)
-        Settings.closeDatabase()
-        ProfileManager.closeDatabase()
+        closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
 
         val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
         val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)

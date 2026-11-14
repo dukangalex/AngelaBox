@@ -131,7 +131,9 @@ object ProfileManager {
 
     fun closeDatabase() {
         synchronized(dbLock) {
-            runCatching { db?.close() }
+            // A failed close must abort restore before any database file is replaced.
+            // Keep the reference if close throws; callers can retry or surface the error.
+            db?.close()
             db = null
         }
     }
