@@ -2,6 +2,7 @@ name: Native ARM Android capability check (no candidate execution)
 on:
   push:
     branches: [wabi/native-arm-capability-20261114]
+    paths: [.github/workflows/wabi-native-arm-capability.yml]
 permissions: {}
 jobs:
   inspect-host:
