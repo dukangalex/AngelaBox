@@ -1,0 +1,43 @@
+name: Native ARM restricted Android probe (environment only)
+on:
+  push:
+    branches: [wabi/native-arm-capability-20261114]
+    paths: [.github/workflows/wabi-native-arm-restricted-probe.yml]
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 9
+    steps:
+      - name: Probe device-scoped Android container without APK or credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trap 'docker rm -f restricted 2>/dev/null || true; sudo umount /tmp/probe-binder 2>/dev/null || true' EXIT
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          sudo mkdir -p /tmp/probe-binder
+          sudo mount -t binder binder /tmp/probe-binder
+          ls -l /dev/{binder,hwbinder,vndbinder} /tmp/probe-binder 2>&1 || true
+          image='redroid/redroid@sha256:0a611199ba2e0b5d60af39b3327a517f6407231f4352114ed3bd3cbfe2be69aa'
+          docker pull --platform linux/arm64 "$image"
+          # Environment-only: no checkout, no secrets, no app, no network or host mounts.
+          for mode in default extra_caps; do
+            echo "===== MODE=$mode ====="
+            docker rm -f restricted >/dev/null 2>&1 || true
+            flags=()
+            for d in binder hwbinder vndbinder; do
+              if test -c /dev/$d; then flags+=(--device "/dev/$d:/dev/$d:rwm"); fi
+            done
+            if [ "$mode" = extra_caps ]; then flags+=(--cap-add SYS_NICE --cap-add SYS_RESOURCE --cap-add IPC_LOCK); fi
+            docker run -d --name restricted --network none --memory 4g --cpus 3 "${flags[@]}" "$image" androidboot.redroid_gpu_mode=guest || continue
+            docker inspect restricted --format 'Privileged={{.HostConfig.Privileged}} Network={{.HostConfig.NetworkMode}} PidMode={{.HostConfig.PidMode}} Binds={{json .HostConfig.Binds}} Caps={{json .HostConfig.CapAdd}} Devices={{json .HostConfig.Devices}}'
+            ready=0
+            for i in $(seq 1 25); do
+              test "$(docker inspect restricted --format '{{.State.Running}}')" = true || break
+              if [ "$(docker exec restricted getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = 1 ]; then ready=1; break; fi
+              sleep 2
+            done
+            echo "BOOT_COMPLETED=$ready"
+            docker logs --tail 35 restricted 2>&1 || true
+            if [ "$ready" = 1 ]; then docker exec restricted getprop ro.product.cpu.abi; docker exec restricted getprop ro.build.version.sdk; fi
+          done
