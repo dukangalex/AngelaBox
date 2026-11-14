@@ -89,7 +89,7 @@ class ApkDownloader : Closeable {
             throw Exception("安装包签名证书不是 AngelaBox 发行密钥")
         }
 
-        val info = packageArchiveInfo(file, wantSigning = false) ?: return
+        val info = requireArchiveMetadata(packageArchiveInfo(file, wantSigning = false)) { file.delete() }
         if (info.packageName != ReleaseTrust.PACKAGE_NAME) {
             file.delete()
             throw Exception("安装包名称与 AngelaBox 不符")

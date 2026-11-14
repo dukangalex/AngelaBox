@@ -302,13 +302,7 @@ object BackupManager {
         val stagedConfigs = File(staging, "configs")
         val live = File(context.filesDir, "configs").also { it.mkdirs() }
         if (stagedConfigs.isDirectory) {
-            val incoming = stagedConfigs.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
-            live.listFiles()?.forEach { f ->
-                if (f.isFile && f.name !in incoming) f.delete()
-            }
-            stagedConfigs.listFiles()?.forEach { f ->
-                if (f.isFile) runCatching { f.copyTo(File(live, f.name), overwrite = true) }
-            }
+            restoreConfigFiles(stagedConfigs, live)
         }
 
         val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
