@@ -143,4 +143,49 @@ class RestoreCoroutineOperationTest {
         assertEquals(42, gate.operation { gate.operation { withContext(Dispatchers.IO) { gate.access { 42 } } } })
         gate.exclusive(0) {}
     }
+
+    @Test fun exclusiveCoroutineLeaseAllowsItsOwnSuspendingDataWorkButBlocksOthers() = runBlocking<Unit> {
+        val gate = RestoreAccessGate(true)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val transaction = async(Dispatchers.IO) {
+            gate.exclusiveOperation(5000) {
+                gate.operation {
+                    gate.access { entered.complete(Unit) }
+                    withContext(Dispatchers.Default) { gate.access {} }
+                    release.await()
+                    "committed"
+                }
+            }
+        }
+        entered.await()
+        blocked { gate.access {} }
+        try { gate.operation { fail("Unrelated caller entered exclusive transaction") }; fail() }
+        catch (_: IllegalStateException) {}
+        release.complete(Unit)
+        assertEquals("committed", transaction.await())
+        gate.access {}
+    }
+
+    @Test fun failedExclusiveTransactionPoisonsUntilReinitialization() = runBlocking<Unit> {
+        val gate = RestoreAccessGate(true)
+        try {
+            gate.exclusiveOperation(1000) {
+                gate.operation { gate.access {}; error("rollback not proven") }
+            }
+            fail("Failure must propagate")
+        } catch (expected: IllegalStateException) { assertEquals("rollback not proven", expected.message) }
+        blocked { gate.access {} }
+    }
+
+    @Test fun successfulRollbackResultReopensAdmission() = runBlocking<Unit> {
+        val gate = RestoreAccessGate(true)
+        val result = gate.exclusiveOperation(1000) {
+            gate.operation { gate.access {} }
+            Result.failure<Int>(IllegalStateException("restore rolled back"))
+        }
+        assertTrue(result.isFailure)
+        gate.access {}
+    }
+
 }

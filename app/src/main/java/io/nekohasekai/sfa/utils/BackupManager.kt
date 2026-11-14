@@ -25,6 +25,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.URI
 import java.util.Date
 import java.util.zip.ZipEntry
@@ -58,6 +59,7 @@ object BackupManager {
         val skippedScriptNames: List<String> = emptyList(),
         val skippedChainBindingCount: Int = 0,
         val skippedScriptBindingCount: Int = 0,
+        val recoveryCleanupPending: Boolean = false,
     )
 
     /**
@@ -151,17 +153,17 @@ object BackupManager {
      * [RestoreReport] lists what the restore created or skipped so the
      * caller can disclose it.
      */
-    fun restoreBackupFile(
+    suspend fun restoreBackupFile(
         context: Context,
         src: File,
         compat: Boolean = false,
         password: CharArray? = null,
         includeSensitiveItems: Boolean = false,
-    ): Result<RestoreReport> = operationGate.tryRun {
+    ): Result<RestoreReport> = operationGate.tryRunSuspend {
         restoreBackupFileUnlocked(context, src, compat, password, includeSensitiveItems).getOrThrow()
     }
 
-    private fun restoreBackupFileUnlocked(
+    private suspend fun restoreBackupFileUnlocked(
         context: Context,
         src: File,
         compat: Boolean,
@@ -191,7 +193,7 @@ object BackupManager {
         }
     }
 
-    private fun restoreZipFile(
+    private suspend fun restoreZipFile(
         context: Context,
         src: File,
         compat: Boolean = false,
@@ -266,133 +268,228 @@ object BackupManager {
             val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
             val hasPortable = portableProfiles.isFile
 
-            if (compat) {
-                val restoredRemote = if (hasPortable) {
-                    mergePortableProfiles(
-                        context,
-                        portableProfiles.readText(),
-                        File(staging, "configs"),
-                    )
-                } else {
-                    mergeProfilesFromBackup(
-                        context,
-                        File(staging, Path.PROFILES_DATABASE_PATH),
-                        File(staging, "configs"),
-                    )
-                }
-                return@runCatching RestoreReport(remoteProfiles = restoredRemote)
-            }
-
-            // Fail before replacement if even the stop request cannot be sent.
-            // The delay is not an acknowledgement that the service has stopped.
-            BoxService.stop()
-            Thread.sleep(350)
-            closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
-
-            val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
-            val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
-            val settingsDbRestored = settingsDb.isFile
-            val profilesDbRestored = profilesDb.isFile
-            if (settingsDbRestored) {
-                val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-                dest.parentFile?.mkdirs()
-                deleteSidecars(dest)
-                settingsDb.copyTo(dest, overwrite = true)
-                deleteSidecars(dest)
-            }
-            if (profilesDbRestored) {
-                val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
-                dest.parentFile?.mkdirs()
-                deleteSidecars(dest)
-                profilesDb.copyTo(dest, overwrite = true)
-                deleteSidecars(dest)
-                pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
-                repairRestoredRemoteServers(dest)
-            }
             val stagedConfigs = File(staging, "configs")
-            val live = File(context.filesDir, "configs").also { it.mkdirs() }
-            if (stagedConfigs.isDirectory) {
-                restoreConfigFiles(stagedConfigs, live)
+            if (compat) {
+                return@runCatching restoreCompatibleBackup(
+                    context = context,
+                    hasPortable = hasPortable,
+                    portableProfiles = portableProfiles,
+                    backupProfilesDb = File(staging, Path.PROFILES_DATABASE_PATH),
+                    backupConfigs = stagedConfigs,
+                ).getOrThrow()
             }
 
-            val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-            if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
-            if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
-
-            var portableOutcome: PortableRestoreOutcome? = null
-            if (hasPortable) {
-                if (!profilesDbRestored) {
-                    portableOutcome = restorePortableOverwrite(
-                        context,
-                        portableProfiles.readText(),
-                        if (portableSettings.isFile) portableSettings.readText() else "{}",
-                        File(staging, "configs"),
-                        includeSensitiveItems,
-                    )
-                } else {
-                    runCatching {
-                        val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
-                        val existing = runBlocking { ProfileManager.list() }
-                        val uuidToLocal = linkedMapOf<String, Long>()
-                        profiles.forEach { portable ->
-                            val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
-                                ?: existing.firstOrNull {
-                                    portable.remoteUrl.isNotEmpty() &&
-                                        it.typed.remoteURL.trim() == portable.remoteUrl
-                                }
-                            if (local != null) uuidToLocal[portable.id] = local.id
-                        }
-                        PortableCloudBackup.importStableIds(profiles, uuidToLocal)
-                        if (!selected.isNullOrBlank()) {
-                            ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
-                        }
-                    }
-                }
-            }
-            if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
-            if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
-            // M3 (same rule the portable path applies in applyPortableSettings):
-            // a backup carries no WebDAV password by design, so the URL/user its
-            // settings.db restored must never be paired with the password
-            // preserved above — the first probe would send that password to the
-            // backup's server as Basic Auth. Keep the pre-restore endpoint
-            // whenever the backup's differs. Gated on the DB actually having
-            // been replaced: without one, the endpoint is either untouched or
-            // came through the portable path, whose M3 gate already ran.
-            // (Every WebDAV use still re-validates the URL through
-            // RemoteUrlGuard in requireHttps before connecting.)
-            if (settingsDbRestored) {
-                if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
-                if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
-            }
-            // A restored activeRemoteServerId points into the backup's server
-            // list, whose rows were just re-validated by
-            // repairRestoredRemoteServers. Never auto-connect on the next
-            // launch: the user re-selects the server in the UI.
-            if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
-
-            val report = if (portableOutcome != null) {
-                RestoreReport(
-                    remoteProfiles = portableOutcome.remoteProfiles,
-                    skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
-                    skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
-                    skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
-                )
-            } else {
-                RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
-            }
+            val report = restoreDestructiveBackup(
+                context = context,
+                staging = staging,
+                stagedConfigs = stagedConfigs,
+                hasPortable = hasPortable,
+                portableProfiles = portableProfiles,
+                portableSettings = portableSettings,
+                settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH),
+                profilesDb = File(staging, Path.PROFILES_DATABASE_PATH),
+                keepDav = keepDav,
+                keepTok = keepTok,
+                keepDavUrl = keepDavUrl,
+                keepDavUser = keepDavUser,
+                includeSensitiveItems = includeSensitiveItems,
+            ).getOrThrow()
             report
         }
     }
 
+    /** Compatibility restore also mutates profiles/configs; journal and isolate it as one unit. */
+    private suspend fun restoreCompatibleBackup(
+        context: Context,
+        hasPortable: Boolean,
+        portableProfiles: File,
+        backupProfilesDb: File,
+        backupConfigs: File,
+    ): Result<RestoreReport> {
+        var servicePause: ServiceOperationGate.Pause? = null
+        return try {
+            servicePause = BoxService.quiesceForRestore(30_000)
+            val result = ApplicationDataAccess.gate.exclusiveOperation(60_000) {
+                closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                RestoreRecoveryJournal.open(
+                    File(context.applicationInfo.dataDir),
+                    AndroidRestoreDurability,
+                ).use { journal ->
+                    var commitStarted = false
+                    try {
+                        journal.recover()
+                        journal.prepare()
+                        val restoredRemote = if (hasPortable) {
+                            mergePortableProfiles(context, portableProfiles.readText(), backupConfigs)
+                        } else {
+                            mergeProfilesFromBackup(context, backupProfilesDb, backupConfigs)
+                        }
+                        closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                        commitStarted = true
+                        journal.commit()
+                        val cleanupPending = try { journal.cleanupCommitted(); false } catch (_: Exception) { true }
+                        Result.success(RestoreReport(remoteProfiles = restoredRemote, recoveryCleanupPending = cleanupPending))
+                    } catch (error: Throwable) {
+                        if (commitStarted) throw error
+                        try {
+                            closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                            journal.recover()
+                            Result.failure(error)
+                        } catch (rollbackError: Throwable) {
+                            error.addSuppressed(rollbackError)
+                            throw error
+                        }
+                    }
+                }
+            }
+            servicePause.resume()
+            servicePause = null
+            result
+        } catch (error: Throwable) {
+            Result.failure(error)
+        }
+    }
+
+    /** Destructive restore is admitted only after native service and app-data readers drain. */
+    private suspend fun restoreDestructiveBackup(
+        context: Context,
+        staging: File,
+        stagedConfigs: File,
+        hasPortable: Boolean,
+        portableProfiles: File,
+        portableSettings: File,
+        settingsDb: File,
+        profilesDb: File,
+        keepDav: String,
+        keepTok: String,
+        keepDavUrl: String,
+        keepDavUser: String,
+        includeSensitiveItems: Boolean,
+    ): Result<RestoreReport> {
+        var servicePause: io.nekohasekai.sfa.utils.ServiceOperationGate.Pause? = null
+        return try {
+            servicePause = BoxService.quiesceForRestore(30_000)
+            val result = ApplicationDataAccess.gate.exclusiveOperation(60_000) {
+                closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                RestoreRecoveryJournal.open(
+                    File(context.applicationInfo.dataDir),
+                    AndroidRestoreDurability,
+                ).use { journal ->
+                    var commitStarted = false
+                    try {
+                        // Clear an older committed/rolled-back journal while all users are excluded.
+                        journal.recover()
+                        journal.prepare()
+                        val settingsDbRestored = settingsDb.isFile
+                        val profilesDbRestored = profilesDb.isFile
+                        if (settingsDbRestored) {
+                            val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+                            dest.parentFile?.mkdirs()
+                            deleteSidecars(dest, failOnError = true)
+                            settingsDb.copyTo(dest, overwrite = true)
+                            deleteSidecars(dest, failOnError = true)
+                        }
+                        if (profilesDbRestored) {
+                            val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
+                            dest.parentFile?.mkdirs()
+                            deleteSidecars(dest, failOnError = true)
+                            profilesDb.copyTo(dest, overwrite = true)
+                            deleteSidecars(dest, failOnError = true)
+                            pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
+                            repairRestoredRemoteServers(dest)
+                        }
+                        val live = File(context.filesDir, "configs").also { it.mkdirs() }
+                        if (stagedConfigs.isDirectory) restoreConfigFiles(stagedConfigs, live)
+
+                        val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+                        if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
+                        if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
+
+                        var portableOutcome: PortableRestoreOutcome? = null
+                        if (hasPortable) {
+                            if (!profilesDbRestored) {
+                                portableOutcome = restorePortableOverwrite(
+                                    context,
+                                    portableProfiles.readText(),
+                                    if (portableSettings.isFile) portableSettings.readText() else "{}",
+                                    stagedConfigs,
+                                    includeSensitiveItems,
+                                )
+                            } else {
+                                val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
+                                val existing = ProfileManager.list()
+                                val uuidToLocal = linkedMapOf<String, Long>()
+                                profiles.forEach { portable ->
+                                    val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
+                                        ?: existing.firstOrNull {
+                                            portable.remoteUrl.isNotEmpty() &&
+                                                it.typed.remoteURL.trim() == portable.remoteUrl
+                                        }
+                                    if (local != null) uuidToLocal[portable.id] = local.id
+                                }
+                                PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+                                if (!selected.isNullOrBlank()) {
+                                    ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
+                                }
+                            }
+                        }
+                        if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
+                        if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
+                        if (settingsDbRestored) {
+                            if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
+                            if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
+                        }
+                        if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
+
+                        val report = if (portableOutcome != null) {
+                            RestoreReport(
+                                remoteProfiles = portableOutcome.remoteProfiles,
+                                skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
+                                skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
+                                skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
+                            )
+                        } else {
+                            RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
+                        }
+                        closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                        commitStarted = true
+                        journal.commit()
+                        val cleanupPending = try { journal.cleanupCommitted(); false } catch (_: Exception) { true }
+                        Result.success(report.copy(recoveryCleanupPending = cleanupPending))
+                    } catch (error: Throwable) {
+                        if (commitStarted) throw error // Unknown commit outcome: retain journal for startup replay.
+                        try {
+                            closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
+                            journal.recover()
+                            Result.failure(error) // Verified rollback: release data admission but report failure.
+                        } catch (rollbackError: Throwable) {
+                            error.addSuppressed(rollbackError)
+                            throw error // Gate and service remain closed; startup recovery must decide.
+                        }
+                    }
+                }
+            }
+            try {
+                servicePause.resume()
+                servicePause = null
+                result
+            } catch (resumeError: Throwable) {
+                Result.failure(IllegalStateException(
+                    "恢复数据已提交或回滚，但服务无法安全恢复；请重启应用后再检查。",
+                    resumeError,
+                ))
+            }
+        } catch (error: Throwable) {
+            Result.failure(error)
+        }
+    }
+
     /** Remote profiles the wholesale DB restore just installed, read back for the [RestoreReport]. */
-    private fun restoredDbRemoteProfiles(profilesDbRestored: Boolean): List<RestoredRemoteProfile> {
+    private suspend fun restoredDbRemoteProfiles(profilesDbRestored: Boolean): List<RestoredRemoteProfile> {
         if (!profilesDbRestored) return emptyList()
-        return runCatching {
-            runBlocking { ProfileManager.list() }
-                .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.remoteURL.isNotBlank() }
-                .map { RestoredRemoteProfile(it.name, it.typed.remoteURL) }
-        }.getOrDefault(emptyList())
+        return ProfileManager.list()
+            .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.remoteURL.isNotBlank() }
+            .map { RestoredRemoteProfile(it.name, it.typed.remoteURL) }
     }
 
     /**
@@ -409,75 +506,66 @@ object BackupManager {
      */
     internal fun pinProfilePathsToConfigs(profilesDb: File, liveConfigs: File) {
         if (!profilesDb.isFile) return
-        runCatching {
-            val root = liveConfigs.canonicalFile
-            val convertor = TypedProfile.Convertor()
-            SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-                val fixes = mutableListOf<Pair<Long, ByteArray>>()
-                db.rawQuery("SELECT id, typed FROM profiles", null).use { c ->
-                    while (c.moveToNext()) {
-                        val id = c.getLong(0)
-                        val blob = c.getBlob(1) ?: continue
-                        val typed = runCatching { convertor.unmarshall(blob) }.getOrNull() ?: continue
-                        var changed = false
-                        val current = runCatching { File(typed.path).canonicalFile }.getOrNull()
-                        if (current == null || current.parentFile != root) {
-                            val name = File(typed.path).name
-                            val safe = if (name.isBlank() || name.contains("..")) "$id.json" else name
-                            typed.path = File(root, safe).path
-                            changed = true
-                        }
-                        if (typed.type == TypedProfile.Type.Remote && typed.autoUpdate) {
-                            typed.autoUpdate = false
-                            changed = true
-                        }
-                        if (typed.autoUpdateInterval < 15) {
-                            typed.autoUpdateInterval = 15
-                            changed = true
-                        }
-                        if (changed) fixes += id to convertor.marshall(typed)
+        val root = liveConfigs.canonicalFile
+        val convertor = TypedProfile.Convertor()
+        SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            val fixes = mutableListOf<Pair<Long, ByteArray>>()
+            db.rawQuery("SELECT id, typed FROM profiles", null).use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val blob = c.getBlob(1) ?: error("Restored profile has no typed data")
+                    val typed = convertor.unmarshall(blob)
+                    var changed = false
+                    val current = try { File(typed.path).canonicalFile } catch (_: IOException) { null }
+                    if (current == null || current.parentFile != root) {
+                        val name = File(typed.path).name
+                        val safe = if (name.isBlank() || name.contains("..")) "$id.json" else name
+                        typed.path = File(root, safe).path
+                        changed = true
                     }
+                    if (typed.type == TypedProfile.Type.Remote && typed.autoUpdate) {
+                        typed.autoUpdate = false
+                        changed = true
+                    }
+                    if (typed.autoUpdateInterval < 15) {
+                        typed.autoUpdateInterval = 15
+                        changed = true
+                    }
+                    if (changed) fixes += id to convertor.marshall(typed)
                 }
-                fixes.forEach { (id, bytes) ->
-                    val cv = ContentValues()
-                    cv.put("typed", bytes)
-                    db.update("profiles", cv, "id = ?", arrayOf(id.toString()))
+            }
+            fixes.forEach { (id, bytes) ->
+                val cv = ContentValues().apply { put("typed", bytes) }
+                check(db.update("profiles", cv, "id = ?", arrayOf(id.toString())) == 1) {
+                    "Could not secure restored profile path"
                 }
             }
         }
     }
 
-    /**
-     * A restored profiles.db can plant `remote_servers` rows the UI would
-     * refuse — validateURL is only enforced on the edit screen, while the
-     * launch-time RemoteControlManager.restore() connects to whatever
-     * Settings.activeRemoteServerId names. Validate every restored row
-     * with that same gate, drop the rows that fail, and blank secrets:
-     * exports always blank them, so a secret in a backup is planted, not
-     * restored data. The caller clears the active server id separately.
-     */
+    /** Validate restored server rows and propagate all SQLite failures to transaction rollback. */
     internal fun repairRestoredRemoteServers(profilesDb: File) {
         if (!profilesDb.isFile) return
-        runCatching {
-            SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-                val hasTable = db.rawQuery(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
-                    null,
-                ).use { it.moveToFirst() }
-                if (hasTable) {
-                    val rows = mutableListOf<Pair<Long, String>>()
-                    db.rawQuery("SELECT id, url FROM remote_servers", null).use { c ->
-                        while (c.moveToNext()) rows += c.getLong(0) to (c.getString(1) ?: "")
-                    }
-                    rows.forEach { (id, url) ->
-                        val valid = RemoteServer.validateURL(url)
-                        if (valid == null) {
-                            db.delete("remote_servers", "id = ?", arrayOf(id.toString()))
-                        } else {
-                            val cv = ContentValues()
-                            cv.put("url", valid)
-                            cv.put("secret", "")
-                            db.update("remote_servers", cv, "id = ?", arrayOf(id.toString()))
+        SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            val hasTable = db.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='remote_servers'",
+                null,
+            ).use { it.moveToFirst() }
+            if (hasTable) {
+                val rows = mutableListOf<Pair<Long, String>>()
+                db.rawQuery("SELECT id, url FROM remote_servers", null).use { c ->
+                    while (c.moveToNext()) rows += c.getLong(0) to (c.getString(1) ?: "")
+                }
+                rows.forEach { (id, url) ->
+                    val valid = RemoteServer.validateURL(url)
+                    if (valid == null) {
+                        check(db.delete("remote_servers", "id = ?", arrayOf(id.toString())) == 1) {
+                            "Could not remove invalid restored server"
+                        }
+                    } else {
+                        val cv = ContentValues().apply { put("url", valid); put("secret", "") }
+                        check(db.update("remote_servers", cv, "id = ?", arrayOf(id.toString())) == 1) {
+                            "Could not sanitize restored server"
                         }
                     }
                 }
@@ -491,7 +579,7 @@ object BackupManager {
         val sensitive: PortableCloudBackup.SensitiveItemsOutcome,
     )
 
-    private fun restorePortableOverwrite(
+    private suspend fun restorePortableOverwrite(
         context: Context,
         profilesJson: String,
         settingsJson: String,
@@ -502,31 +590,30 @@ object BackupManager {
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
         var sensitive = PortableCloudBackup.SensitiveItemsOutcome()
         val remoteProfiles = mutableListOf<RestoredRemoteProfile>()
-        runBlocking {
-            ProfileManager.list().toList().forEach { existing ->
-                runCatching { ProfileManager.delete(existing) }
+        ProfileManager.list().toList().forEach { existing ->
+            check(ProfileManager.delete(existing) > 0) { "Could not replace existing profile" }
+        }
+        val uuidToLocal = linkedMapOf<String, Long>()
+        profiles.forEach { portable ->
+            val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
+            uuidToLocal[portable.id] = created.id
+            if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
+                remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
             }
-            val uuidToLocal = linkedMapOf<String, Long>()
-            profiles.forEach { portable ->
-                val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
-                uuidToLocal[portable.id] = created.id
-                if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
-                    remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
-                }
-            }
-            PortableCloudBackup.importStableIds(profiles, uuidToLocal)
-            sensitive = PortableCloudBackup.applyPortableSettings(settingsJson, uuidToLocal, includeSensitiveItems)
-            val selectedLocal = selected?.let { ProfileStableIds.localId(it) }
-            if (selectedLocal != null) {
-                Settings.selectedProfile = selectedLocal
-            } else if (uuidToLocal.isNotEmpty()) {
-                Settings.selectedProfile = uuidToLocal.values.first()
-            }
+        }
+        PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+        org.json.JSONObject(settingsJson) // Reject malformed settings rather than silently applying a partial restore.
+        sensitive = PortableCloudBackup.applyPortableSettings(settingsJson, uuidToLocal, includeSensitiveItems)
+        val selectedLocal = selected?.let { ProfileStableIds.localId(it) }
+        if (selectedLocal != null) {
+            Settings.selectedProfile = selectedLocal
+        } else if (uuidToLocal.isNotEmpty()) {
+            Settings.selectedProfile = uuidToLocal.values.first()
         }
         return PortableRestoreOutcome(remoteProfiles, sensitive)
     }
 
-    private fun mergePortableProfiles(
+    private suspend fun mergePortableProfiles(
         context: Context,
         profilesJson: String,
         backupConfigs: File,
@@ -534,22 +621,20 @@ object BackupManager {
         val (_, profiles) = PortableCloudBackup.parseProfiles(profilesJson)
         val liveConfigs = File(context.filesDir, "configs").also { it.mkdirs() }
         val remoteProfiles = mutableListOf<RestoredRemoteProfile>()
-        runBlocking {
-            val existing = ProfileManager.list()
-            val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-            val urls = existing.map { it.typed.remoteURL.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-            profiles.forEach { portable ->
-                val name = portable.name.trim()
-                if (name.isEmpty() || name in names) return@forEach
-                val url = portable.remoteUrl.trim()
-                if (url.isNotEmpty() && url in urls) return@forEach
-                val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
-                ProfileStableIds.put(created.id, portable.id)
-                names.add(name)
-                if (url.isNotEmpty()) urls.add(url)
-                if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
-                    remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
-                }
+        val existing = ProfileManager.list()
+        val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+        val urls = existing.map { it.typed.remoteURL.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+        profiles.forEach { portable ->
+            val name = portable.name.trim()
+            if (name.isEmpty() || name in names) return@forEach
+            val url = portable.remoteUrl.trim()
+            if (url.isNotEmpty() && url in urls) return@forEach
+            val created = importPortableProfile(liveConfigs, backupConfigs, portable) ?: return@forEach
+            ProfileStableIds.put(created.id, portable.id)
+            names.add(name)
+            if (url.isNotEmpty()) urls.add(url)
+            if (created.typed.type == TypedProfile.Type.Remote && created.typed.remoteURL.isNotBlank()) {
+                remoteProfiles += RestoredRemoteProfile(created.name, created.typed.remoteURL)
             }
         }
         return remoteProfiles
@@ -574,11 +659,11 @@ object BackupManager {
         val srcName = File(portable.config).name
         if (srcName.isBlank() || srcName.contains("..")) return null
         val staged = File(backupConfigs, srcName)
-        if (!staged.isFile) return null
+        check(staged.isFile) { "Portable profile config is missing from backup" }
         val fileId = ProfileManager.nextFileID()
         val dest = File(liveConfigs, "$fileId.json")
-        val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
-        if (!copied || !dest.isFile) return null
+        staged.copyTo(dest, overwrite = true)
+        check(dest.isFile) { "Portable profile config could not be installed" }
         val typed = TypedProfile().apply {
             path = dest.path
             type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
@@ -602,7 +687,7 @@ object BackupManager {
      * 兼容模式：把备份里的配置追加到当前列表。同名或同一远程 URL 的现有配置保留，
      * 不替换 settings / 不覆盖已有 JSON。
      */
-    internal fun mergeProfilesFromBackup(
+    internal suspend fun mergeProfilesFromBackup(
         context: Context,
         backupProfilesDb: File,
         backupConfigs: File,
@@ -621,59 +706,54 @@ object BackupManager {
                 val nameIdx = c.getColumnIndex("name")
                 val iconIdx = c.getColumnIndex("icon")
                 val typedIdx = c.getColumnIndex("typed")
-                if (nameIdx < 0 || typedIdx < 0) return emptyList()
-                runBlocking {
-                    val existing = ProfileManager.list()
-                    val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-                    val urls = existing.map { it.typed.remoteURL.trim() }.filter { it.isNotEmpty() }.toMutableSet()
-                    while (c.moveToNext()) {
-                        val name = c.getString(nameIdx)?.trim().orEmpty()
-                        if (name.isEmpty() || name in names) continue
-                        val typedBytes = c.getBlob(typedIdx) ?: continue
-                        val typed = try {
-                            convertor.unmarshall(typedBytes)
+                check(nameIdx >= 0 && typedIdx >= 0) { "Backup profiles database has an unsupported schema" }
+                val existing = ProfileManager.list()
+                val names = existing.map { it.name.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+                val urls = existing.map { it.typed.remoteURL.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+                while (c.moveToNext()) {
+                    val name = c.getString(nameIdx)?.trim().orEmpty()
+                    if (name.isEmpty() || name in names) continue
+                    val typedBytes = c.getBlob(typedIdx) ?: continue
+                    val typed = try {
+                        convertor.unmarshall(typedBytes)
+                    } catch (_: Exception) {
+                        continue
+                    }
+                    val url = typed.remoteURL.trim()
+                    if (url.isNotEmpty()) {
+                        try {
+                            RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
                         } catch (_: Exception) {
                             continue
                         }
-                        val url = typed.remoteURL.trim()
-                        if (url.isNotEmpty()) {
-                            try {
-                                RemoteUrlGuard.requireAllowed(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
-                            } catch (_: Exception) {
-                                continue
-                            }
-                            if (url in urls) continue
-                        }
-                        val srcName = File(typed.path).name
-                        if (srcName.isBlank() || srcName.contains("..")) continue
-                        val staged = File(backupConfigs, srcName)
-                        if (!staged.isFile) continue
-                        val fileId = ProfileManager.nextFileID()
-                        val dest = File(liveConfigs, "$fileId.json")
-                        val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
-                        if (!copied || !dest.isFile) continue
-                        val imported = TypedProfile().apply {
-                            path = dest.path
-                            type = typed.type
-                            remoteURL = typed.remoteURL
-                            lastUpdated = typed.lastUpdated
-                            // Same restore policy as importPortableProfile:
-                            // never confirmed per URL, so no unattended
-                            // fetching until the user opts in; interval
-                            // gets the usual 15-minute floor.
-                            autoUpdate = false
-                            autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
-                        }
-                        val icon = if (iconIdx >= 0 && !c.isNull(iconIdx)) c.getString(iconIdx) else null
-                        ProfileManager.create(
-                            Profile(name = name, icon = icon, typed = imported),
-                            andSelect = false,
-                        )
-                        names.add(name)
-                        if (url.isNotEmpty()) urls.add(url)
-                        if (typed.type == TypedProfile.Type.Remote && url.isNotEmpty()) {
-                            remoteProfiles += RestoredRemoteProfile(name, url)
-                        }
+                        if (url in urls) continue
+                    }
+                    val srcName = File(typed.path).name
+                    if (srcName.isBlank() || srcName.contains("..")) continue
+                    val staged = File(backupConfigs, srcName)
+                    if (!staged.isFile) continue
+                    val fileId = ProfileManager.nextFileID()
+                    val dest = File(liveConfigs, "$fileId.json")
+                    staged.copyTo(dest, overwrite = true)
+                    check(dest.isFile) { "Backup profile config could not be installed" }
+                    val imported = TypedProfile().apply {
+                        path = dest.path
+                        type = typed.type
+                        remoteURL = typed.remoteURL
+                        lastUpdated = typed.lastUpdated
+                        // Restored subscriptions need explicit user confirmation before auto-updating.
+                        autoUpdate = false
+                        autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
+                    }
+                    val icon = if (iconIdx >= 0 && !c.isNull(iconIdx)) c.getString(iconIdx) else null
+                    ProfileManager.create(
+                        Profile(name = name, icon = icon, typed = imported),
+                        andSelect = false,
+                    )
+                    names.add(name)
+                    if (url.isNotEmpty()) urls.add(url)
+                    if (typed.type == TypedProfile.Type.Remote && url.isNotEmpty()) {
+                        remoteProfiles += RestoredRemoteProfile(name, url)
                     }
                 }
             }
@@ -1085,21 +1165,27 @@ object BackupManager {
         }
     }
 
-    private fun deleteSidecars(dbFile: File) {
+    private fun deleteSidecars(dbFile: File, failOnError: Boolean = false) {
         listOf("-wal", "-shm", "-journal").forEach { suffix ->
-            File(dbFile.path + suffix).delete()
+            val sidecar = File(dbFile.path + suffix)
+            if (sidecar.exists()) {
+                val deleted = sidecar.delete()
+                if (failOnError) check(deleted) { "Cannot remove database sidecar ${sidecar.name}" }
+            }
         }
     }
 
     private fun putSettingString(dbFile: File, key: String, value: String) {
-        if (value.isEmpty() || !dbFile.isFile) return
-        runCatching {
-            SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-                val cv = ContentValues()
-                cv.put("key", key)
-                cv.put("valueType", 4)
-                cv.put("value", value.toByteArray())
-                db.insertWithOnConflict("KeyValueEntity", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        if (value.isEmpty()) return
+        check(dbFile.isFile) { "Restored settings database is missing" }
+        SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            val cv = ContentValues().apply {
+                put("key", key)
+                put("valueType", 4)
+                put("value", value.toByteArray())
+            }
+            check(db.insertWithOnConflict("KeyValueEntity", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) {
+                "Could not preserve a saved credential during restore"
             }
         }
     }

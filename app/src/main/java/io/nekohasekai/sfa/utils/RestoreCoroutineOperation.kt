@@ -26,7 +26,7 @@ internal suspend fun <T> RestoreAccessGate.operation(block: suspend () -> T): T 
     }
 }
 
-private class RestoreCoroutineOperation(
+internal class RestoreCoroutineOperation(
     val gate: RestoreAccessGate,
     private val lease: RestoreAccessGate.Operation,
 ) : ThreadContextElement<RestoreAccessGate.Operation?>,
@@ -40,5 +40,24 @@ private class RestoreCoroutineOperation(
 
     override fun restoreThreadContext(context: CoroutineContext, oldState: RestoreAccessGate.Operation?) {
         gate.installOperation(oldState)
+    }
+}
+
+/** Exclusive coroutine transaction lease: no unrelated app-data access can enter while it drains. */
+internal suspend fun <T> RestoreAccessGate.exclusiveOperation(
+    timeoutMillis: Long,
+    block: suspend () -> T,
+): T {
+    val context = currentCoroutineContext()
+    check(context[RestoreCoroutineOperation] == null) { "Cannot upgrade a data access lease" }
+    val lease = beginExclusiveOperation(timeoutMillis)
+    try {
+        return withContext(RestoreCoroutineOperation(this, lease)) { block() }
+    } catch (error: Throwable) {
+        failExclusiveOperation(error)
+        throw error
+    } finally {
+        lease.close()
+        endExclusiveOperation()
     }
 }

@@ -10,9 +10,9 @@ import java.security.MessageDigest
 /**
  * Durable preimages for the two databases (including WAL/SHM/rollback journals) and configs as one recovery unit.
  *
- * NOT a live-data lock. The caller must exclude ALL database/config users, including native
- * threads, for the entire session, and recover before any reader opens on process startup.
- * Not wired into BackupManager until those preconditions have an Android-validated owner.
+ * NOT a live-data lock. BackupManager owns the live protocol: quiesce native service activity,
+ * drain app-data access, close databases, and recover before mutation. Startup recovery runs
+ * before any application reader is admitted.
  * Copying a live SQLite database/WAL pair here is NOT a valid SQLite snapshot.
  *
  * Paths are fixed by application code, never deserialized from a backup or journal. No NIO

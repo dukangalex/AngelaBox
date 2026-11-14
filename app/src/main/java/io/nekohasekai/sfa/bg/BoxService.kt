@@ -78,9 +78,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         private val restoreInstances = Collections.synchronizedSet(mutableSetOf<BoxService>())
 
         /**
-         * Not used by BackupManager yet. Does not authorize database/file replacement.
-         * Caller must then drain ALL data access and close/checkpoint Room. Retain the
-         * pause on any later restore/recovery failure; resume only after data is ready.
+         * Closes service admission and awaits all registered native work and resource closure.
+         * BackupManager then drains app-data readers and closes databases before replacement.
+         * Retain the pause on any later restore/recovery failure; resume only after data is ready.
          */
         internal suspend fun quiesceForRestore(timeoutMillis: Long): ServiceOperationGate.Pause {
             val pause = restoreOperations.pause()

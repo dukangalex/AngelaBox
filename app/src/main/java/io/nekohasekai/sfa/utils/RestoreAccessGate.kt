@@ -123,6 +123,42 @@ internal class RestoreAccessGate(
         }
     }
 
+    /** Drain all admitted accesses and issue one coroutine-context lease for a transaction. */
+    internal fun beginExclusiveOperation(timeoutMillis: Long): Operation {
+        require(timeoutMillis >= 0)
+        check(depth.get() == 0 && operation.get() == null) { "Cannot upgrade a data access lease" }
+        val start = System.nanoTime()
+        synchronized(monitor) {
+            check(ready && failure == null && !draining && owner == null) { "Restore admission unavailable" }
+            draining = true
+            try {
+                while (active != 0) {
+                    val remaining = timeoutMillis - (System.nanoTime() - start) / 1_000_000
+                    check(remaining > 0) { "Timed out draining application data" }
+                    monitor.wait(remaining)
+                }
+                dataImage = Any()
+                return Operation().also { active++ }
+            } catch (error: Throwable) {
+                draining = false
+                monitor.notifyAll()
+                if (error is InterruptedException) Thread.currentThread().interrupt()
+                throw error
+            }
+        }
+    }
+
+    internal fun endExclusiveOperation() = synchronized(monitor) {
+        check(draining && owner == null) { "No exclusive application data operation" }
+        draining = false
+        monitor.notifyAll()
+    }
+
+    internal fun failExclusiveOperation(error: Throwable) = synchronized(monitor) {
+        check(draining && owner == null) { "No exclusive application data operation" }
+        failure = error
+    }
+
     /**
      * Integration primitive only: currently NOT used by BackupManager. The caller must
      * separately quiesce native service activity and every direct config-file accessor.
