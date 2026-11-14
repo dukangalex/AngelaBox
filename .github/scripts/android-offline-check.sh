@@ -2,6 +2,8 @@
 set -euxo pipefail
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:/usr/bin:/bin"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export LD_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64:$ANDROID_HOME/emulator/lib64/qt/lib"
+cd "$HOME"
 export ANDROID_AVD_HOME="$HOME/.android/avd"
 mkdir -p "$ANDROID_AVD_HOME"
 trap 'rc=$?; echo "CHECK_EXIT=$rc"; test ! -f "$HOME/emulator.log" || tail -n 100 "$HOME/emulator.log"' EXIT
