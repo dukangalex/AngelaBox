@@ -40,6 +40,11 @@ jobs:
           git -C sing-box rev-parse HEAD > "$RUNNER_TEMP/trial-evidence/kernel-commit.txt"
           git -C sing-box-for-android ls-tree -r HEAD > "$RUNNER_TEMP/trial-evidence/product-tree.txt"
           git -C sing-box ls-tree -r HEAD > "$RUNNER_TEMP/trial-evidence/kernel-tree.txt"
+      - name: Run source security guards
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          python3 scripts/test_security_guards.py
       - name: Setup Java
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
@@ -85,7 +90,7 @@ jobs:
           keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt
           java -version 2> "$RUNNER_TEMP/trial-evidence/java-version.txt"
           ./gradlew --version > "$RUNNER_TEMP/trial-evidence/gradle-version.txt"
-          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupExtractionGuardTest" --tests "*BackupOperationGateTest" --tests "*BackupScratchFilesTest" --tests "*RestoreDatabaseCloseTest" --tests "*BackupManagerTest" --tests "*RestoreConfigFilesTest" --tests "*RestoreRecoveryJournalTest" --tests "*RestoreAccessGateTest" --tests "*RestoreCoroutineOperationTest" --tests "*RestoreSnapshotTest" --tests "*RestoreStartupRecoveryTest" --tests "*ServiceOperationGateTest" --tests "*ProfileFilesAdmissionTest" --tests "*ArchiveMetadataTest" :app:assembleOtherDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupExtractionGuardTest" --tests "*BackupOperationGateTest" --tests "*BackupScratchFilesTest" --tests "*RestoreDatabaseCloseTest" --tests "*BackupManagerTest" --tests "*RestoreConfigFilesTest" --tests "*RestoreRecoveryJournalTest" --tests "*RestoreAccessGateTest" --tests "*RestoreCoroutineOperationTest" --tests "*RestoreSnapshotTest" --tests "*RestoreStartupRecoveryTest" --tests "*ServiceOperationGateTest" --tests "*ProfileFilesAdmissionTest" --tests "*ArchiveMetadataTest" :app:lintDebug :app:assembleOtherDebug --no-daemon --stacktrace
           mapfile -t apks < <(find app/build/outputs/apk -type f -name '*.apk')
           test "${#apks[@]}" -eq 1
           APK="${apks[0]}"

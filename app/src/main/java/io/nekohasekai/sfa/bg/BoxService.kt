@@ -1637,7 +1637,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun writeDebugMessage(message: String?) {
-        Log.d("sing-box", message.orEmpty())
+        // Native core diagnostics may contain raw proxy URIs or credentials.
+        // Never forward their contents to logcat, which may be exported elsewhere.
+        if (!message.isNullOrEmpty()) {
+            Log.d("sing-box", "native diagnostic message suppressed")
+        }
     }
 
     override fun connectSSHAgent(): Int = -1

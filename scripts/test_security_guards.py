@@ -522,6 +522,14 @@ def test_qr_scan_content_is_not_logged() -> None:
     assert 'Log.d(TAG, "Scanned:' not in source
 
 
+def test_native_core_diagnostics_are_not_logged() -> None:
+    source = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
+    method = source.split("override fun writeDebugMessage(message: String?) {", 1)[1].split("\n    }", 1)[0]
+    assert "message.orEmpty()" not in method
+    assert "Log.d(\"sing-box\", message" not in method
+    assert "Log.d(\"sing-box\", \"native diagnostic message suppressed\")" in method
+
+
 def test_subscription_https_only() -> None:
     for bad in (
         "http://example.com/sub.yaml",
@@ -746,6 +754,7 @@ def main() -> int:
         test_ruleset_pins,
         test_subscription_https_only,
         test_qr_scan_content_is_not_logged,
+        test_native_core_diagnostics_are_not_logged,
     ]
     failed = 0
     for test in tests:

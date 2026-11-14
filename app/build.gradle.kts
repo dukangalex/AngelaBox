@@ -197,7 +197,7 @@ dependencies {
     implementation("com.android.tools.smali:smali-dexlib2:3.0.9") {
         exclude(group = "com.google.guava", module = "guava")
     }
-    implementation("com.google.guava:guava:33.6.0-android")
+    implementation("com.google.guava:guava:33.7.2-android")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-process:$lifecycleVersion")
