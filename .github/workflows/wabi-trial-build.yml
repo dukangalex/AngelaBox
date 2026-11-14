@@ -99,6 +99,25 @@ jobs:
           unzip -l "$APK" | grep 'lib/.*\.so' > "$RUNNER_TEMP/trial-evidence/native-libraries.txt"
           cp "$APK" "$RUNNER_TEMP/trial-evidence/angelabox-arm64-debug.apk"
           (cd "$RUNNER_TEMP/trial-evidence"; sha256sum angelabox-arm64-debug.apk > apk-sha256.txt)
+      - name: Preserve lint diagnostics on failure
+        if: always()
+        run: |
+          set -euo pipefail
+          report="sing-box-for-android/app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          mkdir -p "$RUNNER_TEMP/lint-diagnostics"
+          if test -s "$report"; then
+            cp "$report" "$RUNNER_TEMP/lint-diagnostics/lint-results-debug.txt"
+          else
+            printf 'No lint text report was produced.\n' > "$RUNNER_TEMP/lint-diagnostics/report-not-produced.txt"
+          fi
+      - name: Upload lint diagnostics only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: angelabox-lint-diagnostics
+          path: ${{ runner.temp }}/lint-diagnostics/
+          if-no-files-found: error
+          retention-days: 3
       - name: Save candidate and evidence for private review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

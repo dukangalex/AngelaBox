@@ -138,6 +138,10 @@ def test_source_guards() -> None:
     assert "isExplicitCnRuleSet" in compiler
     assert "isPrivateCidr" in compiler
 
+    binder_utils = read("app/src/main/java/io/nekohasekai/sfa/utils/ConnectivityBinderUtils.kt")
+    assert 'Class.forName("android.os.ServiceManager")' in binder_utils
+    assert 'getDeclaredField("mService")' not in binder_utils
+
     manifest = read("app/src/main/AndroidManifest.xml")
     assert 'android:allowBackup="false"' in manifest
     assert 'android:scheme="file"' not in manifest
