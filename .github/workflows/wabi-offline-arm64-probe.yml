@@ -14,13 +14,13 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Prepare official emulator and ARM64 system image
+      - name: Prepare official emulator and x86_64 system image with ARM translation
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           printf 'ANDROID_HOME=%s\n' "$SDK" >> "$GITHUB_ENV"
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install 'emulator' 'platform-tools' 'system-images;android-34;google_apis;arm64-v8a'
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install 'emulator' 'platform-tools' 'system-images;android-34;google_apis;x86_64'
       - name: Obtain and authenticate exact prior build
         env:
           GH_TOKEN: ${{ github.token }}
