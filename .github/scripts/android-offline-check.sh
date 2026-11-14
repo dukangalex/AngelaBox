@@ -27,7 +27,7 @@ printf 'EMULATOR_ABI=%s SDK=%s NATIVE_BRIDGE=%s\n' "$abi" "$sdk" "$bridge"
 [[ -n "$bridge" && "$bridge" != 0 ]]
 [[ ",$abi," == *,arm64-v8a,* ]]
 [[ "$sdk" == 34 ]]
-echo '2cece47abcd1433f9459c2dc84db79748caf3addc495d900a3c58ef09c902907  /home/wabi_trial/candidate.apk' | sha256sum -c -
+echo 'dec184878c4ba91b1e11919250b813865552df2d991c92441dda0b54f18dffa7  /home/wabi_trial/candidate.apk' | sha256sum -c -
 adb install --abi arm64-v8a /home/wabi_trial/candidate.apk
 adb shell pm path io.chainbox.app
 adb shell monkey -p io.chainbox.app -c android.intent.category.LAUNCHER 1
