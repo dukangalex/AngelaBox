@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -160,7 +163,7 @@ def test_source_guards() -> None:
     assert "env -u GITHUB_TOKEN" in release
     assert "gomobile init" in release
     assert 'version || "$(go env GOPATH)/bin/gomobile" init' not in release
-    assert 'test "${{ inputs.version_tag }}" = "v$VERSION_NAME"' in release
+    assert 'test "$VERSION_TAG" = "v$VERSION_NAME"' in release
     assert "name: Security regression" in release
     assert "name: Unit tests before release" in release
     assert ":app:testDebugUnitTest" in release
@@ -520,13 +523,64 @@ def test_beta_release_requires_tested_dev_tip() -> None:
     workflow = read(".github/workflows/release-chainbox.yml")
     guard = read("scripts/release_preflight_gate.sh")
     assert "actions: read" in workflow
-    assert 'bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"' in workflow
+    assert 'bash scripts/release_preflight_gate.sh "$VERSION_TAG"' in workflow
     assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
     assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
     assert 'refs/heads/dev' in guard
     assert 'select(.headSha ==' in guard
     assert '[ "$CI_STATUS" != "completed" ]' in guard
     assert '[ "$CI_CONCLUSION" != "success" ]' in guard
+
+
+def test_release_version_tag_is_passed_as_data() -> None:
+    """workflow_dispatch input must never be interpolated into shell source."""
+    beta_path = ".github/workflows/release-chainbox.yml"
+    stable_path = ".github/workflows/release-stable.yml"
+    unsafe_shell_fragments = (
+        'bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"',
+        'TAG="${{ inputs.version_tag }}"',
+        'test "${{ inputs.version_tag }}" =',
+    )
+    for path, expected_env_count in ((beta_path, 3), (stable_path, 2)):
+        workflow = read(path)
+        for fragment in unsafe_shell_fragments:
+            assert fragment not in workflow, f"unsafe version_tag interpolation in {path}: {fragment}"
+        assert workflow.count("VERSION_TAG: ${{ inputs.version_tag }}") == expected_env_count
+        # Inspect each shell body, excluding safe action inputs and env values.
+        lines = workflow.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped.startswith("run:"):
+                continue
+            indent = len(line) - len(stripped)
+            shell = [stripped.partition(":")[2]]
+            for body_line in lines[index + 1 :]:
+                if body_line.strip() and len(body_line) - len(body_line.lstrip()) <= indent:
+                    break
+                shell.append(body_line)
+            assert "${{ inputs.version_tag }}" not in "\n".join(shell), (
+                f"workflow input interpolated into a shell body in {path}"
+            )
+        assert 'TAG="$VERSION_TAG"' in workflow
+        assert 'test "$VERSION_TAG" = "v$VERSION_NAME"' in workflow
+        suffix = "beta" if path == beta_path else "stable"
+        assert f"grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+-{suffix}$'" in workflow
+        if path == beta_path:
+            assert 'bash scripts/release_preflight_gate.sh "$VERSION_TAG"' in workflow
+
+    # A shell metacharacter payload passed through env and quoted expansion stays data.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        marker = Path(temp_dir) / "injected"
+        payload = f'v1.2.3-beta"; touch "{marker}"; #'
+        result = subprocess.run(
+            ["bash", "-c", 'printf "%s" "$VERSION_TAG"'],
+            env={**os.environ, "VERSION_TAG": payload},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert result.stdout == payload
+        assert not marker.exists(), "quoted env expansion executed shell metacharacters"
 
 
 def test_import_confirmation_requires_snapshot() -> None:
@@ -572,6 +626,7 @@ def main() -> int:
         test_web_fetch_request_types_are_guarded,
         test_root_shell_does_not_implicitly_trust_termux,
         test_beta_release_requires_tested_dev_tip,
+        test_release_version_tag_is_passed_as_data,
         test_bypass_mixed_or,
         test_update_url_pin,
         test_clash_api_loopback,

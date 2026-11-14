@@ -281,6 +281,8 @@ jobs:
             --tests io.nekohasekai.sfa.utils.BackupScratchFilesTest \
             --tests io.nekohasekai.sfa.utils.RestoreConfigFilesTest \
             --tests io.nekohasekai.sfa.utils.RestoreRecoveryJournalTest \
+            --tests io.nekohasekai.sfa.utils.RestoreSuccessMessageTest \
+            --tests io.nekohasekai.sfa.utils.RestoreTransactionIntegrationTest \
             --tests io.nekohasekai.sfa.utils.RestoreAccessGateTest \
             --tests io.nekohasekai.sfa.utils.RestoreCoroutineOperationTest \
             --tests io.nekohasekai.sfa.utils.RestoreSnapshotTest \

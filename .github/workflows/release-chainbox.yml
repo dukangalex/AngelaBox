@@ -32,15 +32,17 @@ jobs:
         working-directory: sing-box-for-android
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: bash scripts/release_preflight_gate.sh "$VERSION_TAG"
 
       - name: Pre-flight release gate
         working-directory: sing-box-for-android
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ inputs.version_tag }}
         run: |
           set -euo pipefail
-          TAG="${{ inputs.version_tag }}"
+          TAG="$VERSION_TAG"
           echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta$' || {
             echo "version_tag '$TAG' does not match ^vX.Y.Z-beta$" >&2
             exit 1
@@ -69,13 +71,15 @@ jobs:
       - name: Read kernel pin
         id: pin
         working-directory: sing-box-for-android
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
         run: |
           set -euo pipefail
           VERSION_NAME=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2- | tr -d '\r')
           VERSION_CODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2- | tr -d '\r')
           test -n "$VERSION_NAME"
           echo "$VERSION_CODE" | grep -Eq '^[1-9][0-9]*$'
-          test "${{ inputs.version_tag }}" = "v$VERSION_NAME"
+          test "$VERSION_TAG" = "v$VERSION_NAME"
           COMMIT=$(grep '^KERNEL_COMMIT=' version.properties | cut -d= -f2 | tr -d '\r')
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
@@ -289,6 +293,8 @@ jobs:
             --tests io.nekohasekai.sfa.utils.BackupScratchFilesTest \
             --tests io.nekohasekai.sfa.utils.RestoreConfigFilesTest \
             --tests io.nekohasekai.sfa.utils.RestoreRecoveryJournalTest \
+            --tests io.nekohasekai.sfa.utils.RestoreSuccessMessageTest \
+            --tests io.nekohasekai.sfa.utils.RestoreTransactionIntegrationTest \
             --tests io.nekohasekai.sfa.utils.RestoreAccessGateTest \
             --tests io.nekohasekai.sfa.utils.RestoreCoroutineOperationTest \
             --tests io.nekohasekai.sfa.utils.RestoreSnapshotTest \
