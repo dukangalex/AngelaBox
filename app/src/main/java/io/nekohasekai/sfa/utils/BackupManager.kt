@@ -185,7 +185,7 @@ object BackupManager {
         includeSensitiveItems: Boolean = false,
     ): Result<RestoreReport> = runCatching {
         if (!isZipFile(src)) {
-            if (!compat) error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
+            error("不是有效的 ZIP 备份（可能下到了网页错误页）。请重新备份后再恢复。")
         }
         val keepDav = Settings.webdavPassword
         val keepTok = Settings.githubToken
@@ -203,10 +203,11 @@ object BackupManager {
             throw BackupRejected("备份展开大小超过限制")
         }
         var hasData = false
-        try {
+        extractBackupOrDiscard(src, staging, MAX_ENTRIES) { checkEntry ->
             ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
+                    val verifyEntry = checkEntry(entry)
                     if (++entries > MAX_ENTRIES) {
                         throw BackupRejected("备份包含过多文件")
                     }
@@ -244,14 +245,10 @@ object BackupManager {
                         expansionLimit.consume(zis, null)
                     }
                     zis.closeEntry()
+                    verifyEntry()
                     entry = zis.nextEntry
                 }
             }
-        } catch (e: BackupRejected) {
-            staging.deleteRecursively()
-            throw e
-        } catch (e: Exception) {
-            if (!compat) throw e
         }
         if (!hasData) error("备份里没有配置或数据库，无法恢复")
 

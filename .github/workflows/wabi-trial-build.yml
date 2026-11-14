@@ -79,7 +79,7 @@ jobs:
           keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt
           java -version 2> "$RUNNER_TEMP/trial-evidence/java-version.txt"
           ./gradlew --version > "$RUNNER_TEMP/trial-evidence/gradle-version.txt"
-          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupManagerTest" :app:assembleOtherDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupExtractionGuardTest" --tests "*BackupManagerTest" :app:assembleOtherDebug --no-daemon --stacktrace
           mapfile -t apks < <(find app/build/outputs/apk -type f -name '*.apk')
           test "${#apks[@]}" -eq 1
           APK="${apks[0]}"
