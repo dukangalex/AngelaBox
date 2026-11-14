@@ -66,6 +66,7 @@ import io.nekohasekai.sfa.utils.BackupScratchFiles
 import io.nekohasekai.sfa.utils.BackupScratchRetention
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.utils.WebDavAutoProbePolicy
+import io.nekohasekai.sfa.utils.restoreSuccessMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -223,23 +224,18 @@ fun BackupRestoreScreen(navController: NavController) {
             if (result.isSuccess) {
                 restorePwFile = null
                 restorePwError = null
-                val summary = result.getOrNull()?.let { report ->
-                    buildString {
-                        if (report.remoteProfiles.isNotEmpty()) {
-                            append(" · ${report.remoteProfiles.size} 个远程订阅已恢复（自动更新已关闭）")
-                        }
-                        if (report.skippedScriptNames.isNotEmpty()) {
-                            append(" · 已跳过 ${report.skippedScriptNames.size} 个叠加脚本")
-                        }
-                        val skippedBindings =
-                            report.skippedChainBindingCount + report.skippedScriptBindingCount
-                        if (skippedBindings > 0) {
-                            append(" · 已跳过 $skippedBindings 条绑定")
-                        }
-                    }
-                }.orEmpty()
-                snackbar.showSnackbar("恢复完成，正在重新加载…$summary")
-                delay(if (summary.isEmpty()) 400 else 1600)
+                val report = result.getOrNull() ?: BackupManager.RestoreReport()
+                val message = restoreSuccessMessage(
+                    remoteProfileCount = report.remoteProfiles.size,
+                    skippedScriptCount = report.skippedScriptNames.size,
+                    skippedBindingCount = report.skippedChainBindingCount + report.skippedScriptBindingCount,
+                    recoveryCleanupPending = report.recoveryCleanupPending,
+                )
+                snackbar.showSnackbar(message)
+                val hasDetails = report.remoteProfiles.isNotEmpty() || report.skippedScriptNames.isNotEmpty() ||
+                    report.skippedChainBindingCount > 0 || report.skippedScriptBindingCount > 0 ||
+                    report.recoveryCleanupPending
+                delay(if (hasDetails) 1600 else 400)
                 softRelaunchApp(context)
             } else if (fromDialog) {
                 // Keep the password dialog open with the failure shown so
