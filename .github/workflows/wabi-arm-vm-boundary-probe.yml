@@ -1,0 +1,49 @@
+name: ARM64 offline VM boundary probe (no APK)
+on:
+  push:
+    branches: [wabi/native-arm-capability-20261114]
+    paths: [.github/workflows/wabi-arm-vm-boundary-probe.yml]
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 22
+    steps:
+      - name: Boot a software-emulated ARM64 Linux VM without networking
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-arm qemu-efi-aarch64 qemu-utils cloud-image-utils
+          mkdir -p /tmp/arm-vm && cd /tmp/arm-vm
+          base=https://cloud-images.ubuntu.com/noble/current
+          curl -fL --retry 2 -o SHA256SUMS "$base/SHA256SUMS"
+          curl -fL --retry 2 -o noble-server-cloudimg-arm64.img "$base/noble-server-cloudimg-arm64.img"
+          grep ' noble-server-cloudimg-arm64.img$' SHA256SUMS | sha256sum -c -
+          cat > user-data <<'CLOUD'
+          #cloud-config
+          network: {config: disabled}
+          ssh_pwauth: false
+          package_update: false
+          package_upgrade: false
+          runcmd:
+            - [sh, -c, 'echo ARM_GUEST_CLOUD_INIT_COMPLETE > /dev/ttyAMA0']
+            - [poweroff]
+          CLOUD
+          printf 'instance-id: wabi-offline-arm-vm\nlocal-hostname: offline-probe\n' > meta-data
+          cloud-localds seed.img user-data meta-data
+          cp /usr/share/AAVMF/AAVMF_VARS.fd vars.fd
+          echo 'This is TCG CPU emulation, not native execution; no APK, guest network, host directory share, or account credential is supplied.'
+          set +e
+          timeout 900 qemu-system-aarch64 \
+            -machine virt,accel=tcg -cpu max -smp 4 -m 4096 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive if=virtio,format=qcow2,file=noble-server-cloudimg-arm64.img \
+            -drive if=virtio,format=raw,readonly=on,file=seed.img \
+            -net none -nographic -no-reboot 2>&1 | tee boot.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "QEMU_EXIT=$status"
+          if ! grep -q 'ARM_GUEST_CLOUD_INIT_COMPLETE' boot.log; then echo 'GUEST_BOOT_NOT_PROVEN'; exit 1; fi
+          echo 'GUEST_BOOT_PROVEN_WITHOUT_NETWORK_OR_APK'
