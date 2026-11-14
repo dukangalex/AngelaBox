@@ -250,7 +250,8 @@ def test_source_guards() -> None:
     # 校验 HEAD，不许回到可变分支 ref（安全审计 P3-2）。
     assert "ref: angelabox" not in desktop
     assert "ref: ${{ steps.pin.outputs.dcommit }}" in desktop
-    assert 'test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.dcommit }}"' in desktop
+    assert "DESKTOP_COMMIT: ${{ steps.pin.outputs.dcommit }}" in desktop
+    assert 'test "$(git rev-parse HEAD)" = "$DESKTOP_COMMIT"' in desktop
     assert "Rebrand desktop" not in desktop
     assert "Replace('productName: sing-box'" not in desktop
     assert "sing-box/clients/desktop" not in desktop
@@ -567,6 +568,29 @@ def test_release_version_tag_is_passed_as_data() -> None:
         assert f"grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+-{suffix}$'" in workflow
         if path == beta_path:
             assert 'bash scripts/release_preflight_gate.sh "$VERSION_TAG"' in workflow
+
+    # GitHub expressions in workflow shell source can become code injection.
+    for workflow_path in Path(".github/workflows").glob("*.yml"):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        lines = workflow.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped.startswith("run:"):
+                continue
+            indent = len(line) - len(stripped)
+            shell = [stripped.partition(":")[2]]
+            for body_line in lines[index + 1 :]:
+                if body_line.strip() and len(body_line) - len(body_line.lstrip()) <= indent:
+                    break
+                shell.append(body_line)
+            assert "${{" not in "\n".join(shell), (
+                f"GitHub expression interpolated into workflow shell body in {workflow_path}"
+            )
+
+    windows_path = ".github/workflows/release-windows-desktop.yml"
+    windows = read(windows_path)
+    assert 'DESKTOP_ARCH: ${{ matrix.desktop_arch }}' in windows
+    assert 'run: pnpm package:win -- "$DESKTOP_ARCH"' in windows
 
     # A shell metacharacter payload passed through env and quoted expansion stays data.
     with tempfile.TemporaryDirectory() as temp_dir:

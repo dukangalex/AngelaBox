@@ -86,9 +86,11 @@ jobs:
 
       - name: Record kernel identity
         working-directory: sing-box
+        env:
+          EXPECTED_KERNEL_COMMIT: ${{ steps.pin.outputs.commit }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_KERNEL_COMMIT"
           echo "KERNEL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Verify published kernel tag

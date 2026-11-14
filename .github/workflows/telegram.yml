@@ -172,9 +172,12 @@ jobs:
           python3 scripts/telegram_send.py
 
       - name: Complete
+        env:
+          CREDS_CONFIGURED: ${{ steps.creds.outputs.configured }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          if [ "${{ steps.creds.outputs.configured }}" = "true" ]; then
-            echo "Telegram release publication completed: ${{ steps.release.outputs.tag }}"
+          if [ "$CREDS_CONFIGURED" = "true" ]; then
+            echo "Telegram release publication completed: $RELEASE_TAG"
           else
             echo "Skipped Telegram notify (secrets TG_BOT_TOKEN / TG_CHANNEL_ID not set)"
           fi

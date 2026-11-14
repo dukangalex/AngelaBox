@@ -81,9 +81,11 @@ jobs:
       - name: Verify desktop overlay pin
         working-directory: desktop
         shell: bash
+        env:
+          DESKTOP_COMMIT: ${{ steps.pin.outputs.dcommit }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.dcommit }}"
+          test "$(git rev-parse HEAD)" = "$DESKTOP_COMMIT"
 
       - name: Verify published kernel tag
         working-directory: sing-box
@@ -150,12 +152,13 @@ jobs:
       - name: Stamp desktop version and brand icon
         working-directory: desktop
         shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.pin.outputs.appver }}
+          GO_VERSION: ${{ steps.pin.outputs.gover }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = @'
-          {"version":"${{ steps.pin.outputs.appver }}","go_version":"${{ steps.pin.outputs.gover }}"}
-          '@
-          [IO.File]::WriteAllText((Join-Path (Get-Location) 'version.json'), $version.Trim() + "`n")
+          $version = @{ version = $env:APP_VERSION; go_version = $env:GO_VERSION } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'version.json'), $version + "`n")
           $brand = Join-Path (Get-Location) '..\angelabox\docs\brand'
           $png = Join-Path $brand 'AngelaBox-icon-512.png'
           $ico = Join-Path $brand 'AngelaBox-icon.ico'
@@ -177,8 +180,9 @@ jobs:
           $yml = Get-Content -Raw electron-builder.yml
           if ($yml -notmatch 'icon: resources/icon\.ico') { throw 'electron-builder.yml must keep win.icon as resources/icon.ico' }
           $meta = Get-Content -Raw version.json
-          if ($meta -notmatch '"version":"${{ steps.pin.outputs.appver }}"') { throw 'version.json stamp failed' }
-          if ($meta -notmatch '"go_version":"${{ steps.pin.outputs.gover }}"') { throw 'go_version stamp failed' }
+          $parsed = $meta | ConvertFrom-Json
+          if ($parsed.version -ne $env:APP_VERSION) { throw 'version.json stamp failed' }
+          if ($parsed.go_version -ne $env:GO_VERSION) { throw 'go_version stamp failed' }
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -246,7 +250,8 @@ jobs:
         working-directory: desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm package:win -- ${{ matrix.desktop_arch }}
+          DESKTOP_ARCH: ${{ matrix.desktop_arch }}
+        run: pnpm package:win -- "$DESKTOP_ARCH"
 
       # electron-builder builds unsigned without signing.local.json;
       # binaries are signed below via self-signing (when configured).
@@ -291,22 +296,28 @@ jobs:
         if: ${{ env.SELFSIGN_ENABLED == 'true' }}
         working-directory: desktop
         shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+          SIGNING_INSTALLER_SRC: ${{ steps.signing_input.outputs.installer_src }}
+          SIGNING_MAIN_SRC: ${{ steps.signing_input.outputs.main_src }}
+          SIGNING_DAEMON_SRC: ${{ steps.signing_input.outputs.daemon_src }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # Decode PFX from secrets
-          $pfxBytes = [Convert]::FromBase64String('${{ secrets.WINDOWS_PFX_BASE64 }}')
+          # Decode PFX from environment values, not PowerShell source
+          $pfxBytes = [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64)
           $pfxPath = Join-Path $env:RUNNER_TEMP 'angelabox-signing.pfx'
           [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-          $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password (ConvertTo-SecureString -String '${{ secrets.WINDOWS_PFX_PASSWORD }}' -Force -AsPlainText)
+          $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password (ConvertTo-SecureString -String $env:WINDOWS_PFX_PASSWORD -Force -AsPlainText)
           Write-Host "Using certificate: $($cert.Subject)"
           # Sign the binaries
           $files = @(
-            '${{ steps.signing_input.outputs.installer_src }}',
-            '${{ steps.signing_input.outputs.main_src }}',
-            '${{ steps.signing_input.outputs.daemon_src }}'
+            $env:SIGNING_INSTALLER_SRC,
+            $env:SIGNING_MAIN_SRC,
+            $env:SIGNING_DAEMON_SRC
           )
           foreach ($f in $files) {
-            & signtool sign /fd SHA256 /a /f $pfxPath /p '${{ secrets.WINDOWS_PFX_PASSWORD }}' /tr http://timestamp.digicert.com /td SHA256 $f
+            & signtool sign /fd SHA256 /a /f $pfxPath /p $env:WINDOWS_PFX_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f
             if ($LASTEXITCODE -ne 0) { throw "signtool failed for $f" }
             $sig = Get-AuthenticodeSignature $f
             Write-Host "$f : $($sig.Status)"
@@ -318,6 +329,10 @@ jobs:
         if: ${{ steps.selfsign.outputs.signing_done == 'true' }}
         working-directory: desktop
         shell: pwsh
+        env:
+          SIGNING_INSTALLER_SRC: ${{ steps.signing_input.outputs.installer_src }}
+          SIGNING_MAIN_SRC: ${{ steps.signing_input.outputs.main_src }}
+          SIGNING_DAEMON_SRC: ${{ steps.signing_input.outputs.daemon_src }}
         run: |
           $ErrorActionPreference = 'Stop'
           $signed = Join-Path (Get-Location) 'signed'
@@ -332,9 +347,9 @@ jobs:
             if ($sig.Status -ne 'Valid') { throw "$($f.Name): Authenticode status $($sig.Status)" }
             Write-Host "$($f.Name): signed by $($sig.SignerCertificate.Subject)"
           }
-          Copy-Item $signedInstaller[0].FullName '${{ steps.signing_input.outputs.installer_src }}' -Force
-          Copy-Item $signedMain[0].FullName '${{ steps.signing_input.outputs.main_src }}' -Force
-          Copy-Item $signedDaemon[0].FullName '${{ steps.signing_input.outputs.daemon_src }}' -Force
+          Copy-Item $signedInstaller[0].FullName $env:SIGNING_INSTALLER_SRC -Force
+          Copy-Item $signedMain[0].FullName $env:SIGNING_MAIN_SRC -Force
+          Copy-Item $signedDaemon[0].FullName $env:SIGNING_DAEMON_SRC -Force
           Write-Host 'Signed binaries installed.'
 
       - name: Prepare upload
@@ -384,13 +399,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.version_tag }}
+          SIGNING_DONE: ${{ steps.selfsign.outputs.signing_done }}
         run: |
           set -euo pipefail
           if [ -z "${TAG}" ]; then
             echo 'attach_to_release requires version_tag' >&2
             exit 1
           fi
-          if [ -z "${{ steps.selfsign.outputs.signing_done }}" ]; then
+          if [ -z "${SIGNING_DONE:-}" ]; then
             echo 'Refusing to attach unsigned Windows assets: self-signing did not run.' >&2
             echo 'Configure WINDOWS_PFX_BASE64 and WINDOWS_PFX_PASSWORD first. See docs/WINDOWS.md.' >&2
             exit 1
