@@ -47,7 +47,18 @@ object Settings {
         }
     }
 
-    val dataStore = RoomPreferenceDataStore { database().keyValuePairDao() }
+    // Never hand out a raw DAO: a cached facade re-enters admission on EVERY operation.
+    private val guardedDao = object : io.nekohasekai.sfa.database.preference.KeyValueEntity.Dao {
+        private fun <T> access(block: (io.nekohasekai.sfa.database.preference.KeyValueEntity.Dao) -> T): T =
+            io.nekohasekai.sfa.utils.ApplicationDataAccess.access { block(database().keyValuePairDao()) }
+        override fun all() = access { it.all() }
+        override fun get(key: String) = access { it[key] }
+        override fun put(value: io.nekohasekai.sfa.database.preference.KeyValueEntity) = access { it.put(value) }
+        override fun delete(key: String) = access { it.delete(key) }
+        override fun reset() = access { it.reset() }
+        override fun insert(list: List<io.nekohasekai.sfa.database.preference.KeyValueEntity>) = access { it.insert(list) }
+    }
+    val dataStore = RoomPreferenceDataStore { guardedDao }
     var selectedProfile by dataStore.long(SettingsKey.SELECTED_PROFILE) { -1L }
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)

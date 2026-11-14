@@ -76,3 +76,34 @@ prepare, replace, validate, commit, reopen, and run failure/restart tests on the
 exact Android build. No threshold has been relaxed. Full audit, Android
 acceptance, safe side-by-side/upgrade install and Alex's version-specific release
 approval remain outstanding. No release or install was performed by this work.
+
+## Admission/startup continuation (2026-11-14)
+
+The `wabi/restore-admission-startup-20261114` branch adds synchronous, reentrant
+operation admission and fail-closed initialization before providers (`Application.attachBaseContext`).
+Settings and ProfileManager DAO facades enter admission for each synchronous database operation;
+cached facades do not bypass it. `exclusive` is intentionally **not** used by BackupManager yet.
+This is an experimental partial integration, not a restore transaction or a safe trial candidate.
+
+Host evidence: RestoreAccessGateTest (10), RestoreStartupRecoveryTest (4), and the existing
+RestoreRecoveryJournalTest (16) pass together. The SQLite startup harness
+`sqlite_startup_test.py` verifies two real but **closed** host SQLite snapshots and configs
+through nine hard-halt/replay points, including SQLite integrity checks. It is not evidence
+for Android Room, concurrent WAL writers, native service shutdown, or power loss.
+Build a probe jar from RestoreAccessGate.kt, RestoreRecoveryJournal.kt, CrashProbe.kt and
+StartupProbe.kt, then pass it to `python3 scripts/restore-journal-lab/sqlite_startup_test.py JAR`.
+
+Before enabling prepare/commit on the live restore path:
+- Admit/drain all direct config-file IO, not just DAO operations; audit the remaining direct paths.
+- Establish acknowledged native/service quiescence, including in-flight and abandoned starts;
+  Stopped UI status and fixed delays are not a shutdown acknowledgment.
+- Close/checkpoint SQLite under exclusive ownership, establish a consistent source snapshot,
+  and reopen only after verified commit or recovery. Do not copy live DB/WAL pairs.
+- Keep the exclusive lease through all database/config replacement and rollback; a failure
+  must poison ordinary admission until recovery, not reopen mixed state.
+- Validate cold startup/provider ordering, locked-device handling, Android filesystem durability,
+  real Room/WAL behavior, errors and process kills on Android before trial delivery.
+
+The current startup integration has not passed an Android build/device test. Do not merge or
+ship this branch solely on the host tests. Safe ARM same-package acceptance, full audit, and
+installation without replacing the existing beta data remain separate gates.

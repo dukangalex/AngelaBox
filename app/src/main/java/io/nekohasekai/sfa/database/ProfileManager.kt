@@ -47,14 +47,14 @@ object ProfileManager {
         }
     }
 
-    suspend fun nextOrder(): Long = database().profileDao().nextOrder() ?: 0
+    suspend fun nextOrder(): Long = guardedProfileDao.nextOrder() ?: 0
 
-    suspend fun nextFileID(): Long = database().profileDao().nextFileID() ?: 1
+    suspend fun nextFileID(): Long = guardedProfileDao.nextFileID() ?: 1
 
-    suspend fun get(id: Long): Profile? = database().profileDao().get(id)
+    suspend fun get(id: Long): Profile? = guardedProfileDao.get(id)
 
     suspend fun create(profile: Profile, andSelect: Boolean = false): Profile {
-        profile.id = database().profileDao().insert(profile)
+        profile.id = guardedProfileDao.insert(profile)
         if (andSelect) {
             Settings.selectedProfile = profile.id
         }
@@ -66,7 +66,7 @@ object ProfileManager {
 
     suspend fun update(profile: Profile): Int {
         try {
-            return database().profileDao().update(profile)
+            return guardedProfileDao.update(profile)
         } finally {
             for (callback in callbacks.toList()) {
                 callback()
@@ -76,7 +76,7 @@ object ProfileManager {
 
     suspend fun update(profiles: List<Profile>): Int {
         try {
-            return database().profileDao().update(profiles)
+            return guardedProfileDao.update(profiles)
         } finally {
             for (callback in callbacks.toList()) {
                 callback()
@@ -100,7 +100,7 @@ object ProfileManager {
                 runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
             runCatching { OverlayScripts.removeProfile(profile.id) }
             runCatching { ProfileStableIds.remove(profile.id) }
-            return database().profileDao().delete(profile)
+            return guardedProfileDao.delete(profile)
         } finally {
             for (callback in callbacks.toList()) {
                 callback()
@@ -117,7 +117,7 @@ object ProfileManager {
                 runCatching { ProfileStableIds.remove(p.id) }
             }
             lastDeleteChainInvalidated = invalidated
-            return database().profileDao().delete(profiles)
+            return guardedProfileDao.delete(profiles)
         } finally {
             for (callback in callbacks.toList()) {
                 callback()
@@ -125,9 +125,36 @@ object ProfileManager {
         }
     }
 
-    suspend fun list(): List<Profile> = database().profileDao().list()
+    suspend fun list(): List<Profile> = guardedProfileDao.list()
 
-    fun remoteServerDao(): RemoteServer.Dao = database().remoteServerDao()
+    private val guardedProfileDao = object : Profile.Dao {
+        private fun <T> access(block: (Profile.Dao) -> T): T =
+            io.nekohasekai.sfa.utils.ApplicationDataAccess.access { block(database().profileDao()) }
+        override fun insert(profile: Profile) = access { it.insert(profile) }
+        override fun update(profile: Profile) = access { it.update(profile) }
+        override fun update(profile: List<Profile>) = access { it.update(profile) }
+        override fun delete(profile: Profile) = access { it.delete(profile) }
+        override fun delete(profile: List<Profile>) = access { it.delete(profile) }
+        override fun get(profileId: Long) = access { it.get(profileId) }
+        override fun list() = access { it.list() }
+        override fun clear() = access { it.clear() }
+        override fun nextOrder() = access { it.nextOrder() }
+        override fun nextFileID() = access { it.nextFileID() }
+    }
+
+    private val guardedRemoteDao = object : RemoteServer.Dao {
+        private fun <T> access(block: (RemoteServer.Dao) -> T): T =
+            io.nekohasekai.sfa.utils.ApplicationDataAccess.access { block(database().remoteServerDao()) }
+        override fun insert(server: RemoteServer) = access { it.insert(server) }
+        override fun update(server: RemoteServer) = access { it.update(server) }
+        override fun update(servers: List<RemoteServer>) = access { it.update(servers) }
+        override fun delete(server: RemoteServer) = access { it.delete(server) }
+        override fun get(serverId: Long) = access { it.get(serverId) }
+        override fun list() = access { it.list() }
+        override fun nextOrder() = access { it.nextOrder() }
+    }
+
+    fun remoteServerDao(): RemoteServer.Dao = guardedRemoteDao
 
     fun closeDatabase() {
         synchronized(dbLock) {

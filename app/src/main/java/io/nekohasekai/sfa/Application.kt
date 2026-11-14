@@ -40,6 +40,15 @@ class Application : Application() {
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
         application = this
+        // attachBaseContext runs before ContentProvider initialization, unlike onCreate.
+        // A failed replay aborts startup: do not open Room/native readers on mixed data.
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.gate.initialize {
+            val dataDirectory = File(applicationInfo.dataDir)
+            io.nekohasekai.sfa.utils.RestoreRecoveryJournal.open(
+                dataDirectory,
+                io.nekohasekai.sfa.utils.AndroidRestoreDurability,
+            ).use { it.recover() }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             runCatching {
                 HiddenApiBypass.addHiddenApiExemptions("L")
