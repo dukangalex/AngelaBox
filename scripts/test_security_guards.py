@@ -260,7 +260,9 @@ def test_source_guards() -> None:
     assert "AngelaBox-v$ver-windows-amd64.zip" in desktop
     assert "portable tree must contain exactly one AngelaBox.exe" in desktop
     assert "portable tree must contain exactly one sing-box-daemon.exe" in desktop
-    assert "AngelaBox-windows-*.exe.sha256" in desktop
+    assert "AngelaBox-windows-*.exe" in desktop
+    assert "exe_sums=(\"${exes[0]}.sha256\")" in desktop
+    assert "sha256sum -c" in desktop
     assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
@@ -553,8 +555,9 @@ def test_release_workflows_require_tested_dev_tip() -> None:
         workflow = read(path)
         assert "actions: read" in workflow
         assert "if: github.ref == 'refs/heads/dev'" in workflow
-        assert workflow.count("uses: actions/checkout@") == 2
-        assert workflow.count("persist-credentials: false") == 2
+        build = workflow.split("\n  publish:", 1)[0]
+        assert build.count("uses: actions/checkout@") == 2
+        assert build.count("persist-credentials: false") == 2
         expected_call = f'bash scripts/release_preflight_gate.sh "$VERSION_TAG" {props}'
         assert expected_call in workflow
         assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
@@ -677,6 +680,38 @@ def test_root_shell_does_not_implicitly_trust_termux() -> None:
     assert "Libbox.openNativeShellSession" in root
 
 
+
+def test_release_write_permissions_are_isolated_to_publish_jobs() -> None:
+    for path, artifact in (
+        (".github/workflows/release-chainbox.yml", "chainbox-release-assets"),
+        (".github/workflows/release-stable.yml", "stable-release-assets"),
+    ):
+        workflow = read(path)
+        assert "permissions:\n  contents: read\n  actions: read" in workflow
+        release = workflow.split("\n  release:", 1)[1].split("\n  publish:", 1)[0]
+        publish = workflow.split("\n  publish:", 1)[1].split("\n  notify:", 1)[0]
+        notify = workflow.split("\n  notify:", 1)[1]
+        assert "contents: write" not in release
+        assert f"name: {artifact}" in release
+        assert "actions/download-artifact@" in publish
+        assert "contents: write" in publish
+        assert "softprops/action-gh-release@" in publish
+        assert "uses: actions/checkout@" not in publish
+        assert "contents: write" not in notify
+        assert "needs: publish" in workflow
+
+    windows = read(".github/workflows/release-windows-desktop.yml")
+    build = windows.split("\n  desktop:", 1)[1].split("\n  publish:", 1)[0]
+    publish = windows.split("\n  publish:", 1)[1]
+    assert "contents: write" not in build
+    assert "outputs:\n      signing_done: ${{ steps.selfsign.outputs.signing_done }}" in build
+    assert "needs: desktop" in publish
+    assert "contents: write" in publish
+    assert "actions/download-artifact@" in publish
+    assert "gh release upload" in publish
+    assert "SIGNING_DONE" not in publish
+
+
 def main() -> int:
     tests = [
         test_source_guards,
@@ -685,6 +720,7 @@ def main() -> int:
         test_root_shell_does_not_implicitly_trust_termux,
         test_all_workflow_checkouts_disable_persisted_credentials,
         test_secret_bearing_manual_workflows_use_protected_code,
+        test_release_write_permissions_are_isolated_to_publish_jobs,
         test_release_workflows_require_tested_dev_tip,
         test_release_version_tag_is_passed_as_data,
         test_bypass_mixed_or,

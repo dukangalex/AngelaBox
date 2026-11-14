@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
@@ -451,20 +451,65 @@ jobs:
             echo "- Go: $GOV"
           } > github-release-body.md
 
+      - name: Upload verified release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: chainbox-release-assets
+          path: |
+            sing-box-for-android/AngelaBox-android.apk
+            sing-box-for-android/AngelaBox-android.apk.sha256
+            sing-box-for-android/github-release-body.md
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download verified release assets
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: chainbox-release-assets
+          path: release-assets
+
       - name: Publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.version_tag }}
           name: AngelaBox ${{ inputs.version_tag }}
-          body_path: sing-box-for-android/github-release-body.md
+          body_path: release-assets/github-release-body.md
           files: |
-            sing-box-for-android/AngelaBox-android.apk
-            sing-box-for-android/AngelaBox-android.apk.sha256
+            release-assets/AngelaBox-android.apk
+            release-assets/AngelaBox-android.apk.sha256
           draft: false
           prerelease: ${{ contains(inputs.version_tag, 'beta') || contains(inputs.version_tag, 'alpha') }}
           make_latest: ${{ !contains(inputs.version_tag, 'beta') && !contains(inputs.version_tag, 'alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    if: github.ref == 'refs/heads/dev'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout AngelaBox app
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          path: sing-box-for-android
+
+      - name: Download verified release assets
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: chainbox-release-assets
+          path: release-assets
 
       - name: Notify Telegram
         if: success()
@@ -483,6 +528,8 @@ jobs:
             echo "Telegram secrets not set; skip channel notify."
             exit 0
           fi
+          cp ../release-assets/AngelaBox-android.apk AngelaBox-android.apk
+          cp ../release-assets/AngelaBox-android.apk.sha256 AngelaBox-android.apk.sha256
           test -s AngelaBox-android.apk
           test -s AngelaBox-android.apk.sha256
           SHA256="$(awk '{print $1}' AngelaBox-android.apk.sha256)"

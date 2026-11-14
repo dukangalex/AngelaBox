@@ -38,6 +38,11 @@ jobs:
       matrix:
         include:
           - { desktop_arch: x64, rust_target: x86_64-pc-windows-msvc }
+    outputs:
+      signing_done: ${{ steps.selfsign.outputs.signing_done }}
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -398,27 +403,45 @@ jobs:
           path: desktop/dist/*
           if-no-files-found: error
 
-      - name: Attach to GitHub Release
-        if: ${{ inputs.attach_to_release }}
+
+  publish:
+    if: github.ref == 'refs/heads/dev' && inputs.attach_to_release && needs.desktop.outputs.signing_done == 'true'
+    needs: desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download signed Windows artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: windows-desktop-x64
+          path: windows-desktop
+
+      - name: Attach signed assets to existing release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.version_tag }}
-          SIGNING_DONE: ${{ steps.selfsign.outputs.signing_done }}
         run: |
           set -euo pipefail
-          if [ -z "${TAG}" ]; then
-            echo 'attach_to_release requires version_tag' >&2
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || {
+            echo 'attach_to_release requires a valid version tag' >&2
             exit 1
-          fi
-          if [ -z "${SIGNING_DONE:-}" ]; then
-            echo 'Refusing to attach unsigned Windows assets: self-signing did not run.' >&2
-            echo 'Configure WINDOWS_PFX_BASE64 and WINDOWS_PFX_PASSWORD first. See docs/WINDOWS.md.' >&2
+          }
+          shopt -s nullglob
+          zips=(windows-desktop/AngelaBox-v*-windows-amd64.zip)
+          exes=(windows-desktop/AngelaBox-windows-*.exe)
+          [[ ${#zips[@]} -eq 1 && ${#exes[@]} -eq 1 ]] || {
+            echo "Expected one portable ZIP and installer; found ${#zips[@]} ZIPs and ${#exes[@]} installers" >&2
             exit 1
-          fi
-          ls -lah desktop/dist
-          gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null
-          # The portable ZIP is the browser-friendly download; it contains the
-          # complete unpacked app rather than only the NSIS bootstrapper.
-          gh release upload "$TAG" desktop/dist/AngelaBox-v*-windows-amd64.zip desktop/dist/AngelaBox-v*-windows-amd64.zip.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release upload "$TAG" desktop/dist/AngelaBox-windows-*.exe desktop/dist/AngelaBox-windows-*.exe.sha256 --repo "${GITHUB_REPOSITORY}" --clobber
+          }
+          zip_sums=("${zips[0]}.sha256")
+          exe_sums=("${exes[0]}.sha256")
+          [[ -s "${zip_sums[0]}" && -s "${exe_sums[0]}" ]] || {
+            echo 'Expected signed release assets and checksum files' >&2
+            exit 1
+          }
+          (cd windows-desktop && sha256sum -c "$(basename "${zip_sums[0]}")" "$(basename "${exe_sums[0]}")")
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$TAG" "${zips[0]}" "${zip_sums[0]}" "${exes[0]}" "${exe_sums[0]}" --repo "$GITHUB_REPOSITORY" --clobber
