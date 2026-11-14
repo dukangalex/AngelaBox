@@ -287,7 +287,9 @@ object BackupManager {
             return@runCatching RestoreReport(remoteProfiles = restoredRemote)
         }
 
-        runCatching { BoxService.stop() }
+        // Fail before replacement if even the stop request cannot be sent.
+        // The delay is not an acknowledgement that the service has stopped.
+        BoxService.stop()
         Thread.sleep(350)
         closeDatabasesBeforeRestore(Settings::closeDatabase, ProfileManager::closeDatabase)
 
