@@ -192,3 +192,26 @@ Audit retained callbacks, kernel-owned paths, direct backup IO and DB replacemen
 before enabling restore transactions. Android cold/locked startup, process kill,
 exact ARM package acceptance, safe non-overwriting installation and full security
 audit remain required. No trial or release approval is implied.
+
+## Native callback / chain admission continuation (2026-11-14)
+
+Service startup/reload now retains a coroutine data-image lease; the native start
+worker and VPN openTun callback independently acquire synchronous data access on
+their executing thread. Actual callback bodies are counted until return; a late
+callback after the service pause is sealed is rejected and poisons service
+admission. ConfigChainReapply retains a root operation across suspensions, and
+ChainBindings keeps one synchronous data lease across each complete settings
+read/modify/write (including legacy migration). Delayed external exports validate
+the editor's image before opening/truncating their destination.
+
+Host validation: 65 gate/journal/file/coroutine tests pass. In addition, 20 tests
+compile the real ChainBindings and gates with a **fake Settings**, org.json
+20240303 and existing codec regressions. The three new tests cover round-trip
+mutation, all eight entry points rejecting during exclusive ownership without
+settings mutation, and legacy read migration. Reproduce with
+`run_chain_admission_tests.sh`; provide KOTLIN_HOME, JUNIT_JAR, HAMCREST_JAR and
+JSON_JAR. These do not exercise Room, Android or actual native callbacks. A native
+callback rejected during drain may abort startup; the shutdown/rollback paths
+must be tested on Android before enabling restore. No BackupManager transaction
+is enabled. Successful compilation/build, if obtained, remains separate from
+runtime acceptance and source audit.

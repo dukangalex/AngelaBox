@@ -8,6 +8,7 @@ on:
       - wabi/restore-service-drain-20261114
       - wabi/restore-coroutine-admission-20261114
       - wabi/restore-editor-snapshot-20261114
+      - wabi/restore-native-chain-admission-20261114
 permissions:
   contents: read
 jobs:

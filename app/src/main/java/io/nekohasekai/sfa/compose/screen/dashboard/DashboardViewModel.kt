@@ -490,7 +490,8 @@ class DashboardViewModel :
 
     fun selectProfile(profileId: Long) {
         if (profileId == currentState.selectedProfileId) return
-        val name = currentState.profiles.find { it.id == profileId }?.name
+        val selectedProfile = currentState.profiles.find { it.id == profileId } ?: return
+        val name = selectedProfile.name
         updateState {
             copy(
                 selectedProfileId = profileId,
@@ -511,9 +512,12 @@ class DashboardViewModel :
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                Settings.selectedProfile = profileId
-                runCatching { Settings.rebuildServiceMode() }
-                sendGlobalEvent(UiEvent.RequestReconnectService)
+                ProfileManager.withProfile(selectedProfile) {
+                    check(ProfileManager.get(profileId) != null) { "Profile was removed; reload the profile list" }
+                    Settings.selectedProfile = profileId
+                    runCatching { Settings.rebuildServiceMode() }
+                    sendGlobalEvent(UiEvent.RequestReconnectService)
+                }
                 loadProfiles()
             } catch (e: Exception) {
                 sendError(e)

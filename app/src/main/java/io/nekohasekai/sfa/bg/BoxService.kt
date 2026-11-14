@@ -36,6 +36,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.hasPermission
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import io.nekohasekai.sfa.utils.ConfigAdBlock
 import io.nekohasekai.sfa.utils.ConfigChainReapply
 import io.nekohasekai.sfa.utils.ConfigCheckOracle
@@ -168,6 +169,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         Collections.synchronizedSet(Collections.newSetFromMap(java.util.WeakHashMap()))
 
     fun isAbandonedStartThread(thread: Thread = Thread.currentThread()): Boolean = thread in abandonedStartThreads
+
+    // Native callbacks do not inherit coroutine context. Count their actual body
+    // and independently admit application-data access on the callback thread.
+    internal fun <T> withNativeDataAccess(block: () -> T): T =
+        restoreOperations.trackCleanup { ApplicationDataAccess.access(block) }
 
     // Serializes startOrReloadKernel: a background subscription update's
     // reload used to run a second pipeline concurrently with an ongoing
@@ -348,7 +354,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // pipeline failure escaping used to kill the reload silently or
         // crash, leaving the service state inconsistent.
         try {
-            serviceReload0Guarded()
+            ApplicationDataAccess.operation { serviceReload0Guarded() }
         } catch (e: Exception) {
             if (e is StartCancelled) {
                 stopAndAlert(Alert.StartService, null, silent = true)
@@ -1250,7 +1256,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val holder = arrayOfNulls<Result<Unit>>(1)
         val workerTicket = restoreOperations.cleanup()
         val worker = Thread({
-            try { holder[0] = runCatching { server.startOrReloadService(content, options) } }
+            try {
+                holder[0] = runCatching {
+                    ApplicationDataAccess.access { server.startOrReloadService(content, options) }
+                }
+            }
             finally { workerTicket.close() }
         }, "kernel-start")
         worker.isDaemon = true
@@ -1526,14 +1536,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             GlobalScope.launch(Dispatchers.IO) {
                 try {
-                    Settings.startedByUser = true
-                    try {
-                        startCommandServer()
-                    } catch (e: Exception) {
-                        stopAndAlert(Alert.StartCommandServer, e.message)
-                        return@launch
+                    // Service ticket tracks native shutdown ownership; the data
+                    // lease retains one image through the complete startup ladder.
+                    // This does not prove native callbacks are drained after close.
+                    ApplicationDataAccess.operation {
+                        Settings.startedByUser = true
+                        try {
+                            startCommandServer()
+                        } catch (e: Exception) {
+                            stopAndAlert(Alert.StartCommandServer, e.message)
+                            return@operation
+                        }
+                        startService()
                     }
-                    startService()
+                } catch (e: Exception) {
+                    stopAndAlert(Alert.StartService, ConfigDiagnose.explain(e.message))
                 } finally {
                     startInFlight = false
                     restoreTicket.close()

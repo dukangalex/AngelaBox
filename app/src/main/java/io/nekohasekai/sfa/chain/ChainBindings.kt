@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.chain
 
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import org.json.JSONObject
 
 data class ChainBinding(
@@ -159,13 +160,13 @@ object ChainBindings {
     const val INVALID_REASON_LANDING_DELETED = "落地配置已被删除"
 
     @Synchronized
-    fun get(profileId: Long): ChainBinding? {
-        if (profileId < 0L) return null
-        return load()[profileId]
+    fun get(profileId: Long): ChainBinding? = ApplicationDataAccess.access {
+        if (profileId < 0L) return@access null
+        return@access load()[profileId]
     }
 
     @Synchronized
-    fun put(binding: ChainBinding) {
+    fun put(binding: ChainBinding) = ApplicationDataAccess.access {
         require(binding.profileId >= 0L) { "未选择当前配置" }
         require(binding.landingProfileId >= 0L && binding.landingTag.isNotBlank()) { "未选择链式落地出口" }
         val next = load().toMutableMap()
@@ -174,8 +175,8 @@ object ChainBindings {
     }
 
     @Synchronized
-    fun remove(profileId: Long) {
-        if (profileId < 0L) return
+    fun remove(profileId: Long) = ApplicationDataAccess.access {
+        if (profileId < 0L) return@access
         val next = load().toMutableMap()
         if (next.remove(profileId) != null) save(next)
     }
@@ -189,8 +190,8 @@ object ChainBindings {
      * flow can surface the impact instead of it passing unnoticed.
      */
     @Synchronized
-    fun onProfileDeleted(profileId: Long): Int {
-        if (profileId < 0L) return 0
+    fun onProfileDeleted(profileId: Long): Int = ApplicationDataAccess.access {
+        if (profileId < 0L) return@access 0
         val current = load()
         val (next, invalidated) = ChainBindingCodec.onProfileDeleted(
             current,
@@ -198,16 +199,16 @@ object ChainBindings {
             INVALID_REASON_LANDING_DELETED,
         )
         if (next != current) save(next)
-        return invalidated
+        return@access invalidated
     }
 
     /** D2: record that this binding compiled successfully at startup. */
     @Synchronized
-    fun markMaterialized(profileId: Long) {
-        if (profileId < 0L) return
+    fun markMaterialized(profileId: Long) = ApplicationDataAccess.access {
+        if (profileId < 0L) return@access
         val next = load().toMutableMap()
-        val binding = next[profileId] ?: return
-        if (binding.materialized) return
+        val binding = next[profileId] ?: return@access
+        if (binding.materialized) return@access
         next[profileId] = binding.copy(materialized = true)
         save(next)
     }
@@ -218,13 +219,14 @@ object ChainBindings {
      * binding, matching [onProfileDeleted]'s transform.
      */
     @Synchronized
-    fun bindingsLandingOn(profileId: Long): List<ChainBinding> = ChainBindingCodec.referencing(load(), profileId)
+    fun bindingsLandingOn(profileId: Long): List<ChainBinding> =
+        ApplicationDataAccess.access { ChainBindingCodec.referencing(load(), profileId) }
 
     @Synchronized
-    fun all(): List<ChainBinding> = load().values.toList()
+    fun all(): List<ChainBinding> = ApplicationDataAccess.access { load().values.toList() }
 
     @Synchronized
-    fun hasAny(): Boolean = load().isNotEmpty()
+    fun hasAny(): Boolean = ApplicationDataAccess.access { load().isNotEmpty() }
 
     private fun load(): Map<Long, ChainBinding> {
         val parsed = ChainBindingCodec.parse(Settings.chainBindingsJson)

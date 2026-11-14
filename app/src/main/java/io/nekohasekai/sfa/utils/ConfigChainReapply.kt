@@ -28,7 +28,14 @@ object ConfigChainReapply {
     var lastDiscardedSummary: String? = null
         private set
 
-    suspend fun apply(content: String, profileId: Long = Settings.selectedProfile): String {
+    suspend fun apply(content: String, profileId: Long? = null): String =
+        ApplicationDataAccess.operation {
+            // Resolve the default after admission, then retain one image through
+            // suspending DAO access, script work and binding mutation.
+            applyAdmitted(content, profileId ?: Settings.selectedProfile)
+        }
+
+    private suspend fun applyAdmitted(content: String, profileId: Long): String {
         lastLandingNotes = emptyList()
         lastBothHopsTls = false
         lastDiscardedSummary = null

@@ -34,6 +34,12 @@ internal class ServiceOperationGate {
         Ticket().also { active++ }
     }
 
+    /** Count synchronous native callbacks through their real return, not dispatch. */
+    fun <T> trackCleanup(block: () -> T): T {
+        val ticket = cleanup()
+        try { return block() } finally { ticket.close() }
+    }
+
     fun recordCloseFailure(error: Throwable) = synchronized(monitor) {
         if (failure == null) failure = error
         monitor.notifyAll()

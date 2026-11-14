@@ -75,4 +75,25 @@ class ServiceOperationGateTest {
         val gate = ServiceOperationGate(); val pause = gate.pause(); pause.awaitIdle(0)
         val cleanup = gate.cleanup(); blocked { pause.seal() }; cleanup.close(); pause.seal(); pause.resume()
     }
+    @Test fun synchronousCallbackRemainsCountedUntilReturn() {
+        val gate = ServiceOperationGate(); val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val worker = thread {
+            gate.trackCleanup { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        }
+        assertTrue(entered.await(5, TimeUnit.SECONDS)); val pause = gate.pause()
+        try { blocked { pause.awaitIdle(0) } } finally { release.countDown(); worker.join(5000) }
+        assertFalse(worker.isAlive); pause.awaitIdle(0); pause.seal(); pause.resume()
+    }
+    @Test fun callbackExceptionReleasesExactlyItsTicket() {
+        val gate = ServiceOperationGate(); val other = gate.cleanup()
+        try { gate.trackCleanup { error("callback failed") }; fail() } catch (_: IllegalStateException) {}
+        val pause = gate.pause(); blocked { pause.awaitIdle(0) }
+        other.close(); pause.awaitIdle(0); pause.seal(); pause.resume()
+    }
+    @Test fun callbackAfterSealDoesNotEnterItsBody() {
+        val gate = ServiceOperationGate(); val pause = gate.pause(); var entered = false
+        pause.awaitIdle(0); pause.seal()
+        blocked { gate.trackCleanup { entered = true } }
+        assertFalse(entered); blocked { pause.resume() }
+    }
 }

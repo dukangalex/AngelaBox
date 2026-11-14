@@ -65,6 +65,7 @@ class EditProfileViewModel(
     private var loadedData: Pair<Profile, RestoreAccessGate.Snapshot>? = null
 
     // Store the content to export when user selects a file location
+    private var pendingExportSnapshot: RestoreAccessGate.Snapshot? = null
     var pendingExportContent: String? = null
     var pendingExportFileName: String? = null
 
@@ -384,6 +385,7 @@ class EditProfileViewModel(
             val fileName = "${profile.name.replace(" ", "_")}_$timestamp.json"
 
             // Store content for later when user picks location
+            pendingExportSnapshot = snapshot
             pendingExportContent = content
             pendingExportFileName = fileName
 
@@ -407,11 +409,16 @@ class EditProfileViewModel(
         uri: Uri,
     ) {
         val content = pendingExportContent ?: return
+        val snapshot = pendingExportSnapshot ?: return
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(content.toByteArray())
+                ApplicationDataAccess.operation(snapshot) {
+                    // Revalidate before opening/truncating an external destination.
+                    val output =
+                        context.contentResolver.openOutputStream(uri)
+                            ?: error("Cannot open the export destination")
+                    output.use { it.write(content.toByteArray()) }
                 }
 
                 withContext(Dispatchers.Main) {
@@ -430,6 +437,7 @@ class EditProfileViewModel(
                 // Clear pending export data
                 pendingExportContent = null
                 pendingExportFileName = null
+                pendingExportSnapshot = null
             }
         }
     }

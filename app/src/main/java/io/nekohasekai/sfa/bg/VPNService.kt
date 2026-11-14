@@ -63,7 +63,10 @@ class VPNService :
     var systemProxyAvailable = false
     var systemProxyEnabled = false
 
-    override fun openTun(options: TunOptions): Int {
+    override fun openTun(options: TunOptions): Int =
+        service.withNativeDataAccess { openTunAdmitted(options) }
+
+    private fun openTunAdmitted(options: TunOptions): Int {
         if (prepare(this) != null) error("android: missing vpn permission")
         // Go runs the synchronous start (and this callback) on the
         // kernel-start thread. If that start was abandoned, opening a tunnel
