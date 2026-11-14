@@ -1,0 +1,31 @@
+name: Native ARM Android capability check (no candidate execution)
+on:
+  push:
+    branches: [wabi/native-arm-capability-20261114]
+permissions: {}
+jobs:
+  inspect-host:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Inspect native ARM kernel features
+        shell: bash
+        run: |
+          set -u
+          uname -a
+          echo "CPU_ARCH=$(uname -m)"
+          echo '--- hardware virtualization device ---'
+          if test -c /dev/kvm; then ls -l /dev/kvm; else echo 'No /dev/kvm'; fi
+          echo '--- binder device and kernel module metadata ---'
+          ls -l /dev/binder* /dev/ashmem 2>/dev/null || true
+          for m in binder_linux ashmem_linux; do
+            echo "MODULE=$m"
+            modinfo "$m" 2>&1 || true
+          done
+          echo '--- relevant host kernel config ---'
+          config="/boot/config-$(uname -r)"
+          if test -r "$config"; then grep -E '^CONFIG_ANDROID|^CONFIG_ASHMEM|^CONFIG_KVM=' "$config" || true; else echo 'host config file inaccessible'; fi
+          echo '--- binder filesystem ---'
+          grep -w binder /proc/filesystems || true
+          echo '--- container runtime version ---'
+          docker version --format '{{.Server.Version}}' 2>&1 || true
