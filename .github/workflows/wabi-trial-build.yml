@@ -19,16 +19,16 @@ jobs:
       - name: Checkout candidate without persistent credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           path: sing-box-for-android
-          persist-credentials: false
       - name: Checkout pinned kernel
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: b4a0320eabbb9b2835055b6dfcc094f25706421f
           path: sing-box
-          persist-credentials: false
       - name: Verify source identities
         run: |
           set -euo pipefail

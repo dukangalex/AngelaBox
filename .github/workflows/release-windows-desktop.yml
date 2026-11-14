@@ -25,6 +25,8 @@ permissions:
 
 jobs:
   desktop:
+    # Keep secret-bearing manual runs on the protected default branch.
+    if: github.ref == 'refs/heads/dev'
     name: Build Windows desktop (${{ matrix.desktop_arch }})
     runs-on: windows-latest
     timeout-minutes: 120
@@ -40,6 +42,7 @@ jobs:
       - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           path: angelabox
 
       - name: Read version pins
@@ -63,6 +66,7 @@ jobs:
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.commit }}
           path: sing-box
@@ -72,6 +76,7 @@ jobs:
       - name: Checkout AngelaBox desktop overlay
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box-for-desktop
           ref: ${{ steps.pin.outputs.dcommit }}
           path: desktop

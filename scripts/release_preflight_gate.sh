@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Pre-flight gate (beefed-up): fail fast before a release build starts.
-# Usage: bash scripts/release_preflight_gate.sh <version_tag>
+# Usage: bash scripts/release_preflight_gate.sh <version_tag> [version.properties]
 # Requires: git, gh (GH_TOKEN set), jq. Must run from the repo root checkout.
 set -euo pipefail
-TAG="${1:?usage: release_preflight_gate.sh <version_tag>}"
+TAG="${1:?usage: release_preflight_gate.sh <version_tag> [properties-file]}"
+PROPERTIES="${2:-version.properties}"
 
 # Gate 1: release must be cut from the tip of dev, with a clean version.properties.
 DEV_TIP=$(git ls-remote origin refs/heads/dev | awk '{print $1}')
@@ -13,11 +14,15 @@ if [ "$HEAD_SHA" != "$DEV_TIP" ]; then
   echo "Release checkout $HEAD_SHA is not the tip of origin/dev ($DEV_TIP) — refusing to release a stale commit" >&2
   exit 1
 fi
-if [ -n "$(git status --porcelain -- version.properties)" ]; then
-  echo "version.properties has uncommitted changes — refusing to release" >&2
+if [ ! -f "$PROPERTIES" ]; then
+  echo "Release properties file is missing: $PROPERTIES" >&2
   exit 1
 fi
-echo "Pre-flight OK: releasing tip of dev ($HEAD_SHA), version.properties clean"
+if [ -n "$(git status --porcelain -- "$PROPERTIES")" ]; then
+  echo "$PROPERTIES has uncommitted changes — refusing to release" >&2
+  exit 1
+fi
+echo "Pre-flight OK: releasing tip of dev ($HEAD_SHA), $PROPERTIES clean"
 
 # Gate 2: the ChainBox CI run for this exact commit must be green.
 CI_JSON=$(gh run list --workflow "ChainBox CI" --limit 20 \

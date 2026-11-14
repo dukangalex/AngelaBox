@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
 concurrency:
@@ -18,14 +19,23 @@ concurrency:
 
 jobs:
   release:
-  
+    # workflow_dispatch accepts a selected ref; only run the checked-out default release branch.
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - name: Checkout AngelaBox app
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           path: sing-box-for-android
+
+      - name: Require tested dev tip
+        working-directory: sing-box-for-android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: bash scripts/release_preflight_gate.sh "$VERSION_TAG" version-stable.properties
 
       - name: Pre-flight release gate
         working-directory: sing-box-for-android
@@ -79,6 +89,7 @@ jobs:
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.commit }}
           path: sing-box

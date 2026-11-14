@@ -520,17 +520,51 @@ def test_subscription_https_only() -> None:
     assert 'require(scheme == "https") { "仅允许 HTTPS" }' in src
 
 
-def test_beta_release_requires_tested_dev_tip() -> None:
-    workflow = read(".github/workflows/release-chainbox.yml")
+def test_all_workflow_checkouts_disable_persisted_credentials() -> None:
+    for workflow_path in Path(".github/workflows").glob("*.yml"):
+        workflow = read(str(workflow_path))
+        checkout_count = workflow.count("uses: actions/checkout@")
+        disabled_count = workflow.count("persist-credentials: false")
+        assert checkout_count == disabled_count, (
+            f"{workflow_path}: {checkout_count} checkouts but {disabled_count} disable persisted credentials"
+        )
+
+
+def test_secret_bearing_manual_workflows_use_protected_code() -> None:
+    for path in (
+        ".github/workflows/release-chainbox.yml",
+        ".github/workflows/release-stable.yml",
+        ".github/workflows/release-windows-desktop.yml",
+    ):
+        workflow = read(path)
+        assert "if: github.ref == 'refs/heads/dev'" in workflow
+
+    telegram = read(".github/workflows/telegram.yml")
+    assert "github.event_name == 'release' || github.ref == 'refs/heads/dev'" in telegram
+    assert "ref: refs/heads/dev" in telegram
+
+
+def test_release_workflows_require_tested_dev_tip() -> None:
     guard = read("scripts/release_preflight_gate.sh")
-    assert "actions: read" in workflow
-    assert 'bash scripts/release_preflight_gate.sh "$VERSION_TAG"' in workflow
-    assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
-    assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
-    assert 'refs/heads/dev' in guard
-    assert 'select(.headSha ==' in guard
-    assert '[ "$CI_STATUS" != "completed" ]' in guard
-    assert '[ "$CI_CONCLUSION" != "success" ]' in guard
+    for path, props in (
+        (".github/workflows/release-chainbox.yml", "version.properties"),
+        (".github/workflows/release-stable.yml", "version-stable.properties"),
+    ):
+        workflow = read(path)
+        assert "actions: read" in workflow
+        assert "if: github.ref == 'refs/heads/dev'" in workflow
+        assert workflow.count("uses: actions/checkout@") == 2
+        assert workflow.count("persist-credentials: false") == 2
+        expected_call = f'bash scripts/release_preflight_gate.sh "$VERSION_TAG" {props}'
+        assert expected_call in workflow
+        assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
+        assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
+        assert 'refs/heads/dev' in guard
+        assert 'select(.headSha ==' in guard
+        assert '[ "$CI_STATUS" != "completed" ]' in guard
+        assert '[ "$CI_CONCLUSION" != "success" ]' in guard
+    assert 'PROPERTIES="${2:-version.properties}"' in guard
+    assert 'git status --porcelain -- "$PROPERTIES"' in guard
 
 
 def test_release_version_tag_is_passed_as_data() -> None:
@@ -542,7 +576,7 @@ def test_release_version_tag_is_passed_as_data() -> None:
         'TAG="${{ inputs.version_tag }}"',
         'test "${{ inputs.version_tag }}" =',
     )
-    for path, expected_env_count in ((beta_path, 3), (stable_path, 2)):
+    for path, expected_env_count in ((beta_path, 3), (stable_path, 3)):
         workflow = read(path)
         for fragment in unsafe_shell_fragments:
             assert fragment not in workflow, f"unsafe version_tag interpolation in {path}: {fragment}"
@@ -566,8 +600,8 @@ def test_release_version_tag_is_passed_as_data() -> None:
         assert 'test "$VERSION_TAG" = "v$VERSION_NAME"' in workflow
         suffix = "beta" if path == beta_path else "stable"
         assert f"grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+-{suffix}$'" in workflow
-        if path == beta_path:
-            assert 'bash scripts/release_preflight_gate.sh "$VERSION_TAG"' in workflow
+        props = 'version.properties' if path == beta_path else 'version-stable.properties'
+        assert f'bash scripts/release_preflight_gate.sh "$VERSION_TAG" {props}' in workflow
 
     # GitHub expressions in workflow shell source can become code injection.
     for workflow_path in Path(".github/workflows").glob("*.yml"):
@@ -649,7 +683,9 @@ def main() -> int:
         test_import_confirmation_requires_snapshot,
         test_web_fetch_request_types_are_guarded,
         test_root_shell_does_not_implicitly_trust_termux,
-        test_beta_release_requires_tested_dev_tip,
+        test_all_workflow_checkouts_disable_persisted_credentials,
+        test_secret_bearing_manual_workflows_use_protected_code,
+        test_release_workflows_require_tested_dev_tip,
         test_release_version_tag_is_passed_as_data,
         test_bypass_mixed_or,
         test_update_url_pin,

@@ -13,8 +13,8 @@ jobs:
       - name: Checkout exact candidate without saving credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: dcda84b6a894314caf258cacfece94003da35466
           persist-credentials: false
+          ref: dcda84b6a894314caf258cacfece94003da35466
           fetch-depth: 1
       - name: Record source identity and run offline IPv6 policy case
         shell: bash

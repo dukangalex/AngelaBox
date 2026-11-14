@@ -31,11 +31,15 @@ jobs:
     name: Publish Release to Telegram
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
+    # Manual runs may execute only protected dev code; release notices also use dev code.
+    if: ${{ github.event_name == 'release' || github.ref == 'refs/heads/dev' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: refs/heads/dev
+          persist-credentials: false
 
       - name: Check Telegram secrets
         id: creds

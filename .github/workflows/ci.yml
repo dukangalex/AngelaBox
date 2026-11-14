@@ -26,6 +26,7 @@ jobs:
       - name: Checkout ChainBox
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Run Python overlay tests
@@ -56,6 +57,7 @@ jobs:
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.commit }}
           path: sing-box
@@ -85,6 +87,7 @@ jobs:
       - name: Checkout ChainBox
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           path: chainbox
 
       - name: Read kernel pin
@@ -99,6 +102,7 @@ jobs:
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.commit }}
           path: sing-box
@@ -134,6 +138,7 @@ jobs:
       - name: Checkout ChainBox
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           path: sing-box-for-android
 
       - name: Read kernel pin
@@ -148,6 +153,7 @@ jobs:
       - name: Checkout Chain kernel at audited commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.commit }}
           path: sing-box

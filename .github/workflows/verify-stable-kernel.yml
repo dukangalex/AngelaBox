@@ -20,6 +20,7 @@ jobs:
       - name: Checkout AngelaBox
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           path: chainbox
 
       - name: Read stable kernel pin
@@ -38,6 +39,7 @@ jobs:
       - name: Checkout stable kernel
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          persist-credentials: false
           repository: dukangalex/sing-box
           ref: ${{ steps.pin.outputs.tag }}
           path: sing-box
