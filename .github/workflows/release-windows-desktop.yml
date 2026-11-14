@@ -345,22 +345,20 @@ jobs:
           SIGNING_DAEMON_SRC: ${{ steps.signing_input.outputs.daemon_src }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $signed = Join-Path (Get-Location) 'signed'
-          $signedInstaller = @(Get-ChildItem (Join-Path $signed 'installer\*.exe') -File)
-          $signedMain = @(Get-ChildItem (Join-Path $signed 'portable\AngelaBox.exe') -File)
-          $signedDaemon = @(Get-ChildItem (Join-Path $signed 'portable\sing-box-daemon.exe') -File)
-          if ($signedInstaller.Count -ne 1) { throw 'signed installer missing' }
-          if ($signedMain.Count -ne 1) { throw 'signed AngelaBox.exe missing' }
-          if ($signedDaemon.Count -ne 1) { throw 'signed sing-box-daemon.exe missing' }
-          foreach ($f in @($signedInstaller[0], $signedMain[0], $signedDaemon[0])) {
-            $sig = Get-AuthenticodeSignature $f.FullName
-            if ($sig.Status -ne 'Valid') { throw "$($f.Name): Authenticode status $($sig.Status)" }
-            Write-Host "$($f.Name): signed by $($sig.SignerCertificate.Subject)"
+          $files = @(
+            $env:SIGNING_INSTALLER_SRC,
+            $env:SIGNING_MAIN_SRC,
+            $env:SIGNING_DAEMON_SRC
+          )
+          foreach ($file in $files) {
+            if ([string]::IsNullOrWhiteSpace($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "signed source file missing: $file"
+            }
+            $sig = Get-AuthenticodeSignature -LiteralPath $file
+            if ($sig.Status -ne 'Valid') { throw "$(Split-Path -Leaf $file): Authenticode status $($sig.Status)" }
+            Write-Host "$(Split-Path -Leaf $file): signed by $($sig.SignerCertificate.Subject)"
           }
-          Copy-Item $signedInstaller[0].FullName $env:SIGNING_INSTALLER_SRC -Force
-          Copy-Item $signedMain[0].FullName $env:SIGNING_MAIN_SRC -Force
-          Copy-Item $signedDaemon[0].FullName $env:SIGNING_DAEMON_SRC -Force
-          Write-Host 'Signed binaries installed.'
+          Write-Host 'Signed binaries verified in place.'
 
       - name: Prepare upload
         working-directory: desktop

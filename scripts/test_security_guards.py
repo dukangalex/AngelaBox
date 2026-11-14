@@ -264,6 +264,14 @@ def test_source_guards() -> None:
     assert "exe_sums=(\"${exes[0]}.sha256\")" in desktop
     assert "sha256sum -c" in desktop
     assert "applicationExecutableName = \"AngelaBox.exe\"" in desktop
+    verify_signing = desktop.split("      - name: Verify signed binaries", 1)[1].split(
+        "      - name: Prepare upload", 1
+    )[0]
+    for path_var in ("$env:SIGNING_INSTALLER_SRC", "$env:SIGNING_MAIN_SRC", "$env:SIGNING_DAEMON_SRC"):
+        assert path_var in verify_signing
+    assert "Get-AuthenticodeSignature -LiteralPath $file" in verify_signing
+    assert "Join-Path (Get-Location) 'signed'" not in verify_signing
+    assert "sha256sum -c" in desktop.split("  publish:", 1)[1]
 
     trust = read("app/src/main/java/io/nekohasekai/sfa/vendor/ReleaseTrust.kt")
     assert RELEASE_CERT in trust
