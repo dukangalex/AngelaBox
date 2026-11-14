@@ -33,6 +33,9 @@ import java.util.zip.ZipOutputStream
 import javax.net.ssl.HttpsURLConnection
 
 object BackupManager {
+    // Only serializes backup/restore entry points in this process; it does not
+    // quiesce database, service, or other background writers.
+    private val operationGate = BackupOperationGate()
     private const val MANIFEST = PortableCloudBackup.MANIFEST
     private const val MAX_ENTRIES = 512
     private const val MAX_ENTRY_SIZE = 32L * 1024 * 1024
@@ -69,10 +72,10 @@ object BackupManager {
         context: Context,
         dest: File,
         password: CharArray? = null,
-    ): Result<File> = runCatching {
+    ): Result<File> = operationGate.tryRun {
         if (password == null || password.isEmpty()) {
             writeBackupZip(context, dest)
-            return@runCatching dest
+            return@tryRun dest
         }
         val plainTmp = File(context.cacheDir, "chainbox-backup-plain.zip")
         try {
@@ -154,6 +157,16 @@ object BackupManager {
         compat: Boolean = false,
         password: CharArray? = null,
         includeSensitiveItems: Boolean = false,
+    ): Result<RestoreReport> = operationGate.tryRun {
+        restoreBackupFileUnlocked(context, src, compat, password, includeSensitiveItems).getOrThrow()
+    }
+
+    private fun restoreBackupFileUnlocked(
+        context: Context,
+        src: File,
+        compat: Boolean,
+        password: CharArray?,
+        includeSensitiveItems: Boolean,
     ): Result<RestoreReport> {
         runCatching { BackupFileIO.requireWithinLimit(src) }.exceptionOrNull()?.let { return Result.failure(it) }
         if (!isEncryptedBackup(src)) return restoreZipFile(context, src, compat, includeSensitiveItems)
