@@ -516,6 +516,12 @@ def test_no_secret_files() -> None:
     assert listed == "", listed
 
 
+def test_qr_scan_content_is_not_logged() -> None:
+    source = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/qrscan/QRScanViewModel.kt")
+    assert "rawValue.take(" not in source
+    assert 'Log.d(TAG, "Scanned:' not in source
+
+
 def test_subscription_https_only() -> None:
     for bad in (
         "http://example.com/sub.yaml",
@@ -739,6 +745,7 @@ def main() -> int:
         test_no_secret_files,
         test_ruleset_pins,
         test_subscription_https_only,
+        test_qr_scan_content_is_not_logged,
     ]
     failed = 0
     for test in tests:
