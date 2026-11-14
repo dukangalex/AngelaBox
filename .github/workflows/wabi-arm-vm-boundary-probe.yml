@@ -19,7 +19,7 @@ jobs:
           base=https://cloud-images.ubuntu.com/noble/current
           curl -fL --retry 2 -o SHA256SUMS "$base/SHA256SUMS"
           curl -fL --retry 2 -o noble-server-cloudimg-arm64.img "$base/noble-server-cloudimg-arm64.img"
-          grep ' noble-server-cloudimg-arm64.img$' SHA256SUMS | sha256sum -c -
+          grep ' \*noble-server-cloudimg-arm64.img$' SHA256SUMS | sha256sum -c -
           cat > user-data <<'CLOUD'
           #cloud-config
           network: {config: disabled}
