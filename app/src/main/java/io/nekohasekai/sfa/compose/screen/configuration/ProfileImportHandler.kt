@@ -284,7 +284,10 @@ class ProfileImportHandler(private val context: Context) {
         }
     }
 
-    private suspend fun importProfile(content: ProfileContent): ImportResult {
+    private suspend fun importProfile(content: ProfileContent): ImportResult =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { importProfileAdmitted(content) }
+
+    private suspend fun importProfileAdmitted(content: ProfileContent): ImportResult {
         val typedProfile = TypedProfile()
         val profile = Profile(name = content.name, typed = typedProfile)
         profile.userOrder = ProfileManager.nextOrder()
@@ -342,7 +345,10 @@ class ProfileImportHandler(private val context: Context) {
         return ImportResult.Success(profile, importNotes)
     }
 
-    private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
+    private suspend fun importRemoteProfile(name: String, url: String): ImportResult =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { importRemoteProfileAdmitted(name, url) }
+
+    private suspend fun importRemoteProfileAdmitted(name: String, url: String): ImportResult {
         val secureUrl = url.trim()
         try {
             io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(secureUrl)
@@ -432,7 +438,10 @@ class ProfileImportHandler(private val context: Context) {
         }
     }
 
-    private suspend fun importJsonConfiguration(jsonContent: String, profileName: String): ImportResult {
+    private suspend fun importJsonConfiguration(jsonContent: String, profileName: String): ImportResult =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { importJsonConfigurationAdmitted(jsonContent, profileName) }
+
+    private suspend fun importJsonConfigurationAdmitted(jsonContent: String, profileName: String): ImportResult {
         return try {
             val detailed = ConfigCompat.sanitizeDetailed(jsonContent)
             val sanitized = detailed.content

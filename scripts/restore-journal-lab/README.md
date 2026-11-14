@@ -142,3 +142,29 @@ exclusion through Room close/checkpoint, journal prepare/commit/recovery. Androi
 cold/locked start, Room/WAL, failure injection, exact ARM APK acceptance and safe
 parallel installation remain mandatory. No experimental APK is approved for trial
 or release by the above host results.
+
+## Coroutine admission experiment (2026-11-14)
+
+`wabi/restore-coroutine-admission-20261114` adds a thread-independent root
+admission lease carried by a coroutine context element. Already admitted work
+can complete synchronous accesses while restore drains; a newly independent
+operation is rejected. Structured children finish before release, and detached
+children inheriting an expired context cannot access application data. Exception
+and cancellation paths release the root. This does not serialize ordinary edits
+against each other and is not a cross-process lock.
+
+The root now spans the selected import/create entry points, background remote
+profile update and ProfileManager create/update/delete methods. These leases
+cover dispatcher changes and suspensions; the individual synchronous file/DAO
+leases remain. This is NOT complete application operation coverage: UI editors,
+chain/provider operations, cached profile handles, kernel callbacks/native file
+ownership and backup direct IO need a whole-operation audit before exclusion is
+safe. No BackupManager transaction was enabled by this change.
+
+Nine new coroutine tests join 46 existing host gate/journal/file tests; all 55
+passed together on the host. Reproduce with `run_admission_host_tests.sh`, setting
+KOTLIN_HOME, JUNIT_JAR, HAMCREST_JAR and an output jar path. These host tests do not
+compile the Android application or validate Room/WAL, Android service closure,
+provider/locked startup, actual APK behavior, power loss or safe installation.
+No trial/release acceptance follows from them. The prior e9d6dad build remains a
+separate source version and is not evidence for this branch.

@@ -2,7 +2,8 @@ package io.nekohasekai.sfa.utils
 
 /**
  * Synchronous operation admission and draining, not a filesystem or cross-process lock.
- * No lease may escape [access] or span a coroutine suspension. Nested synchronous calls
+ * A synchronous [access] lease must not escape its block or span a suspension.
+ * Use the structured coroutine operation adapter for a multi-step suspending operation. Nested synchronous calls
  * already admitted on the same thread may finish while a drain is pending.
  *
  * New callers fail promptly instead of blocking the Android main thread. An exclusive
@@ -14,6 +15,33 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
     private val depth = object : ThreadLocal<Int>() {
         override fun initialValue(): Int = 0
     }
+    private val operation = ThreadLocal<Operation?>()
+
+    /** Thread-independent root lease; coroutine context installs it only while executing. */
+    internal inner class Operation internal constructor() : AutoCloseable {
+        internal var closed = false // accessed only under monitor
+        override fun close() = synchronized(monitor) {
+            if (!closed) { closed = true; active--; monitor.notifyAll() }
+        }
+    }
+
+    internal fun beginOperation(): Operation = synchronized(monitor) {
+        check(failure == null && ready && !draining && owner == null) {
+            "Application data is unavailable during restore recovery"
+        }
+        Operation().also { active++ }
+    }
+
+    internal fun validateOperation(lease: Operation) = synchronized(monitor) {
+        check(!lease.closed && failure == null) { "Application data operation has ended or failed" }
+    }
+
+    internal fun installOperation(lease: Operation?): Operation? {
+        val previous = operation.get()
+        operation.set(lease)
+        return previous
+    }
+
     private var ready = initiallyReady
     private var draining = false
     private var active = 0
@@ -23,7 +51,9 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
     fun <T> access(block: () -> T): T {
         synchronized(monitor) {
             check(failure == null) { "Application data is blocked pending restore recovery" }
-            check(owner === Thread.currentThread() || (ready && (!draining || depth.get() > 0))) {
+            val lease = operation.get()
+            check(lease == null || !lease.closed) { "Application data operation has ended" }
+            check(owner === Thread.currentThread() || (ready && (!draining || depth.get() > 0 || lease != null))) {
                 "Application data is unavailable during restore recovery"
             }
             active++
@@ -65,7 +95,7 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
      */
     fun <T> exclusive(timeoutMillis: Long, block: () -> T): T {
         require(timeoutMillis >= 0)
-        check(depth.get() == 0) { "Cannot upgrade a data access lease" }
+        check(depth.get() == 0 && operation.get() == null) { "Cannot upgrade a data access lease" }
         val start = System.nanoTime()
         synchronized(monitor) {
             check(ready && failure == null && !draining && owner == null) { "Restore admission unavailable" }
@@ -97,4 +127,5 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
 internal object ApplicationDataAccess {
     val gate = RestoreAccessGate()
     fun <T> access(block: () -> T): T = gate.access(block)
+    suspend fun <T> operation(block: suspend () -> T): T = gate.operation(block)
 }

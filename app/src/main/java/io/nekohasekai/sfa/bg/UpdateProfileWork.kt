@@ -74,7 +74,10 @@ class UpdateProfileWork {
     }
 
     class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
-        override suspend fun doWork(): Result {
+        override suspend fun doWork(): Result =
+            io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { doWorkAdmitted() }
+
+        private suspend fun doWorkAdmitted(): Result {
             var selectedProfileUpdated = false
             val remoteProfiles =
                 ProfileManager.list()

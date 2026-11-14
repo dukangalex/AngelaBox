@@ -53,7 +53,10 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = guardedProfileDao.get(id)
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false): Profile {
+    suspend fun create(profile: Profile, andSelect: Boolean = false): Profile =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { createAdmitted(profile, andSelect) }
+
+    private suspend fun createAdmitted(profile: Profile, andSelect: Boolean): Profile {
         profile.id = guardedProfileDao.insert(profile)
         if (andSelect) {
             Settings.selectedProfile = profile.id
@@ -64,7 +67,10 @@ object ProfileManager {
         return profile
     }
 
-    suspend fun update(profile: Profile): Int {
+    suspend fun update(profile: Profile): Int =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { updateAdmitted(profile) }
+
+    private suspend fun updateAdmitted(profile: Profile): Int {
         try {
             return guardedProfileDao.update(profile)
         } finally {
@@ -74,7 +80,10 @@ object ProfileManager {
         }
     }
 
-    suspend fun update(profiles: List<Profile>): Int {
+    suspend fun update(profiles: List<Profile>): Int =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { updateAdmitted(profiles) }
+
+    private suspend fun updateAdmitted(profiles: List<Profile>): Int {
         try {
             return guardedProfileDao.update(profiles)
         } finally {
@@ -94,7 +103,10 @@ object ProfileManager {
     var lastDeleteChainInvalidated: Int = 0
         private set
 
-    suspend fun delete(profile: Profile): Int {
+    suspend fun delete(profile: Profile): Int =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { deleteAdmitted(profile) }
+
+    private suspend fun deleteAdmitted(profile: Profile): Int {
         try {
             lastDeleteChainInvalidated =
                 runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
@@ -108,7 +120,10 @@ object ProfileManager {
         }
     }
 
-    suspend fun delete(profiles: List<Profile>): Int {
+    suspend fun delete(profiles: List<Profile>): Int =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { deleteAdmitted(profiles) }
+
+    private suspend fun deleteAdmitted(profiles: List<Profile>): Int {
         try {
             var invalidated = 0
             profiles.forEach { p ->

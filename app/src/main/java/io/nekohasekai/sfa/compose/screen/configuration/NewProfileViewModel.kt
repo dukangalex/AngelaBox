@@ -265,7 +265,10 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    private suspend fun createLocalProfile(state: NewProfileUiState): CreatedProfile {
+    private suspend fun createLocalProfile(state: NewProfileUiState): CreatedProfile =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { createLocalProfileAdmitted(state) }
+
+    private suspend fun createLocalProfileAdmitted(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val typedProfile =
             TypedProfile().apply {
@@ -335,7 +338,10 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         return CreatedProfile(profile, shareLinkHint(raw))
     }
 
-    private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
+    private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { createRemoteProfileAdmitted(state) }
+
+    private suspend fun createRemoteProfileAdmitted(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
         io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(remoteUrl)
