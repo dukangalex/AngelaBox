@@ -522,6 +522,20 @@ def test_qr_scan_content_is_not_logged() -> None:
     assert 'Log.d(TAG, "Scanned:' not in source
 
 
+def test_update_notification_handles_denied_permission() -> None:
+    source = read("app/src/main/java/io/nekohasekai/sfa/utils/HookModuleUpdateNotifier.kt")
+    notify_call = source.split("NotificationManagerCompat.from(context).notify", 1)[1]
+    assert "Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU" in source
+    assert "ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)" in source
+    assert "PackageManager.PERMISSION_GRANTED" in source
+    assert "catch (_: SecurityException)" in notify_call
+    assert "POST_NOTIFICATIONS may be denied" in source
+    # A denied runtime permission must not crash app startup or require a broader manifest grant.
+    manifest = read("app/src/main/AndroidManifest.xml")
+    assert "android.permission.POST_NOTIFICATIONS" in manifest
+    assert "@SuppressLint(\"MissingPermission\")" not in source
+
+
 def test_proxy_broadcast_permission_suppression_stays_system_server_scoped() -> None:
     source = read("app/src/main/java/io/nekohasekai/sfa/xposed/hooks/hidevpn/ConnectivityManager+PROXY_CHANGE_ACTION.kt")
     method = source.split("private fun hookProxyBroadcastTracker() {", 1)[0].splitlines()[-4:]
@@ -768,6 +782,7 @@ def main() -> int:
         test_qr_scan_content_is_not_logged,
         test_native_core_diagnostics_are_not_logged,
         test_proxy_broadcast_permission_suppression_stays_system_server_scoped,
+        test_update_notification_handles_denied_permission,
     ]
     failed = 0
     for test in tests:
