@@ -10,7 +10,7 @@ trap 'rc=$?; echo "CHECK_EXIT=$rc"; test ! -f "$HOME/emulator.log" || tail -n 10
 printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n isolated34 -k 'system-images;android-34;google_apis;arm64-v8a' --force
 cleanup() { rc=$?; echo "CHECK_EXIT=$rc"; test ! -f "$HOME/emulator.log" || tail -n 100 "$HOME/emulator.log"; adb kill-server >/dev/null 2>&1 || :; if [[ -n "${emu_pid:-}" ]]; then kill "$emu_pid" 2>/dev/null || :; fi; }
 trap cleanup EXIT
-"$ANDROID_HOME/emulator/qemu/linux-x86_64/qemu-system-aarch64-headless" -avd isolated34 -no-window -no-audio -no-snapshot -no-boot-anim -gpu off -cores 2 -memory 2048 -qemu -machine virt > "$HOME/emulator.log" 2>&1 &
+"$ANDROID_HOME/emulator/emulator" -avd isolated34 -no-window -no-audio -no-snapshot -no-boot-anim -no-metrics -accel off -gpu swiftshader -cores 2 -memory 2048 > "$HOME/emulator.log" 2>&1 &
 emu_pid=$!
 adb start-server >/dev/null
 booted=0
