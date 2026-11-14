@@ -77,4 +77,31 @@ class BackupScratchFilesTest {
             assertTrue(dir.listFiles()!!.isEmpty())
         } finally { finish.countDown(); t.join(5000); dir.deleteRecursively() }
     }
+    @Test fun dialogDisposalDefersDeleteUntilRestoreFinishes() {
+        val dir = Files.createTempDirectory("backup-scratch-test").toFile()
+        try {
+            val file = BackupScratchFiles.create(dir, "restore")
+            file.writeText("secret")
+            val retention = BackupScratchRetention()
+            retention.begin(file)
+            retention.discard(file)
+            assertEquals("secret", file.readText())
+            retention.finish(file)
+            assertFalse(file.exists())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun dialogRetryKeepsInputUntilDiscarded() {
+        val dir = Files.createTempDirectory("backup-scratch-test").toFile()
+        try {
+            val file = BackupScratchFiles.create(dir, "restore")
+            val retention = BackupScratchRetention()
+            retention.begin(file); retention.finish(file)
+            assertTrue(file.exists())
+            retention.begin(file); retention.finish(file)
+            retention.discard(file)
+            assertFalse(file.exists())
+        } finally { dir.deleteRecursively() }
+    }
+
 }

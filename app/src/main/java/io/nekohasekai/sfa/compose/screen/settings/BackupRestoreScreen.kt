@@ -63,6 +63,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.BackupFileIO
 import io.nekohasekai.sfa.utils.BackupManager
 import io.nekohasekai.sfa.utils.BackupScratchFiles
+import io.nekohasekai.sfa.utils.BackupScratchRetention
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.utils.WebDavAutoProbePolicy
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +118,7 @@ fun BackupRestoreScreen(navController: NavController) {
     // are never persisted, logged or written into the backup itself.
     var pendingExportPassword by remember { mutableStateOf<CharArray?>(null) }
     var exportPasswordAction by remember { mutableStateOf<((CharArray?) -> Unit)?>(null) }
+    val restoreScratchRetention = remember { BackupScratchRetention() }
     var restorePwFile by remember { mutableStateOf<File?>(null) }
     var restorePwError by remember { mutableStateOf<String?>(null) }
     var restoreViaWebdav by remember { mutableStateOf(false) }
@@ -124,7 +126,7 @@ fun BackupRestoreScreen(navController: NavController) {
     // Leaving the dialog/screen removes this operation's private cache file.
     DisposableEffect(restorePwFile) {
         val retained = restorePwFile
-        onDispose { retained?.delete() }
+        onDispose { retained?.let(restoreScratchRetention::discard) }
     }
 
     fun persistProbe(ok: Boolean, detail: String?) {
@@ -190,6 +192,7 @@ fun BackupRestoreScreen(navController: NavController) {
 
     fun runRestore(tmp: File, password: CharArray?, viaWebdav: Boolean, fromDialog: Boolean) {
         busy = true
+        if (fromDialog) restoreScratchRetention.begin(tmp)
         val job = scope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
@@ -249,7 +252,7 @@ fun BackupRestoreScreen(navController: NavController) {
         }
         // Also handles cancellation before the coroutine starts.
         job.invokeOnCompletion {
-            if (!fromDialog) tmp.delete()
+            if (fromDialog) restoreScratchRetention.finish(tmp) else tmp.delete()
             password?.fill('\u0000')
         }
     }
