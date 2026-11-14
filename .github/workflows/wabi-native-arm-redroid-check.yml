@@ -1,0 +1,41 @@
+name: Native ARM Android environment smoke (no APK)
+on:
+  push:
+    branches: [wabi/native-arm-capability-20261114]
+permissions: {}
+jobs:
+  environment-only:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    steps:
+      - name: Boot isolated no-network Android 14 environment, no application
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trap 'echo "--- Android container status and recent logs ---"; docker inspect redroid --format "{{json .State}}" 2>/dev/null || true; docker logs --tail 120 redroid 2>&1 || true; docker rm -f redroid 2>/dev/null || true' EXIT
+          echo "HOST=$(uname -m), PAGE_SIZE=$(getconf PAGESIZE)"
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          image='redroid/redroid@sha256:0a611199ba2e0b5d60af39b3327a517f6407231f4352114ed3bd3cbfe2be69aa'
+          docker pull --platform linux/arm64 "$image"
+          docker image inspect "$image" --format 'ID={{.Id}} ARCH={{.Architecture}} OS={{.Os}}'
+          # Boot only; no checkout, repository token, host mounts, published ports or APK.
+          # Privileged is limited to this disposable GitHub-hosted VM; it is not app isolation.
+          docker run --name redroid --detach --privileged --network none --memory 4g --cpus 3 "$image" androidboot.redroid_gpu_mode=guest
+          docker inspect redroid --format 'network={{.HostConfig.NetworkMode}} binds={{json .HostConfig.Binds}} ports={{json .HostConfig.PortBindings}}'
+          ready=0
+          for i in $(seq 1 90); do
+            test "$(docker inspect redroid --format '{{.State.Running}}')" = true || break
+            prop=$(docker exec redroid getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+            if test "$prop" = 1; then ready=1; break; fi
+            sleep 2
+          done
+          if test "$ready" = 1; then
+            docker exec redroid getprop ro.product.cpu.abi
+            docker exec redroid getprop ro.build.version.sdk
+            docker exec redroid getprop sys.boot_completed
+            docker exec redroid getprop ro.build.fingerprint
+            echo 'ANDROID_BOOT_COMPLETE=1'
+          else
+            echo 'ANDROID_BOOT_COMPLETE=0'
+            exit 1
+          fi
