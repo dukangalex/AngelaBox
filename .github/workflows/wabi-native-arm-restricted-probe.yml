@@ -21,14 +21,15 @@ jobs:
           image='redroid/redroid@sha256:0a611199ba2e0b5d60af39b3327a517f6407231f4352114ed3bd3cbfe2be69aa'
           docker pull --platform linux/arm64 "$image"
           # Environment-only: no checkout, no secrets, no app, no network or host mounts.
-          for mode in default extra_caps; do
+          for mode in sysadmin sysadmin_unconfined; do
             echo "===== MODE=$mode ====="
             docker rm -f restricted >/dev/null 2>&1 || true
             flags=()
             for d in binder hwbinder vndbinder; do
               if test -c /tmp/probe-binder/$d; then flags+=(--device "/tmp/probe-binder/$d:/dev/$d:rwm"); fi
             done
-            if [ "$mode" = extra_caps ]; then flags+=(--cap-add SYS_NICE --cap-add SYS_RESOURCE --cap-add IPC_LOCK); fi
+            flags+=(--cap-add SYS_ADMIN --cap-add SYS_NICE --cap-add SYS_RESOURCE --cap-add IPC_LOCK)
+            if [ "$mode" = sysadmin_unconfined ]; then flags+=(--security-opt seccomp=unconfined); fi
             docker run -d --name restricted --network none --memory 4g --cpus 3 "${flags[@]}" "$image" androidboot.redroid_gpu_mode=guest || continue
             docker inspect restricted --format 'Privileged={{.HostConfig.Privileged}} Network={{.HostConfig.NetworkMode}} PidMode={{.HostConfig.PidMode}} Binds={{json .HostConfig.Binds}} Caps={{json .HostConfig.CapAdd}} Devices={{json .HostConfig.Devices}}'
             ready=0
@@ -38,6 +39,8 @@ jobs:
               sleep 2
             done
             echo "BOOT_COMPLETED=$ready"
+            docker inspect restricted --format 'Exit={{.State.ExitCode}} Error={{.State.Error}} Running={{.State.Running}} Security={{json .HostConfig.SecurityOpt}}'
+            sudo dmesg | tail -20 || true
             docker logs --tail 35 restricted 2>&1 || true
             if [ "$ready" = 1 ]; then docker exec restricted getprop ro.product.cpu.abi; docker exec restricted getprop ro.build.version.sdk; fi
           done
