@@ -8,7 +8,7 @@ export ANDROID_AVD_HOME="$HOME/.android/avd"
 mkdir -p "$ANDROID_AVD_HOME"
 trap 'rc=$?; echo "CHECK_EXIT=$rc"; test ! -f "$HOME/emulator.log" || tail -n 100 "$HOME/emulator.log"' EXIT
 printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n isolated34 -k 'system-images;android-34;google_apis;x86_64' --force
-cleanup() { rc=$?; echo "CHECK_EXIT=$rc"; test ! -f "$HOME/emulator.log" || tail -n 100 "$HOME/emulator.log"; adb kill-server >/dev/null 2>&1 || :; if [[ -n "${emu_pid:-}" ]]; then kill "$emu_pid" 2>/dev/null || :; fi; }
+cleanup() { rc=$?; echo "CHECK_EXIT=$rc"; if [ "$rc" -ne 0 ]; then echo "--- isolated emulator error log ---"; adb logcat -d -t 1600 -v brief "*:E" 2>/dev/null | tail -n 300 || :; echo "--- isolated app exit info ---"; adb shell dumpsys activity exit-info io.chainbox.app 2>/dev/null | tail -n 120 || :; fi; test ! -f "$HOME/emulator.log" || tail -n 30 "$HOME/emulator.log"; adb kill-server >/dev/null 2>&1 || :; if [[ -n "${emu_pid:-}" ]]; then kill "$emu_pid" 2>/dev/null || :; fi; }
 trap cleanup EXIT
 "$ANDROID_HOME/emulator/emulator" -avd isolated34 -no-window -no-audio -no-snapshot -no-boot-anim -no-metrics -accel auto -gpu swiftshader -cores 2 -memory 2048 > "$HOME/emulator.log" 2>&1 &
 emu_pid=$!
