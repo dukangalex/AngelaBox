@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,6 +62,7 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.BackupFileIO
 import io.nekohasekai.sfa.utils.BackupManager
+import io.nekohasekai.sfa.utils.BackupScratchFiles
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.utils.WebDavAutoProbePolicy
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +120,12 @@ fun BackupRestoreScreen(navController: NavController) {
     var restorePwFile by remember { mutableStateOf<File?>(null) }
     var restorePwError by remember { mutableStateOf<String?>(null) }
     var restoreViaWebdav by remember { mutableStateOf(false) }
+    // The retained encrypted input remains available for a password retry.
+    // Leaving the dialog/screen removes this operation's private cache file.
+    DisposableEffect(restorePwFile) {
+        val retained = restorePwFile
+        onDispose { retained?.delete() }
+    }
 
     fun persistProbe(ok: Boolean, detail: String?) {
         val value = if (ok) 1 else 0
@@ -181,26 +189,30 @@ fun BackupRestoreScreen(navController: NavController) {
     }
 
     fun runRestore(tmp: File, password: CharArray?, viaWebdav: Boolean, fromDialog: Boolean) {
-        scope.launch {
-            busy = true
+        busy = true
+        val job = scope.launch {
             val result = withContext(Dispatchers.IO) {
-                BackupManager.restoreBackupFile(
-                    context,
-                    tmp,
-                    Settings.restoreCompat,
-                    password,
-                    restoreSensitiveItems,
-                ).also { restored ->
-                    // AB-020: warm the restored configs' rule sets now,
-                    // synchronously — the relaunch below would kill a
-                    // fire-and-forget warm before it downloaded anything.
-                    // Both restore entry points funnel through runRestore,
-                    // so this one call covers local files and WebDAV.
-                    if (restored.isSuccess) {
-                        io.nekohasekai.sfa.bg.RuleSetWarmup.warmRestored(
-                            System.currentTimeMillis() + 60_000L,
-                        )
+                try {
+                    BackupManager.restoreBackupFile(
+                        context,
+                        tmp,
+                        Settings.restoreCompat,
+                        password,
+                        restoreSensitiveItems,
+                    ).also { restored ->
+                        // AB-020: warm the restored configs' rule sets now,
+                        // synchronously — the relaunch below would kill a
+                        // fire-and-forget warm before it downloaded anything.
+                        // Both restore entry points funnel through runRestore,
+                        // so this one call covers local files and WebDAV.
+                        if (restored.isSuccess) {
+                            io.nekohasekai.sfa.bg.RuleSetWarmup.warmRestored(
+                                System.currentTimeMillis() + 60_000L,
+                            )
+                        }
                     }
+                } finally {
+                    if (!fromDialog) tmp.delete()
                 }
             }
             password?.fill('\u0000')
@@ -235,6 +247,11 @@ fun BackupRestoreScreen(navController: NavController) {
                 snackbar.showSnackbar("$prefix${result.exceptionOrNull()?.message}")
             }
         }
+        // Also handles cancellation before the coroutine starts.
+        job.invokeOnCompletion {
+            if (!fromDialog) tmp.delete()
+            password?.fill('\u0000')
+        }
     }
 
     fun startRestore(tmp: File, viaWebdav: Boolean) {
@@ -260,11 +277,12 @@ fun BackupRestoreScreen(navController: NavController) {
             busy = true
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                    BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        FileInputStream(tmp).use { it.copyTo(out) }
-                    } ?: error("无法写入文件")
+                    BackupScratchFiles.withFile(context.cacheDir, "backup") { tmp ->
+                        BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            FileInputStream(tmp).use { it.copyTo(out) }
+                        } ?: error("无法写入文件")
+                    }
                 }
             }
             pw?.fill('\u0000')
@@ -279,20 +297,29 @@ fun BackupRestoreScreen(navController: NavController) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             busy = true
-            val copied = withContext(Dispatchers.IO) {
-                runCatching {
-                    val tmp = File(context.cacheDir, "chainbox-restore.zip")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        BackupFileIO.copyToFile(input, tmp)
-                    } ?: error("无法读取文件")
-                    tmp
+            var owned: File? = null
+            try {
+                val copied = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val tmp = BackupScratchFiles.create(context.cacheDir, "restore")
+                        owned = tmp
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            BackupFileIO.copyToFile(input, tmp)
+                        } ?: error("无法读取文件")
+                        tmp
+                    }
                 }
+                busy = false
+                copied.fold(
+                    onSuccess = {
+                        startRestore(it, viaWebdav = false)
+                        owned = null // password dialog or runRestore now owns it
+                    },
+                    onFailure = { snackbar.showSnackbar("恢复失败: ${it.message}") },
+                )
+            } finally {
+                owned?.delete()
             }
-            busy = false
-            copied.fold(
-                onSuccess = { startRestore(it, viaWebdav = false) },
-                onFailure = { snackbar.showSnackbar("恢复失败: ${it.message}") },
-            )
         }
     }
 
@@ -450,7 +477,7 @@ fun BackupRestoreScreen(navController: NavController) {
     restorePwFile?.let { file ->
         var pw by remember(file) { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { restorePwFile = null },
+            onDismissRequest = { if (!busy) restorePwFile = null },
             title = { Text(stringResource(R.string.backup_restore_password_title)) },
             text = {
                 Column {
@@ -488,7 +515,7 @@ fun BackupRestoreScreen(navController: NavController) {
                 ) { Text(stringResource(R.string.backup_restore_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { restorePwFile = null }) {
+                TextButton(enabled = !busy, onClick = { restorePwFile = null }) {
                     Text(stringResource(R.string.cancel))
                 }
             },
@@ -573,15 +600,16 @@ fun BackupRestoreScreen(navController: NavController) {
                                 busy = true
                                 val result = withContext(Dispatchers.IO) {
                                     runCatching {
-                                        val tmp = File(context.cacheDir, "chainbox-backup.zip")
-                                        BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
-                                        BackupManager.webdavUpload(
-                                            webdavUrl,
-                                            webdavUser,
-                                            webdavPass,
-                                            remoteFile,
-                                            tmp,
-                                        ).getOrThrow()
+                                        BackupScratchFiles.withFile(context.cacheDir, "backup") { tmp ->
+                                            BackupManager.createBackupFile(context, tmp, pw).getOrThrow()
+                                            BackupManager.webdavUpload(
+                                                webdavUrl,
+                                                webdavUser,
+                                                webdavPass,
+                                                remoteFile,
+                                                tmp,
+                                            ).getOrThrow()
+                                        }
                                     }
                                 }
                                 pw?.fill('\u0000')
@@ -608,24 +636,34 @@ fun BackupRestoreScreen(navController: NavController) {
                                 return@launch
                             }
                             busy = true
-                            val tmp = File(context.cacheDir, "chainbox-restore.zip")
-                            val downloaded = withContext(Dispatchers.IO) {
-                                BackupManager.webdavDownload(
-                                    webdavUrl,
-                                    webdavUser,
-                                    webdavPass,
-                                    remoteFile,
-                                    tmp,
+                            var owned: File? = null
+                            try {
+                                val downloaded = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val tmp = BackupScratchFiles.create(context.cacheDir, "restore")
+                                        owned = tmp
+                                        BackupManager.webdavDownload(
+                                            webdavUrl,
+                                            webdavUser,
+                                            webdavPass,
+                                            remoteFile,
+                                            tmp,
+                                        ).getOrThrow()
+                                    }
+                                }
+                                persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)
+                                busy = false
+                                downloaded.fold(
+                                    onSuccess = {
+                                        startRestore(it, viaWebdav = true)
+                                        owned = null // password dialog or runRestore now owns it
+                                    },
+                                    onFailure = {
+                                        snackbar.showSnackbar("WebDAV 恢复失败: ${it.message}")
+                                    },
                                 )
-                            }
-                            persistProbe(downloaded.isSuccess, downloaded.exceptionOrNull()?.message)
-                            busy = false
-                            if (downloaded.isSuccess) {
-                                startRestore(tmp, viaWebdav = true)
-                            } else {
-                                snackbar.showSnackbar(
-                                    "WebDAV 恢复失败: ${downloaded.exceptionOrNull()?.message}",
-                                )
+                            } finally {
+                                owned?.delete()
                             }
                         }
                     },
