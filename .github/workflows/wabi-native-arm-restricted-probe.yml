@@ -26,7 +26,7 @@ jobs:
             docker rm -f restricted >/dev/null 2>&1 || true
             flags=()
             for d in binder hwbinder vndbinder; do
-              if test -c /dev/$d; then flags+=(--device "/dev/$d:/dev/$d:rwm"); fi
+              if test -c /tmp/probe-binder/$d; then flags+=(--device "/tmp/probe-binder/$d:/dev/$d:rwm"); fi
             done
             if [ "$mode" = extra_caps ]; then flags+=(--cap-add SYS_NICE --cap-add SYS_RESOURCE --cap-add IPC_LOCK); fi
             docker run -d --name restricted --network none --memory 4g --cpus 3 "${flags[@]}" "$image" androidboot.redroid_gpu_mode=guest || continue
