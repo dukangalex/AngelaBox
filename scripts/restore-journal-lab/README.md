@@ -107,3 +107,38 @@ Before enabling prepare/commit on the live restore path:
 The current startup integration has not passed an Android build/device test. Do not merge or
 ship this branch solely on the host tests. Safe ARM same-package acceptance, full audit, and
 installation without replacing the existing beta data remain separate gates.
+
+## Service drain / direct profile IO experiment (2026-11-14)
+
+The follow-on `wabi/restore-service-drain-20261114` branch tracks start/reload
+admission before dispatch, native start threads (including timed-out abandoned
+workers), native close workers, and asynchronous service shutdown. Close errors
+are retained, not inferred away from UI status. `BoxService.quiesceForRestore`
+closes start/reload admission and waits for tracked work and native resource
+owners; it is intentionally **not called by BackupManager**. Host gate tests
+exercise counter/drain/failure semantics only, not actual Android/native shutdown.
+
+Known profile content reads/writes in editor/provider/chain/import/dashboard,
+sharing/portable export, background updates/warmup and BoxService now use
+`ProfileFiles` data admission. Atomic writers use unique sibling scratch files
+so concurrent admitted writers cannot rename or delete each other's scratch.
+This does not yet protect complete logical operations that span DAO/path lookup,
+network suspension, file IO and DAO mutation. `BackupManager` direct directory
+operations are also not migrated. Do NOT enable exclusive replacement solely
+because individual IO methods are guarded.
+
+Host evidence: 46 tests in ServiceOperationGateTest (13), ProfileFilesAdmissionTest
+(3), RestoreAccessGateTest (10), RestoreRecoveryJournalTest (16) and
+RestoreStartupRecoveryTest (4) pass together; they cover concurrent whole-profile
+writes and close/timeout/abandoned-worker bookkeeping. The whitelist guard covers
+67 test classes in both CI/release test lists; changing test selection does not
+execute or authorize a release. The previous source 521b6992 passed nonpublish
+build 43558117738. That is not compilation or runtime evidence for these changes.
+
+Before wiring BackupManager: lease high-level operations without carrying a
+thread-bound lease across suspension; audit untracked direct IO and kernel-owned
+paths; establish actual native close semantics and callback draining; hold data
+exclusion through Room close/checkpoint, journal prepare/commit/recovery. Android
+cold/locked start, Room/WAL, failure injection, exact ARM APK acceptance and safe
+parallel installation remain mandatory. No experimental APK is approved for trial
+or release by the above host results.

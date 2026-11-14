@@ -135,7 +135,7 @@ class UpdateProfileWork {
                     val file = File(profile.typed.path)
                     // 文件不存在时视为内容不同（首次更新），直接写入
                     val oldContent = try {
-                        if (file.isFile) file.readText() else null
+                        io.nekohasekai.sfa.utils.ApplicationDataAccess.access { if (file.isFile) file.readText() else null }
                     } catch (_: Exception) {
                         null
                     }

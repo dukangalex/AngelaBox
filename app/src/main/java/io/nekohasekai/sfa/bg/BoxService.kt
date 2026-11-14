@@ -53,6 +53,7 @@ import io.nekohasekai.sfa.utils.QuarantineBudget
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
 import io.nekohasekai.sfa.utils.RuleSetSeeds
 import io.nekohasekai.sfa.utils.RuleSetTriage
+import io.nekohasekai.sfa.utils.ServiceOperationGate
 import io.nekohasekai.sfa.utils.StartRetryPolicy
 import io.nekohasekai.sfa.utils.TunnelGate
 import io.nekohasekai.sfa.vendor.Vendor
@@ -70,6 +71,35 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
+        private val restoreOperations = ServiceOperationGate()
+        // Strong references deliberately retain destroyed instances with native work.
+        // Process restart is required after an uncertain/failed native shutdown.
+        private val restoreInstances = Collections.synchronizedSet(mutableSetOf<BoxService>())
+
+        /**
+         * Not used by BackupManager yet. Does not authorize database/file replacement.
+         * Caller must then drain ALL data access and close/checkpoint Room. Retain the
+         * pause on any later restore/recovery failure; resume only after data is ready.
+         */
+        internal suspend fun quiesceForRestore(timeoutMillis: Long): ServiceOperationGate.Pause {
+            val pause = restoreOperations.pause()
+            // Failure anywhere below intentionally retains the closed admission.
+            withContext(Dispatchers.Main) {
+                val instances = synchronized(restoreInstances) { restoreInstances.toList() }
+                instances.forEach { it.startAbort.set(true); it.stopService() }
+            }
+            withContext(Dispatchers.IO) { pause.awaitIdle(timeoutMillis) }
+            withContext(Dispatchers.Main) {
+                val instances = synchronized(restoreInstances) { restoreInstances.toList() }
+                check(instances.all { !it.startInFlight && it.serverClosed &&
+                    it.status.value == Status.Stopped && it.fileDescriptor == null }) {
+                    "Service resources remain live; restore is blocked"
+                }
+                pause.seal()
+            }
+            return pause
+        }
+
         private const val START_BUDGET_MS = 45_000L
 
         // The ladder as a whole gets a budget too: each rung having its
@@ -154,9 +184,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
+    @Volatile private var serverClosed = true
     private val startAbort = AtomicBoolean(false)
 
     @Volatile private var startInFlight = false
+
+    init { restoreInstances.add(this) }
 
     private class StartCancelled : IllegalStateException("已取消启动")
 
@@ -174,8 +207,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private fun startCommandServer() {
         val commandServer = CommandServer(this, platformInterface)
-        commandServer.start()
+        // Record ownership before start: a throwing start may still own native state.
         this.commandServer = commandServer
+        serverClosed = false
+        commandServer.start()
     }
 
     private var lastProfileName = ""
@@ -205,7 +240,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
-            val rawContent = File(profile.typed.path).readText()
+            val rawContent = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path))
             if (rawContent.isBlank()) {
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
@@ -279,15 +314,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun serviceStop() {
-        notification.close()
-        TunnelGate.setUp(false)
-        status.postValue(Status.Starting)
-        val pfd = fileDescriptor
-        if (pfd != null) {
-            pfd.close()
-            fileDescriptor = null
-        }
-        closeService()
+        val ticket = restoreOperations.cleanup()
+        try {
+            notification.close()
+            TunnelGate.setUp(false)
+            status.postValue(Status.Starting)
+            val pfd = fileDescriptor
+            if (pfd != null) {
+                pfd.close()
+                fileDescriptor = null
+            }
+            closeService()
+        } catch (error: Throwable) {
+            restoreOperations.recordCloseFailure(error)
+            throw error
+        } finally { ticket.close() }
     }
 
     override fun serviceReload() {
@@ -297,6 +338,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     suspend fun serviceReload0() {
+        val restoreTicket = restoreOperations.begin() ?: return
+        try { serviceReloadTracked() } finally { restoreTicket.close() }
+    }
+
+    private suspend fun serviceReloadTracked() {
         // Same exception net as startService: this runs on a kernel
         // callback thread, where a StartCancelled / ChainApplyException /
         // pipeline failure escaping used to kill the reload silently or
@@ -326,7 +372,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
 
-        val rawContent = File(profile.typed.path).readText()
+        val rawContent = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path))
         if (rawContent.isBlank()) {
             stopAndAlert(Alert.EmptyConfiguration)
             return
@@ -1202,11 +1248,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (startAbort.get()) return Result.failure(StartCancelled())
         val server = commandServer
         val holder = arrayOfNulls<Result<Unit>>(1)
+        val workerTicket = restoreOperations.cleanup()
         val worker = Thread({
-            holder[0] = runCatching { server.startOrReloadService(content, options) }
+            try { holder[0] = runCatching { server.startOrReloadService(content, options) } }
+            finally { workerTicket.close() }
         }, "kernel-start")
         worker.isDaemon = true
-        worker.start()
+        try { worker.start() } catch (error: Throwable) { workerTicket.close(); throw error }
         val deadline = SystemClock.elapsedRealtime() + budgetMs
         while (true) {
             val left = deadline - SystemClock.elapsedRealtime()
@@ -1238,20 +1286,22 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private fun abandonStart(server: CommandServer, worker: Thread) {
         abandonedStartThreads.add(worker)
+        val closerTicket = restoreOperations.cleanup()
         val closer = Thread({
-            runCatching { server.closeService() }
+            try { runCatching { server.closeService() }.onFailure(restoreOperations::recordCloseFailure) }
+            finally { closerTicket.close() }
         }, "kernel-cancel")
         closer.isDaemon = true
-        closer.start()
+        try { closer.start() } catch (error: Throwable) { closerTicket.close(); throw error }
         worker.join(8_000)
         if (worker.isAlive) {
-            runCatching { server.close() }
+            runCatching { closeCommandServer(server) }
             worker.join(1_000)
         } else {
             closer.join(2_000)
         }
         if (::commandServer.isInitialized && commandServer === server) {
-            runCatching { commandServer.close() }
+            runCatching { closeCommandServer(commandServer) }
             startCommandServer()
         }
     }
@@ -1312,8 +1362,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun restartCommandServer() {
-        runCatching { commandServer.closeService() }
-        runCatching { commandServer.close() }
+        runCatching { commandServer.closeService() }.onFailure(restoreOperations::recordCloseFailure)
+        runCatching { closeCommandServer(commandServer) }
         startCommandServer()
     }
 
@@ -1333,11 +1383,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 notification.close()
                 // 关键状态同步落盘，防 GlobalScope 协程没跑完进程就被杀。
                 Settings.startedByUser = false
-                GlobalScope.launch(Dispatchers.IO) {
+                launchTrackedShutdown {
                     DefaultNetworkMonitor.stop()
                     if (::commandServer.isInitialized) {
                         closeService()
-                        runCatching { commandServer.close() }
+                        runCatching { closeCommandServer(commandServer) }
                     }
                     withContext(Dispatchers.Main) {
                         TunnelGate.setUp(false)
@@ -1356,7 +1406,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = false
         }
         notification.close()
-        GlobalScope.launch(Dispatchers.IO) {
+        launchTrackedShutdown {
             val pfd = fileDescriptor
             if (pfd != null) {
                 pfd.close()
@@ -1364,9 +1414,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             DefaultNetworkMonitor.stop()
             closeService()
-            commandServer.apply {
-                close()
-            }
+            closeCommandServer(commandServer)
             runCatching { PowerReportManager.refresh() }
             Settings.startedByUser = false
             withContext(Dispatchers.Main) {
@@ -1378,11 +1426,37 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun closeService() {
-        runCatching {
-            commandServer.closeService()
-        }.onFailure {
-            commandServer.setError("android: close service: ${it.message}")
-        }
+        val ticket = restoreOperations.cleanup()
+        try {
+            runCatching { commandServer.closeService() }.onFailure {
+                restoreOperations.recordCloseFailure(it)
+                commandServer.setError("android: close service: ${it.message}")
+            }
+        } finally { ticket.close() }
+    }
+
+    private fun closeCommandServer(server: CommandServer) {
+        val ticket = restoreOperations.cleanup()
+        try {
+            server.close()
+            if (::commandServer.isInitialized && commandServer === server) serverClosed = true
+        } catch (error: Throwable) {
+            restoreOperations.recordCloseFailure(error)
+            throw error
+        } finally { ticket.close() }
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun launchTrackedShutdown(block: suspend () -> Unit) {
+        val ticket = restoreOperations.cleanup()
+        try {
+            GlobalScope.launch(Dispatchers.IO) {
+                try { block() } catch (error: Throwable) {
+                    restoreOperations.recordCloseFailure(error)
+                    Log.e(TAG, "Service cleanup failed", error)
+                } finally { ticket.close() }
+            }.invokeOnCompletion { ticket.close() }
+        } catch (error: Throwable) { ticket.close(); throw error }
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null, silent: Boolean = false) {
@@ -1395,7 +1469,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         DefaultNetworkMonitor.stop()
         if (::commandServer.isInitialized) {
             closeService()
-            commandServer.close()
+            closeCommandServer(commandServer)
         }
         withContext(Dispatchers.Main) {
             if (receiverRegistered) {
@@ -1426,36 +1500,50 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
         }
         if (status.value != Status.Stopped) return Service.START_STICKY
-        startAbort.set(false)
-        startInFlight = true
-        TunnelGate.setUp(false)
-        status.value = Status.Starting
-
-        if (!receiverRegistered) {
-            ContextCompat.registerReceiver(
-                service,
-                receiver,
-                IntentFilter().apply {
-                    addAction(Action.SERVICE_CLOSE)
-                },
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-            receiverRegistered = true
+        val restoreTicket = restoreOperations.begin()
+        if (restoreTicket == null) {
+            notification.close()
+            service.stopSelf()
+            return Service.START_NOT_STICKY
         }
+        try {
+            startAbort.set(false)
+            startInFlight = true
+            TunnelGate.setUp(false)
+            status.value = Status.Starting
 
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                Settings.startedByUser = true
-                try {
-                    startCommandServer()
-                } catch (e: Exception) {
-                    stopAndAlert(Alert.StartCommandServer, e.message)
-                    return@launch
-                }
-                startService()
-            } finally {
-                startInFlight = false
+            if (!receiverRegistered) {
+                ContextCompat.registerReceiver(
+                    service,
+                    receiver,
+                    IntentFilter().apply {
+                        addAction(Action.SERVICE_CLOSE)
+                    },
+                    ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+                receiverRegistered = true
             }
+
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    Settings.startedByUser = true
+                    try {
+                        startCommandServer()
+                    } catch (e: Exception) {
+                        stopAndAlert(Alert.StartCommandServer, e.message)
+                        return@launch
+                    }
+                    startService()
+                } finally {
+                    startInFlight = false
+                    restoreTicket.close()
+                }
+            }.invokeOnCompletion { restoreTicket.close() }
+        } catch (error: Throwable) {
+            startInFlight = false
+            restoreTicket.close()
+            restoreOperations.recordCloseFailure(error)
+            throw error
         }
         return Service.START_STICKY
     }
@@ -1464,6 +1552,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     internal fun onDestroy() {
         binder.close()
+        if (serverClosed && !startInFlight && status.value == Status.Stopped &&
+            synchronized(abandonedStartThreads) { abandonedStartThreads.none { it.isAlive } }) {
+            restoreInstances.remove(this)
+        }
     }
 
     internal fun onRevoke() {

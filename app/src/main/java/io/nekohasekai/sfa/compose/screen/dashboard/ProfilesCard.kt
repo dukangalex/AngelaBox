@@ -156,7 +156,7 @@ fun ProfilesCard(
             if (selectedProfile != null) {
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
-                        val jsonContent = File(selectedProfile.typed.path).readText()
+                        val jsonContent = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(selectedProfile.typed.path))
                         context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                             outputStream.write(jsonContent.toByteArray())
                         }
@@ -388,7 +388,7 @@ private suspend fun createProfileContent(profile: Profile): ByteArray {
             content.type = Libbox.ProfileTypeRemote
         }
     }
-    content.config = java.io.File(profile.typed.path).readText()
+    content.config = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path))
     content.remotePath = profile.typed.remoteURL
     content.autoUpdate = profile.typed.autoUpdate
     content.autoUpdateInterval = profile.typed.autoUpdateInterval

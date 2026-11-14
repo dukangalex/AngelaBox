@@ -17,11 +17,25 @@ import java.io.IOException
  */
 object ProfileFiles {
 
+    /** Synchronous file lease only; callers must still guard DB/path lookup plus IO together. */
+    fun readText(file: File): String = ApplicationDataAccess.access { file.readText() }
+
+    fun readBytes(file: File): ByteArray = ApplicationDataAccess.access { file.readBytes() }
+
+    fun delete(file: File): Boolean = ApplicationDataAccess.access { file.delete() }
+
     @Throws(IOException::class)
-    fun writeAtomically(file: File, content: String) {
+    fun writeAtomically(file: File, content: String) = ApplicationDataAccess.access {
+        writeAtomicallyAdmitted(file, content)
+    }
+
+    /** Pure host-testable operation, called only inside the application's admission lease. */
+    internal fun writeAtomicallyAdmitted(file: File, content: String) {
         val parent = file.parentFile
         if (parent != null && !parent.exists()) parent.mkdirs()
-        val tmp = File(parent, file.name + ".tmp")
+        // Unique sibling: two admitted writers must never truncate, rename or
+        // delete each other's temporary output. Restore drains both leases.
+        val tmp = File.createTempFile("profile-", ".tmp", file.absoluteFile.parentFile)
         try {
             tmp.writeText(content)
             // fsync so a power loss right after the rename cannot resurrect
@@ -31,8 +45,8 @@ object ProfileFiles {
                 throw IOException("原子写入配置失败")
             }
         } finally {
-            // A leftover .tmp from a killed run is truncated by the next
-            // write, but do not leave one behind on failure paths either.
+            // A killed process can leave a unique scratch file. In-process
+            // failures clean theirs without touching another writer's output.
             if (tmp.exists()) tmp.delete()
         }
     }

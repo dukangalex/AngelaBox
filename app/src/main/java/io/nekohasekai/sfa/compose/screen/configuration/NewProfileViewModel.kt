@@ -325,7 +325,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
             is ConfigGate.Result.Accepted -> Unit
         }
-        configFile.writeText(configContent)
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(configFile, configContent)
 
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         // AB-019: import-time rule-set cache warm-up, same as the other
@@ -367,7 +367,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
                 is ConfigGate.Result.Accepted -> Unit
             }
-            configFile.writeText(content)
+            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(configFile, content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             // AB-019: a subscription created by hand warms its rule-set
             // cache right away, not only after the first periodic update.

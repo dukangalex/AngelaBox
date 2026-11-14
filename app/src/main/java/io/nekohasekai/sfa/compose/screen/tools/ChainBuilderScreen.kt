@@ -170,12 +170,12 @@ fun ChainBuilderScreen(
         }
         tlsWarning = withContext(Dispatchers.IO) {
             runCatching {
-                val entryText = File(entryPath).readText()
+                val entryText = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(entryPath))
                 val landingText = if (landingHop.profileId == entryHop.profileId) {
                     entryText
                 } else {
                     val profile = ProfileManager.get(landingHop.profileId) ?: return@runCatching false
-                    File(profile.typed.path).readText()
+                    io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path))
                 }
                 ChainRuntimeCompiler.bothHopsAreTls(entryText, entryHop.tag, landingText, landingHop.tag)
             }.getOrDefault(false)
@@ -193,7 +193,7 @@ fun ChainBuilderScreen(
                     withContext(Dispatchers.Main) { loadError = "未选择配置" }
                     return@launch
                 }
-                val content = File(current.typed.path).readText()
+                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(current.typed.path))
                 val root = ChainRuntimeCompiler.parseConfig(content)
                 val routeFinal = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
                 val hops = ChainRuntimeCompiler.listSelectableHops(content, current.id, current.name).map {
@@ -293,7 +293,7 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val raw = file.readText()
+                    val raw = io.nekohasekai.sfa.utils.ProfileFiles.readText(file)
                     val originalFinal = ChainRuntimeCompiler.parseConfig(raw).optJSONObject("route")
                         ?.optString("final")
                         ?.takeIf { it.isNotBlank() && !it.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX) }
@@ -305,7 +305,7 @@ fun ChainBuilderScreen(
                         // Validate against the same prepared content the
                         // runtime chain will see (heal + landing scripts).
                         io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(
-                            File(landingProfile.typed.path).readText(),
+                            io.nekohasekai.sfa.utils.ProfileFiles.readText(File(landingProfile.typed.path)),
                             landing.profileId,
                         )
                     }
@@ -322,7 +322,7 @@ fun ChainBuilderScreen(
                             landingContent = landingContent,
                         ),
                     )
-                    file.writeText(ChainRuntimeCompiler.clear(raw, originalFinal))
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, ChainRuntimeCompiler.clear(raw, originalFinal))
                     ChainBindings.put(
                         ChainBinding(
                             profileId = boundId,
@@ -364,9 +364,9 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val root = ChainRuntimeCompiler.parseConfig(file.readText())
+                    val root = ChainRuntimeCompiler.parseConfig(io.nekohasekai.sfa.utils.ProfileFiles.readText(file))
                     val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    file.writeText(ChainRuntimeCompiler.clear(root.toString(), final))
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, ChainRuntimeCompiler.clear(root.toString(), final))
                     ChainBindings.remove(boundId)
                 }
             }
@@ -1025,7 +1025,7 @@ private fun regionGlyph(tag: String): String? {
 
 private fun parseHopsFromProfile(profile: Profile): List<HopRef> = try {
     ChainRuntimeCompiler.listSelectableHops(
-        File(profile.typed.path).readText(),
+        io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path)),
         profile.id,
         profile.name,
     ).map { HopRef(it.profileId, it.profileName, it.tag, it.type) }

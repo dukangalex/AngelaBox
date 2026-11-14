@@ -76,7 +76,7 @@ class RuleSetStateViewModel : ViewModel() {
         //    same parse).
         val profiles = runCatching { ProfileManager.list() }.getOrDefault(emptyList())
         for (profile in profiles) {
-            val content = runCatching { File(profile.typed.path).readText() }.getOrNull() ?: continue
+            val content = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path)) }.getOrNull() ?: continue
             val manualPaths = runCatching {
                 RuleSetProviders.parse(content)
                     .filter { it.remote && it.path.isNotBlank() }

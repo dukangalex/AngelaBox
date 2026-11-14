@@ -273,7 +273,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
 
                 // Check if content changed
                 val file = File(profile.typed.path)
-                if (!file.exists() || file.readText() != content) {
+                if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles.readText(file) != content) {
                     // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
                     io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
                     if (profile.id == Settings.selectedProfile) {
@@ -345,7 +345,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 return null
             }
 
-            val content = configFile.readText()
+            val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(configFile)
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val fileName = "${profile.name.replace(" ", "_")}_$timestamp.json"
 

@@ -613,7 +613,7 @@ private fun createProfileContent(profile: Profile): ByteArray {
         TypedProfile.Type.Local -> content.type = Libbox.ProfileTypeLocal
         TypedProfile.Type.Remote -> content.type = Libbox.ProfileTypeRemote
     }
-    content.config = java.io.File(profile.typed.path).readText()
+    content.config = io.nekohasekai.sfa.utils.ProfileFiles.readText(java.io.File(profile.typed.path))
     content.remotePath = profile.typed.remoteURL
     content.autoUpdate = profile.typed.autoUpdate
     content.autoUpdateInterval = profile.typed.autoUpdateInterval

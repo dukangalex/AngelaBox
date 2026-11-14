@@ -332,7 +332,7 @@ class ProfileImportHandler(private val context: Context) {
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText(storedConfig)
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(configFile, storedConfig)
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         // AB-019: warm the rule-set cache at import time, so the startup
@@ -365,7 +365,7 @@ class ProfileImportHandler(private val context: Context) {
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText("{}")
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(configFile, "{}")
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         return ImportResult.Success(profile)
@@ -453,7 +453,7 @@ class ProfileImportHandler(private val context: Context) {
             val fileID = ProfileManager.nextFileID()
             val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
             val configFile = File(configDirectory, "$fileID.json")
-            configFile.writeText(sanitized)
+            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(configFile, sanitized)
             typedProfile.path = configFile.path
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             // AB-019: import-time rule-set cache warm-up (see importProfile).

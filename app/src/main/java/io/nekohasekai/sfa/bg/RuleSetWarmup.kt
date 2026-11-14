@@ -93,7 +93,7 @@ object RuleSetWarmup {
         for (f in files) {
             if (System.currentTimeMillis() > deadlineMs) return
             if (!f.isFile || !f.name.endsWith(".json")) continue
-            val content = runCatching { f.readText() }.getOrNull() ?: continue
+            val content = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(f) }.getOrNull() ?: continue
             if (content.isNotBlank()) {
                 runCatching { warmNow(content, deadlineMs) }
             }
@@ -159,7 +159,7 @@ object RuleSetWarmup {
             val dir = File(Application.application.filesDir, "configs")
             for (f in dir.listFiles() ?: emptyArray()) {
                 if (!f.isFile || !f.name.endsWith(".json")) continue
-                val text = runCatching { f.readText() }.getOrNull() ?: continue
+                val text = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(f) }.getOrNull() ?: continue
                 if (text.isNotBlank()) collect(text)
             }
             RuleSetStore.prune(storeDir, referenced, System.currentTimeMillis())

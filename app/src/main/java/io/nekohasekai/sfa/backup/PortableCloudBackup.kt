@@ -125,7 +125,7 @@ object PortableCloudBackup {
             val src = File(profile.typed.path)
             if (!src.isFile) return@forEachIndexed
             val rel = "configs/$uuid.json"
-            configs[rel] = src.readBytes()
+            configs[rel] = io.nekohasekai.sfa.utils.ProfileFiles.readBytes(src)
             portable += PortableProfile(
                 id = uuid,
                 name = profile.name,

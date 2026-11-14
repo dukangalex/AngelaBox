@@ -190,7 +190,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             if (firstLoad) {
                 _ui.value = _ui.value.copy(loading = true, error = null)
             }
-            val content = runCatching { profileFile.readText() }.getOrElse {
+            val content = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(profileFile) }.getOrElse {
                 _ui.value = RuleProvidersUiState(
                     profileName = loaded.name,
                     loading = false,
@@ -294,7 +294,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             markBusy(tag, true)
             val message = runCatching {
                 val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-                val content = File(loaded.typed.path).readText()
+                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path))
                 val root = JSONObject(content)
                 val item = _ui.value.rows.firstOrNull { it.item.tag == tag }?.item
                     ?: error("找不到规则集")
@@ -323,7 +323,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                         )
                     }
                 }
-                File(loaded.typed.path).writeText(root.toString())
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
             }.fold(
                 onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
                 onFailure = {
@@ -369,7 +369,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     private fun prettyProfileLines(): List<String> {
         val loaded = profile ?: return emptyList()
-        val text = runCatching { File(loaded.typed.path).readText() }.getOrDefault("")
+        val text = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path)) }.getOrDefault("")
         val pretty = try {
             val trimmed = text.trim()
             when {
@@ -402,7 +402,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     private suspend fun syncOne(tag: String) {
         val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-        val content = File(loaded.typed.path).readText()
+        val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path))
         val root = JSONObject(content)
         val item = RuleSetProviders.parse(content).firstOrNull { it.tag == tag }
             ?: error("找不到规则集")
@@ -414,7 +414,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         RuleSetProviders.updateItem(root, tag) { current ->
             current.put("initial_path", dest.absolutePath)
         }
-        File(loaded.typed.path).writeText(root.toString())
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
     }
 
     private suspend fun syncProxyOne() {
@@ -430,7 +430,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             ),
         )
         Libbox.checkConfig(content)
-        File(loaded.typed.path).writeText(content)
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), content)
         loaded.typed.lastUpdated = Date()
         ProfileManager.update(loaded)
         profile = loaded

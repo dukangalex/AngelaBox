@@ -389,7 +389,7 @@ class DashboardViewModel :
         return runCatching {
             val file = File(profile.typed.path)
             if (!file.isFile) return null
-            val root = ChainRuntimeCompiler.parseConfig(file.readText())
+            val root = ChainRuntimeCompiler.parseConfig(io.nekohasekai.sfa.utils.ProfileFiles.readText(file))
             val outs = root.optJSONArray("outbounds") ?: return null
             val routeFinal = root.optJSONObject("route")?.optString("final").orEmpty()
             ChainRuntimeCompiler.resolveMainTag(outs, routeFinal)
@@ -603,7 +603,7 @@ class DashboardViewModel :
                 // Check if content changed
                 val file = File(profile.typed.path)
                 var contentChanged = false
-                if (!file.exists() || file.readText() != content) {
+                if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles.readText(file) != content) {
                     // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
                     io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
                     contentChanged = true

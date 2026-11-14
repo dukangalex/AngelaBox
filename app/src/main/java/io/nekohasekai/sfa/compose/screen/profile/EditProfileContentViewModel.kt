@@ -173,7 +173,7 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
                 profile = loadedProfile
 
                 // Just load the content, we already have profile metadata from Intent
-                val content = File(loadedProfile.typed.path).readText()
+                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loadedProfile.typed.path))
 
                 withContext(Dispatchers.Main) {
                     editor?.setText(content)
@@ -209,7 +209,7 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
 
                 // Save to file without validation
                 profile?.let { p ->
-                    File(p.typed.path).writeText(currentContent)
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(p.typed.path), currentContent)
                 }
 
                 _uiState.update {
