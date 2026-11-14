@@ -21,6 +21,11 @@ class RemoteServer(
     var url: String = "",
     var secret: String = "",
 ) : Parcelable {
+    // Process-local provenance; never stored in Room or accepted from a parcel.
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    internal var restoreSnapshot: io.nekohasekai.sfa.utils.RestoreAccessGate.Snapshot? = null
+
     val displayName: String
         get() = name.ifEmpty { hostPort(url) }
 

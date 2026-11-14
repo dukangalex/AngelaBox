@@ -96,6 +96,8 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
+import io.nekohasekai.sfa.utils.RestoreAccessGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,15 +111,20 @@ private data class HopRef(
     val type: String,
 ) {
     val typeLabel: String
-        get() = when (type) {
-            "urltest" -> "自动优选分组"
-            "selector" -> "手动选择分组"
-            else -> "节点"
-        }
+        get() =
+            when (type) {
+                "urltest" -> "自动优选分组"
+                "selector" -> "手动选择分组"
+                else -> "节点"
+            }
     val displayLine: String get() = "$profileName / $tag · $typeLabel"
 }
 
-private data class ProfileChoice(val id: Long, val name: String, val hops: List<HopRef>)
+private data class ProfileChoice(
+    val id: Long,
+    val name: String,
+    val hops: List<HopRef>,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,6 +135,7 @@ fun ChainBuilderScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val notifyApplyChange = rememberApplyServiceChangeNotifier()
+    var dataSnapshot by remember { mutableStateOf<RestoreAccessGate.Snapshot?>(null) }
     var currentProfileId by remember { mutableStateOf(-1L) }
     var currentProfileName by remember { mutableStateOf("") }
     var currentProfilePath by remember { mutableStateOf<String?>(null) }
@@ -168,101 +176,137 @@ fun ChainBuilderScreen(
             tlsWarning = false
             return@LaunchedEffect
         }
-        tlsWarning = withContext(Dispatchers.IO) {
-            runCatching {
-                val entryText = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(entryPath))
-                val landingText = if (landingHop.profileId == entryHop.profileId) {
-                    entryText
-                } else {
-                    val profile = ProfileManager.get(landingHop.profileId) ?: return@runCatching false
-                    io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path))
-                }
-                ChainRuntimeCompiler.bothHopsAreTls(entryText, entryHop.tag, landingText, landingHop.tag)
-            }.getOrDefault(false)
-        }
+        tlsWarning =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    ApplicationDataAccess.operation(dataSnapshot ?: error("Reload chains before viewing them")) {
+                        val entryText =
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .readText(File(entryPath))
+                        val landingText =
+                            if (landingHop.profileId == entryHop.profileId) {
+                                entryText
+                            } else {
+                                val profile = ProfileManager.get(landingHop.profileId) ?: return@operation false
+                                io.nekohasekai.sfa.utils.ProfileFiles
+                                    .readText(File(profile.typed.path))
+                            }
+                        ChainRuntimeCompiler.bothHopsAreTls(entryText, entryHop.tag, landingText, landingHop.tag)
+                    }
+                }.getOrDefault(false)
+            }
     }
 
     fun reload(targetId: Long = -1L) {
         val fallbackId = if (targetId > 0L) targetId else currentProfileId
         scope.launch(Dispatchers.IO) {
             try {
-                val profiles = ProfileManager.list()
-                val wantId = if (fallbackId > 0L) fallbackId else Settings.selectedProfile
-                val current = profiles.find { it.id == wantId } ?: profiles.find { it.id == Settings.selectedProfile }
-                if (current == null) {
-                    withContext(Dispatchers.Main) { loadError = "未选择配置" }
-                    return@launch
-                }
-                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(current.typed.path))
-                val root = ChainRuntimeCompiler.parseConfig(content)
-                val routeFinal = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
-                val hops = ChainRuntimeCompiler.listSelectableHops(content, current.id, current.name).map {
-                    HopRef(it.profileId, it.profileName, it.tag, it.type)
-                }
-                val suggested = ChainRuntimeCompiler.resolveMainTag(
-                    root.optJSONArray("outbounds") ?: JSONArray(),
-                    routeFinal,
-                )
-                val others = profiles.mapNotNull { p ->
-                    val parsed = parseHopsFromProfile(p)
-                    if (parsed.isEmpty()) null else ProfileChoice(p.id, p.name, parsed)
-                }
-                val binding = ChainBindings.get(current.id)
-                val othersBound = ChainBindings.all().filter { it.profileId != current.id }
-                val othersBoundLines = othersBound.map { b ->
-                    val src = profiles.find { it.id == b.profileId }?.name
-                        ?.ifBlank { null } ?: "配置 ${b.profileId}"
-                    val dstName = profiles.find { it.id == b.landingProfileId }?.name
-                        ?.ifBlank { null }
-                    val land = if (dstName != null) "$dstName / ${b.landingTag}" else b.landingTag
-                    "$src  →  $land"
-                }
-                withContext(Dispatchers.Main) {
-                    currentProfileId = current.id
-                    currentProfileName = current.name
-                    currentProfilePath = current.typed.path
-                    currentHops = hops
-                    allProfiles = others
-                    loadError = null
-                    otherBound = othersBound.size
-                    otherBoundLines = othersBoundLines
-                    chainActive = binding != null
-                    savedBinding = binding
-                    isSelectedProfile = current.id == Settings.selectedProfile
-                    val savedEntry = binding?.entryTag.orEmpty()
-                    entry = hops.find { it.tag == savedEntry }
-                        ?: hops.find { it.tag == suggested }
-                        ?: hops.firstOrNull { !ChainRuntimeCompiler.isFinalLike(it.tag) }
-                    // Display only: the fallback selection above is unchanged,
-                    // but the user is told the saved entry is gone.
-                    savedEntryStale = if (binding != null && savedEntry.isNotEmpty() &&
-                        hops.none { it.tag == savedEntry }
-                    ) {
-                        savedEntry
-                    } else {
-                        null
+                ApplicationDataAccess.operation {
+                    val profiles = ProfileManager.list()
+                    val wantId = if (fallbackId > 0L) fallbackId else Settings.selectedProfile
+                    val current = profiles.find { it.id == wantId } ?: profiles.find { it.id == Settings.selectedProfile }
+                    if (current == null) {
+                        withContext(Dispatchers.Main) { loadError = "未选择配置" }
+                        return@operation
                     }
-                    if (binding != null) {
-                        val found = others.flatMap { it.hops }.find {
-                            it.profileId == binding.landingProfileId && it.tag == binding.landingTag
+                    val content =
+                        io.nekohasekai.sfa.utils.ProfileFiles
+                            .readText(File(current.typed.path))
+                    val root = ChainRuntimeCompiler.parseConfig(content)
+                    val routeFinal =
+                        root
+                            .optJSONObject("route")
+                            ?.optString("final")
+                            ?.trim()
+                            .orEmpty()
+                    val hops =
+                        ChainRuntimeCompiler.listSelectableHops(content, current.id, current.name).map {
+                            HopRef(it.profileId, it.profileName, it.tag, it.type)
                         }
-                        exit = found
-                        savedLandingStale = if (found == null) {
-                            val landProfileName = profiles.find { it.id == binding.landingProfileId }?.name
-                            when {
-                                binding.invalidated ->
-                                    "原落地「${binding.landingTag}」已失效：${binding.invalidReason.ifBlank { "落地配置不可用" }}，请重新选择落地。"
-                                landProfileName != null ->
-                                    "原落地「$landProfileName / ${binding.landingTag}」已失效（订阅更新或改名），请重新选择落地。"
-                                else ->
-                                    "原落地「${binding.landingTag}」已失效（落地配置不存在），请重新选择落地。"
+                    val suggested =
+                        ChainRuntimeCompiler.resolveMainTag(
+                            root.optJSONArray("outbounds") ?: JSONArray(),
+                            routeFinal,
+                        )
+                    val others =
+                        profiles.mapNotNull { p ->
+                            val parsed = parseHopsFromProfile(p)
+                            if (parsed.isEmpty()) null else ProfileChoice(p.id, p.name, parsed)
+                        }
+                    val binding = ChainBindings.get(current.id)
+                    val othersBound = ChainBindings.all().filter { it.profileId != current.id }
+                    val othersBoundLines =
+                        othersBound.map { b ->
+                            val src =
+                                profiles
+                                    .find { it.id == b.profileId }
+                                    ?.name
+                                    ?.ifBlank { null } ?: "配置 ${b.profileId}"
+                            val dstName =
+                                profiles
+                                    .find { it.id == b.landingProfileId }
+                                    ?.name
+                                    ?.ifBlank { null }
+                            val land = if (dstName != null) "$dstName / ${b.landingTag}" else b.landingTag
+                            "$src  →  $land"
+                        }
+                    val loadedSnapshot = ApplicationDataAccess.snapshot()
+                    withContext(Dispatchers.Main) {
+                        dataSnapshot = loadedSnapshot
+                        currentProfileId = current.id
+                        currentProfileName = current.name
+                        currentProfilePath = current.typed.path
+                        currentHops = hops
+                        allProfiles = others
+                        loadError = null
+                        otherBound = othersBound.size
+                        otherBoundLines = othersBoundLines
+                        chainActive = binding != null
+                        savedBinding = binding
+                        isSelectedProfile = current.id == Settings.selectedProfile
+                        val savedEntry = binding?.entryTag.orEmpty()
+                        entry = hops.find { it.tag == savedEntry }
+                            ?: hops.find { it.tag == suggested }
+                            ?: hops.firstOrNull { !ChainRuntimeCompiler.isFinalLike(it.tag) }
+                        // Display only: the fallback selection above is unchanged,
+                        // but the user is told the saved entry is gone.
+                        savedEntryStale =
+                            if (binding != null && savedEntry.isNotEmpty() &&
+                                hops.none { it.tag == savedEntry }
+                            ) {
+                                savedEntry
+                            } else {
+                                null
                             }
+                        if (binding != null) {
+                            val found =
+                                others.flatMap { it.hops }.find {
+                                    it.profileId == binding.landingProfileId && it.tag == binding.landingTag
+                                }
+                            exit = found
+                            savedLandingStale =
+                                if (found == null) {
+                                    val landProfileName = profiles.find { it.id == binding.landingProfileId }?.name
+                                    when {
+                                        binding.invalidated -> {
+                                            "原落地「${binding.landingTag}」已失效：${binding.invalidReason.ifBlank { "落地配置不可用" }}，请重新选择落地。"
+                                        }
+
+                                        landProfileName != null -> {
+                                            "原落地「$landProfileName / ${binding.landingTag}」已失效（订阅更新或改名），请重新选择落地。"
+                                        }
+
+                                        else -> {
+                                            "原落地「${binding.landingTag}」已失效（落地配置不存在），请重新选择落地。"
+                                        }
+                                    }
+                                } else {
+                                    null
+                                }
                         } else {
-                            null
+                            exit = null
+                            savedLandingStale = null
                         }
-                    } else {
-                        exit = null
-                        savedLandingStale = null
                     }
                 }
             } catch (e: Exception) {
@@ -274,74 +318,90 @@ fun ChainBuilderScreen(
     LaunchedEffect(Unit) { reload() }
 
     fun save() {
-        val landing = exit ?: run {
-            scope.launch { snackbar.showSnackbar("请先选择落地代理") }
-            return
-        }
-        val main = entry ?: run {
-            scope.launch { snackbar.showSnackbar("请先选择入口分组或节点") }
-            return
-        }
+        val landing =
+            exit ?: run {
+                scope.launch { snackbar.showSnackbar("请先选择落地代理") }
+                return
+            }
+        val main =
+            entry ?: run {
+                scope.launch { snackbar.showSnackbar("请先选择入口分组或节点") }
+                return
+            }
         if (landing.profileId == currentProfileId && landing.tag == main.tag) {
             scope.launch { snackbar.showSnackbar("入口与落地不能是同一个 outbound") }
             return
         }
         val path = currentProfilePath ?: return
         val boundId = currentProfileId
+        val loadedSnapshot = dataSnapshot
         busy = true
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val file = File(path)
-                    val raw = io.nekohasekai.sfa.utils.ProfileFiles.readText(file)
-                    val originalFinal = ChainRuntimeCompiler.parseConfig(raw).optJSONObject("route")
-                        ?.optString("final")
-                        ?.takeIf { it.isNotBlank() && !it.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX) }
-                    val landingContent = if (landing.profileId == boundId) {
-                        null
-                    } else {
-                        val landingProfile = ProfileManager.get(landing.profileId)
-                            ?: error("落地配置不存在")
-                        // Validate against the same prepared content the
-                        // runtime chain will see (heal + landing scripts).
-                        io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(
-                            io.nekohasekai.sfa.utils.ProfileFiles.readText(File(landingProfile.typed.path)),
-                            landing.profileId,
-                        )
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        ApplicationDataAccess.operation(loadedSnapshot ?: error("Reload chains before changing them")) {
+                            val file = File(path)
+                            val raw =
+                                io.nekohasekai.sfa.utils.ProfileFiles
+                                    .readText(file)
+                            val originalFinal =
+                                ChainRuntimeCompiler
+                                    .parseConfig(raw)
+                                    .optJSONObject("route")
+                                    ?.optString("final")
+                                    ?.takeIf { it.isNotBlank() && !it.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX) }
+                            val landingContent =
+                                if (landing.profileId == boundId) {
+                                    null
+                                } else {
+                                    val landingProfile =
+                                        ProfileManager.get(landing.profileId)
+                                            ?: error("落地配置不存在")
+                                    // Validate against the same prepared content the
+                                    // runtime chain will see (heal + landing scripts).
+                                    io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(
+                                        io.nekohasekai.sfa.utils.ProfileFiles
+                                            .readText(File(landingProfile.typed.path)),
+                                        landing.profileId,
+                                    )
+                                }
+                            // apply() is validation-only here: it throws if entry/landing
+                            // is illegal. The profile JSON stays clean (clear() writes it
+                            // back). Runtime chaining is deferred to ConfigChainReapply.
+                            ChainRuntimeCompiler.apply(
+                                ChainRuntimeCompiler.ApplyRequest(
+                                    content = raw,
+                                    currentProfileId = boundId,
+                                    entryTag = main.tag,
+                                    landingProfileId = landing.profileId,
+                                    landingTag = landing.tag,
+                                    landingContent = landingContent,
+                                ),
+                            )
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .writeAtomically(file, ChainRuntimeCompiler.clear(raw, originalFinal))
+                            ChainBindings.put(
+                                ChainBinding(
+                                    profileId = boundId,
+                                    entryTag = main.tag,
+                                    landingProfileId = landing.profileId,
+                                    landingTag = landing.tag,
+                                ),
+                            )
+                        }
                     }
-                    // apply() is validation-only here: it throws if entry/landing
-                    // is illegal. The profile JSON stays clean (clear() writes it
-                    // back). Runtime chaining is deferred to ConfigChainReapply.
-                    ChainRuntimeCompiler.apply(
-                        ChainRuntimeCompiler.ApplyRequest(
-                            content = raw,
-                            currentProfileId = boundId,
-                            entryTag = main.tag,
-                            landingProfileId = landing.profileId,
-                            landingTag = landing.tag,
-                            landingContent = landingContent,
-                        ),
-                    )
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, ChainRuntimeCompiler.clear(raw, originalFinal))
-                    ChainBindings.put(
-                        ChainBinding(
-                            profileId = boundId,
-                            entryTag = main.tag,
-                            landingProfileId = landing.profileId,
-                            landingTag = landing.tag,
-                        ),
-                    )
                 }
-            }
             busy = false
             if (result.isSuccess) {
                 chainActive = true
-                savedBinding = ChainBinding(
-                    profileId = boundId,
-                    entryTag = main.tag,
-                    landingProfileId = landing.profileId,
-                    landingTag = landing.tag,
-                )
+                savedBinding =
+                    ChainBinding(
+                        profileId = boundId,
+                        entryTag = main.tag,
+                        landingProfileId = landing.profileId,
+                        landingTag = landing.tag,
+                    )
                 savedEntryStale = null
                 savedLandingStale = null
                 if (boundId == Settings.selectedProfile) {
@@ -359,17 +419,26 @@ fun ChainBuilderScreen(
     fun clearChain() {
         val path = currentProfilePath ?: return
         val boundId = currentProfileId
+        val loadedSnapshot = dataSnapshot
         busy = true
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val file = File(path)
-                    val root = ChainRuntimeCompiler.parseConfig(io.nekohasekai.sfa.utils.ProfileFiles.readText(file))
-                    val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, ChainRuntimeCompiler.clear(root.toString(), final))
-                    ChainBindings.remove(boundId)
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        ApplicationDataAccess.operation(loadedSnapshot ?: error("Reload chains before changing them")) {
+                            val file = File(path)
+                            val root =
+                                ChainRuntimeCompiler.parseConfig(
+                                    io.nekohasekai.sfa.utils.ProfileFiles
+                                        .readText(file),
+                                )
+                            val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .writeAtomically(file, ChainRuntimeCompiler.clear(root.toString(), final))
+                            ChainBindings.remove(boundId)
+                        }
+                    }
                 }
-            }
             busy = false
             if (result.isSuccess) {
                 exit = null
@@ -392,13 +461,18 @@ fun ChainBuilderScreen(
     // B4: dirty = current picks differ from the saved binding (or a
     // landing was picked with no binding yet). The entry's automatic
     // fallback selection alone does not count when nothing is bound.
-    val chainDirty = when (val saved = savedBinding) {
-        null -> exit != null
-        else ->
-            entry?.tag != saved.entryTag ||
-                exit?.profileId != saved.landingProfileId ||
-                exit?.tag != saved.landingTag
-    }
+    val chainDirty =
+        when (val saved = savedBinding) {
+            null -> {
+                exit != null
+            }
+
+            else -> {
+                entry?.tag != saved.entryTag ||
+                    exit?.profileId != saved.landingProfileId ||
+                    exit?.tag != saved.landingTag
+            }
+        }
 
     OverrideTopBar {
         TopAppBar(
@@ -424,10 +498,11 @@ fun ChainBuilderScreen(
 
     Box(Modifier.fillMaxSize().padding(LocalScaffoldPadding.current)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (loadError != null) {
@@ -450,9 +525,10 @@ fun ChainBuilderScreen(
                 onExpandedChange = { profileMenu = it },
             ) {
                 Surface(
-                    modifier = Modifier
-                        .then(menuAnchorCompat(true))
-                        .fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .then(menuAnchorCompat(true))
+                            .fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     color = scheme.surfaceContainerHigh,
                 ) {
@@ -586,11 +662,12 @@ fun ChainBuilderScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(enabled = !busy) { showOtherBound = true }
-                        .padding(vertical = 4.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = !busy) { showOtherBound = true }
+                            .padding(vertical = 4.dp),
                 )
             }
 
@@ -609,9 +686,10 @@ fun ChainBuilderScreen(
                 // uses. A materialized binding does NOT silently fall
                 // back to another entry at startup — the banner must
                 // not claim it was "自动改用" in that case.
-                val entryFailsClosed = savedBinding?.let {
-                    ChainBindingCodec.entryDisappearanceFailsClosed(it, entryMissing = true)
-                } ?: false
+                val entryFailsClosed =
+                    savedBinding?.let {
+                        ChainBindingCodec.entryDisappearanceFailsClosed(it, entryMissing = true)
+                    } ?: false
                 Text(
                     if (entryFailsClosed) {
                         "保存的入口「$savedEntryStale」已失效。该绑定上次已成功生效，为防泄漏不会自动改走其它入口，启动将停止并报错，请重新选择入口后保存。"
@@ -639,20 +717,20 @@ fun ChainBuilderScreen(
 
             val ctaShape = RoundedCornerShape(18.dp)
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .alpha(if (canSave) 1f else 0.45f)
-                    .clip(ctaShape)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                scheme.primary,
-                                lerp(scheme.primary, scheme.secondary, 0.55f),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .alpha(if (canSave) 1f else 0.45f)
+                        .clip(ctaShape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    scheme.primary,
+                                    lerp(scheme.primary, scheme.secondary, 0.55f),
+                                ),
                             ),
-                        ),
-                    )
-                    .clickable(enabled = canSave, onClick = { save() }),
+                        ).clickable(enabled = canSave, onClick = { save() }),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -704,33 +782,36 @@ fun ChainBuilderScreen(
     }
 
     if (picker != null) {
-        val source = if (picker == "entry") {
-            currentHops
-        } else {
-            allProfiles.flatMap { it.hops }.filter { hop ->
-                !(hop.profileId == currentProfileId && hop.tag == entry?.tag)
-            }
-        }
-        val q = pickerQuery.trim().lowercase()
-        val filtered = if (q.isEmpty()) {
-            source
-        } else {
-            source.filter {
-                it.tag.lowercase().contains(q) || it.profileName.lowercase().contains(q)
-            }
-        }
-        val grouped = if (picker == "landing") {
-            val currentFirst = filtered.filter { it.profileId == currentProfileId }
-            val rest = filtered.filter { it.profileId != currentProfileId }.groupBy { it.profileId to it.profileName }
-            buildList {
-                if (currentFirst.isNotEmpty()) add(currentProfileName to currentFirst)
-                allProfiles.filter { it.id != currentProfileId }.forEach { p ->
-                    rest[p.id to p.name]?.let { add(p.name to it) }
+        val source =
+            if (picker == "entry") {
+                currentHops
+            } else {
+                allProfiles.flatMap { it.hops }.filter { hop ->
+                    !(hop.profileId == currentProfileId && hop.tag == entry?.tag)
                 }
             }
-        } else {
-            listOf("" to filtered)
-        }
+        val q = pickerQuery.trim().lowercase()
+        val filtered =
+            if (q.isEmpty()) {
+                source
+            } else {
+                source.filter {
+                    it.tag.lowercase().contains(q) || it.profileName.lowercase().contains(q)
+                }
+            }
+        val grouped =
+            if (picker == "landing") {
+                val currentFirst = filtered.filter { it.profileId == currentProfileId }
+                val rest = filtered.filter { it.profileId != currentProfileId }.groupBy { it.profileId to it.profileName }
+                buildList {
+                    if (currentFirst.isNotEmpty()) add(currentProfileName to currentFirst)
+                    allProfiles.filter { it.id != currentProfileId }.forEach { p ->
+                        rest[p.id to p.name]?.let { add(p.name to it) }
+                    }
+                }
+            } else {
+                listOf("" to filtered)
+            }
         AlertDialog(
             onDismissRequest = { picker = null },
             title = { Text(if (picker == "entry") "选择入口" else "选择落地") },
@@ -764,16 +845,19 @@ fun ChainBuilderScreen(
                             }
                             items(hops, key = { "${it.profileId}:${it.tag}" }) { hop ->
                                 Column(
-                                    modifier = Modifier.fillMaxWidth().clickable {
-                                        if (picker == "entry") {
-                                            entry = hop
-                                            savedEntryStale = null
-                                        } else {
-                                            exit = hop
-                                            savedLandingStale = null
-                                        }
-                                        picker = null
-                                    }.padding(vertical = 10.dp),
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                if (picker == "entry") {
+                                                    entry = hop
+                                                    savedEntryStale = null
+                                                } else {
+                                                    exit = hop
+                                                    savedLandingStale = null
+                                                }
+                                                picker = null
+                                            }.padding(vertical = 10.dp),
                                 ) {
                                     Text(
                                         "${hop.tag} · ${hop.typeLabel}",
@@ -836,31 +920,39 @@ fun ChainBuilderScreen(
 }
 
 @Composable
-private fun StatusPill(active: Boolean, bound: Boolean, dirty: Boolean = false) {
+private fun StatusPill(
+    active: Boolean,
+    bound: Boolean,
+    dirty: Boolean = false,
+) {
     val scheme = MaterialTheme.colorScheme
-    val label = when {
-        dirty -> "有未保存修改"
-        bound -> "已绑定链路"
-        active -> "已绑定"
-        else -> "未绑定"
-    }
-    val color = when {
-        dirty -> scheme.error
-        bound -> scheme.primary
-        else -> scheme.onSurfaceVariant
-    }
+    val label =
+        when {
+            dirty -> "有未保存修改"
+            bound -> "已绑定链路"
+            active -> "已绑定"
+            else -> "未绑定"
+        }
+    val color =
+        when {
+            dirty -> scheme.error
+            bound -> scheme.primary
+            else -> scheme.onSurfaceVariant
+        }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.12f))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .background(color.copy(alpha = 0.12f))
+                .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Box(
-            modifier = Modifier
-                .size(7.dp)
-                .background(color, CircleShape),
+            modifier =
+                Modifier
+                    .size(7.dp)
+                    .background(color, CircleShape),
         )
         Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
@@ -883,35 +975,40 @@ private fun HopOrb(
     val glow by pulse.animateFloat(
         initialValue = 0.28f,
         targetValue = if (selected) 0.7f else 0.28f,
-        animationSpec = infiniteRepeatable(
-            tween(if (selected) 1600 else 2400, easing = LinearEasing),
-            RepeatMode.Reverse,
-        ),
+        animationSpec =
+            infiniteRepeatable(
+                tween(if (selected) 1600 else 2400, easing = LinearEasing),
+                RepeatMode.Reverse,
+            ),
         label = "glow-$role",
     )
-    val flag = if (showFlag && hop != null && hop.type != "urltest" && hop.type != "selector") {
-        regionGlyph(hop.tag)
-    } else {
-        null
-    }
+    val flag =
+        if (showFlag && hop != null && hop.type != "urltest" && hop.type != "selector") {
+            regionGlyph(hop.tag)
+        } else {
+            null
+        }
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 4.dp),
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(96.dp)) {
             Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .border(1.dp, ring.copy(alpha = glow), CircleShape),
+                modifier =
+                    Modifier
+                        .size(96.dp)
+                        .border(1.dp, ring.copy(alpha = glow), CircleShape),
             )
             Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .border(2.dp, ring.copy(alpha = 0.95f), CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape),
+                modifier =
+                    Modifier
+                        .size(72.dp)
+                        .border(2.dp, ring.copy(alpha = 0.95f), CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 if (!flag.isNullOrEmpty()) {
@@ -947,7 +1044,10 @@ private fun HopOrb(
 }
 
 @Composable
-private fun LinkPulse(active: Boolean, modifier: Modifier = Modifier) {
+private fun LinkPulse(
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val color = MaterialTheme.colorScheme.primary
     val dim = color.copy(alpha = 0.22f)
     val t = rememberInfiniteTransition(label = "link")
@@ -964,14 +1064,15 @@ private fun LinkPulse(active: Boolean, modifier: Modifier = Modifier) {
         drawLine(dim, Offset(start, y), Offset(end, y), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
         val mid = size.width / 2f
         val amp = size.height * 0.38f
-        val beat = Path().apply {
-            moveTo(mid - 16.dp.toPx(), y)
-            lineTo(mid - 7.dp.toPx(), y)
-            lineTo(mid - 3.dp.toPx(), y - amp)
-            lineTo(mid + 3.dp.toPx(), y + amp)
-            lineTo(mid + 7.dp.toPx(), y)
-            lineTo(mid + 16.dp.toPx(), y)
-        }
+        val beat =
+            Path().apply {
+                moveTo(mid - 16.dp.toPx(), y)
+                lineTo(mid - 7.dp.toPx(), y)
+                lineTo(mid - 3.dp.toPx(), y - amp)
+                lineTo(mid + 3.dp.toPx(), y + amp)
+                lineTo(mid + 7.dp.toPx(), y)
+                lineTo(mid + 16.dp.toPx(), y)
+            }
         drawPath(
             beat,
             if (active) color else dim,
@@ -985,20 +1086,35 @@ private fun LinkPulse(active: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-private fun hopIcon(hop: HopRef?) = when (hop?.type) {
-    "urltest" -> Icons.Outlined.Bolt
-    "selector" -> Icons.Outlined.Hub
-    null -> Icons.Outlined.Settings
-    else -> Icons.Outlined.Public
-}
+private fun hopIcon(hop: HopRef?) =
+    when (hop?.type) {
+        "urltest" -> Icons.Outlined.Bolt
+        "selector" -> Icons.Outlined.Hub
+        null -> Icons.Outlined.Settings
+        else -> Icons.Outlined.Public
+    }
 
-private val REGION_FLAGS = listOf(
-    "HK" to "🇭🇰", "TW" to "🇹🇼", "JP" to "🇯🇵", "KR" to "🇰🇷",
-    "SG" to "🇸🇬", "US" to "🇺🇸", "UK" to "🇬🇧", "GB" to "🇬🇧",
-    "DE" to "🇩🇪", "FR" to "🇫🇷", "NL" to "🇳🇱", "AU" to "🇦🇺",
-    "CA" to "🇨🇦", "TR" to "🇹🇷", "IN" to "🇮🇳", "BR" to "🇧🇷",
-    "RU" to "🇷🇺", "MO" to "🇲🇴",
-)
+private val REGION_FLAGS =
+    listOf(
+        "HK" to "🇭🇰",
+        "TW" to "🇹🇼",
+        "JP" to "🇯🇵",
+        "KR" to "🇰🇷",
+        "SG" to "🇸🇬",
+        "US" to "🇺🇸",
+        "UK" to "🇬🇧",
+        "GB" to "🇬🇧",
+        "DE" to "🇩🇪",
+        "FR" to "🇫🇷",
+        "NL" to "🇳🇱",
+        "AU" to "🇦🇺",
+        "CA" to "🇨🇦",
+        "TR" to "🇹🇷",
+        "IN" to "🇮🇳",
+        "BR" to "🇧🇷",
+        "RU" to "🇷🇺",
+        "MO" to "🇲🇴",
+    )
 
 private fun regionGlyph(tag: String): String? {
     val raw = tag.trim()
@@ -1023,12 +1139,15 @@ private fun regionGlyph(tag: String): String? {
     return REGION_FLAGS.firstOrNull { it.first == cc }?.second
 }
 
-private fun parseHopsFromProfile(profile: Profile): List<HopRef> = try {
-    ChainRuntimeCompiler.listSelectableHops(
-        io.nekohasekai.sfa.utils.ProfileFiles.readText(File(profile.typed.path)),
-        profile.id,
-        profile.name,
-    ).map { HopRef(it.profileId, it.profileName, it.tag, it.type) }
-} catch (_: Exception) {
-    emptyList()
-}
+private fun parseHopsFromProfile(profile: Profile): List<HopRef> =
+    try {
+        ChainRuntimeCompiler
+            .listSelectableHops(
+                io.nekohasekai.sfa.utils.ProfileFiles
+                    .readText(File(profile.typed.path)),
+                profile.id,
+                profile.name,
+            ).map { HopRef(it.profileId, it.profileName, it.tag, it.type) }
+    } catch (_: Exception) {
+        emptyList()
+    }

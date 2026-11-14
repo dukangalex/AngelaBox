@@ -23,6 +23,11 @@ class Profile(
     @ColumnInfo(defaultValue = "NULL") var icon: String? = null,
     var typed: TypedProfile = TypedProfile(),
 ) : Parcelable {
+    // Process-local provenance; never stored in Room or accepted from a parcel.
+    @androidx.room.Ignore
+    @kotlinx.parcelize.IgnoredOnParcel
+    internal var restoreSnapshot: io.nekohasekai.sfa.utils.RestoreAccessGate.Snapshot? = null
+
     @androidx.room.Dao
     interface Dao {
         @Insert

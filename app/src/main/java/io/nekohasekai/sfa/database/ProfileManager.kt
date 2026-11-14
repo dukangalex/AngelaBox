@@ -5,6 +5,7 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import io.nekohasekai.sfa.utils.OverlayScripts
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -30,18 +31,21 @@ object ProfileManager {
         db?.takeIf { it.isOpen }?.let { return it }
         synchronized(dbLock) {
             db?.takeIf { it.isOpen }?.let { return it }
-            Application.application.getDatabasePath(Path.PROFILES_DATABASE_PATH).parentFile?.mkdirs()
+            Application.application
+                .getDatabasePath(Path.PROFILES_DATABASE_PATH)
+                .parentFile
+                ?.mkdirs()
             DatabaseDowngradeGuard.backupIfNewer(Application.application, Path.PROFILES_DATABASE_PATH, ProfileDatabase.VERSION)
-            val built = Room
-                .databaseBuilder(
-                    Application.application,
-                    ProfileDatabase::class.java,
-                    Path.PROFILES_DATABASE_PATH,
-                )
-                .addMigrations(ProfileDatabase.MIGRATION_1_2, ProfileDatabase.MIGRATION_2_3)
-                .fallbackToDestructiveMigrationOnDowngrade()
-                .enableMultiInstanceInvalidation()
-                .build()
+            val built =
+                Room
+                    .databaseBuilder(
+                        Application.application,
+                        ProfileDatabase::class.java,
+                        Path.PROFILES_DATABASE_PATH,
+                    ).addMigrations(ProfileDatabase.MIGRATION_1_2, ProfileDatabase.MIGRATION_2_3)
+                    .fallbackToDestructiveMigrationOnDowngrade()
+                    .enableMultiInstanceInvalidation()
+                    .build()
             db = built
             return built
         }
@@ -53,11 +57,20 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = guardedProfileDao.get(id)
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false): Profile =
-        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { createAdmitted(profile, andSelect) }
+    suspend fun create(
+        profile: Profile,
+        andSelect: Boolean = false,
+    ): Profile =
+        io.nekohasekai.sfa.utils.ApplicationDataAccess
+            .operation { createAdmitted(profile, andSelect) }
 
-    private suspend fun createAdmitted(profile: Profile, andSelect: Boolean): Profile {
+    private suspend fun createAdmitted(
+        profile: Profile,
+        andSelect: Boolean,
+    ): Profile {
+        profile.restoreSnapshot?.let(ApplicationDataAccess.gate::requireSnapshot)
         profile.id = guardedProfileDao.insert(profile)
+        profile.restoreSnapshot = ApplicationDataAccess.snapshot()
         if (andSelect) {
             Settings.selectedProfile = profile.id
         }
@@ -68,9 +81,11 @@ object ProfileManager {
     }
 
     suspend fun update(profile: Profile): Int =
-        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { updateAdmitted(profile) }
+        io.nekohasekai.sfa.utils.ApplicationDataAccess
+            .operation { updateAdmitted(profile) }
 
     private suspend fun updateAdmitted(profile: Profile): Int {
+        requireCurrent(profile)
         try {
             return guardedProfileDao.update(profile)
         } finally {
@@ -81,9 +96,11 @@ object ProfileManager {
     }
 
     suspend fun update(profiles: List<Profile>): Int =
-        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { updateAdmitted(profiles) }
+        io.nekohasekai.sfa.utils.ApplicationDataAccess
+            .operation { updateAdmitted(profiles) }
 
     private suspend fun updateAdmitted(profiles: List<Profile>): Int {
+        profiles.forEach(::requireCurrent)
         try {
             return guardedProfileDao.update(profiles)
         } finally {
@@ -104,9 +121,11 @@ object ProfileManager {
         private set
 
     suspend fun delete(profile: Profile): Int =
-        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { deleteAdmitted(profile) }
+        io.nekohasekai.sfa.utils.ApplicationDataAccess
+            .operation { deleteAdmitted(profile) }
 
     private suspend fun deleteAdmitted(profile: Profile): Int {
+        requireCurrent(profile)
         try {
             lastDeleteChainInvalidated =
                 runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
@@ -121,9 +140,11 @@ object ProfileManager {
     }
 
     suspend fun delete(profiles: List<Profile>): Int =
-        io.nekohasekai.sfa.utils.ApplicationDataAccess.operation { deleteAdmitted(profiles) }
+        io.nekohasekai.sfa.utils.ApplicationDataAccess
+            .operation { deleteAdmitted(profiles) }
 
     private suspend fun deleteAdmitted(profiles: List<Profile>): Int {
+        profiles.forEach(::requireCurrent)
         try {
             var invalidated = 0
             profiles.forEach { p ->
@@ -142,32 +163,110 @@ object ProfileManager {
 
     suspend fun list(): List<Profile> = guardedProfileDao.list()
 
-    private val guardedProfileDao = object : Profile.Dao {
-        private fun <T> access(block: (Profile.Dao) -> T): T =
-            io.nekohasekai.sfa.utils.ApplicationDataAccess.access { block(database().profileDao()) }
-        override fun insert(profile: Profile) = access { it.insert(profile) }
-        override fun update(profile: Profile) = access { it.update(profile) }
-        override fun update(profile: List<Profile>) = access { it.update(profile) }
-        override fun delete(profile: Profile) = access { it.delete(profile) }
-        override fun delete(profile: List<Profile>) = access { it.delete(profile) }
-        override fun get(profileId: Long) = access { it.get(profileId) }
-        override fun list() = access { it.list() }
-        override fun clear() = access { it.clear() }
-        override fun nextOrder() = access { it.nextOrder() }
-        override fun nextFileID() = access { it.nextFileID() }
+    private fun requireCurrent(profile: Profile) {
+        ApplicationDataAccess.gate.requireSnapshot(
+            profile.restoreSnapshot ?: error("Reload the profile before using it"),
+        )
     }
 
-    private val guardedRemoteDao = object : RemoteServer.Dao {
-        private fun <T> access(block: (RemoteServer.Dao) -> T): T =
-            io.nekohasekai.sfa.utils.ApplicationDataAccess.access { block(database().remoteServerDao()) }
-        override fun insert(server: RemoteServer) = access { it.insert(server) }
-        override fun update(server: RemoteServer) = access { it.update(server) }
-        override fun update(servers: List<RemoteServer>) = access { it.update(servers) }
-        override fun delete(server: RemoteServer) = access { it.delete(server) }
-        override fun get(serverId: Long) = access { it.get(serverId) }
-        override fun list() = access { it.list() }
-        override fun nextOrder() = access { it.nextOrder() }
-    }
+    /** A cached Profile is not an operation lease and must not survive replacement. */
+    internal suspend fun <T> withProfile(
+        profile: Profile,
+        block: suspend () -> T,
+    ): T =
+        ApplicationDataAccess.operation {
+            requireCurrent(profile)
+            block()
+        }
+
+    internal fun <T> accessProfile(
+        profile: Profile,
+        block: () -> T,
+    ): T =
+        ApplicationDataAccess.access {
+            requireCurrent(profile)
+            block()
+        }
+
+    private val guardedProfileDao =
+        object : Profile.Dao {
+            private fun <T> access(block: (Profile.Dao) -> T): T =
+                io.nekohasekai.sfa.utils.ApplicationDataAccess
+                    .access { block(database().profileDao()) }
+
+            override fun insert(profile: Profile) = access { it.insert(profile) }
+
+            override fun update(profile: Profile) = access { it.update(profile) }
+
+            override fun update(profile: List<Profile>) = access { it.update(profile) }
+
+            override fun delete(profile: Profile) = access { it.delete(profile) }
+
+            override fun delete(profile: List<Profile>) = access { it.delete(profile) }
+
+            override fun get(profileId: Long) =
+                access {
+                    it.get(profileId)?.also { profile -> profile.restoreSnapshot = ApplicationDataAccess.snapshot() }
+                }
+
+            override fun list() =
+                access {
+                    it.list().onEach { profile -> profile.restoreSnapshot = ApplicationDataAccess.snapshot() }
+                }
+
+            override fun clear() = access { it.clear() }
+
+            override fun nextOrder() = access { it.nextOrder() }
+
+            override fun nextFileID() = access { it.nextFileID() }
+        }
+
+    private val guardedRemoteDao =
+        object : RemoteServer.Dao {
+            private fun <T> access(block: (RemoteServer.Dao) -> T): T =
+                io.nekohasekai.sfa.utils.ApplicationDataAccess
+                    .access { block(database().remoteServerDao()) }
+
+            private fun requireCurrent(server: RemoteServer) {
+                ApplicationDataAccess.gate.requireSnapshot(server.restoreSnapshot ?: error("Reload the server before changing it"))
+            }
+
+            override fun insert(server: RemoteServer) =
+                access {
+                    server.restoreSnapshot?.let(ApplicationDataAccess.gate::requireSnapshot)
+                    it.insert(server).also { server.restoreSnapshot = ApplicationDataAccess.snapshot() }
+                }
+
+            override fun update(server: RemoteServer) =
+                access { dao ->
+                    requireCurrent(server)
+                    dao.update(server)
+                }
+
+            override fun update(servers: List<RemoteServer>) =
+                access { dao ->
+                    servers.forEach(::requireCurrent)
+                    dao.update(servers)
+                }
+
+            override fun delete(server: RemoteServer) =
+                access { dao ->
+                    requireCurrent(server)
+                    dao.delete(server)
+                }
+
+            override fun get(serverId: Long) =
+                access {
+                    it.get(serverId)?.also { server -> server.restoreSnapshot = ApplicationDataAccess.snapshot() }
+                }
+
+            override fun list() =
+                access {
+                    it.list().onEach { server -> server.restoreSnapshot = ApplicationDataAccess.snapshot() }
+                }
+
+            override fun nextOrder() = access { it.nextOrder() }
+        }
 
     fun remoteServerDao(): RemoteServer.Dao = guardedRemoteDao
 

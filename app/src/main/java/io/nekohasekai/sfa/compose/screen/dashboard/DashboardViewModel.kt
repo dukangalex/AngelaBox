@@ -159,7 +159,10 @@ data class DashboardUiState(
     // bindings; the UI confirms with the affected list before deleting.
     val pendingChainDelete: PendingChainDelete? = null,
 ) {
-    data class DeprecatedNote(val message: String, val migrationLink: String?)
+    data class DeprecatedNote(
+        val message: String,
+        val migrationLink: String?,
+    )
 
     data class PendingChainDelete(
         val profile: Profile,
@@ -172,7 +175,11 @@ data class DashboardUiState(
 // 标明所属配置，切换配置后旧结果一律不再呈现。
 sealed interface NetworkCheckupUiState {
     data object Idle : NetworkCheckupUiState
-    data class Running(val step: NetworkCheckup.ItemId) : NetworkCheckupUiState
+
+    data class Running(
+        val step: NetworkCheckup.ItemId,
+    ) : NetworkCheckupUiState
+
     data class Done(
         val result: NetworkCheckup.Result,
         val profileId: Long,
@@ -264,8 +271,9 @@ class DashboardViewModel :
                 _serviceStatus,
             ) { foreground, remoteServer, remoteConnected, status ->
                 SessionTarget(
-                    connect = foreground &&
-                        if (remoteServer != null) remoteConnected else status == Status.Started,
+                    connect =
+                        foreground &&
+                            if (remoteServer != null) remoteConnected else status == Status.Started,
                     remoteServerId = remoteServer?.id,
                 )
             }.distinctUntilChanged().collect { target ->
@@ -278,7 +286,10 @@ class DashboardViewModel :
         }
     }
 
-    private data class SessionTarget(val connect: Boolean, val remoteServerId: Long?)
+    private data class SessionTarget(
+        val connect: Boolean,
+        val remoteServerId: Long?,
+    )
 
     override fun onCleared() {
         super.onCleared()
@@ -318,23 +329,28 @@ class DashboardViewModel :
                             selectedProfileName = selected?.name,
                             chainPath = path,
                             topology = topology,
-                            showOnboardingGuide = profiles.isEmpty() &&
-                                !Settings.onboardingGuideDismissed,
+                            showOnboardingGuide =
+                                profiles.isEmpty() &&
+                                    !Settings.onboardingGuideDismissed,
                             // AB-011: the selection can also change outside
                             // selectProfile (profile deleted elsewhere,
                             // settings restored). A finished checkup whose
                             // profile no longer matches the selection is
                             // dropped instead of shown under the wrong name.
                             checkup =
-                            when (val done = checkup) {
-                                is NetworkCheckupUiState.Done ->
-                                    if (done.profileId != selectedId) {
-                                        NetworkCheckupUiState.Idle
-                                    } else {
-                                        done
+                                when (val done = checkup) {
+                                    is NetworkCheckupUiState.Done -> {
+                                        if (done.profileId != selectedId) {
+                                            NetworkCheckupUiState.Idle
+                                        } else {
+                                            done
+                                        }
                                     }
-                                else -> checkup
-                            },
+
+                                    else -> {
+                                        checkup
+                                    }
+                                },
                         )
                     }
                 }
@@ -349,9 +365,10 @@ class DashboardViewModel :
         if (profileId < 0L) return
         SubscriptionUpdateHealth.dismissImportWarnings(Application.application, profileId)
         viewModelScope.launch(Dispatchers.IO) {
-            val issues = runCatching {
-                SubscriptionUpdateHealth.evaluate(Application.application)
-            }.getOrDefault(emptyList())
+            val issues =
+                runCatching {
+                    SubscriptionUpdateHealth.evaluate(Application.application)
+                }.getOrDefault(emptyList())
             withContext(Dispatchers.Main) {
                 updateState { copy(healthIssues = issues) }
             }
@@ -361,9 +378,10 @@ class DashboardViewModel :
     fun reloadChainPath() {
         loadProfiles()
         viewModelScope.launch(Dispatchers.IO) {
-            val issues = runCatching {
-                SubscriptionUpdateHealth.evaluate(Application.application)
-            }.getOrDefault(emptyList())
+            val issues =
+                runCatching {
+                    SubscriptionUpdateHealth.evaluate(Application.application)
+                }.getOrDefault(emptyList())
             withContext(Dispatchers.Main) {
                 updateState { copy(healthIssues = issues) }
             }
@@ -389,7 +407,11 @@ class DashboardViewModel :
         return runCatching {
             val file = File(profile.typed.path)
             if (!file.isFile) return null
-            val root = ChainRuntimeCompiler.parseConfig(io.nekohasekai.sfa.utils.ProfileFiles.readText(file))
+            val root =
+                ChainRuntimeCompiler.parseConfig(
+                    io.nekohasekai.sfa.utils.ProfileFiles
+                        .readText(file),
+                )
             val outs = root.optJSONArray("outbounds") ?: return null
             val routeFinal = root.optJSONObject("route")?.optString("final").orEmpty()
             ChainRuntimeCompiler.resolveMainTag(outs, routeFinal)
@@ -431,8 +453,14 @@ class DashboardViewModel :
 
     fun toggleService() {
         when (currentState.serviceStatus) {
-            Status.Starting, Status.Started -> stopService()
-            Status.Stopped -> sendGlobalEvent(UiEvent.RequestStartService)
+            Status.Starting, Status.Started -> {
+                stopService()
+            }
+
+            Status.Stopped -> {
+                sendGlobalEvent(UiEvent.RequestStartService)
+            }
+
             else -> { /* Ignore while transitioning */ }
         }
     }
@@ -473,11 +501,11 @@ class DashboardViewModel :
                 // profile's result. A run still in flight is dropped at
                 // completion time instead (see runNetworkCheckup).
                 checkup =
-                if (checkup is NetworkCheckupUiState.Done) {
-                    NetworkCheckupUiState.Idle
-                } else {
-                    checkup
-                },
+                    if (checkup is NetworkCheckupUiState.Done) {
+                        NetworkCheckupUiState.Idle
+                    } else {
+                        checkup
+                    },
             )
         }
 
@@ -518,11 +546,12 @@ class DashboardViewModel :
             return
         }
         val byId = currentState.profiles.associateBy { it.id }
-        val lines = affected.map { b ->
-            val src = byId[b.profileId]?.name?.ifBlank { null } ?: "配置 ${b.profileId}"
-            val dst = byId[b.landingProfileId]?.name?.ifBlank { null }
-            if (dst != null) "$src → $dst / ${b.landingTag}" else "$src → ${b.landingTag}"
-        }
+        val lines =
+            affected.map { b ->
+                val src = byId[b.profileId]?.name?.ifBlank { null } ?: "配置 ${b.profileId}"
+                val dst = byId[b.landingProfileId]?.name?.ifBlank { null }
+                if (dst != null) "$src → $dst / ${b.landingTag}" else "$src → ${b.landingTag}"
+            }
         updateState {
             copy(pendingChainDelete = DashboardUiState.PendingChainDelete(profile, lines))
         }
@@ -580,78 +609,93 @@ class DashboardViewModel :
             }
 
             try {
-                // X-4: 与后台 worker 同口径——用 Detailed 拿到「跳过/修正」
-                // 提示并记进健康记录，否则前台更新丢节点时用户看不到提示，
-                // 且旧警告会被 recordSuccess 清掉后无新记录可展示。
-                val detailed = ConfigCompat.sanitizeRemoteDetailed(
-                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
-                        profile.typed.remoteURL,
-                        profile.id,
-                        io.nekohasekai.sfa.Application.application,
-                    ),
-                )
-                val content = detailed.content
-                // G4: same heal-aligned gate as the background worker.
-                // The rejection reason is Chinese and user-facing, so
-                // explainProfileUpdate surfaces it as-is instead of
-                // misreporting a config rejection as a network failure.
-                when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
-                    is ConfigGate.Result.Rejected -> throw IllegalStateException(gate.reason)
-                    is ConfigGate.Result.Accepted -> Unit
-                }
+                val contentChanged =
+                    ProfileManager.withProfile(profile) {
+                        // X-4: 与后台 worker 同口径——用 Detailed 拿到「跳过/修正」
+                        // 提示并记进健康记录，否则前台更新丢节点时用户看不到提示，
+                        // 且旧警告会被 recordSuccess 清掉后无新记录可展示。
+                        val detailed =
+                            ConfigCompat.sanitizeRemoteDetailed(
+                                io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
+                                    profile.typed.remoteURL,
+                                    profile.id,
+                                    io.nekohasekai.sfa.Application.application,
+                                ),
+                            )
+                        val content = detailed.content
+                        // G4: same heal-aligned gate as the background worker.
+                        // The rejection reason is Chinese and user-facing, so
+                        // explainProfileUpdate surfaces it as-is instead of
+                        // misreporting a config rejection as a network failure.
+                        when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
+                            is ConfigGate.Result.Rejected -> throw IllegalStateException(gate.reason)
+                            is ConfigGate.Result.Accepted -> Unit
+                        }
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                var contentChanged = false
-                if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles.readText(file) != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                    contentChanged = true
-                }
+                        // Check if content changed
+                        val file = File(profile.typed.path)
+                        var contentChanged = false
+                        if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles
+                                .readText(file) != content
+                        ) {
+                            // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .writeAtomically(file, content)
+                            contentChanged = true
+                        }
 
-                // Update last updated time
-                profile.typed.lastUpdated = Date()
-                ProfileManager.update(profile)
-                SubscriptionUpdateHealth.recordSuccess(
-                    io.nekohasekai.sfa.Application.application,
-                    profile.id,
-                )
-                SubscriptionUpdateHealth.recordImportWarnings(
-                    io.nekohasekai.sfa.Application.application,
-                    profile.id,
-                    detailed.notes,
-                )
-                // AB-019: foreground updates fill the rule-set cache too,
-                // not only the background worker.
-                io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
+                        // Update last updated time
+                        profile.typed.lastUpdated = Date()
+                        ProfileManager.update(profile)
+                        SubscriptionUpdateHealth.recordSuccess(
+                            io.nekohasekai.sfa.Application.application,
+                            profile.id,
+                        )
+                        SubscriptionUpdateHealth.recordImportWarnings(
+                            io.nekohasekai.sfa.Application.application,
+                            profile.id,
+                            detailed.notes,
+                        )
+                        // AB-019: foreground updates fill the rule-set cache too,
+                        // not only the background worker.
+                        io.nekohasekai.sfa.bg.RuleSetWarmup
+                            .schedule(content)
 
-                // Reload profiles
-                loadProfiles()
+                        // Reload profiles
+                        loadProfiles()
 
-                // Show success state
-                withContext(Dispatchers.Main) {
-                    updateState { copy(updatingProfileId = null, updatedProfileId = profile.id) }
-                }
+                        // Show success state
+                        withContext(Dispatchers.Main) {
+                            updateState { copy(updatingProfileId = null, updatedProfileId = profile.id) }
+                        }
 
-                // Clear success state after delay
-                withContext(Dispatchers.Main) {
-                    delay(1500)
-                    updateState { copy(updatedProfileId = null) }
-                }
+                        contentChanged
+                    }
+                // Do not hold the data lease across presentation-only delay.
+                delay(1500)
+                withContext(Dispatchers.Main) { updateState { copy(updatedProfileId = null) } }
 
                 // Restart service if this is the selected profile and content changed
-                if (contentChanged && profile.id == Settings.selectedProfile) {
+                if (contentChanged && ProfileManager.accessProfile(profile) { profile.id == Settings.selectedProfile }) {
                     withContext(Dispatchers.Main) {
                         sendGlobalEvent(UiEvent.RequestReconnectService)
                     }
                 }
             } catch (e: Exception) {
-                SubscriptionUpdateHealth.recordFailure(
-                    io.nekohasekai.sfa.Application.application,
-                    profile.id,
-                    e,
+                // A failed stale-handle check must not write health metadata into the new image.
+                runCatching {
+                    ProfileManager.accessProfile(profile) {
+                        SubscriptionUpdateHealth.recordFailure(
+                            io.nekohasekai.sfa.Application.application,
+                            profile.id,
+                            e,
+                        )
+                    }
+                }
+                sendErrorMessage(
+                    io.nekohasekai.sfa.utils.HTTPClient
+                        .explainProfileUpdate(e),
                 )
-                sendErrorMessage(io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e))
                 // Clear updating state on error
                 withContext(Dispatchers.Main) {
                     updateState { copy(updatingProfileId = null) }
@@ -664,7 +708,10 @@ class DashboardViewModel :
         currentState.profiles.filter { it.typed.type == TypedProfile.Type.Remote }.forEach { updateProfile(it) }
     }
 
-    fun moveProfile(from: Int, to: Int) {
+    fun moveProfile(
+        from: Int,
+        to: Int,
+    ) {
         val currentProfiles = currentState.profiles.toMutableList()
 
         if (from < to) {
@@ -685,10 +732,11 @@ class DashboardViewModel :
         // intermediate order could be saved or flash on screen.
         persistOrderJob?.cancel()
         pendingOrder = currentProfiles
-        persistOrderJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(PERSIST_ORDER_DELAY_MS)
-            persistOrder(currentProfiles)
-        }
+        persistOrderJob =
+            viewModelScope.launch(Dispatchers.IO) {
+                delay(PERSIST_ORDER_DELAY_MS)
+                persistOrder(currentProfiles)
+            }
     }
 
     private var persistOrderJob: Job? = null
@@ -743,18 +791,21 @@ class DashboardViewModel :
                 copy(
                     serviceStatus = status,
                     isStatusVisible =
-                    if (RemoteControlManager.remoteServer.value != null) {
-                        isStatusVisible
-                    } else {
-                        status == Status.Starting || status == Status.Started
-                    },
+                        if (RemoteControlManager.remoteServer.value != null) {
+                            isStatusVisible
+                        } else {
+                            status == Status.Starting || status == Status.Started
+                        },
                 )
             }
             handleServiceStatusChange(status, previous)
         }
     }
 
-    private fun handleServiceStatusChange(status: Status, previous: Status) {
+    private fun handleServiceStatusChange(
+        status: Status,
+        previous: Status,
+    ) {
         val isRemote = RemoteControlManager.remoteServer.value != null
         when (status) {
             Status.Starting -> {
@@ -950,7 +1001,10 @@ class DashboardViewModel :
         }
     }
 
-    override fun initializeClashMode(modeList: List<String>, currentMode: String) {
+    override fun initializeClashMode(
+        modeList: List<String>,
+        currentMode: String,
+    ) {
         viewModelScope.launch(Dispatchers.Main) {
             updateState {
                 copy(
@@ -980,9 +1034,10 @@ class DashboardViewModel :
             for (group in newGroups) {
                 if (!isNestedRegionAutoSelect(group.tag, tags)) visible++
             }
-            groupHints = newGroups.map { group ->
-                GroupHint(tag = group.tag, selected = group.selected)
-            }
+            groupHints =
+                newGroups.map { group ->
+                    GroupHint(tag = group.tag, selected = group.selected)
+                }
             updateState {
                 copy(hasGroups = visible > 0, groupsCount = visible)
             }
@@ -1008,12 +1063,13 @@ class DashboardViewModel :
 
     override fun writeConnectionEvents(events: ConnectionEvents) {
         viewModelScope.launch(Dispatchers.Default) {
-            val snap = connectionsMutex.withLock {
-                val store = connectionsStore ?: Connections().also { connectionsStore = it }
-                store.applyEvents(events)
-                store.filterState(ConnectionStateFilter.Active.libboxValue)
-                extractLive(store)
-            }
+            val snap =
+                connectionsMutex.withLock {
+                    val store = connectionsStore ?: Connections().also { connectionsStore = it }
+                    store.applyEvents(events)
+                    store.filterState(ConnectionStateFilter.Active.libboxValue)
+                    extractLive(store)
+                }
             liveChain = snap.chain
             liveDestinations = snap.destinations
             liveActive = snap.active
@@ -1040,30 +1096,35 @@ class DashboardViewModel :
             if (connection.outboundType == "dns") continue
             active++
             if (connection.uplink > 0L || connection.downlink > 0L) flowing = true
-            val dest = connection.displayDestination().ifBlank {
-                connection.domain
-            }.ifBlank {
-                connection.destination
-            }
+            val dest =
+                connection
+                    .displayDestination()
+                    .ifBlank {
+                        connection.domain
+                    }.ifBlank {
+                        connection.destination
+                    }
             if (dest.isNotBlank()) {
                 destCounts[dest] = (destCounts[dest] ?: 0) + 1
             }
             val hops = runCatching { connection.chain().toList() }.getOrDefault(emptyList())
             if (hops.size > bestChain.size) bestChain = hops
-            val isDirect = connection.outboundType.equals("direct", true) ||
-                TrafficFlowBuilder.isDirectTag(connection.outbound) ||
-                (hops.isNotEmpty() && hops.all { it.isBlank() || TrafficFlowBuilder.isDirectTag(it) })
+            val isDirect =
+                connection.outboundType.equals("direct", true) ||
+                    TrafficFlowBuilder.isDirectTag(connection.outbound) ||
+                    (hops.isNotEmpty() && hops.all { it.isBlank() || TrafficFlowBuilder.isDirectTag(it) })
             val outbound = if (isDirect) "DIRECT" else connection.outbound
             val chain = if (isDirect) listOf("DIRECT") else hops
             val key = "${connection.rule}|$outbound"
             if (!seen.add(key) && !isDirect) continue
-            val sample = FlowSample(
-                source = connection.source.ifBlank { connection.inbound },
-                rule = connection.rule,
-                outbound = outbound,
-                chain = chain,
-                dest = dest,
-            )
+            val sample =
+                FlowSample(
+                    source = connection.source.ifBlank { connection.inbound },
+                    rule = connection.rule,
+                    outbound = outbound,
+                    chain = chain,
+                    dest = dest,
+                )
             if (isDirect) {
                 if (directSamples.size < 16) directSamples += sample
             } else if (proxySamples.size < 24) {
@@ -1072,10 +1133,11 @@ class DashboardViewModel :
             if (directSamples.size >= 16 && proxySamples.size >= 24) break
         }
         val samples = proxySamples + directSamples
-        val destinations = destCounts.entries
-            .sortedByDescending { it.value }
-            .map { it.key }
-            .take(3)
+        val destinations =
+            destCounts.entries
+                .sortedByDescending { it.value }
+                .map { it.key }
+                .take(3)
         return LiveSnap(bestChain, destinations, active, flowing, samples)
     }
 
@@ -1129,11 +1191,12 @@ class DashboardViewModel :
      * 供一键网络体检的延迟项复用。拿不到返回 ""。
      */
     private fun currentOutboundTagForTest(): String {
-        val hop = currentState.topology.hops.lastOrNull { live ->
-            (live.role == ChainPathHop.Role.Landing || live.role == ChainPathHop.Role.Exit) &&
-                live.title.isNotBlank() &&
-                !TrafficFlowBuilder.isDirectTag(live.title)
-        }
+        val hop =
+            currentState.topology.hops.lastOrNull { live ->
+                (live.role == ChainPathHop.Role.Landing || live.role == ChainPathHop.Role.Exit) &&
+                    live.title.isNotBlank() &&
+                    !TrafficFlowBuilder.isDirectTag(live.title)
+            }
         val tag = hop?.title?.ifBlank { hop.subtitle }.orEmpty()
         if (tag.isBlank() || TrafficFlowBuilder.isDirectTag(tag)) return ""
         return tag
@@ -1160,31 +1223,32 @@ class DashboardViewModel :
         val profileId = currentState.selectedProfileId
         val profileName = currentState.selectedProfileName.orEmpty()
         viewModelScope.launch(Dispatchers.IO) {
-            val result = NetworkCheckup.run(
-                context = Application.application,
-                hasNetwork = hasActiveNetwork(),
-                tunnelUp = TunnelGate.up,
-                outboundTag = tag,
-                currentDelayMs = { currentOutboundDelayMs(tag) },
-                triggerUrlTest = { t -> runCatching { CommandTarget.standaloneClient().urlTest(t) } },
-                onStep = { step ->
-                    viewModelScope.launch(Dispatchers.Main) {
-                        updateState { copy(checkup = NetworkCheckupUiState.Running(step)) }
-                    }
-                },
-            )
+            val result =
+                NetworkCheckup.run(
+                    context = Application.application,
+                    hasNetwork = hasActiveNetwork(),
+                    tunnelUp = TunnelGate.up,
+                    outboundTag = tag,
+                    currentDelayMs = { currentOutboundDelayMs(tag) },
+                    triggerUrlTest = { t -> runCatching { CommandTarget.standaloneClient().urlTest(t) } },
+                    onStep = { step ->
+                        viewModelScope.launch(Dispatchers.Main) {
+                            updateState { copy(checkup = NetworkCheckupUiState.Running(step)) }
+                        }
+                    },
+                )
             withContext(Dispatchers.Main) {
                 updateState {
                     copy(
                         checkup =
-                        if (selectedProfileId == profileId) {
-                            NetworkCheckupUiState.Done(result, profileId, profileName)
-                        } else {
-                            // The profile changed mid-run: the result
-                            // belongs to the old profile, so it is dropped
-                            // instead of presented under the new one.
-                            NetworkCheckupUiState.Idle
-                        },
+                            if (selectedProfileId == profileId) {
+                                NetworkCheckupUiState.Done(result, profileId, profileName)
+                            } else {
+                                // The profile changed mid-run: the result
+                                // belongs to the old profile, so it is dropped
+                                // instead of presented under the new one.
+                                NetworkCheckupUiState.Idle
+                            },
                     )
                 }
             }
@@ -1285,25 +1349,27 @@ class DashboardViewModel :
     }
 
     // Helper functions for serialization
-    private fun getDefaultItemOrder() = listOf(
-        CardGroup.ChainPath,
-        CardGroup.UploadTraffic,
-        CardGroup.DownloadTraffic,
-        CardGroup.Debug,
-        CardGroup.Connections,
-        CardGroup.SystemProxy,
-        CardGroup.ClashMode,
-        CardGroup.Profiles,
-    )
+    private fun getDefaultItemOrder() =
+        listOf(
+            CardGroup.ChainPath,
+            CardGroup.UploadTraffic,
+            CardGroup.DownloadTraffic,
+            CardGroup.Debug,
+            CardGroup.Connections,
+            CardGroup.SystemProxy,
+            CardGroup.ClashMode,
+            CardGroup.Profiles,
+        )
 
-    private fun defaultDisabledCards() = setOf(
-        CardGroup.UploadTraffic,
-        CardGroup.DownloadTraffic,
-        CardGroup.Debug,
-        CardGroup.Connections,
-        CardGroup.ClashMode,
-        CardGroup.Profiles,
-    )
+    private fun defaultDisabledCards() =
+        setOf(
+            CardGroup.UploadTraffic,
+            CardGroup.DownloadTraffic,
+            CardGroup.Debug,
+            CardGroup.Connections,
+            CardGroup.ClashMode,
+            CardGroup.Profiles,
+        )
 
     private fun defaultVisibleCards() = CardGroup.values().toSet() - defaultDisabledCards()
 
@@ -1374,9 +1440,10 @@ class DashboardViewModel :
 
     private fun cardGroupToString(card: CardGroup): String = card.name
 
-    private fun stringToCardGroup(name: String): CardGroup? = try {
-        CardGroup.valueOf(name)
-    } catch (e: IllegalArgumentException) {
-        null
-    }
+    private fun stringToCardGroup(name: String): CardGroup? =
+        try {
+            CardGroup.valueOf(name)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
 }

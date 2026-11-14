@@ -9,8 +9,10 @@ import io.nekohasekai.sfa.compat.ProfileEditorColors
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.ktx.unwrap
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.ConfigGate
+import io.nekohasekai.sfa.utils.RestoreAccessGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,7 +42,10 @@ data class EditProfileContentUiState(
     val profileName: String = "", // Add profile name
 )
 
-class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly: Boolean = false) : ViewModel() {
+class EditProfileContentViewModel(
+    private val profileId: Long,
+    initialIsReadOnly: Boolean = false,
+) : ViewModel() {
     private val _uiState =
         MutableStateFlow(
             EditProfileContentUiState(
@@ -49,7 +54,8 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
         )
     val uiState: StateFlow<EditProfileContentUiState> = _uiState.asStateFlow()
 
-    private var profile: Profile? = null
+    @Volatile
+    private var loadedData: Pair<Profile, RestoreAccessGate.Snapshot>? = null
     private var editor: ProfileCodeEditor? = null
     private var configCheckJob: Job? = null
 
@@ -129,10 +135,11 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
 
                 // Check configuration — G4: aligned with the startup
                 // heal, so content startup would fix is not flagged.
-                val gate = ConfigGate.validate(
-                    ConfigCompat.sanitize(content),
-                    ConfigGate::libboxCheck,
-                )
+                val gate =
+                    ConfigGate.validate(
+                        ConfigCompat.sanitize(content),
+                        ConfigGate::libboxCheck,
+                    )
                 if (gate is ConfigGate.Result.Rejected) {
                     _uiState.update {
                         it.copy(
@@ -167,23 +174,28 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
             _uiState.update { it.copy(isLoading = true) }
 
             try {
-                val loadedProfile =
-                    ProfileManager.get(profileId)
-                        ?: throw IllegalArgumentException("Profile not found")
-                profile = loadedProfile
+                ApplicationDataAccess.operation {
+                    val loadedProfile =
+                        ProfileManager.get(profileId)
+                            ?: throw IllegalArgumentException("Profile not found")
+                    val snapshot = ApplicationDataAccess.snapshot()
 
-                // Just load the content, we already have profile metadata from Intent
-                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loadedProfile.typed.path))
+                    // Just load the content, we already have profile metadata from Intent
+                    val content =
+                        io.nekohasekai.sfa.utils.ProfileFiles
+                            .readText(File(loadedProfile.typed.path))
 
-                withContext(Dispatchers.Main) {
-                    editor?.setText(content)
-                    _uiState.update {
-                        it.copy(
-                            originalContent = content,
-                            hasUnsavedChanges = false,
-                            isLoading = false,
-                            profileName = loadedProfile.name,
-                        )
+                    withContext(Dispatchers.Main) {
+                        loadedData = loadedProfile to snapshot
+                        editor?.setText(content)
+                        _uiState.update {
+                            it.copy(
+                                originalContent = content,
+                                hasUnsavedChanges = false,
+                                isLoading = false,
+                                profileName = loadedProfile.name,
+                            )
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -204,18 +216,23 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
             try {
                 val currentContent =
                     withContext(Dispatchers.Main) {
-                        editor?.getText() ?: ""
+                        // Capture text and its source image together on the UI thread.
+                        (editor?.getText() ?: error("Editor is not available")) to
+                            (loadedData ?: error("Reload the configuration before saving"))
                     }
-
-                // Save to file without validation
-                profile?.let { p ->
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(p.typed.path), currentContent)
+                val loaded = currentContent.second
+                val text = currentContent.first
+                // A retained editor is not a lease. Reject it if restore replaced its data image.
+                ApplicationDataAccess.operation(loaded.second) {
+                    val p = loaded.first
+                    io.nekohasekai.sfa.utils.ProfileFiles
+                        .writeAtomically(File(p.typed.path), text)
                 }
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        originalContent = currentContent,
+                        originalContent = text,
                         hasUnsavedChanges = false,
                         showSaveSuccessMessage = true,
                     )

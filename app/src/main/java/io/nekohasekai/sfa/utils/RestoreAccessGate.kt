@@ -10,37 +10,66 @@ package io.nekohasekai.sfa.utils
  * caller must not already hold an access lease (that would deadlock its own drain).
  * A failed recovery/transaction can poison admission until process restart and recovery.
  */
-internal class RestoreAccessGate(initiallyReady: Boolean = false) {
+internal class RestoreAccessGate(
+    initiallyReady: Boolean = false,
+) {
     private val monitor = Object()
-    private val depth = object : ThreadLocal<Int>() {
-        override fun initialValue(): Int = 0
-    }
+    private val depth =
+        object : ThreadLocal<Int>() {
+            override fun initialValue(): Int = 0
+        }
     private val operation = ThreadLocal<Operation?>()
 
     /** Thread-independent root lease; coroutine context installs it only while executing. */
     internal inner class Operation internal constructor() : AutoCloseable {
         internal var closed = false // accessed only under monitor
-        override fun close() = synchronized(monitor) {
-            if (!closed) { closed = true; active--; monitor.notifyAll() }
-        }
+
+        override fun close() =
+            synchronized(monitor) {
+                if (!closed) {
+                    closed = true
+                    active--
+                    monitor.notifyAll()
+                }
+            }
     }
 
-    internal fun beginOperation(): Operation = synchronized(monitor) {
-        check(failure == null && ready && !draining && owner == null) {
-            "Application data is unavailable during restore recovery"
+    internal fun beginOperation(): Operation =
+        synchronized(monitor) {
+            check(failure == null && ready && !draining && owner == null) {
+                "Application data is unavailable during restore recovery"
+            }
+            Operation().also { active++ }
         }
-        Operation().also { active++ }
-    }
 
-    internal fun validateOperation(lease: Operation) = synchronized(monitor) {
-        check(!lease.closed && failure == null) { "Application data operation has ended or failed" }
-    }
+    internal fun validateOperation(lease: Operation) =
+        synchronized(monitor) {
+            check(!lease.closed && failure == null) { "Application data operation has ended or failed" }
+        }
 
     internal fun installOperation(lease: Operation?): Operation? {
         val previous = operation.get()
         operation.set(lease)
         return previous
     }
+
+    /** Opaque identity of the data image from which a cached UI object was read. */
+    internal class Snapshot internal constructor(
+        internal val identity: Any,
+    )
+
+    private var dataImage = Any()
+
+    fun snapshot(): Snapshot = access { synchronized(monitor) { Snapshot(dataImage) } }
+
+    fun requireSnapshot(snapshot: Snapshot) =
+        access {
+            synchronized(monitor) {
+                check(snapshot.identity === dataImage) {
+                    "Application data changed during recovery; reload this screen before saving"
+                }
+            }
+        }
 
     private var ready = initiallyReady
     private var draining = false
@@ -59,7 +88,9 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
             active++
             depth.set(depth.get() + 1)
         }
-        try { return block() } finally {
+        try {
+            return block()
+        } finally {
             synchronized(monitor) {
                 depth.set(depth.get() - 1)
                 active--
@@ -84,7 +115,11 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
             synchronized(monitor) { failure = error }
             throw error
         } finally {
-            synchronized(monitor) { owner = null; draining = false; monitor.notifyAll() }
+            synchronized(monitor) {
+                owner = null
+                draining = false
+                monitor.notifyAll()
+            }
         }
     }
 
@@ -93,7 +128,10 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
      * separately quiesce native service activity and every direct config-file accessor.
      * Any failure inside [block] poisons admission; rollback must precede re-opening.
      */
-    fun <T> exclusive(timeoutMillis: Long, block: () -> T): T {
+    fun <T> exclusive(
+        timeoutMillis: Long,
+        block: () -> T,
+    ): T {
         require(timeoutMillis >= 0)
         check(depth.get() == 0 && operation.get() == null) { "Cannot upgrade a data access lease" }
         val start = System.nanoTime()
@@ -107,6 +145,9 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
                     monitor.wait(remaining)
                 }
                 owner = Thread.currentThread()
+                // Rotation happens only after all readers drain, but before any replacement.
+                // Even a successful rollback must invalidate pre-restore UI/cached handles.
+                dataImage = Any()
             } catch (error: Throwable) {
                 draining = false
                 monitor.notifyAll()
@@ -114,11 +155,17 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
                 throw error
             }
         }
-        try { return block() } catch (error: Throwable) {
+        try {
+            return block()
+        } catch (error: Throwable) {
             synchronized(monitor) { failure = error }
             throw error
         } finally {
-            synchronized(monitor) { owner = null; draining = false; monitor.notifyAll() }
+            synchronized(monitor) {
+                owner = null
+                draining = false
+                monitor.notifyAll()
+            }
         }
     }
 }
@@ -126,6 +173,28 @@ internal class RestoreAccessGate(initiallyReady: Boolean = false) {
 /** One process-wide owner for Settings/ProfileManager admission. */
 internal object ApplicationDataAccess {
     val gate = RestoreAccessGate()
+
     fun <T> access(block: () -> T): T = gate.access(block)
+
     suspend fun <T> operation(block: suspend () -> T): T = gate.operation(block)
+
+    fun snapshot(): RestoreAccessGate.Snapshot = gate.snapshot()
+
+    fun <T> access(
+        snapshot: RestoreAccessGate.Snapshot,
+        block: () -> T,
+    ): T =
+        gate.access {
+            gate.requireSnapshot(snapshot)
+            block()
+        }
+
+    suspend fun <T> operation(
+        snapshot: RestoreAccessGate.Snapshot,
+        block: suspend () -> T,
+    ): T =
+        gate.operation {
+            gate.requireSnapshot(snapshot)
+            block()
+        }
 }

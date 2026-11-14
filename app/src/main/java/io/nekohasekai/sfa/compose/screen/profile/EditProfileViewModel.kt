@@ -13,8 +13,10 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
+import io.nekohasekai.sfa.utils.RestoreAccessGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,9 +55,14 @@ data class EditProfileUiState(
     val showIconDialog: Boolean = false,
 )
 
-class EditProfileViewModel(application: Application) : AndroidViewModel(application) {
+class EditProfileViewModel(
+    application: Application,
+) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(EditProfileUiState())
     val uiState: StateFlow<EditProfileUiState> = _uiState.asStateFlow()
+
+    @Volatile
+    private var loadedData: Pair<Profile, RestoreAccessGate.Snapshot>? = null
 
     // Store the content to export when user selects a file location
     var pendingExportContent: String? = null
@@ -64,35 +71,38 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
     fun loadProfile(profileId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val profile = ProfileManager.get(profileId)
-                if (profile == null) {
+                ApplicationDataAccess.operation {
+                    val profile = ProfileManager.get(profileId)
+                    if (profile == null) {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = "Profile not found",
+                            )
+                        }
+                        return@operation
+                    }
+                    loadedData = profile to ApplicationDataAccess.snapshot()
+
+                    val typedProfile = profile.typed
                     _uiState.update {
                         it.copy(
+                            profile = profile,
+                            name = profile.name,
+                            originalName = profile.name,
+                            icon = profile.icon,
+                            originalIcon = profile.icon,
+                            profileType = typedProfile.type,
+                            remoteUrl = typedProfile.remoteURL,
+                            originalRemoteUrl = typedProfile.remoteURL,
+                            autoUpdate = typedProfile.autoUpdate,
+                            originalAutoUpdate = typedProfile.autoUpdate,
+                            autoUpdateInterval = typedProfile.autoUpdateInterval,
+                            originalAutoUpdateInterval = typedProfile.autoUpdateInterval,
+                            lastUpdated = typedProfile.lastUpdated,
                             isLoading = false,
-                            errorMessage = "Profile not found",
                         )
                     }
-                    return@launch
-                }
-
-                val typedProfile = profile.typed
-                _uiState.update {
-                    it.copy(
-                        profile = profile,
-                        name = profile.name,
-                        originalName = profile.name,
-                        icon = profile.icon,
-                        originalIcon = profile.icon,
-                        profileType = typedProfile.type,
-                        remoteUrl = typedProfile.remoteURL,
-                        originalRemoteUrl = typedProfile.remoteURL,
-                        autoUpdate = typedProfile.autoUpdate,
-                        originalAutoUpdate = typedProfile.autoUpdate,
-                        autoUpdateInterval = typedProfile.autoUpdateInterval,
-                        originalAutoUpdateInterval = typedProfile.autoUpdateInterval,
-                        lastUpdated = typedProfile.lastUpdated,
-                        isLoading = false,
-                    )
                 }
             } catch (e: Exception) {
                 _uiState.update {
@@ -110,9 +120,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(
                 name = name,
                 hasChanges =
-                checkHasChanges(
-                    state.copy(name = name),
-                ),
+                    checkHasChanges(
+                        state.copy(name = name),
+                    ),
             )
         }
     }
@@ -122,9 +132,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(
                 icon = icon,
                 hasChanges =
-                checkHasChanges(
-                    state.copy(icon = icon),
-                ),
+                    checkHasChanges(
+                        state.copy(icon = icon),
+                    ),
             )
         }
     }
@@ -142,9 +152,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(
                 remoteUrl = url,
                 hasChanges =
-                checkHasChanges(
-                    state.copy(remoteUrl = url),
-                ),
+                    checkHasChanges(
+                        state.copy(remoteUrl = url),
+                    ),
             )
         }
     }
@@ -154,9 +164,9 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(
                 autoUpdate = enabled,
                 hasChanges =
-                checkHasChanges(
-                    state.copy(autoUpdate = enabled),
-                ),
+                    checkHasChanges(
+                        state.copy(autoUpdate = enabled),
+                    ),
             )
         }
     }
@@ -175,24 +185,27 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 autoUpdateInterval = intValue,
                 autoUpdateIntervalError = error,
                 hasChanges =
-                if (error == null) {
-                    checkHasChanges(state.copy(autoUpdateInterval = intValue))
-                } else {
-                    state.hasChanges
-                },
+                    if (error == null) {
+                        checkHasChanges(state.copy(autoUpdateInterval = intValue))
+                    } else {
+                        state.hasChanges
+                    },
             )
         }
     }
 
-    private fun checkHasChanges(state: EditProfileUiState): Boolean = state.name != state.originalName ||
-        state.icon != state.originalIcon ||
-        state.remoteUrl != state.originalRemoteUrl ||
-        state.autoUpdate != state.originalAutoUpdate ||
-        state.autoUpdateInterval != state.originalAutoUpdateInterval
+    private fun checkHasChanges(state: EditProfileUiState): Boolean =
+        state.name != state.originalName ||
+            state.icon != state.originalIcon ||
+            state.remoteUrl != state.originalRemoteUrl ||
+            state.autoUpdate != state.originalAutoUpdate ||
+            state.autoUpdateInterval != state.originalAutoUpdateInterval
 
     fun saveChanges() {
         val state = _uiState.value
         val profile = state.profile ?: return
+        val binding = loadedData?.takeIf { it.first === profile }
+        val snapshot = binding?.second
 
         if (state.autoUpdateIntervalError != null) {
             return
@@ -202,44 +215,48 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update { it.copy(isSaving = true) }
 
             try {
-                if (profile.typed.type == TypedProfile.Type.Remote) {
-                    RemoteUrlGuard.acceptSubscription(state.remoteUrl)
-                }
-                // Update profile object
-                profile.name = state.name
-                profile.icon = state.icon
-                profile.typed.remoteURL = state.remoteUrl
+                ApplicationDataAccess.operation(snapshot ?: error("Reload the profile before changing it")) {
+                    if (profile.typed.type == TypedProfile.Type.Remote) {
+                        RemoteUrlGuard.acceptSubscription(state.remoteUrl)
+                    }
+                    // Update profile object
+                    profile.name = state.name
+                    profile.icon = state.icon
+                    profile.typed.remoteURL = state.remoteUrl
 
-                // Handle auto-update changes
-                val autoUpdateChanged = state.autoUpdate != state.originalAutoUpdate
-                profile.typed.autoUpdate = state.autoUpdate
-                profile.typed.autoUpdateInterval = state.autoUpdateInterval
+                    // Handle auto-update changes
+                    val autoUpdateChanged = state.autoUpdate != state.originalAutoUpdate
+                    profile.typed.autoUpdate = state.autoUpdate
+                    profile.typed.autoUpdateInterval = state.autoUpdateInterval
 
-                // Save to database
-                ProfileManager.update(profile)
+                    // Save to database
+                    ProfileManager.update(profile)
 
-                // Reconfigure updater if auto-update was enabled
-                if (autoUpdateChanged && state.autoUpdate) {
-                    UpdateProfileWork.reconfigureUpdater()
-                }
+                    // Reconfigure updater if auto-update was enabled
+                    if (autoUpdateChanged && state.autoUpdate) {
+                        UpdateProfileWork.reconfigureUpdater()
+                    }
 
-                // Update UI state with new original values
-                _uiState.update {
-                    it.copy(
-                        originalName = state.name,
-                        originalIcon = state.icon,
-                        originalRemoteUrl = state.remoteUrl,
-                        originalAutoUpdate = state.autoUpdate,
-                        originalAutoUpdateInterval = state.autoUpdateInterval,
-                        hasChanges = false,
-                        isSaving = false,
-                    )
+                    // Update UI state with new original values
+                    _uiState.update {
+                        it.copy(
+                            originalName = state.name,
+                            originalIcon = state.icon,
+                            originalRemoteUrl = state.remoteUrl,
+                            originalAutoUpdate = state.autoUpdate,
+                            originalAutoUpdateInterval = state.autoUpdateInterval,
+                            hasChanges = false,
+                            isSaving = false,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isSaving = false,
-                        errorMessage = io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e),
+                        errorMessage =
+                            io.nekohasekai.sfa.utils.HTTPClient
+                                .explainProfileUpdate(e),
                     )
                 }
             }
@@ -249,6 +266,8 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
     fun updateRemoteProfile() {
         val state = _uiState.value
         val profile = state.profile ?: return
+        val binding = loadedData?.takeIf { it.first === profile }
+        val snapshot = binding?.second
 
         if (profile.typed.type != TypedProfile.Type.Remote) return
 
@@ -256,69 +275,78 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update { it.copy(isUpdating = true) }
 
             try {
-                var selectedProfileUpdated = false
+                ApplicationDataAccess.operation(snapshot ?: error("Reload the profile before changing it")) {
+                    var selectedProfileUpdated = false
 
-                // Fetch remote config
-                // X-4: 与后台 worker / 仪表盘同口径——Detailed + 记录健康，
-                // 此前这条路径既不记成功也不记「跳过/修正」提示。
-                val detailed = ConfigCompat.sanitizeRemoteDetailed(
-                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
-                        profile.typed.remoteURL,
-                        profile.id,
-                        getApplication<Application>(),
-                    ),
-                )
-                val content = detailed.content
-                Libbox.checkConfig(content)
+                    // Fetch remote config
+                    // X-4: 与后台 worker / 仪表盘同口径——Detailed + 记录健康，
+                    // 此前这条路径既不记成功也不记「跳过/修正」提示。
+                    val detailed =
+                        ConfigCompat.sanitizeRemoteDetailed(
+                            io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
+                                profile.typed.remoteURL,
+                                profile.id,
+                                getApplication<Application>(),
+                            ),
+                        )
+                    val content = detailed.content
+                    Libbox.checkConfig(content)
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles.readText(file) != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                    if (profile.id == Settings.selectedProfile) {
-                        selectedProfileUpdated = true
+                    // Check if content changed
+                    val file = File(profile.typed.path)
+                    if (!file.exists() || io.nekohasekai.sfa.utils.ProfileFiles
+                            .readText(file) != content
+                    ) {
+                        // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
+                        io.nekohasekai.sfa.utils.ProfileFiles
+                            .writeAtomically(file, content)
+                        if (profile.id == Settings.selectedProfile) {
+                            selectedProfileUpdated = true
+                        }
                     }
-                }
 
-                // Update last updated time
-                profile.typed.lastUpdated = Date()
-                ProfileManager.update(profile)
-                io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordSuccess(
-                    getApplication<Application>(),
-                    profile.id,
-                )
-                io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordImportWarnings(
-                    getApplication<Application>(),
-                    profile.id,
-                    detailed.notes,
-                )
-                // AB-019: foreground updates fill the rule-set cache too,
-                // not only the background worker.
-                io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
-
-                // Update UI state with success indicator
-                _uiState.update {
-                    it.copy(
-                        lastUpdated = profile.typed.lastUpdated,
-                        isUpdating = false,
-                        showUpdateSuccess = true,
+                    // Update last updated time
+                    profile.typed.lastUpdated = Date()
+                    ProfileManager.update(profile)
+                    io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordSuccess(
+                        getApplication<Application>(),
+                        profile.id,
                     )
-                }
+                    io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordImportWarnings(
+                        getApplication<Application>(),
+                        profile.id,
+                        detailed.notes,
+                    )
+                    // AB-019: foreground updates fill the rule-set cache too,
+                    // not only the background worker.
+                    io.nekohasekai.sfa.bg.RuleSetWarmup
+                        .schedule(content)
 
-                // Reload service if needed
-                if (selectedProfileUpdated) {
-                    try {
-                        Libbox.newStandaloneCommandClient().serviceReload()
-                    } catch (e: Exception) {
-                        // Service reload errors are not critical
+                    // Update UI state with success indicator
+                    _uiState.update {
+                        it.copy(
+                            lastUpdated = profile.typed.lastUpdated,
+                            isUpdating = false,
+                            showUpdateSuccess = true,
+                        )
+                    }
+
+                    // Reload service if needed
+                    if (selectedProfileUpdated) {
+                        try {
+                            Libbox.newStandaloneCommandClient().serviceReload()
+                        } catch (e: Exception) {
+                            // Service reload errors are not critical
+                        }
                     }
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isUpdating = false,
-                        errorMessage = io.nekohasekai.sfa.utils.HTTPClient.explainProfileUpdate(e),
+                        errorMessage =
+                            io.nekohasekai.sfa.utils.HTTPClient
+                                .explainProfileUpdate(e),
                     )
                 }
             }
@@ -336,6 +364,8 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
     fun prepareExport(context: Context): String? {
         val state = _uiState.value
         val profile = state.profile ?: return null
+        val binding = loadedData?.takeIf { it.first === profile }
+        val snapshot = binding?.second
 
         return try {
             // Read the configuration file
@@ -345,7 +375,11 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 return null
             }
 
-            val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(configFile)
+            val content =
+                ApplicationDataAccess.access(snapshot ?: error("Reload the profile before exporting")) {
+                    io.nekohasekai.sfa.utils.ProfileFiles
+                        .readText(configFile)
+                }
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val fileName = "${profile.name.replace(" ", "_")}_$timestamp.json"
 
@@ -355,19 +389,23 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
 
             fileName
         } catch (e: Exception) {
-            Toast.makeText(
-                context,
-                context.getString(
-                    io.nekohasekai.sfa.R.string.failed_read_configuration,
-                    e.message,
-                ),
-                Toast.LENGTH_SHORT,
-            ).show()
+            Toast
+                .makeText(
+                    context,
+                    context.getString(
+                        io.nekohasekai.sfa.R.string.failed_read_configuration,
+                        e.message,
+                    ),
+                    Toast.LENGTH_SHORT,
+                ).show()
             null
         }
     }
 
-    fun saveExportToUri(context: Context, uri: Uri) {
+    fun saveExportToUri(
+        context: Context,
+        uri: Uri,
+    ) {
         val content = pendingExportContent ?: return
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -377,11 +415,12 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 }
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        context,
-                        "Configuration exported successfully",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    Toast
+                        .makeText(
+                            context,
+                            "Configuration exported successfully",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {

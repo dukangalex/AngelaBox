@@ -168,3 +168,27 @@ compile the Android application or validate Room/WAL, Android service closure,
 provider/locked startup, actual APK behavior, power loss or safe installation.
 No trial/release acceptance follows from them. The prior e9d6dad build remains a
 separate source version and is not evidence for this branch.
+
+## Editor snapshot admission experiment (2026-11-14)
+
+Adds an in-process opaque data-image token. Successful admission drain rotates it
+before exclusive replacement; a failed drain does not rotate it. Failures during
+exclusive replacement keep admission blocked. Cached tokens are not operation
+leases. Editors, provider/chain UI operations, selected dashboard update/sharing
+paths now carry root leases across their data-dependent work and reject stale
+loaded images. Profile and RemoteServer DAO materialization stamps process-local
+provenance (excluded from Room/parceling); mutation of a stale or unstamped loaded
+entity fails rather than silently changing a replacement image.
+
+Host suite: 62 tests, including seven snapshot/drain/foreign-token/startup/failure
+cases. The entity annotations, screens, Room integration and native ownership need
+Android compilation/runtime tests; host tests do not cover those. An older APK
+from 6cbccf7 is not runtime or compilation evidence for these source changes.
+
+Still NOT enabled: BackupManager journal transaction. This change does not prove
+all data access is covered, does not serialize concurrent normal edits, does not
+validate Android service callback/native quiescence or WAL/checkpoint behavior.
+Audit retained callbacks, kernel-owned paths, direct backup IO and DB replacement
+before enabling restore transactions. Android cold/locked startup, process kill,
+exact ARM package acceptance, safe non-overwriting installation and full security
+audit remain required. No trial or release approval is implied.

@@ -7,6 +7,7 @@ on:
       - wabi/restore-admission-startup-20261114
       - wabi/restore-service-drain-20261114
       - wabi/restore-coroutine-admission-20261114
+      - wabi/restore-editor-snapshot-20261114
 permissions:
   contents: read
 jobs:
@@ -83,7 +84,7 @@ jobs:
           keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000 -noprompt
           java -version 2> "$RUNNER_TEMP/trial-evidence/java-version.txt"
           ./gradlew --version > "$RUNNER_TEMP/trial-evidence/gradle-version.txt"
-          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupExtractionGuardTest" --tests "*BackupOperationGateTest" --tests "*BackupScratchFilesTest" --tests "*RestoreDatabaseCloseTest" --tests "*BackupManagerTest" --tests "*RestoreConfigFilesTest" --tests "*RestoreRecoveryJournalTest" --tests "*RestoreAccessGateTest" --tests "*RestoreCoroutineOperationTest" --tests "*RestoreStartupRecoveryTest" --tests "*ServiceOperationGateTest" --tests "*ProfileFilesAdmissionTest" --tests "*ArchiveMetadataTest" :app:assembleOtherDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests "*BackupExpansionLimitTest" --tests "*BackupExtractionGuardTest" --tests "*BackupOperationGateTest" --tests "*BackupScratchFilesTest" --tests "*RestoreDatabaseCloseTest" --tests "*BackupManagerTest" --tests "*RestoreConfigFilesTest" --tests "*RestoreRecoveryJournalTest" --tests "*RestoreAccessGateTest" --tests "*RestoreCoroutineOperationTest" --tests "*RestoreSnapshotTest" --tests "*RestoreStartupRecoveryTest" --tests "*ServiceOperationGateTest" --tests "*ProfileFilesAdmissionTest" --tests "*ArchiveMetadataTest" :app:assembleOtherDebug --no-daemon --stacktrace
           mapfile -t apks < <(find app/build/outputs/apk -type f -name '*.apk')
           test "${#apks[@]}" -eq 1
           APK="${apks[0]}"

@@ -82,11 +82,13 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.clipboardText
+import io.nekohasekai.sfa.utils.ApplicationDataAccess
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.ProxyProviderItem
 import io.nekohasekai.sfa.utils.ProxyProviders
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
+import io.nekohasekai.sfa.utils.RestoreAccessGate
 import io.nekohasekai.sfa.utils.RuleSetProvider
 import io.nekohasekai.sfa.utils.RuleSetProviders
 import io.nekohasekai.sfa.utils.SubscriptionInfo
@@ -134,19 +136,40 @@ data class RuleProvidersUiState(
 )
 
 internal object RuleProviderPageCache {
-    data class Snap(val fingerprint: Long, val state: RuleProvidersUiState)
+    data class Snap(
+        val fingerprint: Long,
+        val state: RuleProvidersUiState,
+        val snapshot: RestoreAccessGate.Snapshot,
+    )
 
     private val map = HashMap<Long, Snap>()
 
-    fun last(profileId: Long): RuleProvidersUiState? = map[profileId]?.state
+    @Synchronized
+    private fun valid(profileId: Long): Snap? =
+        map[profileId]?.takeIf {
+            runCatching { ApplicationDataAccess.gate.requireSnapshot(it.snapshot) }.isSuccess
+        }
 
-    fun get(profileId: Long, fingerprint: Long): RuleProvidersUiState? = map[profileId]?.takeIf { it.fingerprint == fingerprint }?.state
+    fun last(profileId: Long): RuleProvidersUiState? = valid(profileId)?.state
 
-    fun put(profileId: Long, fingerprint: Long, state: RuleProvidersUiState) {
-        map[profileId] = Snap(fingerprint, state.copy(loading = false, error = null))
+    fun get(
+        profileId: Long,
+        fingerprint: Long,
+    ): RuleProvidersUiState? = valid(profileId)?.takeIf { it.fingerprint == fingerprint }?.state
+
+    @Synchronized
+    fun put(
+        profileId: Long,
+        fingerprint: Long,
+        state: RuleProvidersUiState,
+    ) {
+        map[profileId] = Snap(fingerprint, state.copy(loading = false, error = null), ApplicationDataAccess.snapshot())
     }
 
-    fun fingerprint(profileFile: File, working: File): Long {
+    fun fingerprint(
+        profileFile: File,
+        working: File,
+    ): Long {
         var h = profileFile.lastModified() xor profileFile.length()
         val dir = File(working, "rule-sets")
         val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
@@ -157,10 +180,20 @@ internal object RuleProviderPageCache {
     }
 }
 
-class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
+class RuleProvidersViewModel(
+    private val profileId: Long,
+) : ViewModel() {
     private val _ui = MutableStateFlow(RuleProvidersUiState())
     val ui: StateFlow<RuleProvidersUiState> = _ui.asStateFlow()
-    private var profile: Profile? = null
+
+    private data class LoadedData(
+        val profile: Profile,
+        val state: RuleProvidersUiState,
+        val snapshot: RestoreAccessGate.Snapshot,
+    )
+
+    @Volatile
+    private var loadedData: LoadedData? = null
 
     init {
         RuleProviderPageCache.last(profileId)?.let { _ui.value = it }
@@ -171,90 +204,123 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     private fun reload(preferCache: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            val loaded = ProfileManager.get(profileId)
-            if (loaded == null) {
-                _ui.value = RuleProvidersUiState(loading = false, error = "配置不存在")
-                return@launch
-            }
-            profile = loaded
-            val profileFile = File(loaded.typed.path)
-            val working = workingDir()
-            val fingerprint = RuleProviderPageCache.fingerprint(profileFile, working)
-            if (preferCache) {
-                RuleProviderPageCache.get(profileId, fingerprint)?.let { cached ->
-                    _ui.value = cached
-                    return@launch
+            try {
+                ApplicationDataAccess.operation {
+                    val loaded = ProfileManager.get(profileId)
+                    if (loaded == null) {
+                        _ui.value = RuleProvidersUiState(loading = false, error = "配置不存在")
+                        return@operation
+                    }
+                    val snapshot = ApplicationDataAccess.snapshot()
+                    val profileFile = File(loaded.typed.path)
+                    val working = workingDir()
+                    val fingerprint = RuleProviderPageCache.fingerprint(profileFile, working)
+                    if (preferCache) {
+                        RuleProviderPageCache.get(profileId, fingerprint)?.let { cached ->
+                            withContext(Dispatchers.Main) {
+                                loadedData = LoadedData(loaded, cached, snapshot)
+                                _ui.value = cached
+                            }
+                            return@operation
+                        }
+                    }
+                    val firstLoad = _ui.value.rows.isEmpty() && _ui.value.proxies.isEmpty()
+                    if (firstLoad) {
+                        _ui.value = _ui.value.copy(loading = true, error = null)
+                    }
+                    val content =
+                        runCatching {
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .readText(profileFile)
+                        }.getOrElse {
+                            _ui.value =
+                                RuleProvidersUiState(
+                                    profileName = loaded.name,
+                                    loading = false,
+                                    error = it.message,
+                                )
+                            return@operation
+                        }
+                    val info = SubscriptionInfoStore.get(Application.application, loaded.id)
+                    val rows =
+                        RuleSetProviders.parse(content).map { item ->
+                            val file = resolveRuleFile(working, item)
+                            RuleProviderRow(
+                                item = item,
+                                updatedAt = file?.lastModified()?.takeIf { it > 0L },
+                                entries = RuleSetProviders.entryCount(file, item.raw),
+                            )
+                        }
+                    val proxies =
+                        ProxyProviders
+                            .parse(
+                                content,
+                                loaded.name,
+                                loaded.typed.remoteURL,
+                            ).map { item ->
+                                ProxyProviderRow(
+                                    item = item,
+                                    updatedAt =
+                                        loaded.typed.lastUpdated.time
+                                            .takeIf { it > 0L },
+                                    info = info,
+                                )
+                            }
+                    val state =
+                        RuleProvidersUiState(
+                            profileName = loaded.name,
+                            rows = rows,
+                            proxies = proxies,
+                            loading = false,
+                        )
+                    RuleProviderPageCache.put(profileId, fingerprint, state)
+                    withContext(Dispatchers.Main) {
+                        loadedData = LoadedData(loaded, state, snapshot)
+                        _ui.value = state
+                    }
                 }
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(loading = false, error = e.message)
             }
-            val firstLoad = _ui.value.rows.isEmpty() && _ui.value.proxies.isEmpty()
-            if (firstLoad) {
-                _ui.value = _ui.value.copy(loading = true, error = null)
-            }
-            val content = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(profileFile) }.getOrElse {
-                _ui.value = RuleProvidersUiState(
-                    profileName = loaded.name,
-                    loading = false,
-                    error = it.message,
-                )
-                return@launch
-            }
-            val info = SubscriptionInfoStore.get(Application.application, loaded.id)
-            val rows = RuleSetProviders.parse(content).map { item ->
-                val file = resolveRuleFile(working, item)
-                RuleProviderRow(
-                    item = item,
-                    updatedAt = file?.lastModified()?.takeIf { it > 0L },
-                    entries = RuleSetProviders.entryCount(file, item.raw),
-                )
-            }
-            val proxies = ProxyProviders.parse(
-                content,
-                loaded.name,
-                loaded.typed.remoteURL,
-            ).map { item ->
-                ProxyProviderRow(
-                    item = item,
-                    updatedAt = loaded.typed.lastUpdated.time.takeIf { it > 0L },
-                    info = info,
-                )
-            }
-            val state = RuleProvidersUiState(
-                profileName = loaded.name,
-                rows = rows,
-                proxies = proxies,
-                loading = false,
-            )
-            RuleProviderPageCache.put(profileId, fingerprint, state)
-            _ui.value = state
         }
     }
 
-    fun sync(tag: String, onDone: (String) -> Unit) {
+    fun sync(
+        tag: String,
+        onDone: (String) -> Unit,
+    ) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
             markBusy(tag, true)
-            val message = runCatching { syncOne(tag) }.fold(
-                onSuccess = { Application.application.getString(R.string.rule_providers_synced) },
-                onFailure = {
-                    Application.application.getString(R.string.rule_providers_sync_failed) +
-                        "：" + (it.message ?: it.toString())
-                },
-            )
+            val message =
+                runCatching { syncOne(tag, binding) }.fold(
+                    onSuccess = { Application.application.getString(R.string.rule_providers_synced) },
+                    onFailure = {
+                        Application.application.getString(R.string.rule_providers_sync_failed) +
+                            "：" + (it.message ?: it.toString())
+                    },
+                )
             markBusy(tag, false)
             withContext(Dispatchers.Main) { onDone(message) }
             reload()
         }
     }
 
-    fun syncProxy(tag: String, onDone: (String) -> Unit) {
+    fun syncProxy(
+        tag: String,
+        onDone: (String) -> Unit,
+    ) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
             markProxyBusy(tag, true)
-            val message = runCatching { syncProxyOne() }.fold(
-                onSuccess = { Application.application.getString(R.string.rule_providers_synced) },
-                onFailure = {
-                    Application.application.getString(R.string.rule_providers_sync_failed) +
-                        "：" + (it.message ?: it.toString())
-                },
-            )
+            val message =
+                runCatching { syncProxyOne(binding) }.fold(
+                    onSuccess = { Application.application.getString(R.string.rule_providers_synced) },
+                    onFailure = {
+                        Application.application.getString(R.string.rule_providers_sync_failed) +
+                            "：" + (it.message ?: it.toString())
+                    },
+                )
             markProxyBusy(tag, false)
             withContext(Dispatchers.Main) { onDone(message) }
             reload()
@@ -262,16 +328,17 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
     }
 
     fun syncAll(onDone: (String) -> Unit) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
             var ok = 0
             var fail = 0
-            if (_ui.value.proxies.any { it.item.remote && it.item.url.isNotBlank() }) {
-                val success = runCatching { syncProxyOne() }.isSuccess
+            if (binding?.state?.proxies?.any { it.item.remote && it.item.url.isNotBlank() } == true) {
+                val success = runCatching { syncProxyOne(binding) }.isSuccess
                 if (success) ok++ else fail++
             }
-            _ui.value.rows.filter { it.item.remote && it.item.url.isNotBlank() }.forEach { row ->
+            (binding?.state?.rows ?: emptyList()).filter { it.item.remote && it.item.url.isNotBlank() }.forEach { row ->
                 markBusy(row.item.tag, true)
-                val success = runCatching { syncOne(row.item.tag) }.isSuccess
+                val success = runCatching { syncOne(row.item.tag, binding) }.isSuccess
                 if (success) ok++ else fail++
                 markBusy(row.item.tag, false)
             }
@@ -289,57 +356,84 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         }
     }
 
-    fun upload(tag: String, uri: Uri, onDone: (String) -> Unit) {
+    fun upload(
+        tag: String,
+        uri: Uri,
+        onDone: (String) -> Unit,
+    ) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
             markBusy(tag, true)
-            val message = runCatching {
-                val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-                val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path))
-                val root = JSONObject(content)
-                val item = _ui.value.rows.firstOrNull { it.item.tag == tag }?.item
-                    ?: error("找不到规则集")
-                val dest = RuleSetProviders.cacheFile(workingDir(), tag, item.format, item.url)
-                dest.parentFile?.mkdirs()
-                Application.application.contentResolver.openInputStream(uri)?.use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
-                } ?: error("无法读取文件")
-                if (!dest.isFile || dest.length() == 0L) {
-                    dest.delete()
-                    error("空文件")
-                }
-                if (dest.name.endsWith(".json", true)) {
-                    dest.copyTo(RuleSetProviders.sourceCacheFile(workingDir(), tag), overwrite = true)
-                }
-                RuleSetProviders.updateItem(root, tag) { current ->
-                    current.put("type", "local")
-                    current.put("path", dest.absolutePath)
-                    current.remove("url")
-                    current.remove("download_url")
-                    current.remove("initial_path")
-                    if (current.optString("format").isBlank()) {
-                        current.put(
-                            "format",
-                            if (dest.name.endsWith(".json", true)) "source" else "binary",
-                        )
+            val message =
+                runCatching {
+                    ApplicationDataAccess.operation(binding?.snapshot ?: error("Reload providers before changing them")) {
+                        val loaded = requireNotNull(binding).profile
+                        val content =
+                            io.nekohasekai.sfa.utils.ProfileFiles
+                                .readText(File(loaded.typed.path))
+                        val root = JSONObject(content)
+                        val item =
+                            requireNotNull(binding)
+                                .state.rows
+                                .firstOrNull { it.item.tag == tag }
+                                ?.item
+                                ?: error("找不到规则集")
+                        val dest = RuleSetProviders.cacheFile(workingDir(), tag, item.format, item.url)
+                        dest.parentFile?.mkdirs()
+                        Application.application.contentResolver.openInputStream(uri)?.use { input ->
+                            dest.outputStream().use { output -> input.copyTo(output) }
+                        } ?: error("无法读取文件")
+                        if (!dest.isFile || dest.length() == 0L) {
+                            dest.delete()
+                            error("空文件")
+                        }
+                        if (dest.name.endsWith(".json", true)) {
+                            dest.copyTo(RuleSetProviders.sourceCacheFile(workingDir(), tag), overwrite = true)
+                        }
+                        RuleSetProviders.updateItem(root, tag) { current ->
+                            current.put("type", "local")
+                            current.put("path", dest.absolutePath)
+                            current.remove("url")
+                            current.remove("download_url")
+                            current.remove("initial_path")
+                            if (current.optString("format").isBlank()) {
+                                current.put(
+                                    "format",
+                                    if (dest.name.endsWith(".json", true)) "source" else "binary",
+                                )
+                            }
+                        }
+                        io.nekohasekai.sfa.utils.ProfileFiles
+                            .writeAtomically(File(loaded.typed.path), root.toString())
                     }
-                }
-                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
-            }.fold(
-                onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
-                onFailure = {
-                    Application.application.getString(R.string.rule_providers_sync_failed) +
-                        "：" + (it.message ?: it.toString())
-                },
-            )
+                }.fold(
+                    onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
+                    onFailure = {
+                        Application.application.getString(R.string.rule_providers_sync_failed) +
+                            "：" + (it.message ?: it.toString())
+                    },
+                )
             markBusy(tag, false)
             withContext(Dispatchers.Main) { onDone(message) }
             reload()
         }
     }
 
-    fun viewRule(tag: String, onReady: (ViewPayload) -> Unit) {
+    fun viewRule(
+        tag: String,
+        onReady: (ViewPayload) -> Unit,
+    ) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
-            val lines = loadRuleEntries(tag)
+            val lines =
+                runCatching {
+                    ApplicationDataAccess.operation(binding?.snapshot ?: error("Reload providers before viewing them")) {
+                        loadRuleEntries(tag, requireNotNull(binding))
+                    }
+                }.getOrElse {
+                    _ui.value = _ui.value.copy(error = it.message)
+                    return@launch
+                }
             withContext(Dispatchers.Main) {
                 onReady(
                     ViewPayload(
@@ -352,9 +446,21 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         }
     }
 
-    fun viewProxy(tag: String, onReady: (ViewPayload) -> Unit) {
+    fun viewProxy(
+        tag: String,
+        onReady: (ViewPayload) -> Unit,
+    ) {
+        val binding = loadedData
         viewModelScope.launch(Dispatchers.IO) {
-            val lines = prettyProfileLines()
+            val lines =
+                runCatching {
+                    ApplicationDataAccess.operation(binding?.snapshot ?: error("Reload providers before viewing them")) {
+                        prettyProfileLines(requireNotNull(binding))
+                    }
+                }.getOrElse {
+                    _ui.value = _ui.value.copy(error = it.message)
+                    return@launch
+                }
             withContext(Dispatchers.Main) {
                 onReady(
                     ViewPayload(
@@ -367,29 +473,40 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         }
     }
 
-    private fun prettyProfileLines(): List<String> {
-        val loaded = profile ?: return emptyList()
-        val text = runCatching { io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path)) }.getOrDefault("")
-        val pretty = try {
-            val trimmed = text.trim()
-            when {
-                trimmed.startsWith("{") -> JSONObject(trimmed).toString(2)
-                trimmed.startsWith("[") -> JSONArray(trimmed).toString(2)
-                else -> text
+    private fun prettyProfileLines(binding: LoadedData): List<String> {
+        val loaded = requireNotNull(binding).profile
+        val text =
+            runCatching {
+                io.nekohasekai.sfa.utils.ProfileFiles
+                    .readText(File(loaded.typed.path))
+            }.getOrDefault("")
+        val pretty =
+            try {
+                val trimmed = text.trim()
+                when {
+                    trimmed.startsWith("{") -> JSONObject(trimmed).toString(2)
+                    trimmed.startsWith("[") -> JSONArray(trimmed).toString(2)
+                    else -> text
+                }
+            } catch (_: Exception) {
+                text
             }
-        } catch (_: Exception) {
-            text
-        }
         return pretty.replace("\r\n", "\n").lines()
     }
 
-    private fun loadRuleEntries(tag: String): List<String> {
-        val row = _ui.value.rows.firstOrNull { it.item.tag == tag } ?: return emptyList()
+    private fun loadRuleEntries(
+        tag: String,
+        binding: LoadedData,
+    ): List<String> {
+        val row = binding.state.rows.firstOrNull { it.item.tag == tag } ?: return emptyList()
         val file = resolveRuleFile(workingDir(), row.item)
         return RuleSetProviders.listEntries(file, row.item.raw)
     }
 
-    private fun resolveRuleFile(working: File, item: RuleSetProvider): File? {
+    private fun resolveRuleFile(
+        working: File,
+        item: RuleSetProvider,
+    ): File? {
         val cache = RuleSetProviders.cacheFile(working, item.tag, item.format, item.url)
         val json = RuleSetProviders.sourceCacheFile(working, item.tag)
         val local = item.path.takeIf { it.isNotBlank() }?.let { File(it) }
@@ -400,57 +517,79 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         ).firstOrNull()
     }
 
-    private suspend fun syncOne(tag: String) {
-        val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-        val content = io.nekohasekai.sfa.utils.ProfileFiles.readText(File(loaded.typed.path))
-        val root = JSONObject(content)
-        val item = RuleSetProviders.parse(content).firstOrNull { it.tag == tag }
-            ?: error("找不到规则集")
-        if (item.url.isBlank()) error("这个规则集没有远程地址")
-        val dest = RuleSetProviders.cacheFile(workingDir(), tag, item.format, item.url)
-        HTTPClient().use { client ->
-            client.downloadToFile(item.url, RemoteUrlGuard.Kind.SUBSCRIPTION, dest)
+    private suspend fun syncOne(
+        tag: String,
+        binding: LoadedData?,
+    ) {
+        ApplicationDataAccess.operation(binding?.snapshot ?: error("Reload providers before changing them")) {
+            val loaded = requireNotNull(binding).profile
+            val content =
+                io.nekohasekai.sfa.utils.ProfileFiles
+                    .readText(File(loaded.typed.path))
+            val root = JSONObject(content)
+            val item =
+                RuleSetProviders.parse(content).firstOrNull { it.tag == tag }
+                    ?: error("找不到规则集")
+            if (item.url.isBlank()) error("这个规则集没有远程地址")
+            val dest = RuleSetProviders.cacheFile(workingDir(), tag, item.format, item.url)
+            HTTPClient().use { client ->
+                client.downloadToFile(item.url, RemoteUrlGuard.Kind.SUBSCRIPTION, dest)
+            }
+            RuleSetProviders.updateItem(root, tag) { current ->
+                current.put("initial_path", dest.absolutePath)
+            }
+            io.nekohasekai.sfa.utils.ProfileFiles
+                .writeAtomically(File(loaded.typed.path), root.toString())
         }
-        RuleSetProviders.updateItem(root, tag) { current ->
-            current.put("initial_path", dest.absolutePath)
-        }
-        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
     }
 
-    private suspend fun syncProxyOne() {
-        val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-        if (loaded.typed.type != TypedProfile.Type.Remote || loaded.typed.remoteURL.isBlank()) {
-            error("这个提供者没有远程地址")
+    private suspend fun syncProxyOne(binding: LoadedData?) {
+        ApplicationDataAccess.operation(binding?.snapshot ?: error("Reload providers before changing them")) {
+            val loaded = requireNotNull(binding).profile
+            if (loaded.typed.type != TypedProfile.Type.Remote || loaded.typed.remoteURL.isBlank()) {
+                error("这个提供者没有远程地址")
+            }
+            val content =
+                ConfigCompat.sanitizeRemote(
+                    SubscriptionInfoStore.fetchRemote(
+                        loaded.typed.remoteURL,
+                        loaded.id,
+                        Application.application,
+                    ),
+                )
+            Libbox.checkConfig(content)
+            io.nekohasekai.sfa.utils.ProfileFiles
+                .writeAtomically(File(loaded.typed.path), content)
+            loaded.typed.lastUpdated = Date()
+            ProfileManager.update(loaded)
         }
-        val content = ConfigCompat.sanitizeRemote(
-            SubscriptionInfoStore.fetchRemote(
-                loaded.typed.remoteURL,
-                loaded.id,
-                Application.application,
-            ),
-        )
-        Libbox.checkConfig(content)
-        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), content)
-        loaded.typed.lastUpdated = Date()
-        ProfileManager.update(loaded)
-        profile = loaded
     }
 
-    private fun markBusy(tag: String, busy: Boolean) {
-        _ui.value = _ui.value.copy(
-            rows = _ui.value.rows.map { if (it.item.tag == tag) it.copy(busy = busy) else it },
-        )
+    private fun markBusy(
+        tag: String,
+        busy: Boolean,
+    ) {
+        _ui.value =
+            _ui.value.copy(
+                rows = _ui.value.rows.map { if (it.item.tag == tag) it.copy(busy = busy) else it },
+            )
     }
 
-    private fun markProxyBusy(tag: String, busy: Boolean) {
-        _ui.value = _ui.value.copy(
-            proxies = _ui.value.proxies.map { if (it.item.tag == tag) it.copy(busy = busy) else it },
-        )
+    private fun markProxyBusy(
+        tag: String,
+        busy: Boolean,
+    ) {
+        _ui.value =
+            _ui.value.copy(
+                proxies = _ui.value.proxies.map { if (it.item.tag == tag) it.copy(busy = busy) else it },
+            )
     }
 
     private fun workingDir(): File = Application.application.getExternalFilesDir(null) ?: Application.application.filesDir
 
-    class Factory(private val profileId: Long) : ViewModelProvider.Factory {
+    class Factory(
+        private val profileId: Long,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = RuleProvidersViewModel(profileId) as T
     }
@@ -476,16 +615,17 @@ fun RuleProvidersScreen(
     }
     var viewPayload by remember { mutableStateOf<ViewPayload?>(null) }
     var uploadTag by remember { mutableStateOf<String?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val tag = uploadTag
-        uploadTag = null
-        if (uri != null && tag != null) {
-            viewModel.upload(tag, uri) { message ->
-                scope.launch { snackbar.showSnackbar(message) }
-                notifyApply(io.nekohasekai.sfa.compose.base.UiEvent.ApplyServiceChange.Mode.Reload)
+    val picker =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            val tag = uploadTag
+            uploadTag = null
+            if (uri != null && tag != null) {
+                viewModel.upload(tag, uri) { message ->
+                    scope.launch { snackbar.showSnackbar(message) }
+                    notifyApply(io.nekohasekai.sfa.compose.base.UiEvent.ApplyServiceChange.Mode.Reload)
+                }
             }
         }
-    }
 
     val viewing = viewPayload
     if (viewing != null) {
@@ -523,9 +663,10 @@ fun RuleProvidersScreen(
         onPop = { navController.navigateUp() },
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(LocalScaffoldPadding.current),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(LocalScaffoldPadding.current),
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -548,12 +689,13 @@ fun RuleProvidersScreen(
                         ProxyProviderCard(
                             row = row,
                             onView = {
-                                viewPayload = ViewPayload(
-                                    title = row.item.tag,
-                                    lines = emptyList(),
-                                    kind = ProviderViewKind.Config,
-                                    loading = true,
-                                )
+                                viewPayload =
+                                    ViewPayload(
+                                        title = row.item.tag,
+                                        lines = emptyList(),
+                                        kind = ProviderViewKind.Config,
+                                        loading = true,
+                                    )
                                 viewModel.viewProxy(row.item.tag) { viewPayload = it }
                             },
                             onSync = {
@@ -594,12 +736,13 @@ fun RuleProvidersScreen(
                             picker.launch("*/*")
                         },
                         onView = {
-                            viewPayload = ViewPayload(
-                                title = row.item.tag,
-                                lines = emptyList(),
-                                kind = ProviderViewKind.Entries,
-                                loading = true,
-                            )
+                            viewPayload =
+                                ViewPayload(
+                                    title = row.item.tag,
+                                    lines = emptyList(),
+                                    kind = ProviderViewKind.Entries,
+                                    loading = true,
+                                )
                             viewModel.viewRule(row.item.tag) { viewPayload = it }
                         },
                         onSync = {
@@ -616,9 +759,10 @@ fun RuleProvidersScreen(
             }
             SnackbarHost(
                 hostState = snackbar,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
             )
         }
     }
@@ -654,11 +798,12 @@ private fun ProviderViewScreen(
                             },
                             onClick = {
                                 clipboardText = viewing.lines.joinToString("\n")
-                                Toast.makeText(
-                                    context,
-                                    R.string.copied_to_clipboard,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                Toast
+                                    .makeText(
+                                        context,
+                                        R.string.copied_to_clipboard,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                 menu = false
                             },
                         )
@@ -673,14 +818,16 @@ private fun ProviderViewScreen(
         onPop = onClose,
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(LocalScaffoldPadding.current),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(LocalScaffoldPadding.current),
         ) {
             when {
                 viewing.loading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
+
                 viewing.lines.isEmpty() -> {
                     Text(
                         text = stringResource(R.string.rule_providers_no_entries),
@@ -689,9 +836,11 @@ private fun ProviderViewScreen(
                         modifier = Modifier.padding(24.dp),
                     )
                 }
+
                 viewing.kind == ProviderViewKind.Config -> {
                     ConfigFileView(text = viewing.lines.joinToString("\n"))
                 }
+
                 else -> {
                     val gutterColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                     LazyColumn(
@@ -725,49 +874,55 @@ private fun ProviderViewScreen(
 @Composable
 private fun ConfigFileView(text: String) {
     val colorScheme = MaterialTheme.colorScheme
-    val editorColors = remember(colorScheme) {
-        ProfileEditorColors(
-            background = colorScheme.background.toArgb(),
-            foreground = colorScheme.onSurface.toArgb(),
-            lineNumber = colorScheme.onSurfaceVariant.toArgb(),
-            lineNumberBackground = colorScheme.background.toArgb(),
-            selectionBackground = colorScheme.primary.copy(alpha = 0.35f).toArgb(),
-            currentLineBackground = colorScheme.surfaceContainer.toArgb(),
-            cursor = colorScheme.primary.toArgb(),
-            matchedTextBackground = colorScheme.tertiary.copy(alpha = 0.35f).toArgb(),
-            comment = colorScheme.onSurfaceVariant.toArgb(),
-            key = colorScheme.primary.toArgb(),
-            string = colorScheme.tertiary.toArgb(),
-            number = colorScheme.secondary.toArgb(),
-            literal = colorScheme.primary.toArgb(),
-        )
-    }
+    val editorColors =
+        remember(colorScheme) {
+            ProfileEditorColors(
+                background = colorScheme.background.toArgb(),
+                foreground = colorScheme.onSurface.toArgb(),
+                lineNumber = colorScheme.onSurfaceVariant.toArgb(),
+                lineNumberBackground = colorScheme.background.toArgb(),
+                selectionBackground = colorScheme.primary.copy(alpha = 0.35f).toArgb(),
+                currentLineBackground = colorScheme.surfaceContainer.toArgb(),
+                cursor = colorScheme.primary.toArgb(),
+                matchedTextBackground = colorScheme.tertiary.copy(alpha = 0.35f).toArgb(),
+                comment = colorScheme.onSurfaceVariant.toArgb(),
+                key = colorScheme.primary.toArgb(),
+                string = colorScheme.tertiary.toArgb(),
+                number = colorScheme.secondary.toArgb(),
+                literal = colorScheme.primary.toArgb(),
+            )
+        }
     val holder = remember { arrayOfNulls<ProfileCodeEditor>(1) }
     DisposableEffect(Unit) {
         onDispose { holder[0]?.release() }
     }
     AndroidView(
         factory = { context ->
-            ProfileCodeEditor(context).also { created ->
-                created.setReadOnly(true)
-                created.applyColors(editorColors)
-                created.setText(text)
-                holder[0] = created
-            }.view
+            ProfileCodeEditor(context)
+                .also { created ->
+                    created.setReadOnly(true)
+                    created.applyColors(editorColors)
+                    created.setText(text)
+                    holder[0] = created
+                }.view
         },
         update = {
             val current = holder[0] ?: return@AndroidView
             current.applyColors(editorColors)
             if (current.getText() != text) current.setText(text)
         },
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colorScheme.background),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(colorScheme.background),
     )
 }
 
 @Composable
-private fun SectionHeader(title: String, onSync: () -> Unit) {
+private fun SectionHeader(
+    title: String,
+    onSync: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -796,14 +951,16 @@ private fun RuleProviderCard(
     onSync: () -> Unit,
 ) {
     val context = LocalContext.current
-    val time = row.updatedAt?.let { RelativeTimeFormatter.format(context, Date(it)) }
-        ?: stringResource(R.string.rule_providers_never)
-    val count = row.entries?.let { context.getString(R.string.rule_providers_entries, it) }
-        ?: if (row.item.format.equals("binary", true) || row.item.url.endsWith(".srs")) {
-            stringResource(R.string.rule_providers_binary)
-        } else {
-            null
-        }
+    val time =
+        row.updatedAt?.let { RelativeTimeFormatter.format(context, Date(it)) }
+            ?: stringResource(R.string.rule_providers_never)
+    val count =
+        row.entries?.let { context.getString(R.string.rule_providers_entries, it) }
+            ?: if (row.item.format.equals("binary", true) || row.item.url.endsWith(".srs")) {
+                stringResource(R.string.rule_providers_binary)
+            } else {
+                null
+            }
     ProviderCardFrame(
         title = row.item.tag,
         subtitle = listOfNotNull(time, count).joinToString(" · "),
@@ -827,15 +984,24 @@ private fun ProxyProviderCard(
     val info = row.info
     val time = row.updatedAt?.let { RelativeTimeFormatter.format(context, Date(it)) }
     val count = context.getString(R.string.rule_providers_entries, row.item.entries.size)
-    val traffic = when {
-        info == null -> null
-        info.hasQuota -> context.getString(
-            R.string.profile_traffic_used,
-            info.usedLabel(),
-            info.totalLabel(),
-        )
-        else -> context.getString(R.string.profile_traffic_unlimited)
-    }
+    val traffic =
+        when {
+            info == null -> {
+                null
+            }
+
+            info.hasQuota -> {
+                context.getString(
+                    R.string.profile_traffic_used,
+                    info.usedLabel(),
+                    info.totalLabel(),
+                )
+            }
+
+            else -> {
+                context.getString(R.string.profile_traffic_unlimited)
+            }
+        }
     val expire = info?.expireLabel()
     val title = if (expire.isNullOrBlank()) row.item.tag else "${row.item.tag}  ·  $expire"
     ProviderCardFrame(
@@ -882,16 +1048,18 @@ private fun ProviderCardFrame(
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp),
                 )
             }
             if (busy) {
                 LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
                 )
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
