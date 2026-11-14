@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.xposed.hooks.hidevpn
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Proxy
@@ -32,6 +33,9 @@ class HookConnectivityManagerProxyChangeAction(private val helper: ConnectivityS
         }
     }
 
+    // This hook runs inside system_server and uses its system Context after clearing the
+    // caller identity; the app must not request these signature-level permissions itself.
+    @SuppressLint("MissingPermission")
     private fun hookProxyBroadcastTracker() {
         val trackerClass = helper.resolveConnectivityModuleClass("ProxyTracker", "connectivity")
         XposedHelpers.findAndHookMethod(

@@ -522,6 +522,18 @@ def test_qr_scan_content_is_not_logged() -> None:
     assert 'Log.d(TAG, "Scanned:' not in source
 
 
+def test_proxy_broadcast_permission_suppression_stays_system_server_scoped() -> None:
+    source = read("app/src/main/java/io/nekohasekai/sfa/xposed/hooks/hidevpn/ConnectivityManager+PROXY_CHANGE_ACTION.kt")
+    method = source.split("private fun hookProxyBroadcastTracker() {", 1)[0].splitlines()[-4:]
+    assert any('@SuppressLint("MissingPermission")' in line for line in method)
+    assert "clearCallingIdentity()" in source and "restoreCallingIdentity(ident)" in source
+    # These are signature/system permissions; adding them to the ordinary app manifest
+    # would not grant them and would misrepresent the hook's execution identity.
+    manifest = read("app/src/main/AndroidManifest.xml")
+    assert "android.permission.INTERACT_ACROSS_USERS" not in manifest
+    assert "android.permission.BROADCAST_STICKY" not in manifest
+
+
 def test_native_core_diagnostics_are_not_logged() -> None:
     source = read("app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt")
     method = source.split("override fun writeDebugMessage(message: String?) {", 1)[1].split("\n    }", 1)[0]
@@ -755,6 +767,7 @@ def main() -> int:
         test_subscription_https_only,
         test_qr_scan_content_is_not_logged,
         test_native_core_diagnostics_are_not_logged,
+        test_proxy_broadcast_permission_suppression_stays_system_server_scoped,
     ]
     failed = 0
     for test in tests:
