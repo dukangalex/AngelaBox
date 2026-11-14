@@ -238,4 +238,39 @@ class BackupExtractionGuardTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun cleanupFailureOverridesNonLocalCompatReturnWithWarning() {
+        val root = Files.createTempDirectory("restore-nonlocal-fail").toFile()
+        try {
+            val staging = File(root, "staging")
+            val live = File(root, "live")
+            fun restore(): Int = run {
+                withRestoreStaging(staging, cleanup = { false }) { dir ->
+                    File(dir, "private").writeText("test")
+                    live.writeText("new")
+                    return 42
+                }
+            }
+            val result = runCatching { restore() }
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()!!.message!!.contains("可能已部分或全部生效"))
+            assertEquals("new", live.readText())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun throwingCleanupFailureIsDisclosedAndPreserved() {
+        val root = Files.createTempDirectory("restore-cleanup-throws").toFile()
+        try {
+            val staging = File(root, "staging")
+            val result = runCatching {
+                withRestoreStaging(staging, cleanup = { error("cleanup exception") }) { dir ->
+                    File(dir, "private").writeText("test")
+                    1
+                }
+            }
+            val error = result.exceptionOrNull()!!
+            assertTrue(error.message!!.contains("可能已部分或全部生效"))
+            assertEquals("cleanup exception", error.cause!!.message)
+        } finally { root.deleteRecursively() }
+    }
+
 }
