@@ -288,6 +288,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.BackupOperationGateTest \
             --tests io.nekohasekai.sfa.utils.BackupScratchFilesTest \
             --tests io.nekohasekai.sfa.utils.RestoreConfigFilesTest \
+            --tests io.nekohasekai.sfa.utils.RestoreRecoveryJournalTest \
             --tests io.nekohasekai.sfa.vendor.ArchiveMetadataTest \
             --tests io.nekohasekai.sfa.utils.RestoreDatabaseCloseTest \
             --tests io.nekohasekai.sfa.utils.WebDavAutoProbePolicyTest \
