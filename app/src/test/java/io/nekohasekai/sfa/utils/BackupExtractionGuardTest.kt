@@ -2,11 +2,14 @@ package io.nekohasekai.sfa.utils
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
 import java.util.Random
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -153,4 +156,86 @@ class BackupExtractionGuardTest {
             assertFalse(staging.exists())
         } finally { staging.deleteRecursively(); src.delete() }
     }
+    @Test fun restoreStagingCleansUpAfterPostExtractionFailure() {
+        val root = Files.createTempDirectory("restore-stage").toFile()
+        try {
+            val staging = File(root, "restore-staging")
+            try {
+                withRestoreStaging(staging) { dir ->
+                    File(dir, "configs").mkdirs()
+                    File(dir, "configs/private.json").writeText("secret")
+                    error("injected restore failure")
+                }
+                fail("expected failure")
+            } catch (e: IllegalStateException) { assertEquals("injected restore failure", e.message) }
+            assertFalse(staging.exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun restoreStagingCleansUpAfterNonLocalCompatReturn() {
+        val root = Files.createTempDirectory("restore-stage").toFile()
+        try {
+            val staging = File(root, "restore-staging")
+            fun restore(): Int = run {
+                withRestoreStaging(staging) { dir ->
+                    File(dir, "config.json").writeText("secret")
+                    return 42
+                }
+            }
+            assertEquals(42, restore())
+            assertFalse(staging.exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun restoreStagingRemovesOldDataAndCleansAfterSuccess() {
+        val root = Files.createTempDirectory("restore-stage").toFile()
+        try {
+            val staging = File(root, "restore-staging").apply { mkdirs() }
+            File(staging, "old").writeText("old")
+            val result = withRestoreStaging(staging) { dir ->
+                assertFalse(File(dir, "old").exists())
+                File(dir, "new").writeText("private")
+                5
+            }
+            assertEquals(5, result)
+            assertFalse(staging.exists())
+        } finally { root.deleteRecursively() }
+    }
+    @Test fun cleanupFailureAfterMutationWarnsRestoreMayHaveTakenEffect() {
+        val root = Files.createTempDirectory("restore-cleanup-fail").toFile()
+        try {
+            val staging = File(root, "staging")
+            val live = File(root, "live")
+            val result = runCatching {
+                withRestoreStaging(staging, cleanup = { false }) { dir ->
+                    File(dir, "private").writeText("test")
+                    live.writeText("new")
+                    1
+                }
+            }
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()!!.message!!.contains("可能已部分或全部生效"))
+            assertEquals("new", live.readText())
+            assertTrue(staging.exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun cleanupFailureRetainsRestoreErrorAndWarnsOfPossibleChanges() {
+        val root = Files.createTempDirectory("restore-double-fail").toFile()
+        try {
+            val staging = File(root, "staging")
+            val result = runCatching {
+                withRestoreStaging(staging, cleanup = { false }) { dir ->
+                    File(dir, "private").writeText("test")
+                    error("restore failure")
+                }
+            }
+            val error = result.exceptionOrNull()!!
+            assertTrue(error.message!!.contains("可能已部分或全部生效"))
+            assertEquals("restore failure", error.cause!!.message)
+            assertEquals(1, error.suppressed.size)
+            assertTrue(staging.exists())
+        } finally { root.deleteRecursively() }
+    }
+
 }

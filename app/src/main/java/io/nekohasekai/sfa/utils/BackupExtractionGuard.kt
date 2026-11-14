@@ -38,3 +38,36 @@ internal fun <T> extractBackupOrDiscard(
         staging.deleteRecursively()
         throw e
     }
+
+/** Keep extracted backup data only for the duration of a restore attempt.
+ * This does not protect against process death or guarantee deletion when the filesystem refuses it. */
+internal inline fun <T> withRestoreStaging(
+    staging: File,
+    cleanup: (File) -> Boolean = { it.deleteRecursively() },
+    block: (File) -> T,
+): T {
+    check(!staging.exists() || cleanup(staging)) { "无法清理恢复暂存目录" }
+    check(staging.mkdirs() || staging.isDirectory) { "无法创建恢复暂存目录" }
+    var failure: Throwable? = null
+    return try {
+        block(staging)
+    } catch (error: Throwable) {
+        failure = error
+        throw error
+    } finally {
+        val cleanupFailure = try {
+            if (staging.exists() && !cleanup(staging)) IllegalStateException("无法清理恢复暂存目录") else null
+        } catch (error: Exception) {
+            error
+        }
+        if (cleanupFailure != null) {
+            // Restore has no transaction yet. Do not imply nothing changed or invite an unsafe retry.
+            val report = IllegalStateException(
+                "恢复暂存目录清理失败；恢复可能已部分或全部生效，请检查后再重试。",
+                failure ?: cleanupFailure,
+            )
+            if (failure != null) report.addSuppressed(cleanupFailure)
+            throw report
+        }
+    }
+}
