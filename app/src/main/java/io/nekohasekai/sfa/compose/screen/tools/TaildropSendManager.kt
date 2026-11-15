@@ -86,7 +86,9 @@ object TaildropSendManager {
                 val resolver = Application.application.contentResolver
                 val descriptor = resolver.openFileDescriptor(uri, "r")
                     ?: throw FileNotFoundException(uri.toString())
-                files.add(TaildropSendFile(displayName(resolver, uri), descriptor))
+                closeOnFailure(descriptor) { opened ->
+                    files.add(TaildropSendFile(displayName(resolver, uri), opened))
+                }
             }
         } catch (e: Exception) {
             for (file in files) {
