@@ -1,10 +1,10 @@
 package io.nekohasekai.sfa.compose.screen.tools
 
-import java.io.Closeable
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.Closeable
 
 class CloseOnFailureTest {
     private class Handle(private val failClose: Boolean = false) : Closeable {
