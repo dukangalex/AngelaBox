@@ -98,9 +98,19 @@ class HTTPClientSubscriptionTest {
         )
         assertTrue(msg.contains("直连订阅服务器失败"))
         assertTrue(msg.contains("可用节点"))
-        assertTrue(msg.contains("SocketException"))
+        assertFalse(msg.contains("SocketException"))
         assertFalse(msg.contains("Connection reset"))
         assertFalse(msg.contains("请检查网络后再更新"))
+    }
+
+    @Test
+    fun failureMessageDoesNotLeakExceptionClassName() {
+        val msg = HTTPClient.explainProfileUpdate(
+            IllegalArgumentException("无法解析主机，已拒绝"),
+            tunnelUp = false,
+        )
+        assertTrue(msg.contains("域名解析失败"))
+        assertFalse(msg.contains("IllegalArgumentException"))
     }
 
     @Test

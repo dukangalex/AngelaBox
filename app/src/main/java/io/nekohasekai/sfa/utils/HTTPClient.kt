@@ -327,20 +327,15 @@ class HTTPClient : Closeable {
             // Tunnel down: say what actually failed instead of blaming the
             // user's network. The ladder already retried with public-resolver
             // DNS, so a DNS failure here means both resolvers gave up.
-            // The technical suffix names only the exception class: raw
-            // messages may contain handshake dumps.
             val dnsFailed = chain.any { it is java.net.UnknownHostException } ||
                 messages.any { it.contains("无法解析主机") || it.contains("解析到禁止地址") }
-            val cause = chain.lastOrNull { !it.message.isNullOrBlank() }
-                ?.javaClass?.simpleName?.takeIf { it.isNotEmpty() }
-            val suffix = if (cause.isNullOrEmpty()) "" else "（$cause）"
             return if (dnsFailed) {
                 "订阅没更新上：域名解析失败。系统 DNS 与公共 DNS 都拿不到可用地址，" +
-                    "可能是 DNS 被污染或订阅链接有误。请检查链接是否正确，或先连接可用节点后再更新。" + suffix
+                    "可能是 DNS 被污染或订阅链接有误。请检查链接是否正确，或先连接可用节点后再更新。"
             } else {
                 "订阅没更新上：直连订阅服务器失败，连接被中断或超时。" +
                     "该地址可能限制了直接访问——先连接一个可用节点，再回来更新订阅；" +
-                    "也可以改用分享链接、二维码或文件导入。" + suffix
+                    "也可以改用分享链接、二维码或文件导入。"
             }
         }
 

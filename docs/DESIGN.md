@@ -63,8 +63,8 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 
 先不追：
 
-- 测试线已对齐官方 **1.15.0-alpha.13**（内核 `9efb7914` / `v1.15.0-chain.9`）。Chain、urltest 失败换人、空闲组不测速都还在；上游这版自己实现了真实出站链解析，`route/` 改用上游实现。官方 1.15.0-alpha.5 在 Android 上有过 TUN 源地址变成局域网地址的报告（[SagerNet/sing-box#4543](https://github.com/SagerNet/sing-box/issues/4543)），这份内核没有单独改那一处。
-- 稳定线仍是 1.14.0 的 1.0.57。1.14.2 只有修复，不为此把测试线拉回去。
+- 当前测试线以官方 **1.15.0-alpha.13** 为基线，fork pin 为 `v1.15.0-chain.11`；稳定线 pin 为 `v1.15.0-chain.8`。精确提交以 `version.properties` 与 `version-stable.properties` 为准，维护时勿沿用历史快照。
+- 上游 Android TUN 风险报告仍需结合当前 pin 与实际设备复测；历史 issue 记录不等于当前版本已复现或已解决。
 - 不为 urltest 做「成本选路」或负载均衡，等官方有字段再接。
 
 ## 这几周哪几条基准被打破
