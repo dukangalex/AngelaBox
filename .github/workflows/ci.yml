@@ -267,6 +267,9 @@ jobs:
             :app:compileOtherDebugKotlin \
             :app:testDebugUnitTest \
             --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.PendingProfileImportCommitTest \
+            --tests io.nekohasekai.sfa.utils.ManualProfileCommitTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.LocalProviderDisclosureTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \

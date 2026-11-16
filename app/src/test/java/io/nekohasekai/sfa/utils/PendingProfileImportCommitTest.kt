@@ -7,9 +7,15 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.IOException
 
 class PendingProfileImportCommitTest {
+    @get:Rule
+    val temporary = TemporaryFolder()
+
     private data class ProfileState(var url: String, var deleted: Boolean = false, var content: String? = null)
 
     @Test
@@ -216,5 +222,52 @@ class PendingProfileImportCommitTest {
             },
         )
         assertEquals(0, writes)
+    }
+
+    @Test
+    fun staleDownloadKeepsRealFileUnchanged() = runBlocking {
+        val path = temporary.newFile("profile.json")
+        path.writeText("previous")
+        val row = ProfileState("https://new.example/sub")
+        val committed = commitPendingProfileImport(ProfileMutationGate(), 41L, { false }, { row }, { it.url == "https://old.example/sub" }) {
+            ProfileFiles.writeAtomically(path, "stale")
+            true
+        }
+        assertFalse(committed)
+        assertEquals("previous", path.readText())
+        assertFalse(path.resolveSibling("profile.json.tmp").exists())
+    }
+
+    @Test
+    fun acceptedDownloadReplacesRealFileAndCleansTemporaryFile() = runBlocking {
+        val path = temporary.newFile("profile.json")
+        path.writeText("previous")
+        val row = ProfileState("https://old.example/sub")
+        val committed = commitPendingProfileImport(ProfileMutationGate(), 42L, { false }, { row }, { it.url == "https://old.example/sub" }) {
+            ProfileFiles.writeAtomically(path, "fresh")
+            true
+        }
+        assertTrue(committed)
+        assertEquals("fresh", path.readText())
+        assertFalse(path.resolveSibling("profile.json.tmp").exists())
+    }
+
+    @Test
+    fun failedRenameCleansTemporaryFileAndLeavesDestination() = runBlocking {
+        val target = temporary.newFolder("occupied")
+        val sentinel = target.resolve("keep.txt")
+        sentinel.writeText("keep")
+        var thrown = false
+        try {
+            commitPendingProfileImport(ProfileMutationGate(), 43L, { false }, { ProfileState("ok") }, { true }) {
+                ProfileFiles.writeAtomically(target, "replacement")
+                true
+            }
+        } catch (_: IOException) {
+            thrown = true
+        }
+        assertTrue(thrown)
+        assertEquals("keep", sentinel.readText())
+        assertFalse(target.resolveSibling("occupied.tmp").exists())
     }
 }
