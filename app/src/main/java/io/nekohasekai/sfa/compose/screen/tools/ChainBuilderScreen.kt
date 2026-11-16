@@ -86,6 +86,7 @@ import io.nekohasekai.sfa.chain.ChainBinding
 import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.chain.LatestChainLoad
 import io.nekohasekai.sfa.compat.menuAnchorCompat
 import io.nekohasekai.sfa.compose.base.UiEvent
 import io.nekohasekai.sfa.compose.base.rememberApplyServiceChangeNotifier
@@ -142,6 +143,8 @@ fun ChainBuilderScreen(
     var savedEntryStale by remember { mutableStateOf<String?>(null) }
     var savedLandingStale by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    val loadOrder = remember { LatestChainLoad() }
     var chainActive by remember { mutableStateOf(false) }
     // B4/B5: the binding as last loaded/saved, kept whole (not just the
     // chainActive boolean) so the page can diff the current picks
@@ -183,6 +186,10 @@ fun ChainBuilderScreen(
     }
 
     fun reload(targetId: Long = -1L) {
+        val requestVersion = loadOrder.begin()
+        loadError = null
+        loading = true
+        picker = null
         val fallbackId = if (targetId > 0L) targetId else currentProfileId
         scope.launch(Dispatchers.IO) {
             try {
@@ -190,7 +197,7 @@ fun ChainBuilderScreen(
                 val wantId = if (fallbackId > 0L) fallbackId else Settings.selectedProfile
                 val current = profiles.find { it.id == wantId } ?: profiles.find { it.id == Settings.selectedProfile }
                 if (current == null) {
-                    withContext(Dispatchers.Main) { loadError = "未选择配置" }
+                    withContext(Dispatchers.Main) { if (loadOrder.isCurrent(requestVersion)) loadError = "未选择配置" }
                     return@launch
                 }
                 val content = File(current.typed.path).readText()
@@ -218,6 +225,7 @@ fun ChainBuilderScreen(
                     "$src  →  $land"
                 }
                 withContext(Dispatchers.Main) {
+                    if (!loadOrder.isCurrent(requestVersion)) return@withContext
                     currentProfileId = current.id
                     currentProfileName = current.name
                     currentProfilePath = current.typed.path
@@ -266,7 +274,9 @@ fun ChainBuilderScreen(
                     }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { loadError = e.message ?: "配置读取失败" }
+                withContext(Dispatchers.Main) { if (loadOrder.isCurrent(requestVersion)) loadError = e.message ?: "配置读取失败" }
+            } finally {
+                withContext(Dispatchers.Main) { if (loadOrder.isCurrent(requestVersion)) loading = false }
             }
         }
     }
@@ -388,7 +398,7 @@ fun ChainBuilderScreen(
     }
 
     val scheme = MaterialTheme.colorScheme
-    val canSave = !busy && entry != null && exit != null
+    val canSave = !busy && !loading && loadError == null && entry != null && exit != null
     // B4: dirty = current picks differ from the saved binding (or a
     // landing was picked with no binding yet). The entry's automatic
     // fallback selection alone does not count when nothing is bound.
@@ -415,7 +425,7 @@ fun ChainBuilderScreen(
                 IconButton(onClick = { showHelp = true }) {
                     Icon(Icons.Default.Info, stringResource(R.string.read_more))
                 }
-                IconButton(onClick = { reload() }) {
+                IconButton(enabled = !busy, onClick = { reload() }) {
                     Icon(Icons.Default.Refresh, stringResource(R.string.action_reload))
                 }
             },
@@ -447,7 +457,7 @@ fun ChainBuilderScreen(
             )
             ExposedDropdownMenuBox(
                 expanded = profileMenu,
-                onExpandedChange = { profileMenu = it },
+                onExpandedChange = { if (!busy) profileMenu = it },
             ) {
                 Surface(
                     modifier = Modifier
@@ -482,6 +492,11 @@ fun ChainBuilderScreen(
                                 profileMenu = false
                                 if (profile.id != currentProfileId) {
                                     currentProfileId = profile.id
+                                    currentProfileName = profile.name
+                                    currentProfilePath = null
+                                    currentHops = emptyList()
+                                    chainActive = false
+                                    isSelectedProfile = profile.id == Settings.selectedProfile
                                     entry = null
                                     exit = null
                                     savedEntryStale = null
@@ -521,7 +536,7 @@ fun ChainBuilderScreen(
                             role = "入口",
                             placeholder = "选择入口",
                             accent = scheme.primary,
-                            enabled = !busy,
+                            enabled = !busy && !loading,
                             onClick = {
                                 picker = "entry"
                                 pickerQuery = ""
@@ -537,7 +552,7 @@ fun ChainBuilderScreen(
                             role = "落地",
                             placeholder = "选择落地",
                             accent = scheme.tertiary,
-                            enabled = !busy,
+                            enabled = !busy && !loading,
                             showFlag = true,
                             onClick = {
                                 picker = "landing"
@@ -668,7 +683,7 @@ fun ChainBuilderScreen(
                         // (selected profile) or on switch.
                         buildString {
                             append("「$currentProfileName」链式，入口 → 落地")
-                            append(if (isSelectedProfile) "（保存即生效）" else "（切换到该配置后生效）")
+                            append(if (isSelectedProfile) "（保存后请求重新加载）" else "（切换到该配置后生效）")
                             if (chainDirty) append(" · 有未保存修改")
                         },
                         color = scheme.onPrimary.copy(alpha = 0.82f),
@@ -694,7 +709,7 @@ fun ChainBuilderScreen(
 
             TextButton(
                 onClick = { clearChain() },
-                enabled = !busy && chainActive,
+                enabled = !busy && !loading && chainActive,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("取消当前配置的链式")

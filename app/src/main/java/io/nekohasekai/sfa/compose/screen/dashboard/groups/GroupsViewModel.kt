@@ -13,13 +13,18 @@ import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.RemoteControlManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -44,6 +49,12 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     private val _serviceStatus = MutableStateFlow(Status.Stopped)
     val serviceStatus = _serviceStatus.asStateFlow()
     private var lastServiceStatus: Status = Status.Stopped
+    private val groupUpdates = AtomicLong()
+    private class SelectionGate {
+        val sequence = AtomicLong()
+        val mutex = Mutex()
+    }
+    private val selectionGates = ConcurrentHashMap<String, SelectionGate>()
 
     init {
         if (sharedCommandClient != null) {
@@ -169,37 +180,29 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     fun selectGroupItem(groupTag: String, itemTag: String) {
-        // Check if this is actually a different selection
-        val currentGroup = uiState.value.groups.find { it.tag == groupTag }
-        if (currentGroup?.selected == itemTag) {
-            // Same item selected, no need to do anything
-            return
-        }
-
+        // Serialize each group's commands: a slower earlier command cannot overwrite a later choice.
+        val gate = selectionGates.computeIfAbsent(groupTag) { SelectionGate() }
+        val seq = gate.sequence.incrementAndGet()
+        val remote = RemoteControlManager.remoteServer.value?.id
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // Select the new outbound immediately
-                CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
-
-                // Update local state and show snackbar
-                withContext(Dispatchers.Main) {
-                    updateState {
-                        copy(
-                            groups =
-                            groups.map { group ->
-                                if (group.tag == groupTag) {
-                                    group.copy(selected = itemTag)
-                                } else {
-                                    group
-                                }
-                            },
-                            showCloseConnectionsSnackbar = true,
-                        )
+            gate.mutex.withLock {
+                if (gate.sequence.get() != seq || remote != RemoteControlManager.remoteServer.value?.id) return@withLock
+                try {
+                    CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                    if (gate.sequence.get() == seq && remote == RemoteControlManager.remoteServer.value?.id) {
+                        // Selection shown by the authoritative group stream, not optimistic success.
+                        withContext(Dispatchers.Main) {
+                            if (gate.sequence.get() == seq && remote == RemoteControlManager.remoteServer.value?.id) {
+                                updateState { copy(showCloseConnectionsSnackbar = true) }
+                                sendEvent(GroupsEvent.GroupSelected(groupTag, itemTag))
+                            }
+                        }
                     }
-                    sendEvent(GroupsEvent.GroupSelected(groupTag, itemTag))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (gate.sequence.get() == seq) sendError(e)
                 }
-            } catch (e: Exception) {
-                sendError(e)
             }
         }
     }
@@ -274,7 +277,9 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     override fun onDisconnected() {
+        val revision = groupUpdates.incrementAndGet()
         viewModelScope.launch(Dispatchers.Main) {
+            if (revision != groupUpdates.get()) return@launch
             updateState {
                 copy(
                     groups = emptyList(),
@@ -285,6 +290,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
+        val revision = groupUpdates.incrementAndGet()
         viewModelScope.launch(Dispatchers.Default) {
             val currentGroups = uiState.value.groups
             val currentByTag = currentGroups.associateBy { it.tag }
@@ -295,6 +301,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             }.withoutNestedRegionAutoSelect()
 
             withContext(Dispatchers.Main) {
+                if (revision != groupUpdates.get()) return@withContext
                 updateState {
                     val initialExpandedGroups = if (expandedGroups.isEmpty() && currentGroups.isEmpty()) {
                         mergedGroups.filter { it.isExpand }.map { it.tag }.toSet()

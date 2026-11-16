@@ -224,6 +224,8 @@ class DashboardViewModel :
     private var lastTopologyPublishAt = 0L
     private var pendingTopology = false
     private val loadSeq = AtomicLong()
+    private val profileSelectionSequence = AtomicLong()
+    private val profileSelectionMutex = Mutex()
 
     companion object {
         private const val TOPOLOGY_THROTTLE_MS = 1000L
@@ -463,6 +465,8 @@ class DashboardViewModel :
     fun selectProfile(profileId: Long) {
         if (profileId == currentState.selectedProfileId) return
         val name = currentState.profiles.find { it.id == profileId }?.name
+        val selectionSeq = profileSelectionSequence.incrementAndGet()
+        loadSeq.incrementAndGet()
         updateState {
             copy(
                 selectedProfileId = profileId,
@@ -482,14 +486,23 @@ class DashboardViewModel :
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                Settings.selectedProfile = profileId
-                runCatching { Settings.rebuildServiceMode() }
-                sendGlobalEvent(UiEvent.RequestReconnectService)
-                loadProfiles()
-            } catch (e: Exception) {
-                sendError(e)
-                loadProfiles()
+            profileSelectionMutex.withLock {
+                if (selectionSeq != profileSelectionSequence.get()) return@withLock
+                try {
+                    Settings.selectedProfile = profileId
+                    Settings.rebuildServiceMode()
+                    if (selectionSeq == profileSelectionSequence.get()) {
+                        sendGlobalEvent(UiEvent.RequestReconnectService)
+                        loadProfiles()
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (selectionSeq == profileSelectionSequence.get()) {
+                        sendError(e)
+                        loadProfiles()
+                    }
+                }
             }
         }
     }

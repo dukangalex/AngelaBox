@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.compose.screen.tools
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +47,8 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.inspection.InspectionAi
 import io.nekohasekai.sfa.inspection.InspectionPolicy
+import io.nekohasekai.sfa.inspection.InspectionPresentation
+import io.nekohasekai.sfa.inspection.InspectionProviders
 import io.nekohasekai.sfa.inspection.InspectionRunner
 import io.nekohasekai.sfa.inspection.InspectionStore
 import io.nekohasekai.sfa.utils.CoreIdentity
@@ -73,6 +78,7 @@ fun InspectionScreen(navController: NavController) {
     var showProbeConsent by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<InspectionReview?>(null) }
     var running by remember { mutableStateOf(false) }
+    var lastSampleFailed by remember { mutableStateOf(false) }
     var task by remember { mutableStateOf<Job?>(null) }
     var answer by remember { mutableStateOf<String?>(null) }
     var answerStamp by remember { mutableStateOf<InspectionRunner.ContextStamp?>(null) }
@@ -95,7 +101,7 @@ fun InspectionScreen(navController: NavController) {
             if (answerStamp != stamp || snapshot?.let { !InspectionPolicy.fresh(it, now, stamp.profile, stamp.tunnelUp, stamp.network, stamp.token) } != false) answer = null
         }
     }
-    val fresh = snapshot?.let { InspectionPolicy.fresh(it, now, stamp.profile, stamp.tunnelUp, stamp.network, stamp.token) } == true
+    val fresh = !lastSampleFailed && !running && snapshot?.let { InspectionPolicy.fresh(it, now, stamp.profile, stamp.tunnelUp, stamp.network, stamp.token) } == true
     OverrideTopBar {
         TopAppBar(title = { Text(stringResource(R.string.inspection_title)) }, navigationIcon = {
             IconButton(onClick = { navController.navigateUp() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.close)) }
@@ -131,8 +137,15 @@ fun InspectionScreen(navController: NavController) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(stringResource(R.string.inspection_observed_at, DateFormat.getDateTimeInstance().format(Date(result.collectedAt))))
                     Text(stringResource(if (fresh) R.string.inspection_point_in_time else R.string.inspection_stale), color = MaterialTheme.colorScheme.primary)
-                    result.facts.forEach { fact ->
-                        Text("${fact.id}: ${fact.state.name} / ${fact.code}", style = MaterialTheme.typography.bodyMedium)
+                    InspectionPresentation.completeFacts(result.facts).forEach { fact ->
+                        val display = InspectionPresentation.explain(fact)
+                        Text("${stringResource(display.label)} · ${stringResource(display.status)}", style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(display.detail), style = MaterialTheme.typography.bodyMedium)
+                        if (fresh) {
+                            display.advice?.let { advice ->
+                                Text(stringResource(R.string.inspection_human_next_step, stringResource(advice)), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                     Text(stringResource(R.string.inspection_evidence_limit), style = MaterialTheme.typography.bodySmall)
                 }
@@ -178,10 +191,13 @@ fun InspectionScreen(navController: NavController) {
                     message = null
                     task = scope.launch {
                         try {
-                            snapshot = InspectionRunner.manual(context)
+                            InspectionRunner.manual(context)
+                            lastSampleFailed = false
                         } catch (e: CancellationException) {
+                            lastSampleFailed = true
                             throw e
                         } catch (_: Exception) {
+                            lastSampleFailed = true
                             message = R.string.inspection_failed
                         } finally {
                             running = false
@@ -211,6 +227,8 @@ fun InspectionScreen(navController: NavController) {
                     message = null
                     task = scope.launch {
                         fun current() = approved.stamp == InspectionRunner.stamp(context) &&
+                            InspectionStore.config(context) == approved.config &&
+                            InspectionStore.latest(context) == approved.snapshot &&
                             InspectionPolicy.fresh(approved.snapshot, System.currentTimeMillis(), approved.stamp.profile, approved.stamp.tunnelUp, approved.stamp.network, approved.stamp.token)
                         try {
                             val output = InspectionAi.analyze(approved.config, approved.payload, ::current)
@@ -262,17 +280,72 @@ fun InspectionScreen(navController: NavController) {
 
 @Composable
 private fun InspectionConfigDialog(existing: InspectionStore.AiConfig?, onDismiss: () -> Unit, onSave: (InspectionStore.AiConfig?) -> Unit) {
+    var preset by remember { mutableStateOf(existing?.let { InspectionProviders.matching(it.endpoint, it.model) }) }
+    var custom by remember { mutableStateOf(existing != null && preset == null) }
     var endpoint by remember { mutableStateOf(existing?.endpoint.orEmpty()) }
     var model by remember { mutableStateOf(existing?.model.orEmpty()) }
+    var providersOpen by remember { mutableStateOf(false) }
+    var modelsOpen by remember { mutableStateOf(false) }
     // Deliberately not saveable: never put credentials in saved instance state or an export.
     var key by remember { mutableStateOf("") }
+    val canKeepKey = existing != null && existing.endpoint == endpoint.trim()
+    val canSave = endpoint.isNotBlank() && model.isNotBlank() && (key.isNotBlank() || canKeepKey)
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.inspection_model_settings)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.inspection_config_desc))
-            OutlinedTextField(endpoint, { endpoint = it }, label = { Text(stringResource(R.string.inspection_endpoint)) }, singleLine = true)
-            OutlinedTextField(model, { model = it }, label = { Text(stringResource(R.string.inspection_model)) }, singleLine = true)
-            OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (existing == null) R.string.inspection_key else R.string.inspection_key_keep)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            Box {
+                OutlinedButton(onClick = { providersOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(preset?.name ?: stringResource(if (custom) R.string.inspection_custom_provider else R.string.inspection_choose_provider))
+                }
+                DropdownMenu(expanded = providersOpen, onDismissRequest = { providersOpen = false }) {
+                    InspectionProviders.presets.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.name) }, onClick = {
+                            if (endpoint != option.endpoint) key = ""
+                            preset = option
+                            custom = false
+                            endpoint = option.endpoint
+                            model = option.models.first()
+                            providersOpen = false
+                        })
+                    }
+                    DropdownMenuItem(text = { Text(stringResource(R.string.inspection_custom_provider)) }, onClick = {
+                        if (!custom) {
+                            endpoint = ""
+                            model = ""
+                            key = ""
+                        }
+                        preset = null
+                        custom = true
+                        providersOpen = false
+                    })
+                }
+            }
+            if (custom) {
+                OutlinedTextField(endpoint, {
+                    if (endpoint != it) key = ""
+                    endpoint = it
+                }, label = { Text(stringResource(R.string.inspection_endpoint)) }, singleLine = true)
+                OutlinedTextField(model, { model = it }, label = { Text(stringResource(R.string.inspection_model)) }, singleLine = true)
+            } else if (preset != null) {
+                Box {
+                    OutlinedButton(onClick = { modelsOpen = true }, modifier = Modifier.fillMaxWidth()) { Text(model) }
+                    DropdownMenu(expanded = modelsOpen, onDismissRequest = { modelsOpen = false }) {
+                        preset?.models?.forEach { option ->
+                            DropdownMenuItem(text = { Text(option) }, onClick = {
+                                model = option
+                                modelsOpen = false
+                            })
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (canKeepKey) R.string.inspection_key_keep else R.string.inspection_key)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
             TextButton(onClick = { onSave(null) }) { Text(stringResource(R.string.inspection_remove_model)) }
         }
-    }, confirmButton = { TextButton(onClick = { onSave(InspectionStore.AiConfig(endpoint.trim(), model.trim(), key.ifBlank { existing?.key?.takeIf { existing.endpoint == endpoint.trim() }.orEmpty() })) }) { Text(stringResource(R.string.save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
+    }, confirmButton = {
+        TextButton(enabled = canSave, onClick = {
+            val selectedEndpoint = endpoint.trim()
+            onSave(InspectionStore.AiConfig(selectedEndpoint, model.trim(), InspectionProviders.keyFor(selectedEndpoint, key, existing)))
+        }) { Text(stringResource(R.string.save)) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }
