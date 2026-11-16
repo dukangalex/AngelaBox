@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -32,6 +33,12 @@ class UpdateProfileWork {
         private const val WORK_NAME = "UpdateProfile"
         private const val TAG = "UpdateProfileWork"
         private const val INITIAL_PROFILE_ID = "initial_profile_id"
+
+        /** A queued work ID alone is not permission: restore/materialization can clear intent. */
+        internal fun selectUpdateProfiles(profiles: List<Profile>, initialProfileId: Long, pendingInitialIds: Collection<Long>): List<Profile> = profiles.filter {
+            it.typed.type == TypedProfile.Type.Remote &&
+                if (initialProfileId > 0L) it.id == initialProfileId && it.id in pendingInitialIds else it.typed.autoUpdate
+        }
 
         /** Queue one durable, network-constrained retry for a newly saved subscription. */
         fun enqueueInitialImport(profileId: Long) {
@@ -119,12 +126,11 @@ class UpdateProfileWork {
             var selectedProfileUpdated = false
             val initialProfileId = inputData.getLong(INITIAL_PROFILE_ID, -1L)
             val initialImport = initialProfileId > 0L
-            val remoteProfiles =
-                ProfileManager.list()
-                    .filter {
-                        it.typed.type == TypedProfile.Type.Remote &&
-                            if (initialImport) it.id == initialProfileId else it.typed.autoUpdate
-                    }
+            val remoteProfiles = selectUpdateProfiles(
+                ProfileManager.list(),
+                initialProfileId,
+                if (initialImport) ProfileManager.pendingInitialImportIds() else emptyList(),
+            )
             if (remoteProfiles.isEmpty()) return Result.success()
             var hasTransientFailure = false
             var hasDeferredWork = false
@@ -172,6 +178,7 @@ class UpdateProfileWork {
                         expected = profile,
                         isStopped = { isStopped },
                         requireAutoUpdate = !initialImport,
+                        requireInitialIntent = initialImport,
                     ) { current ->
                         updateProfile = current
                         val file = File(current.typed.path)

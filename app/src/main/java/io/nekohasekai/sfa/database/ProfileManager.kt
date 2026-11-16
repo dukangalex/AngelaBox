@@ -108,12 +108,22 @@ object ProfileManager {
         expected: Profile,
         isStopped: () -> Boolean,
         requireAutoUpdate: Boolean = false,
+        requireInitialIntent: Boolean = false,
         commit: suspend (Profile) -> Boolean,
     ): Boolean = commitPendingProfileImport(
         gate = profileMutationGate,
         profileId = expected.id,
         isStopped = isStopped,
-        loadCurrent = { get(expected.id) },
+        loadCurrent = {
+            ProfileBindingStorage.access {
+                val currentDatabase = database()
+                if (requireInitialIntent && expected.id !in currentDatabase.initialImportDao().pendingIds()) {
+                    null
+                } else {
+                    currentDatabase.profileDao().get(expected.id)
+                }
+            }
+        },
         matchesPending = { current ->
             current.typed.type == TypedProfile.Type.Remote &&
                 (!requireAutoUpdate || current.typed.autoUpdate) &&

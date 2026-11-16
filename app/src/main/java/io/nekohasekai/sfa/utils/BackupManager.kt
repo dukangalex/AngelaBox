@@ -409,7 +409,8 @@ object BackupManager {
      * The same pass normalises the update policy of wholesale-restored
      * profiles: a Remote profile installed this way was never confirmed
      * per URL, so it must not fetch unattended — auto-update is stored off
-     * (the restore result discloses it) — and the interval gets the same
+     * (the restore result discloses it), pending initial-download intents
+     * are discarded, and the interval gets the same
      * 15-minute floor every other import path applies.
      */
     internal fun pinProfilePathsToConfigs(profilesDb: File, liveConfigs: File) {
@@ -418,6 +419,13 @@ object BackupManager {
             val root = liveConfigs.canonicalFile
             val convertor = TypedProfile.Convertor()
             SQLiteDatabase.openDatabase(profilesDb.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                // Initial-import intent is also network consent. A wholesale restore must not
+                // replay another installation's pending downloads, even with auto-update off.
+                val hasInitialIntents = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='initial_import_intents'",
+                    null,
+                ).use { it.moveToFirst() }
+                if (hasInitialIntents) db.delete("initial_import_intents", null, null)
                 val fixes = mutableListOf<Pair<Long, ByteArray>>()
                 db.rawQuery("SELECT id, typed FROM profiles", null).use { c ->
                     while (c.moveToNext()) {

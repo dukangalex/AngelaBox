@@ -28,6 +28,41 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE, sdk = [28])
 class InitialImportSchedulingIntegrationTest {
     @Test
+    fun restoredDatabaseDiscardsUnconfirmedInitialImportIntent() {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "restored-initial-intent.db"
+        context.deleteDatabase(name)
+        fun open() = Room.databaseBuilder(context, ProfileDatabase::class.java, name).allowMainThreadQueries().build()
+        var db = open()
+        try {
+            val profile = Profile(
+                name = "restored",
+                typed = TypedProfile().apply {
+                    type = TypedProfile.Type.Remote
+                    remoteURL = "https://example.com/restored"
+                    path = "/backup/configs/restored.json"
+                    autoUpdate = true
+                },
+            )
+            profile.id = db.insertProfile(profile, true)
+            assertEquals(listOf(profile.id), db.initialImportDao().pendingIds())
+            assertEquals(listOf(profile), UpdateProfileWork.selectUpdateProfiles(listOf(profile), profile.id, db.initialImportDao().pendingIds()))
+            db.close()
+            io.nekohasekai.sfa.utils.BackupManager.pinProfilePathsToConfigs(context.getDatabasePath(name), java.io.File(context.filesDir, "configs"))
+            db = open()
+            assertFalse(db.profileDao().get(profile.id)!!.typed.autoUpdate)
+            assertEquals("https://example.com/restored", db.profileDao().get(profile.id)!!.typed.remoteURL)
+            assertTrue("Restore must not replay network intent from the backup", db.initialImportDao().pendingIds().isEmpty())
+            // WorkManager may retain a pre-restore request with the same numeric profile ID.
+            assertTrue(UpdateProfileWork.selectUpdateProfiles(listOf(db.profileDao().get(profile.id)!!), profile.id, db.initialImportDao().pendingIds()).isEmpty())
+            assertTrue(UpdateProfileWork.selectUpdateProfiles(listOf(db.profileDao().get(profile.id)!!), -1L, emptyList()).isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun committedIntentReplaysAfterReopenAndCleansOnlyOnMaterializationOrDelete() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
