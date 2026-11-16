@@ -207,9 +207,10 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
                         editor?.getText() ?: ""
                     }
 
-                // Save to file without validation
-                profile?.let { p ->
-                    File(p.typed.path).writeText(currentContent)
+                // Reject stale editor snapshots rather than overwriting a newer subscription update.
+                val p = profile ?: throw IllegalStateException("配置不存在")
+                if (!ProfileManager.commitLocalContent(p.id, p.typed.path, _uiState.value.originalContent, currentContent)) {
+                    throw IllegalStateException("配置已被修改或删除，请重新加载后再保存")
                 }
 
                 _uiState.update {

@@ -17,6 +17,13 @@ import java.io.IOException
  */
 object ProfileFiles {
 
+    /** Call only while holding the profile mutation gate. */
+    fun writeIfUnchanged(file: File, expected: String, content: String): Boolean {
+        if (!file.isFile || file.readText() != expected) return false
+        if (content != expected) writeAtomically(file, content)
+        return true
+    }
+
     @Throws(IOException::class)
     fun writeAtomically(file: File, content: String) {
         val parent = file.parentFile

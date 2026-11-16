@@ -155,6 +155,22 @@ object ProfileManager {
         return if (applied) result else null
     }
 
+    /** Applies a local edit only if the profile and file still match the snapshot edited by the caller. */
+    suspend fun commitLocalContent(
+        profileId: Long,
+        expectedPath: String,
+        expectedContent: String,
+        content: String,
+    ): Boolean = commitPendingProfileImport(
+        gate = profileMutationGate,
+        profileId = profileId,
+        isStopped = { false },
+        loadCurrent = { get(profileId) },
+        matchesPending = { it.typed.path == expectedPath },
+    ) { current ->
+        ProfileFiles.writeIfUnchanged(File(current.typed.path), expectedContent, content)
+    }
+
     /** Caller must already hold the profile mutation lock. */
     suspend fun updateWhileLocked(profile: Profile): Int {
         val updated = database().profileDao().update(profile)

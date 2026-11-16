@@ -332,7 +332,9 @@ fun ChainBuilderScreen(
                             landingContent = landingContent,
                         ),
                     )
-                    file.writeText(ChainRuntimeCompiler.clear(raw, originalFinal))
+                    if (!ProfileManager.commitLocalContent(boundId, path, raw, ChainRuntimeCompiler.clear(raw, originalFinal))) {
+                        error("配置已被修改或删除，请刷新后重试")
+                    }
                     ChainBindings.put(
                         ChainBinding(
                             profileId = boundId,
@@ -374,9 +376,12 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val root = ChainRuntimeCompiler.parseConfig(file.readText())
+                    val raw = file.readText()
+                    val root = ChainRuntimeCompiler.parseConfig(raw)
                     val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    file.writeText(ChainRuntimeCompiler.clear(root.toString(), final))
+                    if (!ProfileManager.commitLocalContent(boundId, path, raw, ChainRuntimeCompiler.clear(root.toString(), final))) {
+                        error("配置已被修改或删除，请刷新后重试")
+                    }
                     ChainBindings.remove(boundId)
                 }
             }

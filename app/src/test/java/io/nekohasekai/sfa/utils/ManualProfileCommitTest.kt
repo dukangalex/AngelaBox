@@ -96,4 +96,34 @@ class ManualProfileCommitTest {
         assertFalse(result)
         assertEquals("initial", row.file)
     }
+
+    @Test
+    fun localSnapshotRejectsChangedOrMissingFile() {
+        val dir = kotlin.io.path.createTempDirectory("profile-snapshot").toFile()
+        try {
+            val file = java.io.File(dir, "profile.json")
+            file.writeText("updated by subscription")
+            assertFalse(ProfileFiles.writeIfUnchanged(file, "old snapshot", "editor content"))
+            assertEquals("updated by subscription", file.readText())
+            file.delete()
+            assertFalse(ProfileFiles.writeIfUnchanged(file, "old snapshot", "editor content"))
+            assertFalse(file.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun localSnapshotCommitsAtomicallyWhenUnchanged() {
+        val dir = kotlin.io.path.createTempDirectory("profile-snapshot").toFile()
+        try {
+            val file = java.io.File(dir, "profile.json")
+            file.writeText("old")
+            assertTrue(ProfileFiles.writeIfUnchanged(file, "old", "new"))
+            assertEquals("new", file.readText())
+            assertFalse(java.io.File(dir, "profile.json.tmp").exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

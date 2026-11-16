@@ -92,9 +92,11 @@ import io.nekohasekai.sfa.utils.RuleSetProviders
 import io.nekohasekai.sfa.utils.SubscriptionInfo
 import io.nekohasekai.sfa.utils.SubscriptionInfoStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -323,7 +325,9 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                         )
                     }
                 }
-                File(loaded.typed.path).writeText(root.toString())
+                if (!ProfileManager.commitLocalContent(loaded.id, loaded.typed.path, content, root.toString())) {
+                    error("配置已被修改或删除，请刷新后重试")
+                }
             }.fold(
                 onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
                 onFailure = {
@@ -414,7 +418,9 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         RuleSetProviders.updateItem(root, tag) { current ->
             current.put("initial_path", dest.absolutePath)
         }
-        File(loaded.typed.path).writeText(root.toString())
+        if (!ProfileManager.commitLocalContent(loaded.id, loaded.typed.path, content, root.toString())) {
+            error("配置已被修改或删除，请刷新后重试")
+        }
     }
 
     private suspend fun syncProxyOne() {
@@ -422,18 +428,21 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         if (loaded.typed.type != TypedProfile.Type.Remote || loaded.typed.remoteURL.isBlank()) {
             error("这个提供者没有远程地址")
         }
-        val content = ConfigCompat.sanitizeRemote(
-            SubscriptionInfoStore.fetchRemote(
-                loaded.typed.remoteURL,
-                loaded.id,
-                Application.application,
-            ),
-        )
+        val expectedUrl = loaded.typed.remoteURL
+        val expectedPath = loaded.typed.path
+        val job = currentCoroutineContext()
+        val fetched = SubscriptionInfoStore.fetchRemoteDeferred(expectedUrl)
+        val content = ConfigCompat.sanitizeRemote(fetched.content)
         Libbox.checkConfig(content)
-        File(loaded.typed.path).writeText(content)
-        loaded.typed.lastUpdated = Date()
-        ProfileManager.update(loaded)
-        profile = loaded
+        ProfileManager.commitRemoteContent(
+            profileId = loaded.id,
+            expectedUrl = expectedUrl,
+            expectedPath = expectedPath,
+            content = content,
+            userInfo = fetched.userInfo,
+            isStopped = { !job.isActive },
+        ) ?: error("订阅已被修改或删除，请刷新后重试")
+        profile = ProfileManager.get(loaded.id)
     }
 
     private fun markBusy(tag: String, busy: Boolean) {
