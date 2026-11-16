@@ -37,14 +37,16 @@ open class CommandClient(
     private var cachedOutbounds: List<io.nekohasekai.libbox.OutboundGroupItem>? = null
 
     fun addHandler(handler: Handler) {
-        synchronized(additionalHandlers) {
-            if (!additionalHandlers.contains(handler)) {
-                additionalHandlers.add(handler)
-                cachedGroups?.let { groups ->
-                    handler.updateGroups(groups)
-                }
-                cachedOutbounds?.let { outbounds ->
-                    handler.updateOutbounds(outbounds)
+        synchronized(access) {
+            synchronized(additionalHandlers) {
+                if (!additionalHandlers.contains(handler)) {
+                    additionalHandlers.add(handler)
+                    cachedGroups?.let { groups ->
+                        handler.updateGroups(groups)
+                    }
+                    cachedOutbounds?.let { outbounds ->
+                        handler.updateOutbounds(outbounds)
+                    }
                 }
             }
         }
@@ -104,25 +106,25 @@ open class CommandClient(
         fun writeConnectionEvents(events: ConnectionEvents) {}
     }
 
-    private val access = Any()
-    private var connectionEpoch = 0
+    private val epochGate = CommandEpochGate()
+    private val access = epochGate.lock
     private var commandClient: io.nekohasekai.libbox.CommandClient? = null
 
     fun connect() {
         val epoch: Int
         val previousClient: io.nekohasekai.libbox.CommandClient?
         synchronized(access) {
-            epoch = ++connectionEpoch
+            epoch = epochGate.advance()
             previousClient = commandClient
             commandClient = null
+            cachedGroups = null
+            cachedOutbounds = null
+            if (previousClient != null) {
+                dispatch(epoch) { it.onDisconnected() }
+            }
         }
         // A remote connect dials over the network and blocks until the probe
         // completes, so it must run off the main thread.
-        if (previousClient != null) {
-            // The dropped Go-side Disconnected callback is suppressed by the epoch
-            // bump, so the owner-initiated disconnect is reported deterministically.
-            getAllHandlers().forEach { it.onDisconnected() }
-        }
         scope.launch(Dispatchers.IO) {
             previousClient?.apply {
                 runCatching {
@@ -159,7 +161,7 @@ open class CommandClient(
                 newClient.connect()
             } catch (e: Exception) {
                 Log.d("CommandClient", "connect failed", e)
-                if (isActiveEpoch(epoch)) {
+                epochGate.runIfCurrent(epoch) {
                     handler.onConnectionError(
                         ConnectionErrorKind.ConnectFailed,
                         e.message ?: e.toString(),
@@ -169,7 +171,7 @@ open class CommandClient(
             }
             val stale =
                 synchronized(access) {
-                    if (epoch != connectionEpoch) {
+                    if (!epochGate.isCurrent(epoch)) {
                         true
                     } else {
                         commandClient = newClient
@@ -188,12 +190,14 @@ open class CommandClient(
     fun disconnect() {
         val client: io.nekohasekai.libbox.CommandClient?
         synchronized(access) {
-            connectionEpoch++
+            val epoch = epochGate.advance()
             client = commandClient
             commandClient = null
+            cachedGroups = null
+            cachedOutbounds = null
+            if (client != null) dispatch(epoch) { it.onDisconnected() }
         }
         if (client != null) {
-            getAllHandlers().forEach { it.onDisconnected() }
             // The owning scope may already be cancelled when this is called from
             // ViewModel.onCleared, so the connection is released independently.
             GlobalScope.launch(Dispatchers.IO) {
@@ -204,85 +208,75 @@ open class CommandClient(
         }
     }
 
-    private fun isActiveEpoch(epoch: Int): Boolean = synchronized(access) { epoch == connectionEpoch }
+    // Hold the same gate through the check and handler dispatch. A transition can
+    // no longer slip in between them; reentrant transitions stop the remaining fan-out.
+    private fun dispatch(epoch: Int, block: (Handler) -> Unit) {
+        epochGate.runIfCurrent(epoch) {
+            for (target in getAllHandlers()) {
+                if (!epochGate.isCurrent(epoch)) break
+                block(target)
+            }
+        }
+    }
 
     private inner class ClientHandler(private val epoch: Int) : CommandClientHandler {
         override fun connected() {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.onConnected() }
+            dispatch(epoch) { it.onConnected() }
             Log.d("CommandClient", "connected")
         }
 
         override fun disconnected(message: String?) {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.onDisconnected() }
-            if (message != null) {
-                handler.onConnectionError(ConnectionErrorKind.ConnectionLost, message)
+            epochGate.runIfCurrent(epoch) {
+                dispatch(epoch) { it.onDisconnected() }
+                if (message != null && epochGate.isCurrent(epoch)) {
+                    handler.onConnectionError(ConnectionErrorKind.ConnectionLost, message)
+                }
+                Log.d("CommandClient", "disconnected: $message")
             }
-            Log.d("CommandClient", "disconnected: $message")
         }
 
         override fun writeGroups(message: OutboundGroupIterator?) {
-            if (message == null || !isActiveEpoch(epoch)) {
-                return
-            }
+            if (message == null) return
             val groups = mutableListOf<OutboundGroup>()
-            while (message.hasNext()) {
-                groups.add(message.next())
+            while (message.hasNext()) groups.add(message.next())
+            epochGate.runIfCurrent(epoch) {
+                cachedGroups = groups
+                dispatch(epoch) { it.updateGroups(groups) }
             }
-            cachedGroups = groups
-            getAllHandlers().forEach { it.updateGroups(groups) }
         }
 
         override fun writeOutbounds(message: OutboundGroupItemIterator?) {
-            if (message == null || !isActiveEpoch(epoch)) {
-                return
-            }
+            if (message == null) return
             val outbounds = mutableListOf<io.nekohasekai.libbox.OutboundGroupItem>()
-            while (message.hasNext()) {
-                outbounds.add(message.next())
+            while (message.hasNext()) outbounds.add(message.next())
+            epochGate.runIfCurrent(epoch) {
+                cachedOutbounds = outbounds
+                dispatch(epoch) { it.updateOutbounds(outbounds) }
             }
-            cachedOutbounds = outbounds
-            getAllHandlers().forEach { it.updateOutbounds(outbounds) }
         }
 
-        override fun setDefaultLogLevel(level: Int) {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.setDefaultLogLevel(level) }
-        }
+        override fun setDefaultLogLevel(level: Int) = dispatch(epoch) { it.setDefaultLogLevel(level) }
 
-        override fun clearLogs() {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.clearLogs() }
-        }
+        override fun clearLogs() = dispatch(epoch) { it.clearLogs() }
 
         override fun writeLogs(messageList: LogIterator?) {
-            if (messageList == null || !isActiveEpoch(epoch)) {
-                return
-            }
+            if (messageList == null) return
             val logs = messageList.toList()
-            getAllHandlers().forEach { it.appendLogs(logs) }
+            dispatch(epoch) { it.appendLogs(logs) }
         }
 
-        override fun writeStatus(message: StatusMessage) {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.updateStatus(message) }
-        }
+        override fun writeStatus(message: StatusMessage) = dispatch(epoch) { it.updateStatus(message) }
 
         override fun initializeClashMode(modeList: StringIterator, currentMode: String) {
-            if (!isActiveEpoch(epoch)) return
             val modes = modeList.toList()
-            getAllHandlers().forEach { it.initializeClashMode(modes, currentMode) }
+            dispatch(epoch) { it.initializeClashMode(modes, currentMode) }
         }
 
-        override fun updateClashMode(newMode: String) {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.updateClashMode(newMode) }
-        }
+        override fun updateClashMode(newMode: String) = dispatch(epoch) { it.updateClashMode(newMode) }
 
         override fun writeConnectionEvents(events: ConnectionEvents?) {
-            if (events == null || !isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.writeConnectionEvents(events) }
+            if (events == null) return
+            dispatch(epoch) { it.writeConnectionEvents(events) }
         }
     }
 }

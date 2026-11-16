@@ -320,6 +320,7 @@ jobs:
             --tests io.nekohasekai.sfa.inspection.InspectionSampleGateTest \
             --tests io.nekohasekai.sfa.chain.LatestChainLoadTest \
             --tests io.nekohasekai.sfa.utils.LatestRemoteSelectionTest \
+            --tests io.nekohasekai.sfa.utils.CommandEpochGateTest \
             --tests io.nekohasekai.sfa.compose.screen.connections.ConnectionCriteriaTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
             --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \
