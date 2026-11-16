@@ -17,12 +17,14 @@ object TunnelGate {
     internal data class Snapshot(val up: Boolean, val generation: Long)
 
     private val observers = mutableSetOf<() -> Unit>()
+    private var reconfigurations = 0
 
     @Synchronized
     internal fun snapshot() = Snapshot(up, generation)
 
     @Synchronized
     internal fun requireCurrent(snapshot: Snapshot) {
+        check(reconfigurations == 0) { "VPN 正在重载，订阅更新已停止，请稍后重试" }
         check(snapshot == Snapshot(up, generation)) { "VPN 状态已变化，订阅更新已停止，请重试" }
     }
 
@@ -31,6 +33,29 @@ object TunnelGate {
         requireCurrent(snapshot)
         observers.add(changed)
         return java.io.Closeable { synchronized(this) { observers.remove(changed) } }
+    }
+
+    /**
+     * A kernel reload can replace its VPN without changing Started. Invalidate
+     * existing requests and refuse new ones until the native attempt returns.
+     * Keep [up] unchanged: publishing false here would authorize direct retries.
+     */
+    internal fun reconfiguring(): java.io.Closeable {
+        val changed = synchronized(this) {
+            reconfigurations++
+            generation++
+            observers.toList().also { observers.clear() }
+        }
+        changed.forEach { runCatching { it() } }
+        val closed = java.util.concurrent.atomic.AtomicBoolean()
+        return java.io.Closeable {
+            if (closed.compareAndSet(false, true)) {
+                synchronized(this) {
+                    reconfigurations--
+                    generation++
+                }
+            }
+        }
     }
 
     fun setUp(value: Boolean) {

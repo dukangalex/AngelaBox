@@ -1203,21 +1203,39 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         content: String,
         options: OverrideOptions,
         budgetMs: Long = START_BUDGET_MS,
+    ): Result<Unit> = TunnelGate.reconfiguring().use {
+        startWithinBudgetGuarded(content, options, budgetMs)
+    }
+
+    private fun startWithinBudgetGuarded(
+        content: String,
+        options: OverrideOptions,
+        budgetMs: Long,
     ): Result<Unit> {
         if (startAbort.get()) return Result.failure(StartCancelled())
         val server = commandServer
         val holder = arrayOfNulls<Result<Unit>>(1)
         val expectedStorageEpoch = storageEpoch
+        // An abandoned native call can outlive this caller's budget. Keep a
+        // separate token until that thread really exits, even after Stop.
+        val nativeRouteGuard = TunnelGate.reconfiguring()
         val worker = Thread({
-            holder[0] = runCatching {
-                // Validate again on the actual start thread. The kernel gets a
-                // complete immutable config compiled from this storage epoch.
-                ProfileBindingStorage.requireRuntimeEpoch(expectedStorageEpoch)
-                server.startOrReloadService(content, options)
+            nativeRouteGuard.use {
+                holder[0] = runCatching {
+                    // Validate again on the actual start thread. The kernel gets a
+                    // complete immutable config compiled from this storage epoch.
+                    ProfileBindingStorage.requireRuntimeEpoch(expectedStorageEpoch)
+                    server.startOrReloadService(content, options)
+                }
             }
         }, "kernel-start")
         worker.isDaemon = true
-        worker.start()
+        try {
+            worker.start()
+        } catch (error: Throwable) {
+            nativeRouteGuard.close()
+            throw error
+        }
         val deadline = SystemClock.elapsedRealtime() + budgetMs
         while (true) {
             val left = deadline - SystemClock.elapsedRealtime()

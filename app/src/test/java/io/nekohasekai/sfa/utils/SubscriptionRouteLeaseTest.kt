@@ -22,6 +22,63 @@ class SubscriptionRouteLeaseTest {
     }
 
     @Test
+    fun reloadInvalidatesActiveLeaseWithoutAdvertisingDirectRoute() {
+        TunnelGate.setUp(true)
+        SubscriptionRouteLease().use { old ->
+            val connection = Connection()
+            old.track(connection)
+            TunnelGate.reconfiguring().use {
+                assertTrue(TunnelGate.up)
+                assertEquals(1, connection.disconnects)
+                assertThrows(IllegalStateException::class.java) { old.check() }
+                assertThrows(IllegalStateException::class.java) { SubscriptionRouteLease() }
+            }
+            assertThrows(IllegalStateException::class.java) { old.check() }
+            SubscriptionRouteLease().use { fresh ->
+                assertTrue(fresh.snapshot.up)
+                fresh.check()
+            }
+        }
+    }
+
+    @Test
+    fun startupAttemptAlsoBlocksNewDirectLease() {
+        TunnelGate.setUp(false)
+        TunnelGate.reconfiguring().use {
+            assertFalse(TunnelGate.up)
+            assertThrows(IllegalStateException::class.java) { SubscriptionRouteLease() }
+        }
+        SubscriptionRouteLease().use { it.check() }
+    }
+
+    @Test
+    fun nestedReloadTokensCannotUnblockEachOtherAndCloseIsIdempotent() {
+        TunnelGate.setUp(true)
+        val first = TunnelGate.reconfiguring()
+        val second = TunnelGate.reconfiguring()
+        try {
+            first.close()
+            first.close()
+            assertThrows(IllegalStateException::class.java) { SubscriptionRouteLease() }
+        } finally {
+            first.close()
+            second.close()
+        }
+        SubscriptionRouteLease().use { it.check() }
+    }
+
+    @Test
+    fun reloadEndingAfterStopDoesNotPublishTunnelUp() {
+        TunnelGate.setUp(true)
+        TunnelGate.reconfiguring().use { TunnelGate.setUp(false) }
+        assertFalse(TunnelGate.up)
+        SubscriptionRouteLease().use {
+            assertFalse(it.snapshot.up)
+            it.check()
+        }
+    }
+
+    @Test
     fun upToDownRejectsBeforeOpeningOrResolving() {
         TunnelGate.setUp(true)
         SubscriptionRouteLease().use { lease ->
