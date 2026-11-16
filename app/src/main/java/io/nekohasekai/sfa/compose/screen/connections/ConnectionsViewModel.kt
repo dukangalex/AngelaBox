@@ -58,6 +58,7 @@ class ConnectionsViewModel :
     private var connectionsStore: Connections? = null
     private val connectionsMutex = Mutex()
     private val connectionsGeneration = AtomicLong(0)
+    private val snapshotRevision = AtomicLong(0)
 
     override fun createInitialState() = ConnectionsUiState()
 
@@ -216,7 +217,9 @@ class ConnectionsViewModel :
                 }
                 val store = connectionsStore ?: return@withLock null
                 store.applyEvents(events)
-                buildConnectionLists(store, uiState.value)
+                val criteria = uiState.value.criteria()
+                val lists = buildConnectionLists(store, criteria)
+                ConnectionSnapshot(lists, criteria, snapshotRevision.incrementAndGet())
             } ?: return@launch
             if (connectionsGeneration.get() != generation) {
                 return@launch
@@ -226,11 +229,15 @@ class ConnectionsViewModel :
                     return@withContext
                 }
                 updateState {
-                    copy(
-                        connections = snapshot.connections,
-                        allConnections = snapshot.allConnections,
-                        isLoading = false,
-                    )
+                    if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
+                        this
+                    } else {
+                        copy(
+                            connections = snapshot.lists.connections,
+                            allConnections = snapshot.lists.allConnections,
+                            isLoading = false,
+                        )
+                    }
                 }
             }
         }
@@ -241,7 +248,9 @@ class ConnectionsViewModel :
             val generation = connectionsGeneration.get()
             val snapshot = connectionsMutex.withLock {
                 val store = connectionsStore ?: return@withLock null
-                buildConnectionLists(store, uiState.value)
+                val criteria = uiState.value.criteria()
+                val lists = buildConnectionLists(store, criteria)
+                ConnectionSnapshot(lists, criteria, snapshotRevision.incrementAndGet())
             } ?: return@launch
             if (connectionsGeneration.get() != generation) {
                 return@launch
@@ -251,11 +260,15 @@ class ConnectionsViewModel :
                     return@withContext
                 }
                 updateState {
-                    copy(
-                        connections = snapshot.connections,
-                        allConnections = snapshot.allConnections,
-                        isLoading = false,
-                    )
+                    if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
+                        this
+                    } else {
+                        copy(
+                            connections = snapshot.lists.connections,
+                            allConnections = snapshot.lists.allConnections,
+                            isLoading = false,
+                        )
+                    }
                 }
             }
         }
@@ -263,15 +276,15 @@ class ConnectionsViewModel :
 
     private fun buildConnectionLists(
         connections: Connections,
-        currentState: ConnectionsUiState,
+        criteria: ConnectionCriteria,
     ): ConnectionLists {
         val allConnectionList = connections.iterator().toList()
             .filter { it.outboundType != "dns" }
             .map { Connection.from(it) }
 
-        connections.filterState(currentState.stateFilter.libboxValue)
+        connections.filterState(criteria.stateFilter.libboxValue)
 
-        when (currentState.sort) {
+        when (criteria.sort) {
             ConnectionSort.ByDate -> connections.sortByDate()
             ConnectionSort.ByTraffic -> connections.sortByTraffic()
             ConnectionSort.ByTrafficTotal -> connections.sortByTrafficTotal()
@@ -280,13 +293,21 @@ class ConnectionsViewModel :
         val connectionList = connections.iterator().toList()
             .filter { it.outboundType != "dns" }
             .map { Connection.from(it) }
-            .filter { it.performSearch(currentState.searchText) }
+            .filter { it.performSearch(criteria.searchText) }
 
         return ConnectionLists(
             connections = connectionList,
             allConnections = allConnectionList,
         )
     }
+
+    private fun ConnectionsUiState.criteria() = ConnectionCriteria(stateFilter, sort, searchText)
+
+    private data class ConnectionSnapshot(
+        val lists: ConnectionLists,
+        val criteria: ConnectionCriteria,
+        val revision: Long,
+    )
 
     private data class ConnectionLists(
         val connections: List<Connection>,
