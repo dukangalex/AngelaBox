@@ -86,12 +86,16 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun initializeFromQRSImport(name: String?, qrsData: ByteArray) {
+        approvedFetchUrls = emptyList()
         _uiState.update {
             it.copy(
                 name = name ?: "",
                 profileType = ProfileType.Local,
                 profileSource = ProfileSource.Import,
                 qrsData = qrsData,
+                importUri = null,
+                importFileName = null,
+                pendingFetchUrls = emptyList(),
             )
         }
     }
@@ -142,6 +146,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 importUri = uri,
                 importFileName = fileName,
+                qrsData = null,
                 importError = null,
                 pendingFetchUrls = emptyList(),
                 name =
@@ -300,7 +305,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
-        // P3-4: a picked file can embed remote proxy-providers (and rule
+        // P3-4: a picked file or decoded QR profile can embed remote proxy-providers (and rule
         // providers) that sanitizeRemote below would fetch without ever
         // naming them — a "local" import silently making network requests
         // to file-chosen hosts. Probe first with the converter's own
@@ -309,7 +314,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         // once they have been disclosed (pendingFetchUrls in the state
         // this attempt was launched with) or explicitly approved via
         // confirmPendingFetch().
-        if (state.importUri != null) {
+        if (requiresProviderDisclosure(state.profileSource)) {
             val fetchUrls = embeddedFetchUrls(raw)
             if (fetchUrls.isNotEmpty() &&
                 fetchUrls != approvedFetchUrls &&
@@ -446,31 +451,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         return "这份订阅是节点链接，里面没有分流规则。建议在这个配置上开启「默认脚本」，国内直连和国外代理才会分开。应用不会自动开启。"
     }
 
-    /**
-     * Enumerate the remote URLs converting [raw] would fetch, using the
-     * converter's own detection: this runs the real sanitize conversion
-     * with a fetch channel that only records the URL and then aborts.
-     * The converter swallows the abort per provider, so every URL it
-     * would attempt is recorded — and nothing touches the network.
-     */
-    private fun embeddedFetchUrls(raw: String): List<String> {
-        val urls = LinkedHashSet<String>()
-        try {
-            ConfigCompat.sanitizeDetailed(
-                raw,
-                fetch = { url ->
-                    urls += url
-                    throw FetchProbeAbort
-                },
-            )
-        } catch (_: Exception) {
-            // A file the real pass will reject anyway: the scan only
-            // needs the URLs recorded up to the failure; the real error
-            // surfaces unchanged when the import actually runs.
-        }
-        return urls.toList()
-    }
-
     private fun readImportText(context: Application, uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
             ?: throw Exception("Unable to open imported profile")
@@ -492,3 +472,30 @@ private object FetchProbeAbort : Exception("fetch probe")
 
 /** The import is paused before any fetch: these URLs need disclosure first. */
 private class ProviderFetchConfirmationRequired(val urls: List<String>) : Exception("provider fetch confirmation required")
+
+internal fun requiresProviderDisclosure(source: ProfileSource): Boolean = source == ProfileSource.Import
+
+/**
+ * Enumerate the remote URLs converting [raw] would fetch, using the
+ * converter's own detection: this runs the real sanitize conversion
+ * with a fetch channel that only records the URL and then aborts.
+ * The converter swallows the abort per provider, so every URL it
+ * would attempt is recorded — and nothing touches the network.
+ */
+internal fun embeddedFetchUrls(raw: String): List<String> {
+    val urls = LinkedHashSet<String>()
+    try {
+        ConfigCompat.sanitizeDetailed(
+            raw,
+            fetch = { url ->
+                urls += url
+                throw FetchProbeAbort
+            },
+        )
+    } catch (_: Exception) {
+        // A file the real pass will reject anyway: the scan only
+        // needs the URLs recorded up to the failure; the real error
+        // surfaces unchanged when the import actually runs.
+    }
+    return urls.toList()
+}
