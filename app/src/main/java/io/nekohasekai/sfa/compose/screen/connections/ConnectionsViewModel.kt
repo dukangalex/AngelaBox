@@ -20,8 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
@@ -55,9 +53,7 @@ class ConnectionsViewModel :
 
     private val _visibleCount = MutableStateFlow(0)
 
-    private var connectionsStore: Connections? = null
-    private val connectionsMutex = Mutex()
-    private val connectionsGeneration = AtomicLong(0)
+    private val connectionSession = ConnectionSessionStore<Connections>()
     private val snapshotRevision = AtomicLong(0)
 
     override fun createInitialState() = ConnectionsUiState()
@@ -108,19 +104,15 @@ class ConnectionsViewModel :
         commandClient.disconnect()
     }
 
-    private suspend fun handleServiceStatusChange(status: Status) {
-        if (RemoteControlManager.remoteServer.value != null) {
-            return
-        }
-        if (status != Status.Started) {
-            withContext(Dispatchers.Default) {
-                connectionsMutex.withLock {
-                    connectionsStore = null
+    private fun clearConnectionsFor(generation: Long) {
+        viewModelScope.launch(Dispatchers.Default) {
+            if (!connectionSession.clear(generation)) return@launch
+            withContext(Dispatchers.Main) {
+                connectionSession.ifCurrent(generation) {
+                    updateState {
+                        copy(connections = emptyList(), allConnections = emptyList(), isLoading = false)
+                    }
                 }
-                connectionsGeneration.incrementAndGet()
-            }
-            updateState {
-                copy(connections = emptyList(), allConnections = emptyList(), isLoading = false)
             }
         }
     }
@@ -128,9 +120,11 @@ class ConnectionsViewModel :
     fun updateServiceStatus(status: Status) {
         if (status == lastServiceStatus) return
         lastServiceStatus = status
-        viewModelScope.launch {
-            _serviceStatus.emit(status)
-            handleServiceStatusChange(status)
+        // Publish the new status immediately; a delayed stopped-status coroutine must
+        // never clear data for a later started session.
+        _serviceStatus.value = status
+        if (RemoteControlManager.remoteServer.value == null && status != Status.Started) {
+            clearConnectionsFor(connectionSession.close())
         }
     }
 
@@ -189,54 +183,44 @@ class ConnectionsViewModel :
     }
 
     override fun onConnected() {
+        val generation = connectionSession.open()
+        val revision = snapshotRevision.get()
         viewModelScope.launch(Dispatchers.Main) {
-            updateState { copy(isLoading = false) }
+            connectionSession.ifCurrent(generation) {
+                if (revision == snapshotRevision.get()) {
+                    updateState { copy(connections = emptyList(), allConnections = emptyList(), isLoading = false) }
+                }
+            }
         }
     }
 
     override fun onDisconnected() {
-        viewModelScope.launch(Dispatchers.Default) {
-            connectionsMutex.withLock {
-                connectionsStore = null
-            }
-            connectionsGeneration.incrementAndGet()
-            withContext(Dispatchers.Main) {
-                updateState {
-                    copy(connections = emptyList(), allConnections = emptyList(), isLoading = false)
-                }
-            }
-        }
+        // Invalidate at callback time, not after the asynchronous cleanup runs.
+        clearConnectionsFor(connectionSession.close())
     }
 
     override fun writeConnectionEvents(events: ConnectionEvents) {
+        val generation = connectionSession.current()
         viewModelScope.launch(Dispatchers.Default) {
-            val generation = connectionsGeneration.get()
-            val snapshot = connectionsMutex.withLock {
-                if (connectionsStore == null) {
-                    connectionsStore = Connections()
-                }
-                val store = connectionsStore ?: return@withLock null
+            val snapshot = connectionSession.update(generation, ::Connections) { store ->
                 store.applyEvents(events)
                 val criteria = uiState.value.criteria()
                 val lists = buildConnectionLists(store, criteria)
                 ConnectionSnapshot(lists, criteria, snapshotRevision.incrementAndGet())
             } ?: return@launch
-            if (connectionsGeneration.get() != generation) {
-                return@launch
-            }
+            if (connectionSession.current() != generation) return@launch
             withContext(Dispatchers.Main) {
-                if (connectionsGeneration.get() != generation) {
-                    return@withContext
-                }
-                updateState {
-                    if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
-                        this
-                    } else {
-                        copy(
-                            connections = snapshot.lists.connections,
-                            allConnections = snapshot.lists.allConnections,
-                            isLoading = false,
-                        )
+                connectionSession.ifCurrent(generation) {
+                    updateState {
+                        if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
+                            this
+                        } else {
+                            copy(
+                                connections = snapshot.lists.connections,
+                                allConnections = snapshot.lists.allConnections,
+                                isLoading = false,
+                            )
+                        }
                     }
                 }
             }
@@ -245,29 +229,27 @@ class ConnectionsViewModel :
 
     private fun requestConnectionsRefresh() {
         viewModelScope.launch(Dispatchers.Default) {
-            val generation = connectionsGeneration.get()
-            val snapshot = connectionsMutex.withLock {
-                val store = connectionsStore ?: return@withLock null
+            val generation = connectionSession.current()
+            val snapshot = connectionSession.read(generation) { store ->
                 val criteria = uiState.value.criteria()
                 val lists = buildConnectionLists(store, criteria)
                 ConnectionSnapshot(lists, criteria, snapshotRevision.incrementAndGet())
             } ?: return@launch
-            if (connectionsGeneration.get() != generation) {
+            if (connectionSession.current() != generation) {
                 return@launch
             }
             withContext(Dispatchers.Main) {
-                if (connectionsGeneration.get() != generation) {
-                    return@withContext
-                }
-                updateState {
-                    if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
-                        this
-                    } else {
-                        copy(
-                            connections = snapshot.lists.connections,
-                            allConnections = snapshot.lists.allConnections,
-                            isLoading = false,
-                        )
+                connectionSession.ifCurrent(generation) {
+                    updateState {
+                        if (!canPublishConnectionSnapshot(snapshot.revision, snapshotRevision.get(), snapshot.criteria, criteria())) {
+                            this
+                        } else {
+                            copy(
+                                connections = snapshot.lists.connections,
+                                allConnections = snapshot.lists.allConnections,
+                                isLoading = false,
+                            )
+                        }
                     }
                 }
             }
