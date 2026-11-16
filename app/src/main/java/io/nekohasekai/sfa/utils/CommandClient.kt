@@ -114,12 +114,13 @@ open class CommandClient(
         val epoch: Int
         val previousClient: io.nekohasekai.libbox.CommandClient?
         synchronized(access) {
+            val hadConnectedCallback = epochGate.hasConnected()
             epoch = epochGate.advance()
             previousClient = commandClient
             commandClient = null
             cachedGroups = null
             cachedOutbounds = null
-            if (previousClient != null) {
+            if (previousClient != null || hadConnectedCallback) {
                 dispatch(epoch) { it.onDisconnected() }
             }
         }
@@ -162,6 +163,11 @@ open class CommandClient(
             } catch (e: Exception) {
                 Log.d("CommandClient", "connect failed", e)
                 epochGate.runIfCurrent(epoch) {
+                    if (epochGate.hasConnected()) {
+                        epochGate.setConnected(epoch, false)
+                        dispatch(epoch) { it.onDisconnected() }
+                    }
+                    if (!epochGate.isCurrent(epoch)) return@runIfCurrent
                     handler.onConnectionError(
                         ConnectionErrorKind.ConnectFailed,
                         e.message ?: e.toString(),
@@ -190,12 +196,13 @@ open class CommandClient(
     fun disconnect() {
         val client: io.nekohasekai.libbox.CommandClient?
         synchronized(access) {
+            val hadConnectedCallback = epochGate.hasConnected()
             val epoch = epochGate.advance()
             client = commandClient
             commandClient = null
             cachedGroups = null
             cachedOutbounds = null
-            if (client != null) dispatch(epoch) { it.onDisconnected() }
+            if (client != null || hadConnectedCallback) dispatch(epoch) { it.onDisconnected() }
         }
         if (client != null) {
             // The owning scope may already be cancelled when this is called from
@@ -221,12 +228,16 @@ open class CommandClient(
 
     private inner class ClientHandler(private val epoch: Int) : CommandClientHandler {
         override fun connected() {
-            dispatch(epoch) { it.onConnected() }
+            epochGate.runIfCurrent(epoch) {
+                epochGate.setConnected(epoch, true)
+                dispatch(epoch) { it.onConnected() }
+            }
             Log.d("CommandClient", "connected")
         }
 
         override fun disconnected(message: String?) {
             epochGate.runIfCurrent(epoch) {
+                epochGate.setConnected(epoch, false)
                 dispatch(epoch) { it.onDisconnected() }
                 if (message != null && epochGate.isCurrent(epoch)) {
                     handler.onConnectionError(ConnectionErrorKind.ConnectionLost, message)

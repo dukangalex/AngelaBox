@@ -88,4 +88,28 @@ class CommandEpochGateTest {
         }
         assertEquals(listOf("handler1"), events)
     }
+
+    @Test
+    fun connectedBeforeNativeConnectReturnsIsClearedOnTransition() {
+        val gate = CommandEpochGate()
+        val old = gate.advance()
+        assertTrue(gate.setConnected(old, true))
+        // Model disconnect() before the native client is assigned.
+        val hadConnectedCallback = gate.hasConnected()
+        val next = gate.advance()
+        val events = mutableListOf("connected")
+        if (hadConnectedCallback) gate.runIfCurrent(next) { events.add("disconnected") }
+        assertFalse(gate.setConnected(old, true))
+        assertFalse(gate.hasConnected())
+        assertEquals(listOf("connected", "disconnected"), events)
+    }
+
+    @Test
+    fun nativeDisconnectClearsReportedConnectedState() {
+        val gate = CommandEpochGate()
+        val epoch = gate.advance()
+        assertTrue(gate.setConnected(epoch, true))
+        assertTrue(gate.setConnected(epoch, false))
+        assertFalse(gate.hasConnected())
+    }
 }
