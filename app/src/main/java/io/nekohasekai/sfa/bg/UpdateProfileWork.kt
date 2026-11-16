@@ -36,6 +36,11 @@ class UpdateProfileWork {
         /** Queue one durable, network-constrained retry for a newly saved subscription. */
         fun enqueueInitialImport(profileId: Long) {
             if (profileId <= 0L) return
+            enqueueInitialImport(profileId, WorkManager.getInstance(Application.application))
+        }
+
+        internal fun enqueueInitialImport(profileId: Long, workManager: WorkManager) {
+            if (profileId <= 0L) return
             val request = OneTimeWorkRequestBuilder<UpdateTask>()
                 .setInputData(workDataOf(INITIAL_PROFILE_ID to profileId))
                 .setConstraints(
@@ -45,7 +50,7 @@ class UpdateProfileWork {
                 )
                 .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(Application.application).enqueueUniqueWork(
+            workManager.enqueueUniqueWork(
                 "UpdateProfileInitial_$profileId",
                 ExistingWorkPolicy.KEEP,
                 request,
