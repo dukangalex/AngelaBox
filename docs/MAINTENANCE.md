@@ -1,6 +1,7 @@
 # AngelaBox 维护说明
 
 AngelaBox 是独立客户端，不是官方 sing-box / SFA 的产品名。曾用名 ChainBox。
+维护范围：sing-box 原生配置、订阅与内核，以及 Alex 明确提出的功能；不扩展其他格式兼容范围。
 维护目标：内核长期跟随官方 sing-box；App 只维护组链体验、运行时覆盖与发布。
 
 ## 产品边界（必须遵守）

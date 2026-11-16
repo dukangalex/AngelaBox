@@ -1,8 +1,8 @@
 # AngelaBox 使用说明
 
-AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-box 内核。界面与设置只描述功能本身，不绑定任何机场或订阅商。
+AngelaBox 是面向社区用户的 Android 代理客户端，基于开源 sing-box 内核。界面与设置只描述功能本身，不绑定任何机场或订阅商。配置、远程订阅与内核以 sing-box 原生流程为范围；其他格式不作支持承诺。
 
-**基准：注重隐私、安全防护、高能低耗、开箱即用。** 不上传、不记录、不缓存日志；启动失败会中文说明并回滚；配置规范化只在真正改写配置时提示，没有错误不显示横幅。中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 / 禁用 QUIC 默认打开。严格路由默认关闭；打开后没进隧道的包会丢掉，避免切网时漏出系统网卡。禁用 QUIC 拒绝 UDP 443 并用复位让应用改走 TCP，排除国内 QUIC 时国内地址先直连。脚本单独开。子页面可下拉返回上级，日志/工具/设置下拉回主页。只要节点本身可用，配置格式由 App 自动适配当前版本。测速完成后节点按延迟从低到高排列。
+**基准：注重隐私、安全防护、高能低耗、开箱即用。** 不上传、不记录、不缓存日志；启动失败会中文说明并回滚；配置规范化只在真正改写配置时提示，没有错误不显示横幅。中国直连 / DNS 防泄漏 / 广告拦截 / 禁用 IPv6 / 禁用 QUIC 默认打开。严格路由默认关闭；打开后没进隧道的包会丢掉，避免切网时漏出系统网卡。禁用 QUIC 拒绝 UDP 443 并用复位让应用改走 TCP，排除国内 QUIC 时国内地址先直连。脚本单独开。子页面可下拉返回上级，日志/工具/设置下拉回主页。配置与订阅按 sing-box 原生流程处理。测速完成后节点按延迟从低到高排列。
 
 ## 安装
 
@@ -29,16 +29,16 @@ Windows 版已暂停。不要安装以前的 Windows 压缩包或安装器，那
 ## 导入配置
 
 1. 仪表 → 添加配置。
-2. 导入订阅或本地文件（sing-box JSON、Clash YAML、V2Ray/SS 节点列表均可），设为当前配置。配置页长按卡片可拖动排序。配置规范化只转格式、保留原来的分流；开了脚本才会覆写分流。Clash 里写在后面的策略组也会保留，不再因为顺序被丢掉。
+2. 导入 sing-box 原生 JSON 配置文件或 sing-box 远程订阅，并按需设为当前配置。配置页长按卡片可拖动排序；配置规范化与启动时兼容处理只针对 sing-box 配置。
 3. 如需跨配置串联，再导入另一份落地配置。落地不必设为当前配置。
 
 远程订阅只允许 HTTPS。已保存的 HTTP 订阅更新时会被拒绝，请改成 HTTPS 后再更新。脚本导入同样只允许 HTTPS。
 
 导入时若有节点被跳过（内核不支持的协议/参数），导入成功后会弹窗列出原因；订阅后台更新的跳过提示会显示在仪表盘横幅里。不会静默丢失。
 
-以下类型暂无分享链接/Clash 入口，只能写 sing-box JSON 原样透传给内核：`tor` 出站、`chain` 链式出站（应用内请用「工具 → 链式代理」可视化配置）。
+`tor` 出站需在 sing-box JSON 中原样配置；应用内的 `chain` 链式出站请用「工具 → 链式代理」可视化配置。
 
-远程订阅若含 Clash 风格 `plugin_opts` 对象，或仍使用 sing-box 1.11 的 `dns.fakeip` / `servers[].address` / `rcode://` / `type: rcode`，或入站仍写 `sniff` / `domain_strategy`、出站仍用 `type: dns` / `type: block`，导入和启动时会自动转成 1.12+ 的 typed DNS 与路由动作，避免内核拒绝。GitHub `raw.githubusercontent.com` 规则集地址会改写到 jsDelivr testingcf 镜像，避免 raw/LFS 404 导致无法启动。
+较旧的 sing-box 配置若仍使用 1.11 的 `dns.fakeip` / `servers[].address` / `rcode://` / `type: rcode`，或入站 `sniff` / `domain_strategy`、出站 `type: dns` / `type: block`，导入和启动时会按当前内核要求转换为 typed DNS 与路由动作。GitHub `raw.githubusercontent.com` 规则集地址会改写到 jsDelivr testingcf 镜像，避免 raw/LFS 404 导致无法启动。
 
 ## 链式代理
 
@@ -81,7 +81,7 @@ Chain 是 sing-box 原生 outbound：按你指定的顺序串联已有出站。�
 | 禁用 QUIC | 拒绝 UDP 443，内核默认复位，应用改走 TCP。不是静默丢包 |
 | 排除国内 QUIC | 国内 IP/域名的 UDP 443 先直连，其余拒绝 |
 
-官方客户端没有 ECH 开关。AngelaBox 也不另做开关。Clash 订阅里的 `ech-opts`（enable、config、query-server-name）会写成节点的 `tls.ech` 交给内核。节点链接里的 `ech=域名+https://…` 只保留查询名，路径里的 `?ed=` 会当成 WebSocket 早数据。ECH 的 HTTPS 记录走直连阿里 DNS，不经过还在等这份记录的节点。xhttp 当前内核还不支持，这类节点会跳过。sing-box 配置里的 MASQUE 端点会原样启动；Clash 里名叫 masque 的节点还对不上这个端点，会跳过。如果整份都是这两种，不会改成直连。
+官方客户端没有 ECH 开关，AngelaBox 也不另做开关。节点链接里的 `ech=域名+https://…` 只保留查询名，路径里的 `?ed=` 会当成 WebSocket 早数据。ECH 的 HTTPS 记录走直连阿里 DNS，不经过还在等这份记录的节点。xhttp 当前内核还不支持，这类节点会跳过。sing-box 配置里的 MASQUE 端点会原样交给内核。如果配置中的协议或参数无法被当前内核支持，应用会提示或跳过对应节点，不会改成直连。
 
 内核日志等级默认 **info**。
 

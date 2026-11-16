@@ -55,7 +55,7 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 - 规则集用 sing-box 的 `.srs`，不把 mihomo 的 `GEOSITE`/`GEOIP` 文件原样塞进来。
 - 远程规则集用官方 `experimental.cache_file` 留在磁盘上，选择的节点、假 IP 和 DNS 结果一起留。`store_dns` 是 1.14 的写法，`flush_interval: 1m` 是 1.15 的写法，进程被杀掉也不会把这一分钟里的缓存丢掉。用户自己写了 `enabled: false` 就不动，也不写回订阅。
 - 有的手机休眠后默认网络回调不再来，网卡名字却没变，于是出现「过了一夜没有网，开关一下就好」。亮屏时如果超过半小时没有收到过网卡更新，就把这张还活着的网卡重新交给内核一次。平时解锁不打断连接。
-- 分流只有一个作者。Clash 用户要的地区组和功能组，用脚本写成真实的 `selector` / `urltest` 和会命中的规则。
+- 分流只有一个作者。地区组和功能组由脚本写成 sing-box 的 `selector` / `urltest` 与实际生效的规则。
 - 节点域名的解析走直连引导 DNS。远程 DNS 可以走代理，但只走一跳。
 - 1.15 的 TUN 自有栈、按需连接、Android 上需 root 的 `auto_redirect`。`auto_redirect` 默认关。
 - 证书校验用整张证书的 SHA-256。内核从官方 1.15.0-alpha.7 起有 `certificate_sha256`，sing-box 配置里写了就会生效。应用不再另做一套开关。
@@ -97,7 +97,7 @@ QUIC：`action: reject`，不要 `method: drop`。复位后应用改走 TCP；�
 
 | 报告里的点 | 决定 | 原因 |
 |------------|------|------|
-| 导入时认出 Clash YAML、sing-box JSON、分享链接 | 已有 | 全部编成 sing-box JSON。卡片不标「换内核」 |
+| 导入 sing-box 原生 JSON 配置与订阅 | 当前项目范围 | 仅按明确需求维护 sing-box 流程；不承诺任意格式兼容 |
 | 链式四种形状：节点/订阅 × 节点/订阅 | 已有，不另写编译器 | 入口和落地都可以是节点或分组，落地可以来自另一份配置。优选就是 `urltest` |
 | 连续超时换同组节点 | 已有 | `v1.15.0-chain.4` 这一次连接最多再试两个。不再在应用里做第二套切换 |
 | 中国应用排除、SNI/geosite、WebRTC、IPv6、Fake-IP | 已有 | 分应用走 VpnService；域名和 IP 走 `.srs`。脚本里的门户探测域名走直连 |
