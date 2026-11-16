@@ -7,8 +7,14 @@ import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.utils.OverlayScripts
+import io.nekohasekai.sfa.utils.ProfileFiles
 import io.nekohasekai.sfa.utils.ProfileMutationGate
+import io.nekohasekai.sfa.utils.RemoteProfileSource
+import io.nekohasekai.sfa.utils.SubscriptionInfoStore
 import io.nekohasekai.sfa.utils.commitPendingProfileImport
+import io.nekohasekai.sfa.utils.matchesRemoteProfileSource
+import java.io.File
+import java.util.Date
 import java.util.concurrent.CopyOnWriteArrayList
 
 @Suppress("RedundantSuspendModifier")
@@ -107,6 +113,47 @@ object ProfileManager {
         },
         commit = commit,
     )
+
+    data class RemoteContentCommit(val changed: Boolean, val updatedAt: Date)
+
+    /** Commits a validated manual download only if its source still identifies the current profile. */
+    suspend fun commitRemoteContent(
+        profileId: Long,
+        expectedUrl: String,
+        expectedPath: String,
+        content: String,
+        userInfo: String?,
+        isStopped: () -> Boolean,
+    ): RemoteContentCommit? {
+        var result: RemoteContentCommit? = null
+        val applied = commitPendingProfileImport(
+            gate = profileMutationGate,
+            profileId = profileId,
+            isStopped = isStopped,
+            loadCurrent = { get(profileId) },
+            matchesPending = { current ->
+                matchesRemoteProfileSource(
+                    current.typed.type == TypedProfile.Type.Remote,
+                    RemoteProfileSource(current.typed.remoteURL, current.typed.path),
+                    RemoteProfileSource(expectedUrl, expectedPath),
+                )
+            },
+        ) { current ->
+            val file = File(current.typed.path)
+            val changed = !file.exists() || file.readText() != content
+            if (changed) ProfileFiles.writeAtomically(file, content)
+            val updatedAt = Date()
+            current.typed.lastUpdated = updatedAt
+            if (updateWhileLocked(current) == 0) {
+                false
+            } else {
+                userInfo?.let { SubscriptionInfoStore.put(Application.application, current.id, it) }
+                result = RemoteContentCommit(changed, updatedAt)
+                true
+            }
+        }
+        return if (applied) result else null
+    }
 
     /** Caller must already hold the profile mutation lock. */
     suspend fun updateWhileLocked(profile: Profile): Int {

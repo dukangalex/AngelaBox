@@ -146,14 +146,8 @@ class UpdateProfileWork {
                     // E-2: the round deadline is also threaded into adapt,
                     // so provider fetches inside one profile are bounded by
                     // it too, not only the between-profile check above.
-                    val detailed = ConfigCompat.sanitizeRemoteDetailed(
-                        io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
-                            profile.typed.remoteURL,
-                            profile.id,
-                            applicationContext,
-                        ),
-                        deadlineMs = roundDeadlineMs,
-                    )
+                    val fetched = io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemoteDeferred(profile.typed.remoteURL)
+                    val detailed = ConfigCompat.sanitizeRemoteDetailed(fetched.content, deadlineMs = roundDeadlineMs)
                     val content = detailed.content
                     // Validate and commit all background updates under the same profile lock as edits/deletes.
                     // That closes the gap between reading the row and atomically writing its file.
@@ -182,6 +176,9 @@ class UpdateProfileWork {
                         if (updatedRows == 0) {
                             false
                         } else {
+                            fetched.userInfo?.let {
+                                io.nekohasekai.sfa.utils.SubscriptionInfoStore.put(applicationContext, current.id, it)
+                            }
                             if (current.id == selectedProfile && oldContent != content) {
                                 selectedProfileUpdated = true
                             }

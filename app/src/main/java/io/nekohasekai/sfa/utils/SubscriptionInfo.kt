@@ -107,6 +107,14 @@ object SubscriptionInfoStore {
         put(context, profileId, raw)
     }
 
+    data class RemoteFetch(val content: String, val userInfo: String?)
+
+    /** Read without storing headers until the caller has committed the matching profile. */
+    fun fetchRemoteDeferred(url: String): RemoteFetch = HTTPClient().use { client ->
+        val content = client.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
+        RemoteFetch(content, client.lastUserinfo)
+    }
+
     fun fetchRemote(url: String, profileId: Long, context: Context): String = HTTPClient().use { client ->
         val body = client.getString(url, RemoteUrlGuard.Kind.SUBSCRIPTION)
         if (profileId > 0L) capture(client, profileId, context)

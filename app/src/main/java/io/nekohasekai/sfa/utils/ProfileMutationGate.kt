@@ -25,3 +25,8 @@ internal suspend fun <P> commitPendingProfileImport(
     if (!matchesPending(current)) return@withLock false
     commit(current)
 }
+
+/** Immutable download-source identity used again while holding the mutation gate. */
+internal data class RemoteProfileSource(val url: String, val path: String)
+
+internal fun matchesRemoteProfileSource(isRemote: Boolean, current: RemoteProfileSource, expected: RemoteProfileSource): Boolean = isRemote && current == expected

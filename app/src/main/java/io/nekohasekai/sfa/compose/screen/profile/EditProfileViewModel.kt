@@ -16,6 +16,7 @@ import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -251,39 +252,31 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
         val profile = state.profile ?: return
 
         if (profile.typed.type != TypedProfile.Type.Remote) return
+        val expectedUrl = profile.typed.remoteURL
+        val expectedPath = profile.typed.path
 
         viewModelScope.launch(Dispatchers.IO) {
+            val updateJob = coroutineContext[Job]
             _uiState.update { it.copy(isUpdating = true) }
 
             try {
-                var selectedProfileUpdated = false
-
                 // Fetch remote config
                 // X-4: 与后台 worker / 仪表盘同口径——Detailed + 记录健康，
                 // 此前这条路径既不记成功也不记「跳过/修正」提示。
-                val detailed = ConfigCompat.sanitizeRemoteDetailed(
-                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
-                        profile.typed.remoteURL,
-                        profile.id,
-                        getApplication<Application>(),
-                    ),
-                )
+                val fetched = io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemoteDeferred(expectedUrl)
+                val detailed = ConfigCompat.sanitizeRemoteDetailed(fetched.content)
                 val content = detailed.content
                 Libbox.checkConfig(content)
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                if (!file.exists() || file.readText() != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                    if (profile.id == Settings.selectedProfile) {
-                        selectedProfileUpdated = true
-                    }
-                }
-
-                // Update last updated time
-                profile.typed.lastUpdated = Date()
-                ProfileManager.update(profile)
+                val committed = ProfileManager.commitRemoteContent(
+                    profileId = profile.id,
+                    expectedUrl = expectedUrl,
+                    expectedPath = expectedPath,
+                    content = content,
+                    userInfo = fetched.userInfo,
+                    isStopped = { updateJob?.isActive == false },
+                ) ?: throw IllegalStateException("订阅已被修改或删除，本次更新已丢弃，请检查后重试。")
+                val selectedProfileUpdated = committed.changed && profile.id == Settings.selectedProfile
                 io.nekohasekai.sfa.utils.SubscriptionUpdateHealth.recordSuccess(
                     getApplication<Application>(),
                     profile.id,
@@ -300,7 +293,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 // Update UI state with success indicator
                 _uiState.update {
                     it.copy(
-                        lastUpdated = profile.typed.lastUpdated,
+                        lastUpdated = committed.updatedAt,
                         isUpdating = false,
                         showUpdateSuccess = true,
                     )
