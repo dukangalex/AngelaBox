@@ -14,6 +14,104 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun importPreflightStopsBeforePublicDnsWhenVpnStartsDuringSystemDns() {
+        TunnelGate.setUp(false)
+        SubscriptionRouteLease().use { lease ->
+            var publicCalled = false
+            try {
+                RemoteUrlGuard.acceptSubscriptionForImport(
+                    "https://example.com/sub.json",
+                    false,
+                    {
+                        TunnelGate.setUp(true)
+                        emptyList()
+                    },
+                    {
+                        publicCalled = true
+                        emptyList()
+                    },
+                    lease::check,
+                )
+                throw AssertionError("route transition must reject preflight")
+            } catch (_: IllegalStateException) {
+                assertFalse(publicCalled)
+            } finally {
+                TunnelGate.setUp(false)
+            }
+        }
+    }
+
+    @Test
+    fun importPreflightRejectsSystemDnsAnswerAcrossVpnTransition() {
+        TunnelGate.setUp(false)
+        SubscriptionRouteLease().use { lease ->
+            try {
+                RemoteUrlGuard.acceptSubscriptionForImport(
+                    "https://example.com/sub.json",
+                    false,
+                    {
+                        TunnelGate.setUp(true)
+                        publicResolve(it)
+                    },
+                    publicResolve,
+                    lease::check,
+                )
+                throw AssertionError("stale DNS success must not be accepted")
+            } catch (_: IllegalStateException) {
+                // A valid answer is still stale after the service transition.
+            } finally {
+                TunnelGate.setUp(false)
+            }
+        }
+    }
+
+    @Test
+    fun importPreflightCannotDeferAfterPublicDnsOverlapsReload() {
+        TunnelGate.setUp(false)
+        SubscriptionRouteLease().use { lease ->
+            try {
+                RemoteUrlGuard.acceptSubscriptionForImport(
+                    "https://example.com/sub.json",
+                    false,
+                    noResolve,
+                    {
+                        TunnelGate.reconfiguring().close()
+                        emptyList()
+                    },
+                    lease::check,
+                )
+                throw AssertionError("reload must invalidate deferred result")
+            } catch (_: IllegalStateException) {
+                // validate normalizes DNS failure, but cannot swallow the lease check.
+            }
+        }
+    }
+
+    @Test
+    fun importPreflightRejectsPublicDnsAnswerAfterVpnStarts() {
+        TunnelGate.setUp(false)
+        SubscriptionRouteLease().use { lease ->
+            try {
+                RemoteUrlGuard.acceptSubscriptionForImport(
+                    "https://example.com/sub.json",
+                    false,
+                    noResolve,
+                    {
+                        TunnelGate.setUp(true)
+                        publicResolve(it)
+                    },
+                    lease::check,
+                )
+                throw AssertionError("public DNS result must remain route-bound")
+            } catch (_: IllegalStateException) {
+                // No successful preflight across a generation change.
+            } finally {
+                TunnelGate.setUp(false)
+            }
+        }
+    }
+
+    @Test
     fun fakeIpBlockedOnlyWhileOurTunnelIsUp() {
         val fake = InetAddress.getByAddress(
             byteArrayOf(198.toByte(), 18.toByte(), 1.toByte(), 9.toByte()),

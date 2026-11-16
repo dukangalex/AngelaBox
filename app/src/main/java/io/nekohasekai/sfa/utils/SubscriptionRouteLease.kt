@@ -12,7 +12,7 @@ internal class SubscriptionRouteLease : Closeable {
 
     @Synchronized
     fun check() {
-        check(!closed) { "VPN 状态已变化，订阅更新已停止，请重试" }
+        if (closed) throw SubscriptionRouteChangedException("VPN 状态已变化，订阅更新已停止，请重试")
         TunnelGate.requireCurrent(snapshot)
     }
 

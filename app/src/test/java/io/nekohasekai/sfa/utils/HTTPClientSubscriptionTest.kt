@@ -18,6 +18,35 @@ class HTTPClientSubscriptionTest {
     private val client = HTTPClient()
 
     @Test
+    fun routeInvalidationIsRetryableForWorkerButCannotAdvanceCurrentLadder() {
+        val seen = mutableListOf<HTTPClient.Route>()
+        try {
+            client.tryRoutes(
+                RemoteUrlGuard.Kind.SUBSCRIPTION,
+                listOf(HTTPClient.Route.DIRECT, HTTPClient.Route.DIRECT_DNS),
+            ) { route ->
+                seen.add(route)
+                throw SubscriptionRouteChangedException("VPN 状态已变化，订阅更新已停止，请重试")
+            }
+            throw AssertionError("invalidated route must stop")
+        } catch (e: IllegalStateException) {
+            assertEquals(listOf(HTTPClient.Route.DIRECT), seen)
+            assertTrue(HTTPClient.isTransientUpdateFailure(e))
+        }
+    }
+
+    @Test
+    fun activeReloadRejectionRemainsRetryableForFreshWorker() {
+        TunnelGate.setUp(false)
+        TunnelGate.reconfiguring().use {
+            val failure = org.junit.Assert.assertThrows(SubscriptionRouteChangedException::class.java) {
+                SubscriptionRouteLease()
+            }
+            assertTrue(HTTPClient.isTransientUpdateFailure(failure))
+        }
+    }
+
+    @Test
     fun ladderRetriesDirectDnsAfterTransientDirectFailure() {
         val seen = mutableListOf<HTTPClient.Route>()
         val result = client.tryRoutes(

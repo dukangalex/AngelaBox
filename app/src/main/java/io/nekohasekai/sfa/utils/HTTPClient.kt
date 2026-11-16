@@ -405,6 +405,7 @@ class HTTPClient : Closeable {
             var current: Throwable? = error
             while (current != null) {
                 when (current) {
+                    is SubscriptionRouteChangedException,
                     is java.net.SocketTimeoutException,
                     is java.net.SocketException,
                     is java.net.UnknownHostException,
@@ -591,7 +592,12 @@ class HTTPClient : Closeable {
             try {
                 return block(route)
             } catch (e: Exception) {
-                if (!isTransientUpdateFailure(e)) throw friendlyFetch(kind, e)
+                // A new worker may retry with a new lease; this attempt must not switch routes.
+                if (generateSequence<Throwable>(e) { it.cause }.any { it is SubscriptionRouteChangedException } ||
+                    !isTransientUpdateFailure(e)
+                ) {
+                    throw friendlyFetch(kind, e)
+                }
                 last = e
             }
         }

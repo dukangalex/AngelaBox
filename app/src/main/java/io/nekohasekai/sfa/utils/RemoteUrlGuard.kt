@@ -66,22 +66,7 @@ object RemoteUrlGuard {
      * fetch it by name.
      */
     fun acceptSubscription(url: String) {
-        if (TunnelGate.up) {
-            validateWithoutDns(url, Kind.SUBSCRIPTION)
-        } else {
-            try {
-                requireAllowed(url, Kind.SUBSCRIPTION)
-            } catch (e: IllegalArgumentException) {
-                // System DNS may be down or poisoned; give public resolvers a
-                // chance before rejecting a subscription the user just typed.
-                // Other rejections (scheme, blocked host, userinfo) still throw.
-                if (e is UnresolvedHostException) {
-                    validate(url, Kind.SUBSCRIPTION, resolve = ::resolveOutsideTunnel)
-                } else {
-                    throw e
-                }
-            }
-        }
+        if (!acceptSubscriptionForImport(url)) throw UnresolvedHostException()
     }
 
     /**
@@ -93,29 +78,48 @@ object RemoteUrlGuard {
      * @return true when DNS validation succeeded; false when only syntax/host
      * policy could be checked and the caller must defer the download.
      */
-    fun acceptSubscriptionForImport(url: String): Boolean = acceptSubscriptionForImport(url, TunnelGate.up, ::systemResolve, ::resolveOutsideTunnel)
+    fun acceptSubscriptionForImport(url: String): Boolean = SubscriptionRouteLease().use { lease ->
+        acceptSubscriptionForImport(
+            url,
+            lease.snapshot.up,
+            { host -> resolveSubscriptionSystem(host, lease::check) },
+            { host -> resolveOutsideTunnel(host, protect = false, routeCheck = lease::check) },
+            lease::check,
+        )
+    }
 
     internal fun acceptSubscriptionForImport(
         url: String,
         tunnelUp: Boolean,
         resolveSystem: (String) -> List<InetAddress>,
         resolvePublic: (String) -> List<InetAddress>,
+        routeCheck: () -> Unit = {},
     ): Boolean {
+        routeCheck()
         if (tunnelUp) {
             validateWithoutDns(url, Kind.SUBSCRIPTION)
+            routeCheck()
             return true
         }
+        // validate() deliberately normalizes resolver exceptions to unresolved
+        // DNS. Check the lease outside it as well, so a transition cannot be
+        // swallowed and turned into permission for a public DNS retry.
         try {
             validate(url, Kind.SUBSCRIPTION, resolve = resolveSystem)
+            routeCheck()
             return true
         } catch (e: UnresolvedHostException) {
+            routeCheck()
             try {
                 validate(url, Kind.SUBSCRIPTION, resolve = resolvePublic)
+                routeCheck()
                 return true
             } catch (_: UnresolvedHostException) {
-                // This does not authorize a fetch: it only allows the app to save
-                // the URL as pending. Every actual fetch repeats DNS/address policy.
+                routeCheck()
+                // Saving a deferred URL is not permission to fetch it. Every
+                // later download acquires its own current route lease.
                 validateWithoutDns(url, Kind.SUBSCRIPTION)
+                routeCheck()
                 return false
             }
         }
@@ -200,8 +204,8 @@ object RemoteUrlGuard {
      */
     internal fun resolveOutsideTunnel(host: String): List<InetAddress> = resolveOutsideTunnel(host, TunnelGate.up) {}
 
-    /** Leased direct subscriptions never acquire a VPN-bypass hook mid-resolution. */
-    internal fun resolveSubscriptionDirect(host: String, routeCheck: () -> Unit): List<InetAddress> {
+    /** System lookup only: unlike systemResolve, this cannot enable a public bypass mid-call. */
+    private fun resolveSubscriptionSystem(host: String, routeCheck: () -> Unit): List<InetAddress> {
         routeCheck()
         val answers = try {
             InetAddress.getAllByName(host)?.toList().orEmpty()
@@ -209,8 +213,12 @@ object RemoteUrlGuard {
             emptyList()
         }
         routeCheck()
-        val usable = answers.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
-        return usable.ifEmpty { resolveOutsideTunnel(host, protect = false, routeCheck = routeCheck) }
+        return answers.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
+    }
+
+    /** Leased direct subscriptions never acquire a VPN-bypass hook mid-resolution. */
+    internal fun resolveSubscriptionDirect(host: String, routeCheck: () -> Unit): List<InetAddress> = resolveSubscriptionSystem(host, routeCheck).ifEmpty {
+        resolveOutsideTunnel(host, protect = false, routeCheck = routeCheck)
     }
 
     internal fun resolveOutsideTunnel(host: String, protect: Boolean, routeCheck: () -> Unit): List<InetAddress> {

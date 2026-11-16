@@ -1,5 +1,7 @@
 package io.nekohasekai.sfa.utils
 
+internal class SubscriptionRouteChangedException(message: String) : IllegalStateException(message)
+
 /**
  * Same-process flag: true only while the VPN/proxy service is Started.
  * Update downloads use it to follow the tunnel instead of dialing a
@@ -24,8 +26,8 @@ object TunnelGate {
 
     @Synchronized
     internal fun requireCurrent(snapshot: Snapshot) {
-        check(reconfigurations == 0) { "VPN 正在重载，订阅更新已停止，请稍后重试" }
-        check(snapshot == Snapshot(up, generation)) { "VPN 状态已变化，订阅更新已停止，请重试" }
+        if (reconfigurations != 0) throw SubscriptionRouteChangedException("VPN 正在重载，订阅更新已停止，请稍后重试")
+        if (snapshot != Snapshot(up, generation)) throw SubscriptionRouteChangedException("VPN 状态已变化，订阅更新已停止，请重试")
     }
 
     @Synchronized
