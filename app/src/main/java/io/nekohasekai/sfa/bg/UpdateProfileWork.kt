@@ -57,6 +57,10 @@ class UpdateProfileWork {
             )
         }
 
+        internal fun enqueuePendingInitialImports(ids: List<Long>, workManager: WorkManager) {
+            for (id in ids) enqueueInitialImport(id, workManager)
+        }
+
         fun cancelInitialImport(profileId: Long) {
             if (profileId <= 0L) return
             WorkManager.getInstance(Application.application)
@@ -75,6 +79,8 @@ class UpdateProfileWork {
         }
 
         private suspend fun reconfigureUpdater0() {
+            // Room intent survives death before the asynchronous WorkManager enqueue commits.
+            enqueuePendingInitialImports(ProfileManager.pendingInitialImportIds(), WorkManager.getInstance(Application.application))
             val remoteProfiles =
                 ProfileManager.list()
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
@@ -178,7 +184,7 @@ class UpdateProfileWork {
                             ProfileBindingStorage.writeAtomically(file, content)
                         }
                         current.typed.lastUpdated = Date()
-                        val updatedRows = ProfileManager.updateWhileLocked(current)
+                        val updatedRows = ProfileManager.updateWhileLocked(current, materialized = true)
                         if (updatedRows == 0) {
                             false
                         } else {

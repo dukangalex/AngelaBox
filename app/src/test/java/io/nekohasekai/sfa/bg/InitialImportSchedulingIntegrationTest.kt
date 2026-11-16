@@ -28,6 +28,113 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE, sdk = [28])
 class InitialImportSchedulingIntegrationTest {
     @Test
+    fun committedIntentReplaysAfterReopenAndCleansOnlyOnMaterializationOrDelete() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        val manager = WorkManager.getInstance(context)
+        val name = "initial-intent-restart.db"
+        context.deleteDatabase(name)
+        fun open() = Room.databaseBuilder(context, ProfileDatabase::class.java, name).allowMainThreadQueries().build()
+        var db = open()
+        try {
+            val profile = Profile(
+                name = "pending",
+                typed = TypedProfile().apply {
+                    type = TypedProfile.Type.Remote
+                    remoteURL = "https://example.com/first"
+                    autoUpdate = false
+                },
+            )
+            // Inject a transaction failure: neither the profile nor intent may survive.
+            try {
+                db.runInTransaction {
+                    db.insertProfile(profile, true)
+                    error("injected before transaction commit")
+                }
+            } catch (_: IllegalStateException) { }
+            assertTrue(db.profileDao().list().isEmpty())
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+            profile.id = db.insertProfile(profile, true)
+            // Simulate death after profile commit but BEFORE WorkManager enqueue.
+            db.close()
+            db = open()
+            assertEquals(listOf(profile.id), db.initialImportDao().pendingIds())
+            assertFalse(db.profileDao().get(profile.id)!!.typed.autoUpdate)
+            UpdateProfileWork.enqueuePendingInitialImports(db.initialImportDao().pendingIds(), manager)
+            val unique = "UpdateProfileInitial_${profile.id}"
+            val first = manager.getWorkInfosForUniqueWork(unique).get().single()
+            assertEquals(WorkInfo.State.ENQUEUED, first.state)
+            // Reopen/replay after enqueue commits: KEEP preserves request/backoff identity.
+            db.close()
+            db = open()
+            UpdateProfileWork.enqueuePendingInitialImports(db.initialImportDao().pendingIds(), manager)
+            assertEquals(first.id, manager.getWorkInfosForUniqueWork(unique).get().single().id)
+            // Changing a source must retain explicit intent, without stale URL in the outbox.
+            profile.typed.remoteURL = "https://example.com/replacement"
+            db.updateProfile(profile)
+            assertEquals(listOf(profile.id), db.initialImportDao().pendingIds())
+            try {
+                db.runInTransaction {
+                    db.updateProfile(profile, materialized = true)
+                    error("injected before materialization transaction commit")
+                }
+            } catch (_: IllegalStateException) { }
+            assertEquals(listOf(profile.id), db.initialImportDao().pendingIds())
+            assertEquals(1, db.updateProfile(profile, materialized = true))
+            db.close()
+            db = open()
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+            assertEquals("https://example.com/replacement", db.profileDao().get(profile.id)!!.typed.remoteURL)
+            // Replay after completion cannot manufacture a fresh download.
+            manager.cancelAllWork().result.get()
+            UpdateProfileWork.enqueuePendingInitialImports(db.initialImportDao().pendingIds(), manager)
+            assertTrue(manager.getWorkInfosForUniqueWork(unique).get().all { it.state.isFinished })
+            // Changing the profile away from Remote cancels its explicit intent atomically.
+            val converted = Profile(name = "converted", typed = TypedProfile().apply { type = TypedProfile.Type.Remote })
+            converted.id = db.insertProfile(converted, true)
+            converted.typed.type = TypedProfile.Type.Local
+            db.updateProfile(converted)
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+            val deleted = Profile(name = "delete-pending")
+            deleted.id = db.insertProfile(deleted, true)
+            db.profileDao().delete(deleted)
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+        } finally {
+            manager.cancelAllWork().result.get()
+            db.close()
+            context.deleteDatabase(name)
+            WorkManagerTestInitHelper.closeWorkDatabase()
+        }
+    }
+
+    @Test
+    fun versionThreeMigrationPreservesProfilesWithoutInferringDownloadIntent() {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "initial-intent-migration.db"
+        context.deleteDatabase(name)
+        var db = Room.databaseBuilder(context, ProfileDatabase::class.java, name).allowMainThreadQueries().build()
+        val profile = Profile(name = "existing")
+        profile.id = db.insertProfile(profile, false)
+        // Version 3 has identical existing tables, but no outbox table.
+        db.openHelper.writableDatabase.execSQL("DROP TABLE initial_import_intents")
+        db.openHelper.writableDatabase.execSQL("UPDATE room_master_table SET identity_hash = '5e9ed567b06755e1a22c503a7390dea5' WHERE id = 42")
+        db.openHelper.writableDatabase.version = 3
+        db.close()
+        db = Room.databaseBuilder(context, ProfileDatabase::class.java, name)
+            .addMigrations(ProfileDatabase.MIGRATION_3_4).allowMainThreadQueries().build()
+        try {
+            assertEquals("existing", db.profileDao().get(profile.id)!!.name)
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+            db.initialImportDao().insert(io.nekohasekai.sfa.database.InitialImportIntent(profile.id))
+            db.profileDao().clear()
+            assertTrue(db.initialImportDao().pendingIds().isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun persistedAutoUpdateDisabledImportWaitsForNetworkThenRetries() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         var attempts = 0
@@ -61,9 +168,10 @@ class InitialImportSchedulingIntegrationTest {
             )
             persistImportedProfile(true, true, { error("must not write placeholder") }, { selected ->
                 assertFalse(selected)
-                profile.id = db.profileDao().insert(profile)
+                profile.id = db.insertProfile(profile, true)
             }, {
                 assertNotNull(db.profileDao().get(profile.id))
+                assertEquals(listOf(profile.id), db.initialImportDao().pendingIds())
                 UpdateProfileWork.enqueueInitialImport(profile.id, manager)
             }, {})
             db.close()

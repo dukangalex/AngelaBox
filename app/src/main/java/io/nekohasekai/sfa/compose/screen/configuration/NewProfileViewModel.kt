@@ -419,7 +419,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         hint: String,
         title: String,
     ): CreatedProfile {
-        ProfileManager.create(profile, andSelect = false)
+        ProfileManager.create(profile, andSelect = false, pendingInitialImport = true)
         UpdateProfileWork.enqueueInitialImport(profile.id)
         if (state.autoUpdate) UpdateProfileWork.reconfigureUpdater()
         return CreatedProfile(profile, importHint = hint, importHintTitle = title)

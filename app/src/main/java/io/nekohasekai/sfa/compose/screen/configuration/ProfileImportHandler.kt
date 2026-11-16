@@ -354,7 +354,7 @@ class ProfileImportHandler(private val context: Context) {
             pendingRemote = pendingRemote,
             selectWhenReady = Settings.selectedProfile < 0L,
             writeConfig = { ProfileBindingStorage.writeAtomically(configFile, storedConfig) },
-            create = { select -> ProfileManager.create(profile, andSelect = select) },
+            create = { select -> ProfileManager.create(profile, andSelect = select, pendingInitialImport = pendingRemote) },
             enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
             updateSchedule = {
                 if (typedProfile.type == TypedProfile.Type.Remote && typedProfile.autoUpdate) {
@@ -394,7 +394,7 @@ class ProfileImportHandler(private val context: Context) {
             pendingRemote = true,
             selectWhenReady = false,
             writeConfig = {},
-            create = { select -> ProfileManager.create(profile, andSelect = select) },
+            create = { select -> ProfileManager.create(profile, andSelect = select, pendingInitialImport = true) },
             enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
             updateSchedule = { UpdateProfileWork.reconfigureUpdater() },
         )

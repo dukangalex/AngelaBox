@@ -51,7 +51,7 @@ object ProfileManager {
                     ProfileDatabase::class.java,
                     Path.PROFILES_DATABASE_PATH,
                 )
-                .addMigrations(ProfileDatabase.MIGRATION_1_2, ProfileDatabase.MIGRATION_2_3)
+                .addMigrations(ProfileDatabase.MIGRATION_1_2, ProfileDatabase.MIGRATION_2_3, ProfileDatabase.MIGRATION_3_4)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .enableMultiInstanceInvalidation()
                 .build()
@@ -72,8 +72,8 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = ProfileBindingStorage.access { database().profileDao().get(id) }
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false): Profile {
-        profile.id = ProfileBindingStorage.mutate { database().profileDao().insert(profile) }
+    suspend fun create(profile: Profile, andSelect: Boolean = false, pendingInitialImport: Boolean = false): Profile {
+        profile.id = ProfileBindingStorage.mutate { database().insertProfile(profile, pendingInitialImport) }
         if (andSelect) {
             Settings.selectedProfile = profile.id
         }
@@ -86,7 +86,7 @@ object ProfileManager {
     suspend fun update(profile: Profile): Int {
         try {
             return profileMutationGate.withLock(profile.id) {
-                ProfileBindingStorage.mutate { database().profileDao().update(profile) }
+                ProfileBindingStorage.mutate { database().updateProfile(profile) }
             }
         } finally {
             notifyChanged()
@@ -153,7 +153,7 @@ object ProfileManager {
             if (changed) ProfileBindingStorage.writeAtomically(file, content)
             val updatedAt = Date()
             current.typed.lastUpdated = updatedAt
-            if (updateWhileLocked(current) == 0) {
+            if (updateWhileLocked(current, materialized = true) == 0) {
                 false
             } else {
                 userInfo?.let { SubscriptionInfoStore.put(Application.application, current.id, it) }
@@ -199,8 +199,10 @@ object ProfileManager {
     }
 
     /** Caller must already hold the profile mutation lock. */
-    suspend fun updateWhileLocked(profile: Profile): Int {
-        val updated = ProfileBindingStorage.mutate { database().profileDao().update(profile) }
+    suspend fun updateWhileLocked(profile: Profile, materialized: Boolean = false): Int {
+        val updated = ProfileBindingStorage.mutate {
+            database().updateProfile(profile, materialized)
+        }
         notifyChanged()
         return updated
     }
@@ -263,6 +265,8 @@ object ProfileManager {
     }
 
     suspend fun list(): List<Profile> = ProfileBindingStorage.access { database().profileDao().list() }
+
+    suspend fun pendingInitialImportIds(): List<Long> = ProfileBindingStorage.access { database().initialImportDao().pendingIds() }
 
     fun remoteServerDao(): RemoteServer.Dao = database().remoteServerDao()
 
