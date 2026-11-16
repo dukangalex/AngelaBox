@@ -8,6 +8,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -332,7 +333,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
             is ConfigGate.Result.Accepted -> Unit
         }
-        configFile.writeText(configContent)
+        ProfileBindingStorage.writeAtomically(configFile, configContent)
 
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         // AB-019: import-time rule-set cache warm-up, same as the other
@@ -399,7 +400,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
                 is ConfigGate.Result.Accepted -> Unit
             }
-            configFile.writeText(content)
+            ProfileBindingStorage.writeAtomically(configFile, content)
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             // AB-019: a subscription created by hand warms its rule-set
             // cache right away, not only after the first periodic update.

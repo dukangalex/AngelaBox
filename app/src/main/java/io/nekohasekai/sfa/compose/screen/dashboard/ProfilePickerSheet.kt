@@ -70,6 +70,7 @@ import io.nekohasekai.sfa.compose.util.ProfileIcons
 import io.nekohasekai.sfa.compose.util.QRCodeGenerator
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.shareBasename
 import io.nekohasekai.sfa.ktx.shareProfile
@@ -224,7 +225,7 @@ private suspend fun createProfileContent(profile: Profile): ByteArray {
             content.type = Libbox.ProfileTypeRemote
         }
     }
-    content.config = java.io.File(profile.typed.path).readText()
+    content.config = ProfileBindingStorage.readText(java.io.File(profile.typed.path))
     content.remotePath = profile.typed.remoteURL
     content.autoUpdate = profile.typed.autoUpdate
     content.autoUpdateInterval = profile.typed.autoUpdateInterval

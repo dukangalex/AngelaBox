@@ -95,6 +95,7 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.Dispatchers
@@ -173,12 +174,12 @@ fun ChainBuilderScreen(
         }
         tlsWarning = withContext(Dispatchers.IO) {
             runCatching {
-                val entryText = File(entryPath).readText()
+                val entryText = ProfileBindingStorage.readText(File(entryPath))
                 val landingText = if (landingHop.profileId == entryHop.profileId) {
                     entryText
                 } else {
                     val profile = ProfileManager.get(landingHop.profileId) ?: return@runCatching false
-                    File(profile.typed.path).readText()
+                    ProfileBindingStorage.readText(File(profile.typed.path))
                 }
                 ChainRuntimeCompiler.bothHopsAreTls(entryText, entryHop.tag, landingText, landingHop.tag)
             }.getOrDefault(false)
@@ -200,7 +201,7 @@ fun ChainBuilderScreen(
                     withContext(Dispatchers.Main) { if (loadOrder.isCurrent(requestVersion)) loadError = "未选择配置" }
                     return@launch
                 }
-                val content = File(current.typed.path).readText()
+                val content = ProfileBindingStorage.readText(File(current.typed.path))
                 val root = ChainRuntimeCompiler.parseConfig(content)
                 val routeFinal = root.optJSONObject("route")?.optString("final")?.trim().orEmpty()
                 val hops = ChainRuntimeCompiler.listSelectableHops(content, current.id, current.name).map {
@@ -303,7 +304,7 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val raw = file.readText()
+                    val raw = ProfileBindingStorage.readText(file)
                     val originalFinal = ChainRuntimeCompiler.parseConfig(raw).optJSONObject("route")
                         ?.optString("final")
                         ?.takeIf { it.isNotBlank() && !it.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX) }
@@ -312,7 +313,7 @@ fun ChainBuilderScreen(
                     } else {
                         val landingProfile = ProfileManager.get(landing.profileId)
                             ?: error("落地配置不存在")
-                        landingProfile.typed.path to File(landingProfile.typed.path).readText()
+                        landingProfile.typed.path to ProfileBindingStorage.readText(File(landingProfile.typed.path))
                     }
                     val landingContent = landingSnapshot?.let { (_, content) ->
                         // Validate against the same prepared content the runtime chain will see.
@@ -331,7 +332,7 @@ fun ChainBuilderScreen(
                             landingContent = landingContent,
                         ),
                     )
-                    if (!ProfileManager.commitLocalContent(
+                    if (!ProfileManager.commitChainContent(
                             boundId,
                             path,
                             raw,
@@ -343,19 +344,15 @@ fun ChainBuilderScreen(
                                     val current = ProfileManager.get(landing.profileId)
                                     val (expectedPath, expectedContent) = landingSnapshot
                                     current?.typed?.path == expectedPath &&
-                                        File(expectedPath).let { it.isFile && it.readText() == expectedContent }
+                                        File(expectedPath).let { it.isFile && ProfileBindingStorage.readText(it) == expectedContent }
                                 }
                             },
-                            afterCommit = {
-                                ChainBindings.put(
-                                    ChainBinding(
-                                        profileId = boundId,
-                                        entryTag = main.tag,
-                                        landingProfileId = landing.profileId,
-                                        landingTag = landing.tag,
-                                    ),
-                                )
-                            },
+                            binding = ChainBinding(
+                                profileId = boundId,
+                                entryTag = main.tag,
+                                landingProfileId = landing.profileId,
+                                landingTag = landing.tag,
+                            ),
                         )
                     ) {
                         error("配置已被修改或删除，请刷新后重试")
@@ -393,15 +390,15 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val raw = file.readText()
+                    val raw = ProfileBindingStorage.readText(file)
                     val root = ChainRuntimeCompiler.parseConfig(raw)
                     val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    if (!ProfileManager.commitLocalContent(
+                    if (!ProfileManager.commitChainContent(
                             boundId,
                             path,
                             raw,
                             ChainRuntimeCompiler.clear(root.toString(), final),
-                            afterCommit = { ChainBindings.remove(boundId) },
+                            binding = null,
                         )
                     ) {
                         error("配置已被修改或删除，请刷新后重试")
@@ -1068,7 +1065,7 @@ private fun regionGlyph(tag: String): String? {
 
 private fun parseHopsFromProfile(profile: Profile): List<HopRef> = try {
     ChainRuntimeCompiler.listSelectableHops(
-        File(profile.typed.path).readText(),
+        ProfileBindingStorage.readText(File(profile.typed.path)),
         profile.id,
         profile.name,
     ).map { HopRef(it.profileId, it.profileName, it.tag, it.type) }

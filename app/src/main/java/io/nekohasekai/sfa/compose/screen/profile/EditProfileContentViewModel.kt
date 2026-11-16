@@ -7,6 +7,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.compat.ProfileCodeEditor
 import io.nekohasekai.sfa.compat.ProfileEditorColors
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.ktx.unwrap
 import io.nekohasekai.sfa.utils.ConfigCompat
@@ -173,7 +174,7 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
                 profile = loadedProfile
 
                 // Just load the content, we already have profile metadata from Intent
-                val content = File(loadedProfile.typed.path).readText()
+                val content = ProfileBindingStorage.readText(File(loadedProfile.typed.path))
 
                 withContext(Dispatchers.Main) {
                     editor?.setText(content)

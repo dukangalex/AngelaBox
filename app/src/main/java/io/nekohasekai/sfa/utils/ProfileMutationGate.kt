@@ -44,8 +44,9 @@ internal suspend fun <P> commitLocalProfileSnapshot(
     content: String,
     validateRelated: suspend () -> Boolean,
     afterCommit: () -> Unit,
+    commitFile: (java.io.File, String, String) -> Boolean = ProfileFiles::writeIfUnchanged,
 ): Boolean = commitPendingProfileImport(gate, profileId, { false }, loadCurrent, matches) { current ->
-    if (!validateRelated() || !ProfileFiles.writeIfUnchanged(fileFor(current), expectedContent, content)) {
+    if (!validateRelated() || !commitFile(fileFor(current), expectedContent, content)) {
         false
     } else {
         afterCommit()

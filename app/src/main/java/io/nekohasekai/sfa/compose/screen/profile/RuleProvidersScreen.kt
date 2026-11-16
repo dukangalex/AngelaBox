@@ -79,6 +79,7 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.clipboardText
@@ -192,7 +193,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             if (firstLoad) {
                 _ui.value = _ui.value.copy(loading = true, error = null)
             }
-            val content = runCatching { profileFile.readText() }.getOrElse {
+            val content = runCatching { ProfileBindingStorage.readText(profileFile) }.getOrElse {
                 _ui.value = RuleProvidersUiState(
                     profileName = loaded.name,
                     loading = false,
@@ -296,7 +297,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             markBusy(tag, true)
             val message = runCatching {
                 val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-                val content = File(loaded.typed.path).readText()
+                val content = ProfileBindingStorage.readText(File(loaded.typed.path))
                 val root = JSONObject(content)
                 val item = _ui.value.rows.firstOrNull { it.item.tag == tag }?.item
                     ?: error("找不到规则集")
@@ -373,7 +374,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     private fun prettyProfileLines(): List<String> {
         val loaded = profile ?: return emptyList()
-        val text = runCatching { File(loaded.typed.path).readText() }.getOrDefault("")
+        val text = runCatching { ProfileBindingStorage.readText(File(loaded.typed.path)) }.getOrDefault("")
         val pretty = try {
             val trimmed = text.trim()
             when {
@@ -406,7 +407,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
 
     private suspend fun syncOne(tag: String) {
         val loaded = profile ?: ProfileManager.get(profileId) ?: error("配置不存在")
-        val content = File(loaded.typed.path).readText()
+        val content = ProfileBindingStorage.readText(File(loaded.typed.path))
         val root = JSONObject(content)
         val item = RuleSetProviders.parse(content).firstOrNull { it.tag == tag }
             ?: error("找不到规则集")

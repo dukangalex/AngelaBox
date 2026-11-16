@@ -48,6 +48,8 @@ object Settings {
         }
     }
 
+    internal fun bindingDatabase(): KeyValueDatabase = database()
+
     val dataStore = RoomPreferenceDataStore { database().keyValuePairDao() }
     var selectedProfile by dataStore.long(SettingsKey.SELECTED_PROFILE) { -1L }
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
@@ -140,13 +142,8 @@ object Settings {
         landingProfileId: Long,
         landingTag: String,
     ) {
-        val entries = listOf(
-            KeyValueEntity(SettingsKey.CHAIN_BINDINGS).put(json),
-            KeyValueEntity(SettingsKey.CHAIN_ENABLED).put(enabled),
-            KeyValueEntity(SettingsKey.CHAIN_BOUND_PROFILE_ID).put(boundProfileId),
-            KeyValueEntity(SettingsKey.CHAIN_ENTRY_TAG).put(entryTag),
-            KeyValueEntity(SettingsKey.CHAIN_LANDING_PROFILE_ID).put(landingProfileId),
-            KeyValueEntity(SettingsKey.CHAIN_LANDING_TAG).put(landingTag),
+        val entries = ProfileBindingJournal.entries(
+            io.nekohasekai.sfa.chain.ChainBindingSnapshot(json, enabled, boundProfileId, entryTag, landingProfileId, landingTag),
         )
         val settingsDb = database()
         writeChainBindingEntries(settingsDb, entries)

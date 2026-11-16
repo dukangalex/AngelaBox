@@ -33,6 +33,7 @@ import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.hasPermission
@@ -205,7 +206,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
-            val rawContent = File(profile.typed.path).readText()
+            val rawContent = ProfileBindingStorage.readText(File(profile.typed.path))
             if (rawContent.isBlank()) {
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
@@ -326,7 +327,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
 
-        val rawContent = File(profile.typed.path).readText()
+        val rawContent = ProfileBindingStorage.readText(File(profile.typed.path))
         if (rawContent.isBlank()) {
             stopAndAlert(Alert.EmptyConfiguration)
             return
@@ -391,11 +392,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         freshStart: Boolean,
     ): Boolean = kernelStartMutex.withLock { startOrReloadKernelLocked(rawContent, profileId, freshStart) }
 
+    private var storageEpoch = -1L
+
     private suspend fun startOrReloadKernelLocked(
         rawContent: String,
         profileId: Long,
         freshStart: Boolean,
     ): Boolean {
+        storageEpoch = ProfileBindingStorage.runtimeEpoch(profileId, rawContent)
         val ladderStart = SystemClock.elapsedRealtime()
         fun ladderExpired(): Boolean = SystemClock.elapsedRealtime() - ladderStart > LADDER_BUDGET_MS
         val optionsFactory = buildOverrideOptionsFactory()
@@ -1183,6 +1187,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         options: OverrideOptions,
         budgetMs: Long = START_BUDGET_MS,
     ): Result<Unit> {
+        ProfileBindingStorage.requireRuntimeEpoch(storageEpoch)
         val result = startWithinBudget(content, options, budgetMs)
         if (result.exceptionOrNull() is StartCancelled) throw StartCancelled()
         return result
@@ -1202,8 +1207,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (startAbort.get()) return Result.failure(StartCancelled())
         val server = commandServer
         val holder = arrayOfNulls<Result<Unit>>(1)
+        val expectedStorageEpoch = storageEpoch
         val worker = Thread({
-            holder[0] = runCatching { server.startOrReloadService(content, options) }
+            holder[0] = runCatching {
+                // Validate again on the actual start thread. The kernel gets a
+                // complete immutable config compiled from this storage epoch.
+                ProfileBindingStorage.requireRuntimeEpoch(expectedStorageEpoch)
+                server.startOrReloadService(content, options)
+            }
         }, "kernel-start")
         worker.isDaemon = true
         worker.start()

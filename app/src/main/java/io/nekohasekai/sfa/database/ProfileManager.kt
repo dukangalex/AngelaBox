@@ -4,16 +4,18 @@ import androidx.room.Room
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.bg.UpdateProfileWork
+import io.nekohasekai.sfa.chain.ChainBinding
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.utils.OverlayScripts
-import io.nekohasekai.sfa.utils.ProfileFiles
 import io.nekohasekai.sfa.utils.ProfileMutationGate
 import io.nekohasekai.sfa.utils.RemoteProfileSource
 import io.nekohasekai.sfa.utils.SubscriptionInfoStore
 import io.nekohasekai.sfa.utils.commitLocalProfileSnapshot
 import io.nekohasekai.sfa.utils.commitPendingProfileImport
 import io.nekohasekai.sfa.utils.matchesRemoteProfileSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.util.Date
 import java.util.concurrent.CopyOnWriteArrayList
@@ -62,10 +64,16 @@ object ProfileManager {
 
     suspend fun nextFileID(): Long = database().profileDao().nextFileID() ?: 1
 
-    suspend fun get(id: Long): Profile? = database().profileDao().get(id)
+    // Recovery can be requested by a synchronous binding reader on Main. Only
+    // this raw DAO lookup hops to IO; it must never acquire the storage monitor.
+    internal fun pathForBindingRecovery(id: Long): String? = runBlocking(Dispatchers.IO) {
+        database().profileDao().get(id)?.typed?.path
+    }
+
+    suspend fun get(id: Long): Profile? = ProfileBindingStorage.access { database().profileDao().get(id) }
 
     suspend fun create(profile: Profile, andSelect: Boolean = false): Profile {
-        profile.id = database().profileDao().insert(profile)
+        profile.id = ProfileBindingStorage.mutate { database().profileDao().insert(profile) }
         if (andSelect) {
             Settings.selectedProfile = profile.id
         }
@@ -78,7 +86,7 @@ object ProfileManager {
     suspend fun update(profile: Profile): Int {
         try {
             return profileMutationGate.withLock(profile.id) {
-                database().profileDao().update(profile)
+                ProfileBindingStorage.mutate { database().profileDao().update(profile) }
             }
         } finally {
             notifyChanged()
@@ -88,7 +96,7 @@ object ProfileManager {
     suspend fun update(profiles: List<Profile>): Int {
         try {
             return profileMutationGate.withLock(0L) {
-                database().profileDao().update(profiles)
+                ProfileBindingStorage.mutate { database().profileDao().update(profiles) }
             }
         } finally {
             notifyChanged()
@@ -141,8 +149,8 @@ object ProfileManager {
             },
         ) { current ->
             val file = File(current.typed.path)
-            val changed = !file.exists() || file.readText() != content
-            if (changed) ProfileFiles.writeAtomically(file, content)
+            val changed = !file.exists() || ProfileBindingStorage.readText(file) != content
+            if (changed) ProfileBindingStorage.writeAtomically(file, content)
             val updatedAt = Date()
             current.typed.lastUpdated = updatedAt
             if (updateWhileLocked(current) == 0) {
@@ -163,7 +171,6 @@ object ProfileManager {
         expectedContent: String,
         content: String,
         validateRelated: suspend () -> Boolean = { true },
-        afterCommit: () -> Unit = {},
     ): Boolean = commitLocalProfileSnapshot(
         gate = profileMutationGate,
         profileId = profileId,
@@ -173,12 +180,27 @@ object ProfileManager {
         expectedContent = expectedContent,
         content = content,
         validateRelated = validateRelated,
-        afterCommit = afterCommit,
+        afterCommit = {},
+        commitFile = ProfileBindingStorage::writeIfUnchanged,
     )
+
+    /** The only API allowed to change a profile file and its chain binding together. */
+    suspend fun commitChainContent(
+        profileId: Long,
+        expectedPath: String,
+        expectedContent: String,
+        content: String,
+        binding: ChainBinding?,
+        validateRelated: suspend () -> Boolean = { true },
+    ): Boolean = profileMutationGate.withLock(profileId) {
+        val current = get(profileId) ?: return@withLock false
+        if (current.typed.path != expectedPath || !validateRelated()) return@withLock false
+        ProfileBindingStorage.commit(profileId, File(expectedPath), expectedContent, content, binding)
+    }
 
     /** Caller must already hold the profile mutation lock. */
     suspend fun updateWhileLocked(profile: Profile): Int {
-        val updated = database().profileDao().update(profile)
+        val updated = ProfileBindingStorage.mutate { database().profileDao().update(profile) }
         notifyChanged()
         return updated
     }
@@ -202,7 +224,7 @@ object ProfileManager {
     suspend fun delete(profile: Profile): Int {
         try {
             return profileMutationGate.withLock(profile.id) {
-                deleteWhileLocked(profile)
+                ProfileBindingStorage.mutate { deleteWhileLocked(profile) }
             }
         } finally {
             notifyChanged()
@@ -212,33 +234,35 @@ object ProfileManager {
     suspend fun delete(profiles: List<Profile>): Int {
         try {
             return profileMutationGate.withLock(0L) {
-                var deleted = 0
-                var invalidated = 0
-                for (profile in profiles.distinctBy { it.id }) {
-                    runCatching { UpdateProfileWork.cancelInitialImport(profile.id) }
-                    invalidated += runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
-                    runCatching { OverlayScripts.removeProfile(profile.id) }
-                    runCatching { ProfileStableIds.remove(profile.id) }
-                    deleted += database().profileDao().delete(profile)
+                ProfileBindingStorage.mutate {
+                    var deleted = 0
+                    var invalidated = 0
+                    for (profile in profiles.distinctBy { it.id }) {
+                        runCatching { UpdateProfileWork.cancelInitialImport(profile.id) }
+                        invalidated += ChainBindings.onProfileDeleted(profile.id)
+                        runCatching { OverlayScripts.removeProfile(profile.id) }
+                        runCatching { ProfileStableIds.remove(profile.id) }
+                        deleted += ProfileBindingStorage.mutate { database().profileDao().delete(profile) }
+                    }
+                    lastDeleteChainInvalidated = invalidated
+                    deleted
                 }
-                lastDeleteChainInvalidated = invalidated
-                deleted
             }
         } finally {
             notifyChanged()
         }
     }
 
-    private suspend fun deleteWhileLocked(profile: Profile): Int {
+    private fun deleteWhileLocked(profile: Profile): Int {
         runCatching { UpdateProfileWork.cancelInitialImport(profile.id) }
         lastDeleteChainInvalidated =
-            runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
+            ChainBindings.onProfileDeleted(profile.id)
         runCatching { OverlayScripts.removeProfile(profile.id) }
         runCatching { ProfileStableIds.remove(profile.id) }
         return database().profileDao().delete(profile)
     }
 
-    suspend fun list(): List<Profile> = database().profileDao().list()
+    suspend fun list(): List<Profile> = ProfileBindingStorage.access { database().profileDao().list() }
 
     fun remoteServerDao(): RemoteServer.Dao = database().remoteServerDao()
 

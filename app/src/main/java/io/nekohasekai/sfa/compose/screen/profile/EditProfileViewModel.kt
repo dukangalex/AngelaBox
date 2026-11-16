@@ -10,6 +10,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -338,7 +339,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 return null
             }
 
-            val content = configFile.readText()
+            val content = ProfileBindingStorage.readText(configFile)
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val fileName = "${profile.name.replace(" ", "_")}_$timestamp.json"
 

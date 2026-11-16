@@ -11,6 +11,7 @@ import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.Settings
@@ -84,7 +85,7 @@ object BackupManager {
         dest
     }
 
-    private fun writeBackupZip(context: Context, dest: File) {
+    private fun writeBackupZip(context: Context, dest: File) = ProfileBindingStorage.access {
         dest.parentFile?.mkdirs()
         // Checkpoint first so the temp copies below observe the latest committed
         // state. Credentials are blanked in the temp copies only: live Settings
@@ -282,38 +283,40 @@ object BackupManager {
 
         runCatching { BoxService.stop() }
         Thread.sleep(350)
-        Settings.closeDatabase()
-        ProfileManager.closeDatabase()
+        val settingsDbRestored = File(staging, Path.SETTINGS_DATABASE_PATH).isFile
+        val profilesDbRestored = File(staging, Path.PROFILES_DATABASE_PATH).isFile
+        ProfileBindingStorage.mutate {
+            Settings.closeDatabase()
+            ProfileManager.closeDatabase()
 
-        val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
-        val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
-        val settingsDbRestored = settingsDb.isFile
-        val profilesDbRestored = profilesDb.isFile
-        if (settingsDbRestored) {
-            val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-            dest.parentFile?.mkdirs()
-            deleteSidecars(dest)
-            settingsDb.copyTo(dest, overwrite = true)
-            deleteSidecars(dest)
-        }
-        if (profilesDbRestored) {
-            val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
-            dest.parentFile?.mkdirs()
-            deleteSidecars(dest)
-            profilesDb.copyTo(dest, overwrite = true)
-            deleteSidecars(dest)
-            pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
-            repairRestoredRemoteServers(dest)
-        }
-        val stagedConfigs = File(staging, "configs")
-        val live = File(context.filesDir, "configs").also { it.mkdirs() }
-        if (stagedConfigs.isDirectory) {
-            val incoming = stagedConfigs.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
-            live.listFiles()?.forEach { f ->
-                if (f.isFile && f.name !in incoming) f.delete()
+            val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
+            val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
+            if (settingsDbRestored) {
+                val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+                dest.parentFile?.mkdirs()
+                deleteSidecars(dest)
+                settingsDb.copyTo(dest, overwrite = true)
+                deleteSidecars(dest)
             }
-            stagedConfigs.listFiles()?.forEach { f ->
-                if (f.isFile) runCatching { f.copyTo(File(live, f.name), overwrite = true) }
+            if (profilesDbRestored) {
+                val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
+                dest.parentFile?.mkdirs()
+                deleteSidecars(dest)
+                profilesDb.copyTo(dest, overwrite = true)
+                deleteSidecars(dest)
+                pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
+                repairRestoredRemoteServers(dest)
+            }
+            val stagedConfigs = File(staging, "configs")
+            val live = File(context.filesDir, "configs").also { it.mkdirs() }
+            if (stagedConfigs.isDirectory) {
+                val incoming = stagedConfigs.listFiles()?.filter { it.isFile }?.map { it.name }?.toSet() ?: emptySet()
+                live.listFiles()?.forEach { f ->
+                    if (f.isFile && f.name !in incoming) f.delete()
+                }
+                stagedConfigs.listFiles()?.forEach { f ->
+                    if (f.isFile) runCatching { f.copyTo(File(live, f.name), overwrite = true) }
+                }
             }
         }
 
@@ -579,7 +582,7 @@ object BackupManager {
         if (!staged.isFile) return null
         val fileId = ProfileManager.nextFileID()
         val dest = File(liveConfigs, "$fileId.json")
-        val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
+        val copied = runCatching { ProfileBindingStorage.mutate { staged.copyTo(dest, overwrite = true) } }.isSuccess
         if (!copied || !dest.isFile) return null
         val typed = TypedProfile().apply {
             path = dest.path
@@ -652,7 +655,7 @@ object BackupManager {
                         if (!staged.isFile) continue
                         val fileId = ProfileManager.nextFileID()
                         val dest = File(liveConfigs, "$fileId.json")
-                        val copied = runCatching { staged.copyTo(dest, overwrite = true) }.isSuccess
+                        val copied = runCatching { ProfileBindingStorage.mutate { staged.copyTo(dest, overwrite = true) } }.isSuccess
                         if (!copied || !dest.isFile) continue
                         val imported = TypedProfile().apply {
                             path = dest.path

@@ -7,6 +7,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.ProfileContent
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -343,7 +344,7 @@ class ProfileImportHandler(private val context: Context) {
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText(storedConfig)
+        ProfileBindingStorage.writeAtomically(configFile, storedConfig)
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         // AB-019: warm the rule-set cache at import time, so the startup
@@ -376,7 +377,7 @@ class ProfileImportHandler(private val context: Context) {
         val fileID = ProfileManager.nextFileID()
         val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
         val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText("{}")
+        ProfileBindingStorage.writeAtomically(configFile, "{}")
         typedProfile.path = configFile.path
         ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
         return ImportResult.Success(profile)
@@ -464,7 +465,7 @@ class ProfileImportHandler(private val context: Context) {
             val fileID = ProfileManager.nextFileID()
             val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
             val configFile = File(configDirectory, "$fileID.json")
-            configFile.writeText(sanitized)
+            ProfileBindingStorage.writeAtomically(configFile, sanitized)
             typedProfile.path = configFile.path
             ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
             // AB-019: import-time rule-set cache warm-up (see importProfile).

@@ -313,6 +313,7 @@ jobs:
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
             --tests io.nekohasekai.sfa.database.ChainBindingRoomTransactionTest \
+            --tests io.nekohasekai.sfa.database.ProfileBindingJournalTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingRobustnessTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingReferencingTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerGuardrailTest \

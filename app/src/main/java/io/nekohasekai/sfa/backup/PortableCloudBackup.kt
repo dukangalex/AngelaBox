@@ -4,6 +4,7 @@ import io.nekohasekai.sfa.chain.ChainBinding
 import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.OverlayScripts
@@ -126,7 +127,7 @@ object PortableCloudBackup {
             val src = File(profile.typed.path)
             if (!src.isFile) return@forEachIndexed
             val rel = "configs/$uuid.json"
-            configs[rel] = src.readBytes()
+            configs[rel] = ProfileBindingStorage.readBytes(src)
             portable += PortableProfile(
                 id = uuid,
                 name = profile.name,
@@ -212,7 +213,7 @@ object PortableCloudBackup {
     }
 
     fun snapshotSettings(stableIds: Map<Long, String>): JSONObject {
-        val chain = ChainBindingCodec.parse(Settings.chainBindingsJson).values.mapNotNull { binding ->
+        val chain = ChainBindings.all().mapNotNull { binding ->
             val profile = stableIds[binding.profileId] ?: return@mapNotNull null
             val landing = stableIds[binding.landingProfileId] ?: return@mapNotNull null
             JSONObject()

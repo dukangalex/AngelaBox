@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -164,12 +165,12 @@ class UpdateProfileWork {
                         updateProfile = current
                         val file = File(current.typed.path)
                         val oldContent = try {
-                            if (file.isFile) file.readText() else null
+                            if (file.isFile) ProfileBindingStorage.readText(file) else null
                         } catch (_: Exception) {
                             null
                         }
                         if (oldContent != content) {
-                            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
+                            ProfileBindingStorage.writeAtomically(file, content)
                         }
                         current.typed.lastUpdated = Date()
                         val updatedRows = ProfileManager.updateWhileLocked(current)

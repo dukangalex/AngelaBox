@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.chain
 
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
 
@@ -230,7 +231,7 @@ object ChainBindings {
         val binding = next[profileId] ?: return
         if (binding.materialized) return
         next[profileId] = binding.copy(materialized = true)
-        save(next)
+        save(next, materializationOnly = true)
     }
 
     /**
@@ -253,7 +254,7 @@ object ChainBindings {
         save(bindings)
     }
 
-    private fun load(): Map<Long, ChainBinding> {
+    private fun load(): Map<Long, ChainBinding> = ProfileBindingStorage.access {
         val parsed = ChainBindingCodec.parse(Settings.chainBindingsJson)
         val merged = ChainBindingCodec.mergeLegacy(
             parsed,
@@ -264,18 +265,21 @@ object ChainBindings {
             Settings.chainLandingTag,
         )
         if (merged != parsed) save(merged)
-        return merged
+        merged
     }
 
-    private fun save(bindings: Map<Long, ChainBinding>) {
-        val snapshot = ChainBindingCodec.snapshot(bindings, Settings.selectedProfile)
-        Settings.saveChainBindingSnapshot(
-            json = snapshot.json,
-            enabled = snapshot.enabled,
-            boundProfileId = snapshot.boundProfileId,
-            entryTag = snapshot.entryTag,
-            landingProfileId = snapshot.landingProfileId,
-            landingTag = snapshot.landingTag,
-        )
+    private fun save(bindings: Map<Long, ChainBinding>, materializationOnly: Boolean = false) {
+        val action = {
+            val snapshot = ChainBindingCodec.snapshot(bindings, Settings.selectedProfile)
+            Settings.saveChainBindingSnapshot(
+                json = snapshot.json,
+                enabled = snapshot.enabled,
+                boundProfileId = snapshot.boundProfileId,
+                entryTag = snapshot.entryTag,
+                landingProfileId = snapshot.landingProfileId,
+                landingTag = snapshot.landingTag,
+            )
+        }
+        if (materializationOnly) ProfileBindingStorage.access(action) else ProfileBindingStorage.mutate(action)
     }
 }

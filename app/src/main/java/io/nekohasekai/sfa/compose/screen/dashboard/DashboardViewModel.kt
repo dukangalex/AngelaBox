@@ -28,6 +28,7 @@ import io.nekohasekai.sfa.compose.model.isNestedRegionAutoSelect
 import io.nekohasekai.sfa.compose.navigation.ProfileRoutes
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -390,7 +391,7 @@ class DashboardViewModel :
         return runCatching {
             val file = File(profile.typed.path)
             if (!file.isFile) return null
-            val root = ChainRuntimeCompiler.parseConfig(file.readText())
+            val root = ChainRuntimeCompiler.parseConfig(ProfileBindingStorage.readText(file))
             val outs = root.optJSONArray("outbounds") ?: return null
             val routeFinal = root.optJSONObject("route")?.optString("final").orEmpty()
             ChainRuntimeCompiler.resolveMainTag(outs, routeFinal)

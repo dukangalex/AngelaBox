@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.bg
 
 import android.util.Log
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
@@ -88,15 +89,21 @@ object RuleSetWarmup {
      * bounds the whole scan; best-effort like every warm path.
      */
     fun warmRestored(deadlineMs: Long) {
-        val dir = File(Application.application.filesDir, "configs")
-        val files = runCatching { dir.listFiles() }.getOrNull() ?: return
-        for (f in files) {
+        val contents = runCatching { storedProfileContents() }.getOrNull() ?: return
+        for (content in contents) {
             if (System.currentTimeMillis() > deadlineMs) return
-            if (!f.isFile || !f.name.endsWith(".json")) continue
-            val content = runCatching { f.readText() }.getOrNull() ?: continue
             if (content.isNotBlank()) {
                 runCatching { warmNow(content, deadlineMs) }
             }
+        }
+    }
+
+    /** Recover first, then snapshot disk reads only; never hold the barrier over downloads. */
+    private fun storedProfileContents(): List<String> = ProfileBindingStorage.access {
+        val dir = File(Application.application.filesDir, "configs")
+        (dir.listFiles() ?: emptyArray()).mapNotNull { file ->
+            if (!file.isFile || !file.name.endsWith(".json")) return@mapNotNull null
+            runCatching { file.readText() }.getOrNull()
         }
     }
 
@@ -156,10 +163,7 @@ object RuleSetWarmup {
                 }
             }
             collect(warmedContent)
-            val dir = File(Application.application.filesDir, "configs")
-            for (f in dir.listFiles() ?: emptyArray()) {
-                if (!f.isFile || !f.name.endsWith(".json")) continue
-                val text = runCatching { f.readText() }.getOrNull() ?: continue
+            for (text in storedProfileContents()) {
                 if (text.isNotBlank()) collect(text)
             }
             RuleSetStore.prune(storeDir, referenced, System.currentTimeMillis())
