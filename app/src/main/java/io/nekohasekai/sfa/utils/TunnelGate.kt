@@ -14,9 +14,33 @@ object TunnelGate {
     var generation: Long = 0
         private set
 
+    internal data class Snapshot(val up: Boolean, val generation: Long)
+
+    private val observers = mutableSetOf<() -> Unit>()
+
     @Synchronized
+    internal fun snapshot() = Snapshot(up, generation)
+
+    @Synchronized
+    internal fun requireCurrent(snapshot: Snapshot) {
+        check(snapshot == Snapshot(up, generation)) { "VPN 状态已变化，订阅更新已停止，请重试" }
+    }
+
+    @Synchronized
+    internal fun observe(snapshot: Snapshot, changed: () -> Unit): java.io.Closeable {
+        requireCurrent(snapshot)
+        observers.add(changed)
+        return java.io.Closeable { synchronized(this) { observers.remove(changed) } }
+    }
+
     fun setUp(value: Boolean) {
-        if (up != value) generation++
-        up = value
+        val changed = synchronized(this) {
+            if (up == value) return
+            generation++
+            up = value
+            observers.toList().also { observers.clear() }
+        }
+        // Never hold the service-state lock while disconnecting a network request.
+        changed.forEach { runCatching { it() } }
     }
 }
