@@ -1,0 +1,27 @@
+package io.nekohasekai.sfa.utils
+
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** Serializes profile writes with pending subscription-import commits. */
+internal class ProfileMutationGate {
+    private val lock = Mutex()
+
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun <T> withLock(profileId: Long, action: suspend () -> T): T = lock.withLock { action() }
+}
+
+/** Checks cancellation and the current profile under the same lock used by edit/delete writes. */
+internal suspend fun <P> commitPendingProfileImport(
+    gate: ProfileMutationGate,
+    profileId: Long,
+    isStopped: () -> Boolean,
+    loadCurrent: suspend () -> P?,
+    matchesPending: (P) -> Boolean,
+    commit: suspend (P) -> Boolean,
+): Boolean = gate.withLock(profileId) {
+    if (isStopped()) return@withLock false
+    val current = loadCurrent() ?: return@withLock false
+    if (!matchesPending(current)) return@withLock false
+    commit(current)
+}

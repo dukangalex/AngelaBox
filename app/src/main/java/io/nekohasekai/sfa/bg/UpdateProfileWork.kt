@@ -6,10 +6,13 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.ProfileManager
@@ -27,6 +30,32 @@ class UpdateProfileWork {
     companion object {
         private const val WORK_NAME = "UpdateProfile"
         private const val TAG = "UpdateProfileWork"
+        private const val INITIAL_PROFILE_ID = "initial_profile_id"
+
+        /** Queue one durable, network-constrained retry for a newly saved subscription. */
+        fun enqueueInitialImport(profileId: Long) {
+            if (profileId <= 0L) return
+            val request = OneTimeWorkRequestBuilder<UpdateTask>()
+                .setInputData(workDataOf(INITIAL_PROFILE_ID to profileId))
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(Application.application).enqueueUniqueWork(
+                "UpdateProfileInitial_$profileId",
+                ExistingWorkPolicy.KEEP,
+                request,
+            )
+        }
+
+        fun cancelInitialImport(profileId: Long) {
+            if (profileId <= 0L) return
+            WorkManager.getInstance(Application.application)
+                .cancelUniqueWork("UpdateProfileInitial_$profileId")
+        }
 
         /** E-2: one update round's time budget; WorkManager kills a run at ~10 min. */
         private const val ROUND_BUDGET_MS = 8L * 60 * 1000
@@ -76,9 +105,14 @@ class UpdateProfileWork {
     class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
         override suspend fun doWork(): Result {
             var selectedProfileUpdated = false
+            val initialProfileId = inputData.getLong(INITIAL_PROFILE_ID, -1L)
+            val initialImport = initialProfileId > 0L
             val remoteProfiles =
                 ProfileManager.list()
-                    .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
+                    .filter {
+                        it.typed.type == TypedProfile.Type.Remote &&
+                            if (initialImport) it.id == initialProfileId else it.typed.autoUpdate
+                    }
             if (remoteProfiles.isEmpty()) return Result.success()
             var hasTransientFailure = false
             var hasDeferredWork = false
@@ -93,7 +127,7 @@ class UpdateProfileWork {
                 // only moves on success, so a dead profile used to be
                 // re-fetched in full on every worker run — which runs at the
                 // shortest interval of ALL profiles (floor 15 min).
-                val due = SubscriptionUpdateHealth.isDue(
+                val due = initialImport || SubscriptionUpdateHealth.isDue(
                     nowMs = System.currentTimeMillis(),
                     lastUpdatedMs = profile.typed.lastUpdated.time,
                     lastAttemptMs = SubscriptionUpdateHealth.lastAttempt(applicationContext, profile.id),
@@ -121,35 +155,46 @@ class UpdateProfileWork {
                         deadlineMs = roundDeadlineMs,
                     )
                     val content = detailed.content
-                    // G4: the update gate is aligned with the startup
-                    // heal — a config startup could fix is no longer
-                    // rejected here (which used to fail the update
-                    // forever), and a real rejection throws a readable
-                    // reason that recordFailure stores for the banner,
-                    // instead of leaving only a failure count.
+                    // Validate and commit all background updates under the same profile lock as edits/deletes.
+                    // That closes the gap between reading the row and atomically writing its file.
                     when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
-                        is ConfigGate.Result.Rejected ->
-                            throw IllegalStateException(gate.reason)
+                        is ConfigGate.Result.Rejected -> throw IllegalStateException(gate.reason)
                         is ConfigGate.Result.Accepted -> Unit
                     }
-                    val file = File(profile.typed.path)
-                    // 文件不存在时视为内容不同（首次更新），直接写入
-                    val oldContent = try {
-                        if (file.isFile) file.readText() else null
-                    } catch (_: Exception) {
-                        null
-                    }
-                    if (oldContent != content) {
-                        // X-3: 原子写入（tmp + fsync + rename），与前台更新
-                        // 路径共用同一实现，防进程被杀导致配置写一半损坏。
-                        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                        if (profile.id == selectedProfile) {
-                            selectedProfileUpdated = true
+                    var updateProfile = profile
+                    val updateApplied = ProfileManager.commitPendingImport(
+                        expected = profile,
+                        isStopped = { isStopped },
+                        requireAutoUpdate = !initialImport,
+                    ) { current ->
+                        updateProfile = current
+                        val file = File(current.typed.path)
+                        val oldContent = try {
+                            if (file.isFile) file.readText() else null
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (oldContent != content) {
+                            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
+                        }
+                        current.typed.lastUpdated = Date()
+                        val updatedRows = ProfileManager.updateWhileLocked(current)
+                        if (updatedRows == 0) {
+                            false
+                        } else {
+                            if (current.id == selectedProfile && oldContent != content) {
+                                selectedProfileUpdated = true
+                            }
+                            // Only initial imports can select an otherwise unselected profile.
+                            if (initialImport && Settings.selectedProfile < 0L) {
+                                Settings.selectedProfile = current.id
+                                selectedProfileUpdated = true
+                            }
+                            true
                         }
                     }
-                    profile.typed.lastUpdated = Date()
-                    ProfileManager.update(profile)
-                    SubscriptionUpdateHealth.recordSuccess(applicationContext, profile.id)
+                    if (!updateApplied) continue
+                    SubscriptionUpdateHealth.recordSuccess(applicationContext, updateProfile.id)
                     // 规范化替代的弹药：把这份订阅的远程规则集顺手下载进
                     // 本地缓存，启动时远程下不下来能用缓存顶上，不再只能
                     // 跳过。尽力而为，失败不影响更新结果，受整轮预算约束。
@@ -157,7 +202,7 @@ class UpdateProfileWork {
                     // 更新成功但有"跳过/修正"提示：记下来，仪表盘横幅展示，不藏报错。
                     SubscriptionUpdateHealth.recordImportWarnings(
                         applicationContext,
-                        profile.id,
+                        updateProfile.id,
                         detailed.notes,
                     )
                 } catch (e: Exception) {

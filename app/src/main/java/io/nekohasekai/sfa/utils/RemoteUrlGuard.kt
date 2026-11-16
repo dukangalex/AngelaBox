@@ -7,6 +7,8 @@ import java.net.InetAddress
 import java.net.URI
 import java.util.Locale
 
+internal class UnresolvedHostException : IllegalArgumentException("无法解析主机，已拒绝")
+
 data class ValidatedEndpoint(
     val url: String,
     val host: String,
@@ -73,11 +75,48 @@ object RemoteUrlGuard {
                 // System DNS may be down or poisoned; give public resolvers a
                 // chance before rejecting a subscription the user just typed.
                 // Other rejections (scheme, blocked host, userinfo) still throw.
-                if (e.message?.contains("无法解析主机") == true) {
+                if (e is UnresolvedHostException) {
                     validate(url, Kind.SUBSCRIPTION, resolve = ::resolveOutsideTunnel)
                 } else {
                     throw e
                 }
+            }
+        }
+    }
+
+    /**
+     * Validate a new subscription before saving it. When the tunnel is down,
+     * a DNS-only failure may be deferred: no request is made until a later
+     * fetch repeats the full DNS/address policy. All other URL and address
+     * rejections remain fail-closed.
+     *
+     * @return true when DNS validation succeeded; false when only syntax/host
+     * policy could be checked and the caller must defer the download.
+     */
+    fun acceptSubscriptionForImport(url: String): Boolean = acceptSubscriptionForImport(url, TunnelGate.up, ::systemResolve, ::resolveOutsideTunnel)
+
+    internal fun acceptSubscriptionForImport(
+        url: String,
+        tunnelUp: Boolean,
+        resolveSystem: (String) -> List<InetAddress>,
+        resolvePublic: (String) -> List<InetAddress>,
+    ): Boolean {
+        if (tunnelUp) {
+            validateWithoutDns(url, Kind.SUBSCRIPTION)
+            return true
+        }
+        try {
+            validate(url, Kind.SUBSCRIPTION, resolve = resolveSystem)
+            return true
+        } catch (e: UnresolvedHostException) {
+            try {
+                validate(url, Kind.SUBSCRIPTION, resolve = resolvePublic)
+                return true
+            } catch (_: UnresolvedHostException) {
+                // This does not authorize a fetch: it only allows the app to save
+                // the URL as pending. Every actual fetch repeats DNS/address policy.
+                validateWithoutDns(url, Kind.SUBSCRIPTION)
+                return false
             }
         }
     }
@@ -130,7 +169,7 @@ object RemoteUrlGuard {
             if (!requireResolved) {
                 return ValidatedEndpoint(raw, host, port, emptyList())
             }
-            throw IllegalArgumentException("无法解析主机，已拒绝")
+            throw UnresolvedHostException()
         }
         require(resolved.all { isAddressAllowed(it, kind) }) {
             "主机解析到禁止地址，已拒绝"

@@ -41,6 +41,7 @@ data class NewProfileUiState(
     val isSuccess: Boolean = false,
     val createdProfile: Profile? = null,
     val importHint: String? = null,
+    val importHintTitle: String? = null,
     val nameError: String? = null,
     val remoteUrlError: String? = null,
     val importError: String? = null,
@@ -233,6 +234,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                         isSuccess = true,
                         createdProfile = created.profile,
                         importHint = created.importHint,
+                        importHintTitle = created.importHintTitle,
                         pendingFetchUrls = emptyList(),
                     )
                 }
@@ -338,7 +340,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
-        io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(remoteUrl)
+        val dnsValidated = io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscriptionForImport(remoteUrl)
 
         val typedProfile =
             TypedProfile().apply {
@@ -359,8 +361,33 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         val configFile = File(configDirectory, "$fileID.json")
         typedProfile.path = configFile.path
 
+        // If DNS could not be checked while the VPN is down, persist only a
+        // pending remote profile. No request is attempted until the worker
+        // reruns the complete URL/DNS/TLS policy on a connected network.
+        if (!dnsValidated) {
+            return savePendingRemoteProfile(
+                profile = profile,
+                state = state,
+                hint = "订阅已保存为待更新项。当前 DNS 无法解析订阅主机，暂时没有下载配置；联网后会安全重试，也可以在订阅页面手动更新。下载成功前请勿启用此配置。",
+                title = "等待网络后更新",
+            )
+        }
+
         HTTPClient().use { client ->
-            val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            val raw = try {
+                client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            } catch (e: Exception) {
+                // Defer only transient network failures while the tunnel is
+                // down. With the VPN up, the existing proxy-only failure path
+                // is preserved; it must never fall back to direct access.
+                if (io.nekohasekai.sfa.utils.TunnelGate.up || !isDeferredNetworkFailure(e)) throw e
+                return savePendingRemoteProfile(
+                    profile = profile,
+                    state = state,
+                    hint = "订阅已保存为待更新项，但这次下载没有完成。应用会在网络可用时重试；也可以在订阅页面手动更新。下载成功前请勿启用此配置。",
+                    title = "订阅已保存，等待更新",
+                )
+            }
             val content = ConfigCompat.sanitizeRemote(raw)
             // G4: same heal-aligned gate as local creation.
             when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
@@ -378,6 +405,33 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             }
             return CreatedProfile(profile, shareLinkHint(raw))
         }
+    }
+
+    private suspend fun savePendingRemoteProfile(
+        profile: Profile,
+        state: NewProfileUiState,
+        hint: String,
+        title: String,
+    ): CreatedProfile {
+        ProfileManager.create(profile, andSelect = false)
+        UpdateProfileWork.enqueueInitialImport(profile.id)
+        if (state.autoUpdate) UpdateProfileWork.reconfigureUpdater()
+        return CreatedProfile(profile, importHint = hint, importHintTitle = title)
+    }
+
+    private fun isDeferredNetworkFailure(error: Throwable): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is java.net.UnknownHostException ||
+                current is java.net.SocketException ||
+                current is java.net.SocketTimeoutException ||
+                (current is IllegalArgumentException && current.message.orEmpty().contains("无法解析主机"))
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private fun shareLinkHint(raw: String): String? {
@@ -430,6 +484,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 private data class CreatedProfile(
     val profile: Profile,
     val importHint: String? = null,
+    val importHintTitle: String? = null,
 )
 
 /** Thrown by the probe fetch channel to stop a dry-run conversion fetch. */

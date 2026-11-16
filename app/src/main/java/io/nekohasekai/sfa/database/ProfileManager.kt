@@ -3,9 +3,12 @@ package io.nekohasekai.sfa.database
 import androidx.room.Room
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backup.ProfileStableIds
+import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.utils.OverlayScripts
+import io.nekohasekai.sfa.utils.ProfileMutationGate
+import io.nekohasekai.sfa.utils.commitPendingProfileImport
 import java.util.concurrent.CopyOnWriteArrayList
 
 @Suppress("RedundantSuspendModifier")
@@ -14,6 +17,7 @@ object ProfileManager {
     // ConcurrentModificationException.
     private val callbacks = CopyOnWriteArrayList<() -> Unit>()
     private val dbLock = Any()
+    private val profileMutationGate = ProfileMutationGate()
 
     @Volatile
     private var db: ProfileDatabase? = null
@@ -66,21 +70,54 @@ object ProfileManager {
 
     suspend fun update(profile: Profile): Int {
         try {
-            return database().profileDao().update(profile)
-        } finally {
-            for (callback in callbacks.toList()) {
-                callback()
+            return profileMutationGate.withLock(profile.id) {
+                database().profileDao().update(profile)
             }
+        } finally {
+            notifyChanged()
         }
     }
 
     suspend fun update(profiles: List<Profile>): Int {
         try {
-            return database().profileDao().update(profiles)
-        } finally {
-            for (callback in callbacks.toList()) {
-                callback()
+            return profileMutationGate.withLock(0L) {
+                database().profileDao().update(profiles)
             }
+        } finally {
+            notifyChanged()
+        }
+    }
+
+    /** Holds the same lock used by edit/delete while a subscription update validates and commits. */
+    suspend fun commitPendingImport(
+        expected: Profile,
+        isStopped: () -> Boolean,
+        requireAutoUpdate: Boolean = false,
+        commit: suspend (Profile) -> Boolean,
+    ): Boolean = commitPendingProfileImport(
+        gate = profileMutationGate,
+        profileId = expected.id,
+        isStopped = isStopped,
+        loadCurrent = { get(expected.id) },
+        matchesPending = { current ->
+            current.typed.type == TypedProfile.Type.Remote &&
+                (!requireAutoUpdate || current.typed.autoUpdate) &&
+                current.typed.remoteURL == expected.typed.remoteURL &&
+                current.typed.path == expected.typed.path
+        },
+        commit = commit,
+    )
+
+    /** Caller must already hold the profile mutation lock. */
+    suspend fun updateWhileLocked(profile: Profile): Int {
+        val updated = database().profileDao().update(profile)
+        notifyChanged()
+        return updated
+    }
+
+    private fun notifyChanged() {
+        for (callback in callbacks.toList()) {
+            callback()
         }
     }
 
@@ -96,33 +133,41 @@ object ProfileManager {
 
     suspend fun delete(profile: Profile): Int {
         try {
-            lastDeleteChainInvalidated =
-                runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
-            runCatching { OverlayScripts.removeProfile(profile.id) }
-            runCatching { ProfileStableIds.remove(profile.id) }
-            return database().profileDao().delete(profile)
-        } finally {
-            for (callback in callbacks.toList()) {
-                callback()
+            return profileMutationGate.withLock(profile.id) {
+                deleteWhileLocked(profile)
             }
+        } finally {
+            notifyChanged()
         }
     }
 
     suspend fun delete(profiles: List<Profile>): Int {
         try {
-            var invalidated = 0
-            profiles.forEach { p ->
-                invalidated += runCatching { ChainBindings.onProfileDeleted(p.id) }.getOrDefault(0)
-                runCatching { OverlayScripts.removeProfile(p.id) }
-                runCatching { ProfileStableIds.remove(p.id) }
+            return profileMutationGate.withLock(0L) {
+                var deleted = 0
+                var invalidated = 0
+                for (profile in profiles.distinctBy { it.id }) {
+                    runCatching { UpdateProfileWork.cancelInitialImport(profile.id) }
+                    invalidated += runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
+                    runCatching { OverlayScripts.removeProfile(profile.id) }
+                    runCatching { ProfileStableIds.remove(profile.id) }
+                    deleted += database().profileDao().delete(profile)
+                }
+                lastDeleteChainInvalidated = invalidated
+                deleted
             }
-            lastDeleteChainInvalidated = invalidated
-            return database().profileDao().delete(profiles)
         } finally {
-            for (callback in callbacks.toList()) {
-                callback()
-            }
+            notifyChanged()
         }
+    }
+
+    private suspend fun deleteWhileLocked(profile: Profile): Int {
+        runCatching { UpdateProfileWork.cancelInitialImport(profile.id) }
+        lastDeleteChainInvalidated =
+            runCatching { ChainBindings.onProfileDeleted(profile.id) }.getOrDefault(0)
+        runCatching { OverlayScripts.removeProfile(profile.id) }
+        runCatching { ProfileStableIds.remove(profile.id) }
+        return database().profileDao().delete(profile)
     }
 
     suspend fun list(): List<Profile> = database().profileDao().list()

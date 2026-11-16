@@ -85,6 +85,62 @@ class RemoteUrlGuardTest {
     }
 
     @Test
+    fun importDefersOnlyWhenBothDnsPathsFailAndUrlPassesNoDnsPolicy() {
+        val noResolve: (String) -> List<InetAddress> = { emptyList() }
+        assertFalse(
+            RemoteUrlGuard.acceptSubscriptionForImport(
+                "https://example.com/sub.yaml",
+                tunnelUp = false,
+                resolveSystem = noResolve,
+                resolvePublic = noResolve,
+            ),
+        )
+    }
+
+    @Test
+    fun importRejectsUnsafeUrlEvenWhenDnsIsUnavailable() {
+        val noResolve: (String) -> List<InetAddress> = { emptyList() }
+        try {
+            RemoteUrlGuard.acceptSubscriptionForImport(
+                "https://127.0.0.1/private",
+                tunnelUp = false,
+                resolveSystem = noResolve,
+                resolvePublic = noResolve,
+            )
+            throw AssertionError("literal loopback must stay rejected")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("禁止"))
+        }
+    }
+
+    @Test
+    fun importUsesResolvedAllowedAddressWhenDnsWorks() {
+        assertTrue(
+            RemoteUrlGuard.acceptSubscriptionForImport(
+                "https://example.com/sub.yaml",
+                tunnelUp = false,
+                resolveSystem = publicResolve,
+                resolvePublic = noResolve,
+            ),
+        )
+    }
+
+    @Test
+    fun importDoesNotUseDirectDnsWhenTunnelIsUp() {
+        val resolverMustNotRun: (String) -> List<InetAddress> = {
+            throw AssertionError("tunnel-up validation must not resolve outside the tunnel")
+        }
+        assertTrue(
+            RemoteUrlGuard.acceptSubscriptionForImport(
+                "https://example.com/sub.yaml",
+                tunnelUp = true,
+                resolveSystem = resolverMustNotRun,
+                resolvePublic = resolverMustNotRun,
+            ),
+        )
+    }
+
+    @Test
     fun tunnelFallbackKeepsOnlyAllowedOrFakeIpAnswers() {
         // The tunnel-DNS fallback must not become a hole in the
         // "every returned address is allowed" contract.
