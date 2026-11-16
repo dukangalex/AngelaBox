@@ -307,17 +307,16 @@ fun ChainBuilderScreen(
                     val originalFinal = ChainRuntimeCompiler.parseConfig(raw).optJSONObject("route")
                         ?.optString("final")
                         ?.takeIf { it.isNotBlank() && !it.startsWith(ChainRuntimeCompiler.GENERATED_PREFIX) }
-                    val landingContent = if (landing.profileId == boundId) {
+                    val landingSnapshot = if (landing.profileId == boundId) {
                         null
                     } else {
                         val landingProfile = ProfileManager.get(landing.profileId)
                             ?: error("落地配置不存在")
-                        // Validate against the same prepared content the
-                        // runtime chain will see (heal + landing scripts).
-                        io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(
-                            File(landingProfile.typed.path).readText(),
-                            landing.profileId,
-                        )
+                        landingProfile.typed.path to File(landingProfile.typed.path).readText()
+                    }
+                    val landingContent = landingSnapshot?.let { (_, content) ->
+                        // Validate against the same prepared content the runtime chain will see.
+                        io.nekohasekai.sfa.utils.ConfigChainReapply.prepareLandingContent(content, landing.profileId)
                     }
                     // apply() is validation-only here: it throws if entry/landing
                     // is illegal. The profile JSON stays clean (clear() writes it
@@ -332,17 +331,35 @@ fun ChainBuilderScreen(
                             landingContent = landingContent,
                         ),
                     )
-                    if (!ProfileManager.commitLocalContent(boundId, path, raw, ChainRuntimeCompiler.clear(raw, originalFinal))) {
+                    if (!ProfileManager.commitLocalContent(
+                            boundId,
+                            path,
+                            raw,
+                            ChainRuntimeCompiler.clear(raw, originalFinal),
+                            validateRelated = {
+                                if (landingSnapshot == null) {
+                                    true
+                                } else {
+                                    val current = ProfileManager.get(landing.profileId)
+                                    val (expectedPath, expectedContent) = landingSnapshot
+                                    current?.typed?.path == expectedPath &&
+                                        File(expectedPath).let { it.isFile && it.readText() == expectedContent }
+                                }
+                            },
+                            afterCommit = {
+                                ChainBindings.put(
+                                    ChainBinding(
+                                        profileId = boundId,
+                                        entryTag = main.tag,
+                                        landingProfileId = landing.profileId,
+                                        landingTag = landing.tag,
+                                    ),
+                                )
+                            },
+                        )
+                    ) {
                         error("配置已被修改或删除，请刷新后重试")
                     }
-                    ChainBindings.put(
-                        ChainBinding(
-                            profileId = boundId,
-                            entryTag = main.tag,
-                            landingProfileId = landing.profileId,
-                            landingTag = landing.tag,
-                        ),
-                    )
                 }
             }
             busy = false
@@ -379,10 +396,16 @@ fun ChainBuilderScreen(
                     val raw = file.readText()
                     val root = ChainRuntimeCompiler.parseConfig(raw)
                     val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    if (!ProfileManager.commitLocalContent(boundId, path, raw, ChainRuntimeCompiler.clear(root.toString(), final))) {
+                    if (!ProfileManager.commitLocalContent(
+                            boundId,
+                            path,
+                            raw,
+                            ChainRuntimeCompiler.clear(root.toString(), final),
+                            afterCommit = { ChainBindings.remove(boundId) },
+                        )
+                    ) {
                         error("配置已被修改或删除，请刷新后重试")
                     }
-                    ChainBindings.remove(boundId)
                 }
             }
             busy = false

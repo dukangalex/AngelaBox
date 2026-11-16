@@ -161,6 +161,8 @@ object ProfileManager {
         expectedPath: String,
         expectedContent: String,
         content: String,
+        validateRelated: suspend () -> Boolean = { true },
+        afterCommit: () -> Unit = {},
     ): Boolean = commitPendingProfileImport(
         gate = profileMutationGate,
         profileId = profileId,
@@ -168,7 +170,14 @@ object ProfileManager {
         loadCurrent = { get(profileId) },
         matchesPending = { it.typed.path == expectedPath },
     ) { current ->
-        ProfileFiles.writeIfUnchanged(File(current.typed.path), expectedContent, content)
+        if (!validateRelated()) {
+            false
+        } else if (!ProfileFiles.writeIfUnchanged(File(current.typed.path), expectedContent, content)) {
+            false
+        } else {
+            afterCommit()
+            true
+        }
     }
 
     /** Caller must already hold the profile mutation lock. */
