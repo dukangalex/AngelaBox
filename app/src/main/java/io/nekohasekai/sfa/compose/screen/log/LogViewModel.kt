@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.LinkedList
+import java.util.concurrent.atomic.AtomicLong
 
 class LogViewModel :
     BaseLogViewModel(),
@@ -25,6 +26,8 @@ class LogViewModel :
     }
 
     private val bufferedLogs = LinkedList<ProcessedLogEntry>()
+    private val logGeneration = AtomicLong(0)
+    private val sessionGeneration = AtomicLong(0)
     private val commandClient =
         CommandClient(
             scope = viewModelScope,
@@ -78,6 +81,8 @@ class LogViewModel :
         }
         when (status) {
             Status.Stopped, Status.Stopping -> {
+                sessionGeneration.incrementAndGet()
+                logGeneration.incrementAndGet()
                 allLogs.clear()
                 bufferedLogs.clear()
                 _uiState.update { it.copy(isConnected = false, isPaused = false) }
@@ -89,26 +94,47 @@ class LogViewModel :
     }
 
     override fun onConnected() {
-        _uiState.update { it.copy(isConnected = true) }
+        val session = sessionGeneration.incrementAndGet()
+        val generation = logGeneration.incrementAndGet()
+        viewModelScope.launch(Dispatchers.Main) {
+            if (session != sessionGeneration.get()) return@launch
+            if (generation == logGeneration.get()) {
+                allLogs.clear()
+                bufferedLogs.clear()
+            }
+            _uiState.update { it.copy(isConnected = true) }
+            updateDisplayedLogs()
+        }
     }
 
     override fun onDisconnected() {
-        allLogs.clear()
-        bufferedLogs.clear()
-        _uiState.update { it.copy(isConnected = false) }
-        updateDisplayedLogs()
+        val session = sessionGeneration.incrementAndGet()
+        val generation = logGeneration.incrementAndGet()
+        viewModelScope.launch(Dispatchers.Main) {
+            if (session != sessionGeneration.get()) return@launch
+            if (generation == logGeneration.get()) {
+                allLogs.clear()
+                bufferedLogs.clear()
+            }
+            _uiState.update { it.copy(isConnected = false) }
+            updateDisplayedLogs()
+        }
     }
 
     override fun setDefaultLogLevel(level: Int) {
         val logLevel = LogLevel.entries.find { it.priority == level } ?: error("Unknown log level: $level")
+        val generation = logGeneration.get()
         viewModelScope.launch(Dispatchers.Main) {
+            if (generation != logGeneration.get()) return@launch
             _uiState.update { it.copy(defaultLogLevel = logLevel) }
             updateDisplayedLogs()
         }
     }
 
     override fun clearLogs() {
+        val generation = logGeneration.incrementAndGet()
         viewModelScope.launch(Dispatchers.Main) {
+            if (generation != logGeneration.get()) return@launch
             allLogs.clear()
             bufferedLogs.clear()
             _uiState.update { it.copy(isPaused = false) }
@@ -117,6 +143,7 @@ class LogViewModel :
     }
 
     override fun requestClearLogs() {
+        val generation = logGeneration.get()
         viewModelScope.launch {
             val sent =
                 withContext(Dispatchers.IO) {
@@ -126,17 +153,20 @@ class LogViewModel :
                 }
             // With the service stopped there is no broadcast to clear the UI,
             // so the local buffer is cleared directly.
-            if (!sent) {
+            if (!sent && generation == logGeneration.get()) {
                 clearLogs()
             }
         }
     }
 
     override fun appendLogs(message: List<LogEntry>) {
-        val processedLogs = message.map { processLogEntry(it) }
+        val generation = logGeneration.get()
+        val processedLogs = message.takeLast(maxLines).map { processLogEntry(it) }
         viewModelScope.launch(Dispatchers.Main) {
+            if (generation != logGeneration.get()) return@launch
             if (_uiState.value.isPaused) {
                 bufferedLogs.addAll(processedLogs)
+                while (bufferedLogs.size > maxLines) bufferedLogs.removeFirst()
             } else {
                 val totalSize = allLogs.size + processedLogs.size
                 val removeCount = (totalSize - maxLines).coerceAtLeast(0)
