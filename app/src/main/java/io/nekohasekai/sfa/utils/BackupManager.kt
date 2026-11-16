@@ -8,6 +8,7 @@ import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backup.PortableCloudBackup
 import io.nekohasekai.sfa.backup.ProfileStableIds
 import io.nekohasekai.sfa.bg.BoxService
+import io.nekohasekai.sfa.chain.ChainBindingCodec
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.Profile
@@ -16,6 +17,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.database.preference.KeyValueEntity
 import io.nekohasekai.sfa.ktx.marshall
 import io.nekohasekai.sfa.ktx.unmarshall
 import kotlinx.coroutines.runBlocking
@@ -141,7 +143,7 @@ object BackupManager {
      * [password] before the regular zip pipeline runs on the plaintext —
      * a wrong password or damaged file fails cleanly before anything is
      * touched. Plain zips from older versions restore exactly as before.
-     * [includeSensitiveItems] opts in to the portable backup's sensitive
+     * [includeSensitiveItems] opts in to the backup's sensitive
      * items (overlay scripts / chain bindings); see
      * [PortableCloudBackup.applyPortableSettings]. The returned
      * [RestoreReport] lists what the restore created or skipped so the
@@ -281,10 +283,18 @@ object BackupManager {
             return@runCatching RestoreReport(remoteProfiles = restoredRemote)
         }
 
-        runCatching { BoxService.stop() }
-        Thread.sleep(350)
         val settingsDbRestored = File(staging, Path.SETTINGS_DATABASE_PATH).isFile
         val profilesDbRestored = File(staging, Path.PROFILES_DATABASE_PATH).isFile
+        // Apply the same opt-in as portable JSON to a native DB backup, before
+        // replacing any live data. Do not carry old numeric-ID bindings into
+        // the replacement profile set, either. Script bindings are never preset.
+        val databaseSensitive = if (settingsDbRestored) {
+            sanitizeRestoredSensitiveSettings(File(staging, Path.SETTINGS_DATABASE_PATH), includeSensitiveItems)
+        } else {
+            PortableCloudBackup.SensitiveItemsOutcome()
+        }
+        runCatching { BoxService.stop() }
+        Thread.sleep(350)
         ProfileBindingStorage.mutate {
             Settings.closeDatabase()
             ProfileManager.closeDatabase()
@@ -384,10 +394,80 @@ object BackupManager {
                 skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
             )
         } else {
-            RestoreReport(remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored))
+            RestoreReport(
+                remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored),
+                skippedScriptNames = databaseSensitive.skippedScriptNames,
+                skippedChainBindingCount = databaseSensitive.skippedChainBindingCount,
+                skippedScriptBindingCount = databaseSensitive.skippedScriptBindingCount,
+            )
         }
         staging.deleteRecursively()
         report
+    }
+
+    /**
+     * A native DB restore replaces the settings/profile set. Remove the backup's
+     * sensitive keys from its staging DB unless opted in; do not transplant the
+     * live set's numeric-ID bindings to unrelated restored profiles. Portable
+     * merge keeps live items untouched, but whole-DB replacement resets skipped
+     * items. Errors must abort before installing the staged DB, not fail open.
+     */
+    internal fun sanitizeRestoredSensitiveSettings(
+        settingsDb: File,
+        includeSensitiveItems: Boolean,
+    ): PortableCloudBackup.SensitiveItemsOutcome = SQLiteDatabase.openDatabase(settingsDb.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+        // The next step copies this file, not its WAL sidecar.
+        db.rawQuery("PRAGMA journal_mode=DELETE", null).use { it.moveToFirst() }
+        db.beginTransaction()
+        try {
+            fun read(key: String): KeyValueEntity? = db.rawQuery("SELECT valueType, value FROM KeyValueEntity WHERE `key`=?", arrayOf(key)).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    KeyValueEntity(key).apply {
+                        valueType = cursor.getInt(0)
+                        value = cursor.getBlob(1)
+                    }
+                } else {
+                    null
+                }
+            }
+            fun string(key: String) = read(key)?.string.orEmpty()
+            fun long(key: String): Long {
+                val item = read(key) ?: return -1L
+                return if (item.valueType == KeyValueEntity.TYPE_LONG && item.value.size == 8) item.long else -1L
+            }
+            val chain = ChainBindingCodec.mergeLegacy(
+                ChainBindingCodec.parse(string(SettingsKey.CHAIN_BINDINGS)),
+                read(SettingsKey.CHAIN_ENABLED)?.let {
+                    it.valueType == KeyValueEntity.TYPE_BOOLEAN && it.value.firstOrNull() == 1.toByte()
+                } ?: false,
+                long(SettingsKey.CHAIN_BOUND_PROFILE_ID),
+                string(SettingsKey.CHAIN_ENTRY_TAG),
+                long(SettingsKey.CHAIN_LANDING_PROFILE_ID),
+                string(SettingsKey.CHAIN_LANDING_TAG),
+            )
+            val outcome = PortableCloudBackup.SensitiveItemsOutcome(
+                skippedScriptNames = if (includeSensitiveItems) emptyList() else OverlayScripts.decode(string(SettingsKey.OVERLAY_SCRIPTS)).map { it.name },
+                skippedChainBindingCount = if (includeSensitiveItems) 0 else chain.size,
+                skippedScriptBindingCount = OverlayScripts.decodeBindings(string(SettingsKey.OVERLAY_SCRIPT_BINDINGS)).values.sumOf { it.size },
+            )
+            val remove = mutableListOf(SettingsKey.OVERLAY_SCRIPT_BINDINGS)
+            if (!includeSensitiveItems) {
+                remove += listOf(
+                    SettingsKey.OVERLAY_SCRIPTS,
+                    SettingsKey.CHAIN_BINDINGS,
+                    SettingsKey.CHAIN_ENABLED,
+                    SettingsKey.CHAIN_ENTRY_TAG,
+                    SettingsKey.CHAIN_LANDING_PROFILE_ID,
+                    SettingsKey.CHAIN_LANDING_TAG,
+                    SettingsKey.CHAIN_BOUND_PROFILE_ID,
+                )
+            }
+            remove.forEach { db.delete("KeyValueEntity", "`key`=?", arrayOf(it)) }
+            db.setTransactionSuccessful()
+            outcome
+        } finally {
+            db.endTransaction()
+        }
     }
 
     /** Remote profiles the wholesale DB restore just installed, read back for the [RestoreReport]. */

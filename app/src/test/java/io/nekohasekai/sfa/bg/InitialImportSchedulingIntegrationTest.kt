@@ -28,6 +28,96 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE, sdk = [28])
 class InitialImportSchedulingIntegrationTest {
     @Test
+    fun wholeDatabaseRestoreHonorsSensitiveGateAndNeverPresetsScriptBindings() {
+        val context = RuntimeEnvironment.getApplication()
+        val file = context.getDatabasePath("restore-sensitive.db")
+        context.deleteDatabase(file.name)
+        file.parentFile!!.mkdirs()
+        fun open() = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null)
+        val keys = io.nekohasekai.sfa.constant.SettingsKey
+        val scripts = """[{"id":"remote-code","name":"Backup script","code":"{}","enabled":true}]"""
+        val bindings = """{"1":["remote-code"]}"""
+        val chains = """{"1":{"entryTag":"proxy","landingProfileId":2,"landingTag":"exit"}}"""
+        fun seed() {
+            open().use { db ->
+                db.execSQL("CREATE TABLE IF NOT EXISTS KeyValueEntity (`key` TEXT NOT NULL PRIMARY KEY, valueType INTEGER NOT NULL, value BLOB NOT NULL)")
+                for ((key, value) in mapOf(keys.OVERLAY_SCRIPTS to scripts, keys.OVERLAY_SCRIPT_BINDINGS to bindings, keys.CHAIN_BINDINGS to chains, keys.CHAIN_ENABLED to "legacy", "unrelated_setting" to "keep")) {
+                    db.execSQL("INSERT OR REPLACE INTO KeyValueEntity VALUES (?, 4, ?)", arrayOf(key, value.toByteArray()))
+                }
+            }
+        }
+        fun read(key: String): String? = open().use { db ->
+            db.rawQuery("SELECT value FROM KeyValueEntity WHERE `key`=?", arrayOf(key)).use { c ->
+                if (c.moveToFirst()) String(c.getBlob(0)) else null
+            }
+        }
+        try {
+            seed()
+            val skipped = io.nekohasekai.sfa.utils.BackupManager.sanitizeRestoredSensitiveSettings(file, false)
+            assertNull("Default restore must not install backup script code", read(keys.OVERLAY_SCRIPTS))
+            assertNull("Default restore must not install backup script bindings", read(keys.OVERLAY_SCRIPT_BINDINGS))
+            assertNull("Default restore must not install backup chain bindings", read(keys.CHAIN_BINDINGS))
+            assertNull("Legacy chain state must not bypass the gate", read(keys.CHAIN_ENABLED))
+            assertEquals("keep", read("unrelated_setting"))
+            assertEquals(listOf("Backup script"), skipped.skippedScriptNames)
+            assertEquals(1, skipped.skippedScriptBindingCount)
+            assertEquals(1, skipped.skippedChainBindingCount)
+            seed()
+            val optedIn = io.nekohasekai.sfa.utils.BackupManager.sanitizeRestoredSensitiveSettings(file, true)
+            assertEquals(scripts, read(keys.OVERLAY_SCRIPTS))
+            assertEquals(chains, read(keys.CHAIN_BINDINGS))
+            assertNull("Even opted-in scripts must land unbound", read(keys.OVERLAY_SCRIPT_BINDINGS))
+            assertEquals(emptyList<String>(), optedIn.skippedScriptNames)
+            assertEquals(0, optedIn.skippedChainBindingCount)
+            assertEquals(1, optedIn.skippedScriptBindingCount)
+        } finally {
+            context.deleteDatabase(file.name)
+        }
+    }
+
+    @Test
+    fun nativeRestoreClearsLegacyChainAndMalformedBindingsAndRejectsInvalidDatabase() {
+        val context = RuntimeEnvironment.getApplication()
+        val file = context.getDatabasePath("restore-legacy-sensitive.db")
+        context.deleteDatabase(file.name)
+        file.parentFile!!.mkdirs()
+        val keys = io.nekohasekai.sfa.constant.SettingsKey
+        fun open() = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null)
+        try {
+            open().use { db ->
+                db.execSQL("CREATE TABLE KeyValueEntity (`key` TEXT NOT NULL PRIMARY KEY, valueType INTEGER NOT NULL, value BLOB NOT NULL)")
+                val items = listOf(
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.CHAIN_ENABLED).put(true),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.CHAIN_BOUND_PROFILE_ID).put(1L),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.CHAIN_ENTRY_TAG).put("entry"),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.CHAIN_LANDING_PROFILE_ID).put(2L),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.CHAIN_LANDING_TAG).put("exit"),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.OVERLAY_SCRIPT_BINDINGS).put("not-json"),
+                    io.nekohasekai.sfa.database.preference.KeyValueEntity(keys.OVERLAY_SCRIPTS).put("not-json"),
+                )
+                for (item in items) db.execSQL("INSERT INTO KeyValueEntity VALUES (?, ?, ?)", arrayOf(item.key, item.valueType, item.value))
+            }
+            val outcome = io.nekohasekai.sfa.utils.BackupManager.sanitizeRestoredSensitiveSettings(file, false)
+            assertEquals(1, outcome.skippedChainBindingCount)
+            open().use { db ->
+                db.rawQuery("SELECT COUNT(*) FROM KeyValueEntity", null).use { c ->
+                    assertTrue(c.moveToFirst())
+                    assertEquals(0, c.getInt(0))
+                }
+                db.execSQL("DROP TABLE KeyValueEntity")
+            }
+            assertTrue(
+                "Invalid staged settings must abort, not bypass the gate",
+                runCatching {
+                    io.nekohasekai.sfa.utils.BackupManager.sanitizeRestoredSensitiveSettings(file, false)
+                }.isFailure,
+            )
+        } finally {
+            context.deleteDatabase(file.name)
+        }
+    }
+
+    @Test
     fun restoredDatabaseDiscardsUnconfirmedInitialImportIntent() {
         val context = RuntimeEnvironment.getApplication()
         val name = "restored-initial-intent.db"
