@@ -10,6 +10,7 @@ import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
+import io.nekohasekai.sfa.database.preference.KeyValueEntity
 import io.nekohasekai.sfa.database.preference.RoomPreferenceDataStore
 import io.nekohasekai.sfa.ktx.boolean
 import io.nekohasekai.sfa.ktx.int
@@ -126,6 +127,35 @@ object Settings {
     var chainLandingTag by dataStore.string(SettingsKey.CHAIN_LANDING_TAG) { "" }
     var chainBoundProfileId by dataStore.long(SettingsKey.CHAIN_BOUND_PROFILE_ID) { -1L }
     var chainBindingsJson by dataStore.string(SettingsKey.CHAIN_BINDINGS) { "{}" }
+
+    /** Atomically persist the binding map and every legacy compatibility key.
+     * This protects the settings snapshot only; it does not make a profile file
+     * replacement and these settings a single durable transaction.
+     */
+    internal fun saveChainBindingSnapshot(
+        json: String,
+        enabled: Boolean,
+        boundProfileId: Long,
+        entryTag: String,
+        landingProfileId: Long,
+        landingTag: String,
+    ) {
+        val entries = listOf(
+            KeyValueEntity(SettingsKey.CHAIN_BINDINGS).put(json),
+            KeyValueEntity(SettingsKey.CHAIN_ENABLED).put(enabled),
+            KeyValueEntity(SettingsKey.CHAIN_BOUND_PROFILE_ID).put(boundProfileId),
+            KeyValueEntity(SettingsKey.CHAIN_ENTRY_TAG).put(entryTag),
+            KeyValueEntity(SettingsKey.CHAIN_LANDING_PROFILE_ID).put(landingProfileId),
+            KeyValueEntity(SettingsKey.CHAIN_LANDING_TAG).put(landingTag),
+        )
+        val settingsDb = database()
+        settingsDb.runInTransaction {
+            val dao = settingsDb.keyValuePairDao()
+            entries.forEach { dao.put(it) }
+        }
+        dataStore.notifyCommitted(entries.map { it.key })
+    }
+
     var profileStableIdsJson by dataStore.string(SettingsKey.PROFILE_STABLE_IDS) { "{}" }
     var webdavUrl by dataStore.string(SettingsKey.WEBDAV_URL) { "" }
     var webdavUser by dataStore.string(SettingsKey.WEBDAV_USER) { "" }

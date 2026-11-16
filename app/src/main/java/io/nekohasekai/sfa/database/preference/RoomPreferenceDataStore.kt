@@ -86,6 +86,11 @@ open class RoomPreferenceDataStore(
 
     private val listeners = HashSet<OnPreferenceDataStoreChangeListener>()
 
+    /** Notify only after an externally managed Room transaction commits. */
+    internal fun notifyCommitted(keys: Collection<String>) {
+        keys.forEach(::fireChangeListener)
+    }
+
     private fun fireChangeListener(key: String) {
         val listeners =
             synchronized(listeners) {

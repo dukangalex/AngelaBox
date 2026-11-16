@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.backup
 
 import io.nekohasekai.sfa.chain.ChainBinding
 import io.nekohasekai.sfa.chain.ChainBindingCodec
+import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -339,8 +340,7 @@ object PortableCloudBackup {
                 landingTag = landingTag,
             )
         }
-        Settings.chainBindingsJson = ChainBindingCodec.encode(chain)
-        Settings.chainEnabled = chain.isNotEmpty()
+        ChainBindings.replaceAll(chain)
 
         // Even on opt-in, script bindings are not preset: the scripts above
         // land unbound, and binding one to a profile stays a deliberate
