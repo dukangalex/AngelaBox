@@ -299,6 +299,8 @@ jobs:
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.CloseOnFailureTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OwnedSendJobTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \
             --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
             --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \

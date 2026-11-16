@@ -86,7 +86,9 @@ object TaildropSendManager {
                 val resolver = Application.application.contentResolver
                 val descriptor = resolver.openFileDescriptor(uri, "r")
                     ?: throw FileNotFoundException(uri.toString())
-                files.add(TaildropSendFile(displayName(resolver, uri), descriptor))
+                closeOnFailure(descriptor) { opened ->
+                    files.add(TaildropSendFile(displayName(resolver, uri), opened))
+                }
             }
         } catch (e: Exception) {
             for (file in files) {
@@ -103,29 +105,65 @@ object TaildropSendManager {
         if (files.isEmpty()) return -1L
         val id: Long
         val holder = SessionHolder()
-        val job: Job
-        synchronized(access) {
-            id = ++nextID
-            holders[id] = holder
-            job = scope.launch(start = CoroutineStart.LAZY) {
-                runSession(id, holder, endpointTag, peerStableID, files)
+        val ownedFiles = files.toList()
+        val cleanup = OwnedSendCleanup {
+            holder.close()
+            for (file in ownedFiles) file.close()
+        }
+        var job: Job? = null
+        var cleanupInstalled = false
+        var registeredId: Long? = null
+        try {
+            synchronized(access) {
+                id = ++nextID
+                registeredId = id
+                val sendJob = scope.launch(start = CoroutineStart.LAZY) {
+                    runSession(id, holder, endpointTag, peerStableID, ownedFiles)
+                }
+                job = sendJob
+                holders[id] = holder
+                jobs[id] = sendJob
+                _sessions.update { sessions ->
+                    sessions + TaildropSendState(
+                        id = id,
+                        endpointTag = endpointTag,
+                        peerName = peerName,
+                        files = ownedFiles.map { TaildropSendFileState(name = it.name, size = it.size) },
+                    )
+                }
+                registerOwnedSendCleanup(sendJob, cleanup) {
+                    synchronized(access) {
+                        jobs.remove(id)
+                        holders.remove(id)
+                    }
+                }
+                cleanupInstalled = true
             }
-            jobs[id] = job
-        }
-        _sessions.update { sessions ->
-            sessions + TaildropSendState(
-                id = id,
-                endpointTag = endpointTag,
-                peerName = peerName,
-                files = files.map { TaildropSendFileState(name = it.name, size = it.size) },
+            startOwnedSendJob(
+                job = checkNotNull(job),
+                startService = {
+                    ContextCompat.startForegroundService(
+                        Application.application,
+                        Intent(Application.application, TaildropSendService::class.java),
+                    )
+                },
+                onFailure = { dismiss(id) },
             )
+            return id
+        } catch (failure: Throwable) {
+            job?.cancel()
+            if (!cleanupInstalled) {
+                registeredId?.let { failedId ->
+                    synchronized(access) {
+                        jobs.remove(failedId)
+                        holders.remove(failedId)
+                    }
+                    dismiss(failedId)
+                }
+                cleanup.close()
+            }
+            throw failure
         }
-        ContextCompat.startForegroundService(
-            Application.application,
-            Intent(Application.application, TaildropSendService::class.java),
-        )
-        job.start()
-        return id
     }
 
     fun cancel(id: Long) {
@@ -235,15 +273,6 @@ object TaildropSendManager {
                     finished = true,
                     errorMessage = e.message ?: e.toString(),
                 )
-            }
-        } finally {
-            synchronized(access) {
-                jobs.remove(id)
-                holders.remove(id)
-            }
-            holder.close()
-            for (file in files) {
-                file.close()
             }
         }
     }
