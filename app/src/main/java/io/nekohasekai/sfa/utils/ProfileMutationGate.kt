@@ -30,3 +30,25 @@ internal suspend fun <P> commitPendingProfileImport(
 internal data class RemoteProfileSource(val url: String, val path: String)
 
 internal fun matchesRemoteProfileSource(isRemote: Boolean, current: RemoteProfileSource, expected: RemoteProfileSource): Boolean = isRemote && current == expected
+
+/** Serializes snapshot validation, file replacement and the callback against profile mutations.
+ * The file and callback persistence are not a single crash-atomic transaction.
+ */
+internal suspend fun <P> commitLocalProfileSnapshot(
+    gate: ProfileMutationGate,
+    profileId: Long,
+    loadCurrent: suspend () -> P?,
+    matches: (P) -> Boolean,
+    fileFor: (P) -> java.io.File,
+    expectedContent: String,
+    content: String,
+    validateRelated: suspend () -> Boolean,
+    afterCommit: () -> Unit,
+): Boolean = commitPendingProfileImport(gate, profileId, { false }, loadCurrent, matches) { current ->
+    if (!validateRelated() || !ProfileFiles.writeIfUnchanged(fileFor(current), expectedContent, content)) {
+        false
+    } else {
+        afterCommit()
+        true
+    }
+}

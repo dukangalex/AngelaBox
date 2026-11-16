@@ -11,6 +11,7 @@ import io.nekohasekai.sfa.utils.ProfileFiles
 import io.nekohasekai.sfa.utils.ProfileMutationGate
 import io.nekohasekai.sfa.utils.RemoteProfileSource
 import io.nekohasekai.sfa.utils.SubscriptionInfoStore
+import io.nekohasekai.sfa.utils.commitLocalProfileSnapshot
 import io.nekohasekai.sfa.utils.commitPendingProfileImport
 import io.nekohasekai.sfa.utils.matchesRemoteProfileSource
 import java.io.File
@@ -163,22 +164,17 @@ object ProfileManager {
         content: String,
         validateRelated: suspend () -> Boolean = { true },
         afterCommit: () -> Unit = {},
-    ): Boolean = commitPendingProfileImport(
+    ): Boolean = commitLocalProfileSnapshot(
         gate = profileMutationGate,
         profileId = profileId,
-        isStopped = { false },
         loadCurrent = { get(profileId) },
-        matchesPending = { it.typed.path == expectedPath },
-    ) { current ->
-        if (!validateRelated()) {
-            false
-        } else if (!ProfileFiles.writeIfUnchanged(File(current.typed.path), expectedContent, content)) {
-            false
-        } else {
-            afterCommit()
-            true
-        }
-    }
+        matches = { it.typed.path == expectedPath },
+        fileFor = { File(it.typed.path) },
+        expectedContent = expectedContent,
+        content = content,
+        validateRelated = validateRelated,
+        afterCommit = afterCommit,
+    )
 
     /** Caller must already hold the profile mutation lock. */
     suspend fun updateWhileLocked(profile: Profile): Int {
