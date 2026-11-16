@@ -270,4 +270,74 @@ class PendingProfileImportCommitTest {
         assertEquals("keep", sentinel.readText())
         assertFalse(target.resolveSibling("occupied.tmp").exists())
     }
+
+    @Test
+    fun remoteEmptyBlobIsPendingButCachedAndLocalConfigsAreNot() {
+        assertTrue(isUnmaterializedRemoteConfig(true, ""))
+        assertTrue(isUnmaterializedRemoteConfig(true, " { \n } "))
+        assertFalse(isUnmaterializedRemoteConfig(true, "{\"outbounds\":[]}"))
+        assertFalse(isUnmaterializedRemoteConfig(true, "broken"))
+        assertFalse(isUnmaterializedRemoteConfig(false, "{}"))
+    }
+
+    @Test
+    fun pendingBlobIsPersistedBeforeRetryAndNeverWrittenOrSelected() = runBlocking {
+        val events = mutableListOf<String>()
+        var durableId = -1L
+        persistImportedProfile(
+            true,
+            true,
+            writeConfig = { error("placeholder must not be materialized") },
+            create = { select ->
+                assertFalse(select)
+                durableId = 42L
+                events += "create"
+            },
+            enqueueInitial = {
+                assertEquals(42L, durableId)
+                events += "retry"
+            },
+            updateSchedule = { events += "schedule" },
+        )
+        assertEquals(listOf("create", "retry", "schedule"), events)
+    }
+
+    @Test
+    fun cachedImportKeepsSelectionAndDoesNotQueueInitialDownload() = runBlocking {
+        val events = mutableListOf<String>()
+        persistImportedProfile(
+            false,
+            true,
+            writeConfig = { events += "write" },
+            create = { select ->
+                assertTrue(select)
+                events += "create"
+            },
+            enqueueInitial = { error("ready configuration must not queue initial import") },
+            updateSchedule = { events += "schedule" },
+        )
+        assertEquals(listOf("write", "create", "schedule"), events)
+    }
+
+    @Test
+    fun failedPersistenceCannotEnqueueUncommittedProfile() = runBlocking {
+        var queued = false
+        var scheduled = false
+        var failed = false
+        try {
+            persistImportedProfile(
+                true,
+                false,
+                {},
+                { throw IOException("database failure") },
+                { queued = true },
+                { scheduled = true },
+            )
+        } catch (_: IOException) {
+            failed = true
+        }
+        assertTrue(failed)
+        assertFalse(queued)
+        assertFalse(scheduled)
+    }
 }
