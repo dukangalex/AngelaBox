@@ -149,10 +149,7 @@ object Settings {
             KeyValueEntity(SettingsKey.CHAIN_LANDING_TAG).put(landingTag),
         )
         val settingsDb = database()
-        settingsDb.runInTransaction {
-            val dao = settingsDb.keyValuePairDao()
-            entries.forEach { dao.put(it) }
-        }
+        writeChainBindingEntries(settingsDb, entries)
         dataStore.notifyCommitted(entries.map { it.key })
     }
 
@@ -341,5 +338,13 @@ object Settings {
             runCatching { db?.close() }
             db = null
         }
+    }
+}
+
+/** Room-only binding snapshot write, shared by production and transaction tests. */
+internal fun writeChainBindingEntries(settingsDb: KeyValueDatabase, entries: List<KeyValueEntity>) {
+    settingsDb.runInTransaction {
+        val dao = settingsDb.keyValuePairDao()
+        entries.forEach { dao.put(it) }
     }
 }
