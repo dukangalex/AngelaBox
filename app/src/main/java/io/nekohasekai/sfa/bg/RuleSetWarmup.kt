@@ -108,7 +108,8 @@ object RuleSetWarmup {
     }
 
     /** Synchronous warm, bounded by [deadlineMs] (the worker's round deadline). */
-    fun warmNow(content: String, deadlineMs: Long) {
+    fun warmNow(content: String, deadlineMs: Long, shouldContinue: () -> Boolean = { true }) {
+        if (!shouldContinue()) return
         val working = Application.application.getExternalFilesDir(null)
             ?: Application.application.filesDir
         RuleSetCacheWarmer.warm(
@@ -116,25 +117,25 @@ object RuleSetWarmup {
             working,
             deadlineMs,
             System::currentTimeMillis,
-        ) { url, dest -> download(url, dest) }
+        ) { url, dest -> shouldContinue() && download(url, dest) }
         // Localization store (137b): the same trigger points fill
         // the URL-keyed store, inside the same deadline — the warmer
         // cache and the store are two floors with different contracts
         // (tag-keyed substitute ammo vs origin-keyed initial_path
         // floors), and both are at their fullest when every import /
         // update / restore feeds both.
-        runCatching { warmStoreNow(content, deadlineMs) }
+        if (shouldContinue()) runCatching { warmStoreNow(content, deadlineMs, shouldContinue) }
     }
 
-    private fun warmStoreNow(content: String, deadlineMs: Long) {
+    private fun warmStoreNow(content: String, deadlineMs: Long, shouldContinue: () -> Boolean) {
         val storeDir = RuleSetStore.storeDir(Application.application.filesDir)
         RuleSetStore.warm(
             content,
             storeDir,
             deadlineMs,
             System::currentTimeMillis,
-        ) { url, tmp -> downloadToTemp(url, tmp) }
-        pruneStore(storeDir, content)
+        ) { url, tmp -> shouldContinue() && downloadToTemp(url, tmp) }
+        if (shouldContinue()) pruneStore(storeDir, content)
     }
 
     private fun downloadToTemp(url: String, tmp: File): Boolean = runCatching {

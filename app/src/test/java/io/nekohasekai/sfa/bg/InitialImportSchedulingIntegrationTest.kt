@@ -15,6 +15,7 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileDatabase
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.persistImportedProfile
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -27,6 +28,133 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [28])
 class InitialImportSchedulingIntegrationTest {
+    @Test
+    fun wrappedCancellationIsNotReclassifiedAsNetworkFailure() = runBlocking {
+        val cancelled = kotlinx.coroutines.CancellationException("transport cancelled")
+        var failed = false
+        var caught: Exception? = null
+        try {
+            runProfileUpdateAttempt({ false }, { failed = true }) {
+                throw IllegalStateException("friendly transport wrapper", cancelled)
+            }
+        } catch (error: Exception) {
+            caught = error
+        }
+        assertSame(cancelled, caught)
+        assertFalse(failed)
+    }
+
+    @Test
+    fun cancelledCoroutineCannotStartAnotherAttemptEvenWhenWorkerFlagLags() = runBlocking {
+        var downloaded = false
+        var failed = false
+        var cancelled = false
+        val child = launch {
+            kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!.cancel()
+            try {
+                runProfileUpdateAttempt({ false }, { failed = true }) { downloaded = true }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                cancelled = true
+            }
+        }
+        child.join()
+        assertTrue(cancelled)
+        assertFalse(downloaded)
+        assertFalse(failed)
+    }
+
+    @Test
+    fun stopDuringSuccessfulBlockingAttemptCannotStartNextProfile() = runBlocking {
+        var stopped = false
+        val seen = mutableListOf<Int>()
+        var cancelled = false
+        try {
+            for (id in listOf(1, 2)) {
+                runProfileUpdateAttempt({ stopped }, { fail("no failure expected") }) {
+                    seen.add(id)
+                    stopped = true
+                }
+            }
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+        assertEquals(listOf(1), seen)
+    }
+
+    @Test
+    fun stoppedWarmupReturnsWithoutAccessingApplicationOrDownloading() {
+        RuleSetWarmup.warmNow("{}", Long.MAX_VALUE) { false }
+    }
+
+    @Test
+    fun cancelledAttemptDoesNotRecordFailureOrStartNextProfile() = runBlocking {
+        val seen = mutableListOf<Int>()
+        val failures = mutableListOf<Exception>()
+        val cancelled = kotlinx.coroutines.CancellationException("worker cancelled")
+        var caught: Exception? = null
+        try {
+            for (id in listOf(1, 2)) {
+                runProfileUpdateAttempt({ false }, { failures.add(it) }) {
+                    seen.add(id)
+                    if (id == 1) throw cancelled
+                }
+            }
+        } catch (error: Exception) {
+            caught = error
+        }
+        assertSame(cancelled, caught)
+        assertEquals(listOf(1), seen)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun stoppedAttemptDoesNotStartDownload() = runBlocking {
+        var downloaded = false
+        var failed = false
+        var cancelled = false
+        try {
+            runProfileUpdateAttempt({ true }, { failed = true }) { downloaded = true }
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+        assertFalse(downloaded)
+        assertFalse(failed)
+    }
+
+    @Test
+    fun stopDuringBlockingFailureDoesNotRecordNetworkError() = runBlocking {
+        var stopped = false
+        var failed = false
+        var cancelled = false
+        try {
+            runProfileUpdateAttempt({ stopped }, { failed = true }) {
+                stopped = true
+                throw java.io.IOException("disconnect after work stopped")
+            }
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+        assertFalse(failed)
+    }
+
+    @Test
+    fun activeNetworkFailureStillRecordsFailureAndAllowsNextProfile() = runBlocking {
+        val seen = mutableListOf<Int>()
+        val network = java.io.IOException("temporary failure")
+        val failures = mutableListOf<Exception>()
+        for (id in listOf(1, 2)) {
+            runProfileUpdateAttempt({ false }, { failures.add(it) }) {
+                seen.add(id)
+                if (id == 1) throw network
+            }
+        }
+        assertEquals(listOf(1, 2), seen)
+        assertEquals(listOf(network), failures)
+    }
+
     @Test
     fun wholeDatabaseRestoreHonorsSensitiveGateAndNeverPresetsScriptBindings() {
         val context = RuntimeEnvironment.getApplication()

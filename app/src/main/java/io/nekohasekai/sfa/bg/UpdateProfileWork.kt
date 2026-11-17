@@ -24,6 +24,8 @@ import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.ConfigGate
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.SubscriptionUpdateHealth
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -123,6 +125,7 @@ class UpdateProfileWork {
 
     class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
         override suspend fun doWork(): Result {
+            ensureProfileUpdateActive { isStopped }
             var selectedProfileUpdated = false
             val initialProfileId = inputData.getLong(INITIAL_PROFILE_ID, -1L)
             val initialImport = initialProfileId > 0L
@@ -159,12 +162,25 @@ class UpdateProfileWork {
                     hasDeferredWork = true
                     break
                 }
-                SubscriptionUpdateHealth.recordAttempt(applicationContext, profile.id)
-                try {
+                runProfileUpdateAttempt(
+                    isStopped = { isStopped },
+                    onFailure = { e ->
+                        Log.e(TAG, "update profile ${profile.name}", e)
+                        SubscriptionUpdateHealth.recordFailure(applicationContext, profile.id, e)
+                        // 审计 B1：只有网络抖动类失败才退避重试；404/401/403、订阅被删等
+                        // 永久失败不再无意义重试，失败计数由 SubscriptionUpdateHealth 累积，
+                        // 达阈值后仪表盘横幅提醒（下个周期仍会再试一次）
+                        if (HTTPClient.isTransientUpdateFailure(e)) {
+                            hasTransientFailure = true
+                        }
+                    },
+                ) {
+                    SubscriptionUpdateHealth.recordAttempt(applicationContext, profile.id)
                     // E-2: the round deadline is also threaded into adapt,
                     // so provider fetches inside one profile are bounded by
                     // it too, not only the between-profile check above.
                     val fetched = io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemoteDeferred(profile.typed.remoteURL)
+                    ensureProfileUpdateActive { isStopped }
                     val detailed = ConfigCompat.sanitizeRemoteDetailed(fetched.content, deadlineMs = roundDeadlineMs)
                     val content = detailed.content
                     // Validate and commit all background updates under the same profile lock as edits/deletes.
@@ -209,7 +225,8 @@ class UpdateProfileWork {
                             true
                         }
                     }
-                    if (!updateApplied) continue
+                    if (!updateApplied) return@runProfileUpdateAttempt
+                    ensureProfileUpdateActive { isStopped }
                     SubscriptionUpdateHealth.recordSuccess(applicationContext, updateProfile.id)
                     // 规范化替代的弹药：把这份订阅的远程规则集顺手下载进
                     // 本地缓存，启动时远程下不下来能用缓存顶上，不再只能
@@ -221,17 +238,9 @@ class UpdateProfileWork {
                         updateProfile.id,
                         detailed.notes,
                     )
-                } catch (e: Exception) {
-                    Log.e(TAG, "update profile ${profile.name}", e)
-                    SubscriptionUpdateHealth.recordFailure(applicationContext, profile.id, e)
-                    // 审计 B1：只有网络抖动类失败才退避重试；404/401/403、订阅被删等
-                    // 永久失败不再无意义重试，失败计数由 SubscriptionUpdateHealth 累积，
-                    // 达阈值后仪表盘横幅提醒（下个周期仍会再试一次）
-                    if (HTTPClient.isTransientUpdateFailure(e)) {
-                        hasTransientFailure = true
-                    }
                 }
             }
+            ensureProfileUpdateActive { isStopped }
             if (selectedProfileUpdated) {
                 // X-5 (worker side): exactly one reload, after all writes of
                 // this round are done — never one per profile. Serializing a
@@ -262,8 +271,11 @@ class UpdateProfileWork {
          * files the substitute looks for; bounded by the round deadline
          * — warming must not starve real updates.
          */
-        private fun warmRuleSetCache(content: String, deadlineMs: Long) {
-            runCatching { RuleSetWarmup.warmNow(content, deadlineMs) }
+        private suspend fun warmRuleSetCache(content: String, deadlineMs: Long) {
+            val context = currentCoroutineContext()
+            ensureProfileUpdateActive { isStopped }
+            runCatching { RuleSetWarmup.warmNow(content, deadlineMs) { !isStopped && context.isActive } }
+            ensureProfileUpdateActive { isStopped }
         }
     }
 }
