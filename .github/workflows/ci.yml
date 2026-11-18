@@ -301,6 +301,14 @@ jobs:
             --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \
             --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
             --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.ImportProviderUnavailableTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreCopyFaultRegressionTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreTransactionTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCacheRaceTest \
+            --tests io.nekohasekai.sfa.utils.RestoreJournalTest \
+            --tests io.nekohasekai.sfa.utils.RestoreQueuedCommitTest \
+            --tests io.nekohasekai.sfa.utils.RestoreSideEffectTest \
+            --tests io.nekohasekai.sfa.bg.RuntimeRestoreGateTest \
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
             --tests io.nekohasekai.sfa.bg.InitialImportSchedulingIntegrationTest \

@@ -193,219 +193,219 @@ object BackupManager {
             it.mkdirs()
         }
         try {
-        var entries = 0
-        var total = 0L
-        var hasData = false
-        try {
-            ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (++entries > MAX_ENTRIES) {
-                        throw BackupRejected("备份包含过多文件")
-                    }
-                    val name = entry.name.trimStart('/')
-                    if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
-                        val outFile = when {
-                            name == MANIFEST ||
-                                name == PortableCloudBackup.PROFILES ||
-                                name == PortableCloudBackup.SETTINGS -> File(staging, name)
-                            name.startsWith("configs/") -> {
-                                val relative = name.removePrefix("configs/")
-                                if (relative.isBlank() || relative.contains('/')) {
-                                    throw BackupRejected("非法备份路径")
-                                } else {
-                                    File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
-                                }
-                            }
-                            name.endsWith(".db") && !name.contains('/') -> File(staging, name)
-                            else -> null
+            var entries = 0
+            var total = 0L
+            var hasData = false
+            try {
+                ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (++entries > MAX_ENTRIES) {
+                            throw BackupRejected("备份包含过多文件")
                         }
-                        if (outFile != null) {
-                            if (name.endsWith(".db") || name.startsWith("configs/") ||
-                                name == PortableCloudBackup.PROFILES
-                            ) {
-                                hasData = true
-                            }
-                            outFile.parentFile?.mkdirs()
-                            var entryBytes = 0L
-                            FileOutputStream(outFile).use { fos ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                while (true) {
-                                    val read = zis.read(buffer)
-                                    if (read < 0) break
-                                    entryBytes += read
-                                    total += read
-                                    if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
-                                        throw BackupRejected("备份展开大小超过限制")
+                        val name = entry.name.trimStart('/')
+                        if (!entry.isDirectory && name.isNotEmpty() && !name.contains("..") && !name.contains('\\')) {
+                            val outFile = when {
+                                name == MANIFEST ||
+                                    name == PortableCloudBackup.PROFILES ||
+                                    name == PortableCloudBackup.SETTINGS -> File(staging, name)
+                                name.startsWith("configs/") -> {
+                                    val relative = name.removePrefix("configs/")
+                                    if (relative.isBlank() || relative.contains('/')) {
+                                        throw BackupRejected("非法备份路径")
+                                    } else {
+                                        File(staging, "configs").also { it.mkdirs() }.let { File(it, relative) }
                                     }
-                                    fos.write(buffer, 0, read)
+                                }
+                                name.endsWith(".db") && !name.contains('/') -> File(staging, name)
+                                else -> null
+                            }
+                            if (outFile != null) {
+                                if (name.endsWith(".db") || name.startsWith("configs/") ||
+                                    name == PortableCloudBackup.PROFILES
+                                ) {
+                                    hasData = true
+                                }
+                                outFile.parentFile?.mkdirs()
+                                var entryBytes = 0L
+                                FileOutputStream(outFile).use { fos ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    while (true) {
+                                        val read = zis.read(buffer)
+                                        if (read < 0) break
+                                        entryBytes += read
+                                        total += read
+                                        if (entryBytes > MAX_ENTRY_SIZE || total > MAX_TOTAL_SIZE) {
+                                            throw BackupRejected("备份展开大小超过限制")
+                                        }
+                                        fos.write(buffer, 0, read)
+                                    }
                                 }
                             }
                         }
-                    }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
-                }
-            }
-        } catch (e: BackupRejected) {
-            staging.deleteRecursively()
-            throw e
-        } catch (e: Exception) {
-            if (!compat) throw e
-        }
-        if (!hasData) error("备份里没有配置或数据库，无法恢复")
-
-        val portableProfiles = File(staging, PortableCloudBackup.PROFILES)
-        val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
-        val hasPortable = portableProfiles.isFile
-
-        if (compat) {
-            val restoredRemote = if (hasPortable) {
-                mergePortableProfiles(
-                    context,
-                    portableProfiles.readText(),
-                    File(staging, "configs"),
-                )
-            } else {
-                mergeProfilesFromBackup(
-                    context,
-                    File(staging, Path.PROFILES_DATABASE_PATH),
-                    File(staging, "configs"),
-                )
-            }
-            staging.deleteRecursively()
-            return@runCatching RestoreReport(remoteProfiles = restoredRemote)
-        }
-
-        runCatching { BoxService.stop() }
-        Thread.sleep(350)
-        BackupRestoreTransaction.run(context) {
-            val keepDav = Settings.webdavPassword
-            val keepTok = Settings.githubToken
-            // M3 snapshot: the pre-restore WebDAV endpoint is the only one the
-            // preserved password may ever be paired with (see the repair at the
-            // end of the overwrite path).
-            val keepDavUrl = Settings.webdavUrl
-            val keepDavUser = Settings.webdavUser
-            val settingsDbRestored = File(staging, Path.SETTINGS_DATABASE_PATH).isFile
-            val profilesDbRestored = File(staging, Path.PROFILES_DATABASE_PATH).isFile
-            // Apply the same opt-in as portable JSON to a native DB backup, before
-            // replacing any live data. Do not carry old numeric-ID bindings into
-            // the replacement profile set, either. Script bindings are never preset.
-            val databaseSensitive = if (settingsDbRestored) {
-                sanitizeRestoredSensitiveSettings(File(staging, Path.SETTINGS_DATABASE_PATH), includeSensitiveItems)
-            } else {
-                PortableCloudBackup.SensitiveItemsOutcome()
-            }
-            ProfileBindingStorage.mutate {
-                Settings.closeDatabaseForRestore()
-                ProfileManager.closeDatabaseForRestore()
-
-                val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
-                val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
-                if (settingsDbRestored) {
-                    val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-                    dest.parentFile?.mkdirs()
-                    deleteSidecars(dest)
-                    settingsDb.copyTo(dest, overwrite = true)
-                    deleteSidecars(dest)
-                }
-                if (profilesDbRestored) {
-                    val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
-                    dest.parentFile?.mkdirs()
-                    deleteSidecars(dest)
-                    profilesDb.copyTo(dest, overwrite = true)
-                    deleteSidecars(dest)
-                    pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
-                    repairRestoredRemoteServers(dest)
-                }
-                val stagedConfigs = File(staging, "configs")
-                val live = File(context.filesDir, "configs").also { it.mkdirs() }
-                if (stagedConfigs.isDirectory) {
-                    val stagedFiles = stagedConfigs.listFiles() ?: error("无法读取备份配置目录")
-                    val incoming = stagedFiles.filter { it.isFile }.map { it.name }.toSet()
-                    (live.listFiles() ?: error("无法读取现有配置目录")).forEach { f ->
-                        if (f.isFile && f.name !in incoming) check(f.delete()) { "无法移除旧配置" }
-                    }
-                    stagedFiles.forEach { f ->
-                        if (f.isFile) f.copyTo(File(live, f.name), overwrite = true)
+                        zis.closeEntry()
+                        entry = zis.nextEntry
                     }
                 }
+            } catch (e: BackupRejected) {
+                staging.deleteRecursively()
+                throw e
+            } catch (e: Exception) {
+                if (!compat) throw e
             }
+            if (!hasData) error("备份里没有配置或数据库，无法恢复")
 
-            val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
-            if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
-            if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
+            val portableProfiles = File(staging, PortableCloudBackup.PROFILES)
+            val portableSettings = File(staging, PortableCloudBackup.SETTINGS)
+            val hasPortable = portableProfiles.isFile
 
-            var portableOutcome: PortableRestoreOutcome? = null
-            if (hasPortable) {
-                if (!profilesDbRestored) {
-                    portableOutcome = restorePortableOverwrite(
+            if (compat) {
+                val restoredRemote = if (hasPortable) {
+                    mergePortableProfiles(
                         context,
                         portableProfiles.readText(),
-                        if (portableSettings.isFile) portableSettings.readText() else "{}",
                         File(staging, "configs"),
-                        includeSensitiveItems,
                     )
                 } else {
-                    run {
-                        val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
-                        val existing = runBlocking { ProfileManager.list() }
-                        val uuidToLocal = linkedMapOf<String, Long>()
-                        profiles.forEach { portable ->
-                            val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
-                                ?: existing.firstOrNull {
-                                    portable.remoteUrl.isNotEmpty() &&
-                                        it.typed.remoteURL.trim() == portable.remoteUrl
-                                }
-                            if (local != null) uuidToLocal[portable.id] = local.id
+                    mergeProfilesFromBackup(
+                        context,
+                        File(staging, Path.PROFILES_DATABASE_PATH),
+                        File(staging, "configs"),
+                    )
+                }
+                staging.deleteRecursively()
+                return@runCatching RestoreReport(remoteProfiles = restoredRemote)
+            }
+
+            BoxService.withStoppedForRestore {
+                BackupRestoreTransaction.run(context) {
+                    val keepDav = Settings.webdavPassword
+                    val keepTok = Settings.githubToken
+                    // M3 snapshot: the pre-restore WebDAV endpoint is the only one the
+                    // preserved password may ever be paired with (see the repair at the
+                    // end of the overwrite path).
+                    val keepDavUrl = Settings.webdavUrl
+                    val keepDavUser = Settings.webdavUser
+                    val settingsDbRestored = File(staging, Path.SETTINGS_DATABASE_PATH).isFile
+                    val profilesDbRestored = File(staging, Path.PROFILES_DATABASE_PATH).isFile
+                    // Apply the same opt-in as portable JSON to a native DB backup, before
+                    // replacing any live data. Do not carry old numeric-ID bindings into
+                    // the replacement profile set, either. Script bindings are never preset.
+                    val databaseSensitive = if (settingsDbRestored) {
+                        sanitizeRestoredSensitiveSettings(File(staging, Path.SETTINGS_DATABASE_PATH), includeSensitiveItems)
+                    } else {
+                        PortableCloudBackup.SensitiveItemsOutcome()
+                    }
+                    ProfileBindingStorage.mutate {
+                        Settings.closeDatabaseForRestore()
+                        ProfileManager.closeDatabaseForRestore()
+
+                        val settingsDb = File(staging, Path.SETTINGS_DATABASE_PATH)
+                        val profilesDb = File(staging, Path.PROFILES_DATABASE_PATH)
+                        if (settingsDbRestored) {
+                            val dest = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+                            dest.parentFile?.mkdirs()
+                            deleteSidecars(dest)
+                            settingsDb.copyTo(dest, overwrite = true)
+                            deleteSidecars(dest)
                         }
-                        PortableCloudBackup.importStableIds(profiles, uuidToLocal)
-                        if (!selected.isNullOrBlank()) {
-                            ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
+                        if (profilesDbRestored) {
+                            val dest = context.getDatabasePath(Path.PROFILES_DATABASE_PATH)
+                            dest.parentFile?.mkdirs()
+                            deleteSidecars(dest)
+                            profilesDb.copyTo(dest, overwrite = true)
+                            deleteSidecars(dest)
+                            pinProfilePathsToConfigs(dest, File(context.filesDir, "configs"))
+                            repairRestoredRemoteServers(dest)
+                        }
+                        val stagedConfigs = File(staging, "configs")
+                        val live = File(context.filesDir, "configs").also { it.mkdirs() }
+                        if (stagedConfigs.isDirectory) {
+                            val stagedFiles = stagedConfigs.listFiles() ?: error("无法读取备份配置目录")
+                            val incoming = stagedFiles.filter { it.isFile }.map { it.name }.toSet()
+                            (live.listFiles() ?: error("无法读取现有配置目录")).forEach { f ->
+                                if (f.isFile && f.name !in incoming) check(f.delete()) { "无法移除旧配置" }
+                            }
+                            stagedFiles.forEach { f ->
+                                if (f.isFile) f.copyTo(File(live, f.name), overwrite = true)
+                            }
                         }
                     }
+
+                    val liveSettings = context.getDatabasePath(Path.SETTINGS_DATABASE_PATH)
+                    if (keepDav.isNotEmpty()) putSettingString(liveSettings, SettingsKey.WEBDAV_PASSWORD, keepDav)
+                    if (keepTok.isNotEmpty()) putSettingString(liveSettings, SettingsKey.GITHUB_TOKEN, keepTok)
+
+                    var portableOutcome: PortableRestoreOutcome? = null
+                    if (hasPortable) {
+                        if (!profilesDbRestored) {
+                            portableOutcome = restorePortableOverwrite(
+                                context,
+                                portableProfiles.readText(),
+                                if (portableSettings.isFile) portableSettings.readText() else "{}",
+                                File(staging, "configs"),
+                                includeSensitiveItems,
+                            )
+                        } else {
+                            run {
+                                val (selected, profiles) = PortableCloudBackup.parseProfiles(portableProfiles.readText())
+                                val existing = runBlocking { ProfileManager.list() }
+                                val uuidToLocal = linkedMapOf<String, Long>()
+                                profiles.forEach { portable ->
+                                    val local = existing.firstOrNull { it.name.trim() == portable.name.trim() }
+                                        ?: existing.firstOrNull {
+                                            portable.remoteUrl.isNotEmpty() &&
+                                                it.typed.remoteURL.trim() == portable.remoteUrl
+                                        }
+                                    if (local != null) uuidToLocal[portable.id] = local.id
+                                }
+                                PortableCloudBackup.importStableIds(profiles, uuidToLocal)
+                                if (!selected.isNullOrBlank()) {
+                                    ProfileStableIds.localId(selected)?.let { Settings.selectedProfile = it }
+                                }
+                            }
+                        }
+                    }
+                    if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
+                    if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
+                    // M3 (same rule the portable path applies in applyPortableSettings):
+                    // a backup carries no WebDAV password by design, so the URL/user its
+                    // settings.db restored must never be paired with the password
+                    // preserved above — the first probe would send that password to the
+                    // backup's server as Basic Auth. Keep the pre-restore endpoint
+                    // whenever the backup's differs. Gated on the DB actually having
+                    // been replaced: without one, the endpoint is either untouched or
+                    // came through the portable path, whose M3 gate already ran.
+                    // (Every WebDAV use still re-validates the URL through
+                    // RemoteUrlGuard in requireHttps before connecting.)
+                    if (settingsDbRestored) {
+                        if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
+                        if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
+                    }
+                    // A restored activeRemoteServerId points into the backup's server
+                    // list, whose rows were just re-validated by
+                    // repairRestoredRemoteServers. Never auto-connect on the next
+                    // launch: the user re-selects the server in the UI.
+                    if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
+
+                    val report = if (portableOutcome != null) {
+                        RestoreReport(
+                            remoteProfiles = portableOutcome.remoteProfiles,
+                            skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
+                            skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
+                            skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
+                        )
+                    } else {
+                        RestoreReport(
+                            remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored),
+                            skippedScriptNames = databaseSensitive.skippedScriptNames,
+                            skippedChainBindingCount = databaseSensitive.skippedChainBindingCount,
+                            skippedScriptBindingCount = databaseSensitive.skippedScriptBindingCount,
+                        )
+                    }
+                    report
                 }
             }
-            if (keepDav.isNotEmpty()) Settings.webdavPassword = keepDav
-            if (keepTok.isNotEmpty()) Settings.githubToken = keepTok
-            // M3 (same rule the portable path applies in applyPortableSettings):
-            // a backup carries no WebDAV password by design, so the URL/user its
-            // settings.db restored must never be paired with the password
-            // preserved above — the first probe would send that password to the
-            // backup's server as Basic Auth. Keep the pre-restore endpoint
-            // whenever the backup's differs. Gated on the DB actually having
-            // been replaced: without one, the endpoint is either untouched or
-            // came through the portable path, whose M3 gate already ran.
-            // (Every WebDAV use still re-validates the URL through
-            // RemoteUrlGuard in requireHttps before connecting.)
-            if (settingsDbRestored) {
-                if (Settings.webdavUrl != keepDavUrl) Settings.webdavUrl = keepDavUrl
-                if (Settings.webdavUser != keepDavUser) Settings.webdavUser = keepDavUser
-            }
-            // A restored activeRemoteServerId points into the backup's server
-            // list, whose rows were just re-validated by
-            // repairRestoredRemoteServers. Never auto-connect on the next
-            // launch: the user re-selects the server in the UI.
-            if (settingsDbRestored || profilesDbRestored) Settings.activeRemoteServerId = 0L
-
-            val report = if (portableOutcome != null) {
-                RestoreReport(
-                    remoteProfiles = portableOutcome.remoteProfiles,
-                    skippedScriptNames = portableOutcome.sensitive.skippedScriptNames,
-                    skippedChainBindingCount = portableOutcome.sensitive.skippedChainBindingCount,
-                    skippedScriptBindingCount = portableOutcome.sensitive.skippedScriptBindingCount,
-                )
-            } else {
-                RestoreReport(
-                    remoteProfiles = restoredDbRemoteProfiles(profilesDbRestored),
-                    skippedScriptNames = databaseSensitive.skippedScriptNames,
-                    skippedChainBindingCount = databaseSensitive.skippedChainBindingCount,
-                    skippedScriptBindingCount = databaseSensitive.skippedScriptBindingCount,
-                )
-            }
-            report
-        }
         } finally {
             staging.deleteRecursively()
         }

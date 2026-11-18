@@ -368,18 +368,19 @@ class MainActivity :
 
     private fun startService0() {
         lifecycleScope.launch(Dispatchers.IO) {
-            Settings.rebuildServiceMode()
-            connection.reconnect()
-            if (Settings.serviceMode == ServiceMode.VPN) {
-                if (prepare()) {
-                    return@launch
+            val preparation = io.nekohasekai.sfa.bg.BoxService.restoreGate.prepareStart() ?: return@launch
+            preparation.second.use {
+                Settings.rebuildServiceMode()
+                connection.reconnect()
+                if (Settings.serviceMode == ServiceMode.VPN) {
+                    if (prepare()) {
+                        return@launch
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    io.nekohasekai.sfa.bg.BoxService.start()
                 }
             }
-            val intent = Intent(Application.application, Settings.serviceClass())
-            withContext(Dispatchers.Main) {
-                ContextCompat.startForegroundService(this@MainActivity, intent)
-            }
-            Settings.startedByUser = true
         }
     }
 
