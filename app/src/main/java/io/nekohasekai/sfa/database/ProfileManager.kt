@@ -141,13 +141,14 @@ object ProfileManager {
         expectedPath: String,
         content: String,
         userInfo: String?,
+        expectedRestoreEpoch: Long,
         isStopped: () -> Boolean,
     ): RemoteContentCommit? {
         var result: RemoteContentCommit? = null
         val applied = commitPendingProfileImport(
             gate = profileMutationGate,
             profileId = profileId,
-            isStopped = isStopped,
+            isStopped = { isStopped() || !io.nekohasekai.sfa.utils.RestoreStorageAccess.isCurrent(expectedRestoreEpoch) },
             loadCurrent = { get(profileId) },
             matchesPending = { current ->
                 matchesRemoteProfileSource(

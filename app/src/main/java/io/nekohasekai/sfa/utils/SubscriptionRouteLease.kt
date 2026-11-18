@@ -5,14 +5,22 @@ import java.net.HttpURLConnection
 
 /** A subscription attempt cannot outlive the service generation that chose its route. */
 internal class SubscriptionRouteLease : Closeable {
+    private val restoreSnapshot = RestoreStorageAccess.snapshot()
     val snapshot = TunnelGate.snapshot()
     private val connections = mutableSetOf<HttpURLConnection>()
     private var closed = false
-    private val observer = TunnelGate.observe(snapshot) { invalidate() }
+    private val restoreObserver = RestoreStorageAccess.observe(restoreSnapshot) { invalidate() }
+    private val observer = try {
+        TunnelGate.observe(snapshot) { invalidate() }
+    } catch (failure: Exception) {
+        restoreObserver.close()
+        throw failure
+    }
 
     @Synchronized
     fun check() {
         if (closed) throw SubscriptionRouteChangedException("VPN 状态已变化，订阅更新已停止，请重试")
+        RestoreStorageAccess.requireCurrent(restoreSnapshot)
         TunnelGate.requireCurrent(snapshot)
     }
 
@@ -54,6 +62,7 @@ internal class SubscriptionRouteLease : Closeable {
 
     override fun close() {
         observer.close()
+        restoreObserver.close()
         invalidate()
     }
 }

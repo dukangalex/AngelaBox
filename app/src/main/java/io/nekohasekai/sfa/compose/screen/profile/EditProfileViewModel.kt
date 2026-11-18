@@ -275,6 +275,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                     expectedPath = expectedPath,
                     content = content,
                     userInfo = fetched.userInfo,
+                    expectedRestoreEpoch = fetched.restoreEpoch,
                     isStopped = { updateJob?.isActive == false },
                 ) ?: throw IllegalStateException("订阅已被修改或删除，本次更新已丢弃，请检查后重试。")
                 val selectedProfileUpdated = committed.changed && profile.id == Settings.selectedProfile

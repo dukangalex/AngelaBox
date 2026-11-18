@@ -16,6 +16,47 @@ class SubscriptionRouteLeaseTest {
         override fun usingProxy() = false
     }
 
+    @Test
+    fun restoreDisconnectsExistingLeaseEvenWithoutVpnStateChange() {
+        val before = TunnelGate.snapshot()
+        SubscriptionRouteLease().use { lease ->
+            val connection = Connection()
+            lease.track(connection)
+            RestoreStorageAccess.exclusive {
+                assertEquals(1, connection.disconnects)
+                assertThrows(IllegalStateException::class.java) { lease.check() }
+                assertThrows(IllegalStateException::class.java) { SubscriptionRouteLease() }
+            }
+            assertEquals(before, TunnelGate.snapshot())
+            assertThrows(IllegalStateException::class.java) { lease.check() }
+        }
+        SubscriptionRouteLease().use { it.check() }
+    }
+
+    @Test
+    fun bytesReturningAcrossRestoreAreRejected() {
+        SubscriptionRouteLease().use { lease ->
+            val source = object : java.io.InputStream() {
+                override fun read(): Int {
+                    RestoreStorageAccess.exclusive { Unit }
+                    return 42
+                }
+            }
+            assertThrows(IllegalStateException::class.java) { lease.checkedStream(source).read() }
+        }
+    }
+
+    @Test
+    fun rollbackDoesNotRevivePreRestoreRequest() {
+        SubscriptionRouteLease().use { lease ->
+            assertThrows(java.io.IOException::class.java) {
+                RestoreStorageAccess.exclusive { throw java.io.IOException("restore aborted") }
+            }
+            assertThrows(IllegalStateException::class.java) { lease.check() }
+        }
+        SubscriptionRouteLease().use { it.check() }
+    }
+
     @After
     fun reset() {
         TunnelGate.setUp(false)

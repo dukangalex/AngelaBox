@@ -18,11 +18,33 @@ internal class RestoreStorageUnavailable(message: String) : IllegalStateExceptio
 internal object RestoreStorageAccess {
     private val lock = Any()
     private var active = 0
+    private var generation = 0L
+    private val observers = mutableSetOf<() -> Unit>()
     private var owner: Thread? = null
     private var pending: () -> Boolean = { false }
     private var effects = linkedMapOf<Any, () -> Unit>()
 
     fun configure(pendingRecovery: () -> Boolean) = synchronized(lock) { pending = pendingRecovery }
+
+    /** Capture before asynchronous work; equal row IDs/URLs do not survive a restore as identity. */
+    fun snapshot(): Long = synchronized(lock) {
+        if (owner != null || pending()) throw RestoreStorageUnavailable("备份恢复尚未完成，请稍后重试")
+        generation
+    }
+
+    fun isCurrent(snapshot: Long): Boolean = synchronized(lock) {
+        owner == null && !pending() && generation == snapshot
+    }
+
+    fun requireCurrent(snapshot: Long) {
+        if (!isCurrent(snapshot)) throw RestoreStorageUnavailable("备份恢复已改变配置，本次操作已停止，请重试")
+    }
+
+    fun observe(snapshot: Long, changed: () -> Unit): java.io.Closeable = synchronized(lock) {
+        requireCurrent(snapshot)
+        observers.add(changed)
+        java.io.Closeable { synchronized(lock) { observers.remove(changed) } }
+    }
 
     fun <T> access(action: () -> T): T {
         synchronized(lock) {
@@ -44,10 +66,14 @@ internal object RestoreStorageAccess {
     }
 
     fun <T> exclusive(action: () -> T): T {
-        synchronized(lock) {
+        val invalidated = synchronized(lock) {
             check(owner == null && active == 0) { "配置正在读写，请稍后重试恢复" }
+            generation++
             owner = Thread.currentThread()
+            observers.toList().also { observers.clear() }
         }
+        // Do not hold the storage lock while disconnecting blocked network reads.
+        invalidated.forEach { runCatching(it) }
         var committed = false
         var ready: List<() -> Unit> = emptyList()
         try {

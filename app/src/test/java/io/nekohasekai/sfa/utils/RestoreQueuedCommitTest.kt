@@ -60,4 +60,35 @@ class RestoreQueuedCommitTest {
 
     @Test fun queuedInitialImportCannotCommitAfterIntentIsRemovedByRestore() = exercise(true)
     @Test fun queuedPeriodicImportCannotCommitAfterAutoUpdateIsDisabledByRestore() = exercise(false)
+    @Test fun manualResponseCannotOverwriteSameSourceRestoredWhileItWasInFlight() = runBlocking(Dispatchers.IO) {
+        Settings.closeDatabase()
+        ProfileManager.closeDatabase()
+        val context = RuntimeEnvironment.getApplication()
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            androidx.work.Configuration.Builder().setExecutor(androidx.work.testing.SynchronousExecutor()).build())
+        try {
+            val path = java.io.File(context.filesDir, "configs/manual-inflight.json").absolutePath
+            val before = ProfileManager.create(remote().apply { typed.path = path })
+            val epoch = RestoreStorageAccess.snapshot()
+            // Model a successful response delayed after fetch/validation, before its Room commit.
+            BackupRestoreTransaction.run(context) {
+                ProfileManager.clearForRestore()
+                runBlocking { ProfileManager.create(remote(before.id).apply { typed.path = path; typed.autoUpdate = false }) }
+                ProfileBindingStorage.writeAtomically(java.io.File(path), "restored-content")
+            }
+            val result = ProfileManager.commitRemoteContent(before.id, before.typed.remoteURL, path,
+                "stale-response", null, epoch, { false })
+            assertNull("pre-restore manual response must not overwrite restored same-source profile", result)
+            assertEquals("restored-content", java.io.File(path).readText())
+            // A new, explicit post-restore request is still allowed for that same subscription.
+            val fresh = ProfileManager.commitRemoteContent(before.id, before.typed.remoteURL, path,
+                "fresh-response", null, RestoreStorageAccess.snapshot(), { false })
+            assertNotNull(fresh)
+            assertEquals("fresh-response", java.io.File(path).readText())
+        } finally {
+            androidx.work.testing.WorkManagerTestInitHelper.closeWorkDatabase()
+            Settings.closeDatabase()
+            ProfileManager.closeDatabase()
+        }
+    }
 }

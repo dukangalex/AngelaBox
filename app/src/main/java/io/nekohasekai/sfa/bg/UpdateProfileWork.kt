@@ -201,7 +201,7 @@ class UpdateProfileWork {
                     var updateProfile = profile
                     val updateApplied = ProfileManager.commitPendingImport(
                         expected = profile,
-                        isStopped = { isStopped },
+                        isStopped = { isStopped || !io.nekohasekai.sfa.utils.RestoreStorageAccess.isCurrent(fetched.restoreEpoch) },
                         requireAutoUpdate = !initialImport,
                         requireInitialIntent = initialImport,
                     ) { current ->
