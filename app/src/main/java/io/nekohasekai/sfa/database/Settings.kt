@@ -50,7 +50,19 @@ object Settings {
 
     internal fun bindingDatabase(): KeyValueDatabase = database()
 
-    val dataStore = RoomPreferenceDataStore { database().keyValuePairDao() }
+    private fun <T> storage(action: () -> T): T = io.nekohasekai.sfa.utils.RestoreStorageAccess.access(action)
+
+    // Guard each DAO invocation, not only obtaining the DAO: a retained DAO must never
+    // bypass restore exclusion or keep using a closed pre-restore Room instance.
+    private val guardedDao = object : KeyValueEntity.Dao {
+        override fun all() = storage { database().keyValuePairDao().all() }
+        override fun get(key: String) = storage { database().keyValuePairDao()[key] }
+        override fun put(value: KeyValueEntity) = storage { database().keyValuePairDao().put(value) }
+        override fun delete(key: String) = storage { database().keyValuePairDao().delete(key) }
+        override fun reset() = storage { database().keyValuePairDao().reset() }
+        override fun insert(list: List<KeyValueEntity>) = storage { database().keyValuePairDao().insert(list) }
+    }
+    val dataStore = RoomPreferenceDataStore(guardedDao)
     var selectedProfile by dataStore.long(SettingsKey.SELECTED_PROFILE) { -1L }
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)
@@ -328,6 +340,14 @@ object Settings {
         val selectedProfileId = selectedProfile
         if (selectedProfileId == -1L) return false
         return ProfileManager.get(selectedProfileId) != null
+    }
+
+    internal fun closeDatabaseForRestore() {
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.requireOwner()
+        synchronized(dbLock) {
+            db?.close() // A failed close must abort; never copy a live WAL behind Room.
+            db = null
+        }
     }
 
     fun closeDatabase() {

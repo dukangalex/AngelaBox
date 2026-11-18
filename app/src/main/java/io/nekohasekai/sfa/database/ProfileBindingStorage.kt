@@ -27,9 +27,9 @@ internal object ProfileBindingStorage {
             profileDirectory = File(Application.application.filesDir, "configs"),
         )
 
-    fun <T> access(action: () -> T): T = barrier.access(action)
+    fun <T> access(action: () -> T): T = io.nekohasekai.sfa.utils.RestoreStorageAccess.access { barrier.access(action) }
 
-    fun <T> mutate(action: () -> T): T = barrier.mutate(action)
+    fun <T> mutate(action: () -> T): T = io.nekohasekai.sfa.utils.RestoreStorageAccess.access { barrier.mutate(action) }
 
     fun readText(file: File): String = access { file.readText() }
 
@@ -58,7 +58,7 @@ internal object ProfileBindingStorage {
         barrier.currentEpoch()
     }
 
-    fun requireRuntimeEpoch(expected: Long) = barrier.requireEpoch(expected)
+    fun requireRuntimeEpoch(expected: Long) = io.nekohasekai.sfa.utils.RestoreStorageAccess.access { barrier.requireEpoch(expected) }
 }
 
 /** Shared by production entry points and fault-injection tests. No suspending work inside. */

@@ -60,9 +60,9 @@ object ProfileManager {
         }
     }
 
-    suspend fun nextOrder(): Long = database().profileDao().nextOrder() ?: 0
+    suspend fun nextOrder(): Long = ProfileBindingStorage.access { database().profileDao().nextOrder() ?: 0 }
 
-    suspend fun nextFileID(): Long = database().profileDao().nextFileID() ?: 1
+    suspend fun nextFileID(): Long = ProfileBindingStorage.access { database().profileDao().nextFileID() ?: 1 }
 
     // Recovery can be requested by a synchronous binding reader on Main. Only
     // this raw DAO lookup hops to IO; it must never acquire the storage monitor.
@@ -278,7 +278,33 @@ object ProfileManager {
 
     suspend fun pendingInitialImportIds(): List<Long> = ProfileBindingStorage.access { database().initialImportDao().pendingIds() }
 
-    fun remoteServerDao(): RemoteServer.Dao = database().remoteServerDao()
+    private val guardedRemoteServerDao = object : RemoteServer.Dao {
+        override fun insert(server: RemoteServer) = ProfileBindingStorage.mutate { database().remoteServerDao().insert(server) }
+        override fun update(server: RemoteServer) = ProfileBindingStorage.mutate { database().remoteServerDao().update(server) }
+        override fun update(servers: List<RemoteServer>) = ProfileBindingStorage.mutate { database().remoteServerDao().update(servers) }
+        override fun delete(server: RemoteServer) = ProfileBindingStorage.mutate { database().remoteServerDao().delete(server) }
+        override fun get(serverId: Long) = ProfileBindingStorage.access { database().remoteServerDao().get(serverId) }
+        override fun list() = ProfileBindingStorage.access { database().remoteServerDao().list() }
+        override fun nextOrder() = ProfileBindingStorage.access { database().remoteServerDao().nextOrder() }
+    }
+
+    fun remoteServerDao(): RemoteServer.Dao = guardedRemoteServerDao
+
+    /** No suspending mutex acquisition while the synchronous restore barrier is owned. */
+    internal fun clearForRestore() {
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.requireOwner()
+        ProfileBindingStorage.mutate {
+            database().profileDao().list().forEach { deleteWhileLocked(it) }
+        }
+    }
+
+    internal fun closeDatabaseForRestore() {
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.requireOwner()
+        synchronized(dbLock) {
+            db?.close()
+            db = null
+        }
+    }
 
     fun closeDatabase() {
         synchronized(dbLock) {
