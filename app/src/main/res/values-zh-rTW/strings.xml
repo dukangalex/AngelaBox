@@ -400,6 +400,7 @@
     <string name="error_title">錯誤</string>
     <string name="error_missing_vpn_permission">缺少 VPN 權限</string>
     <string name="error_empty_configuration">設定為空</string>
+    <string name="error_import_file_unavailable">無法讀取檔案，請重試。</string>
     <string name="error_empty_file">空檔案</string>
     <string name="error_decode_profile">解碼設定檔失敗：%s</string>
     <string name="error_invalid_configuration">無效的 sing-box 設定：%s</string>

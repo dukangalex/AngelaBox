@@ -83,7 +83,7 @@ class ProfileImportHandler(private val context: Context) {
             val name: String,
             val detail: String? = null,
             val sshWarning: String? = null,
-            val snapshot: ImportSnapshot? = null,
+            val snapshot: ImportSnapshot,
         ) : UriParseResult()
 
         data class Error(val message: String) : UriParseResult()
@@ -147,7 +147,7 @@ class ProfileImportHandler(private val context: Context) {
             // The snapshot binds the confirmation to these exact bytes; the
             // import later consumes the snapshot (see importFromSnapshot).
             val data = readUriBytes(uri)
-                ?: return@withContext UriParseResult.Success(filename)
+                ?: return@withContext UriParseResult.Error(context.getString(R.string.error_import_file_unavailable))
             val snapshot = ImportSnapshot(data, sha256Hex(data))
             val dataString = String(data)
             if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {

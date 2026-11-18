@@ -380,6 +380,7 @@
     <string name="error_title">错误</string>
     <string name="error_missing_vpn_permission">缺少 VPN 权限</string>
     <string name="error_empty_configuration">空配置</string>
+    <string name="error_import_file_unavailable">无法读取文件，请重试。</string>
     <string name="error_empty_file">空文件</string>
     <string name="error_decode_profile">解码配置文件失败：%s</string>
     <string name="error_invalid_configuration">无效的 sing-box 配置：%s</string>
