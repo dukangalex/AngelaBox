@@ -92,6 +92,12 @@ open class RoomPreferenceDataStore(
     }
 
     private fun fireChangeListener(key: String) {
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.afterCommit(this to key) {
+            dispatchChangeListener(key)
+        }
+    }
+
+    private fun dispatchChangeListener(key: String) {
         val listeners =
             synchronized(listeners) {
                 listeners.toList()

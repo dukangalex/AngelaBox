@@ -13,18 +13,31 @@ import java.io.File
  * behind a restore while holding a profile/stable-ID monitor, which would invert lock order.
  * Acquiring exclusivity itself fails before any mutation if a storage operation is in flight.
  */
+internal class RestoreStorageUnavailable(message: String) : IllegalStateException(message)
+
 internal object RestoreStorageAccess {
     private val lock = Any()
     private var active = 0
     private var owner: Thread? = null
     private var pending: () -> Boolean = { false }
+    private var effects = linkedMapOf<Any, () -> Unit>()
 
     fun configure(pendingRecovery: () -> Boolean) = synchronized(lock) { pending = pendingRecovery }
 
     fun <T> access(action: () -> T): T {
         synchronized(lock) {
-            check(owner == null || owner === Thread.currentThread()) { "备份正在恢复，请稍后重试" }
-            check(owner === Thread.currentThread() || !pending()) { "备份恢复尚未完成，请保留应用数据并重启重试" }
+            if (owner != null && owner !== Thread.currentThread()) throw RestoreStorageUnavailable("备份正在恢复，请稍后重试")
+            if (owner !== Thread.currentThread() && pending()) throw RestoreStorageUnavailable("备份恢复尚未完成，请保留应用数据并重启重试")
+            active++
+        }
+        try { return action() } finally { synchronized(lock) { active-- } }
+    }
+
+    /** Keep a suspending profile commit admitted across its file/DAO gaps. */
+    suspend fun <T> lease(action: suspend () -> T): T {
+        synchronized(lock) {
+            if (owner != null && owner !== Thread.currentThread()) throw RestoreStorageUnavailable("备份正在恢复，请稍后重试")
+            if (owner !== Thread.currentThread() && pending()) throw RestoreStorageUnavailable("备份恢复尚未完成，请保留应用数据并重启重试")
             active++
         }
         try { return action() } finally { synchronized(lock) { active-- } }
@@ -35,7 +48,39 @@ internal object RestoreStorageAccess {
             check(owner == null && active == 0) { "配置正在读写，请稍后重试恢复" }
             owner = Thread.currentThread()
         }
-        try { return action() } finally { synchronized(lock) { owner = null } }
+        var committed = false
+        var ready: List<() -> Unit> = emptyList()
+        try {
+            return action().also { committed = true }
+        } finally {
+            synchronized(lock) {
+                if (committed) ready = effects.values.toList()
+                effects.clear()
+                owner = null
+            }
+            // The durable commit already happened. A notification/scheduler failure cannot
+            // turn it into a reported rollback or prevent the remaining effects from running.
+            ready.forEach { effect ->
+                runCatching(effect).onFailure {
+                    android.util.Log.w("BackupRestore", "post-commit effect failed", it)
+                }
+            }
+        }
+    }
+
+    /** Coalesce provisional notifications and non-transactional scheduler actions.
+     * They never escape a failed restore and run only after storage is available again.
+     * Room initial-import intents remain the durable authority if the process dies first.
+     */
+    fun afterCommit(key: Any, effect: () -> Unit) {
+        val deferred = synchronized(lock) {
+            if (owner != null && owner !== Thread.currentThread()) throw RestoreStorageUnavailable("备份正在恢复，请稍后重试")
+            if (owner != null) {
+                effects[key] = effect
+                true
+            } else false
+        }
+        if (!deferred) effect()
     }
 
     fun requireOwner() = synchronized(lock) { check(owner === Thread.currentThread()) }

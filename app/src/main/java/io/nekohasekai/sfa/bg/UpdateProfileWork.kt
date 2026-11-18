@@ -72,8 +72,10 @@ class UpdateProfileWork {
 
         fun cancelInitialImport(profileId: Long) {
             if (profileId <= 0L) return
-            WorkManager.getInstance(Application.application)
-                .cancelUniqueWork("UpdateProfileInitial_$profileId")
+            io.nekohasekai.sfa.utils.RestoreStorageAccess.afterCommit("cancel-initial-$profileId") {
+                WorkManager.getInstance(Application.application)
+                    .cancelUniqueWork("UpdateProfileInitial_$profileId")
+            }
         }
 
         /** E-2: one update round's time budget; WorkManager kills a run at ~10 min. */
@@ -124,7 +126,14 @@ class UpdateProfileWork {
     }
 
     class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
-        override suspend fun doWork(): Result {
+        override suspend fun doWork(): Result = try {
+            runUpdate()
+        } catch (_: io.nekohasekai.sfa.utils.RestoreStorageUnavailable) {
+            // A restore is temporary contention, not a completed/failed initial import.
+            Result.retry()
+        }
+
+        private suspend fun runUpdate(): Result {
             ensureProfileUpdateActive { isStopped }
             var selectedProfileUpdated = false
             val initialProfileId = inputData.getLong(INITIAL_PROFILE_ID, -1L)

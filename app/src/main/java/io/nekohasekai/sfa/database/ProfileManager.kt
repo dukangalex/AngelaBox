@@ -26,7 +26,7 @@ object ProfileManager {
     // ConcurrentModificationException.
     private val callbacks = CopyOnWriteArrayList<() -> Unit>()
     private val dbLock = Any()
-    private val profileMutationGate = ProfileMutationGate()
+    private val profileMutationGate = ProfileMutationGate(protectRestore = true)
 
     @Volatile
     private var db: ProfileDatabase? = null
@@ -72,15 +72,14 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = ProfileBindingStorage.access { database().profileDao().get(id) }
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false, pendingInitialImport: Boolean = false): Profile {
+    suspend fun create(profile: Profile, andSelect: Boolean = false, pendingInitialImport: Boolean = false): Profile =
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.lease {
         profile.id = ProfileBindingStorage.mutate { database().insertProfile(profile, pendingInitialImport) }
         if (andSelect) {
             Settings.selectedProfile = profile.id
         }
-        for (callback in callbacks.toList()) {
-            callback()
-        }
-        return profile
+        notifyChanged()
+        profile
     }
 
     suspend fun update(profile: Profile): Int {
@@ -218,8 +217,8 @@ object ProfileManager {
     }
 
     private fun notifyChanged() {
-        for (callback in callbacks.toList()) {
-            callback()
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.afterCommit(this) {
+            for (callback in callbacks.toList()) callback()
         }
     }
 

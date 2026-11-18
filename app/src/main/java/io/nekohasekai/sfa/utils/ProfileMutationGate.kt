@@ -4,11 +4,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Serializes profile writes with pending subscription-import commits. */
-internal class ProfileMutationGate {
+internal class ProfileMutationGate(private val protectRestore: Boolean = false) {
     private val lock = Mutex()
 
     @Suppress("UNUSED_PARAMETER")
-    suspend fun <T> withLock(profileId: Long, action: suspend () -> T): T = lock.withLock { action() }
+    suspend fun <T> withLock(profileId: Long, action: suspend () -> T): T = lock.withLock {
+        if (protectRestore) RestoreStorageAccess.lease(action) else action()
+    }
 }
 
 /** Checks cancellation and the current profile under the same lock used by edit/delete writes. */

@@ -26,6 +26,9 @@ internal suspend fun runProfileUpdateAttempt(
         generateSequence<Throwable>(error) { it.cause }
             .filterIsInstance<CancellationException>()
             .firstOrNull()?.let { throw it }
+        generateSequence<Throwable>(error) { it.cause }
+            .filterIsInstance<io.nekohasekai.sfa.utils.RestoreStorageUnavailable>()
+            .firstOrNull()?.let { throw it }
         ensureProfileUpdateActive(isStopped)
         onFailure(error)
     }
