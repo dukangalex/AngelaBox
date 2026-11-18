@@ -240,7 +240,7 @@ class UpdateProfileWork {
                     // 规范化替代的弹药：把这份订阅的远程规则集顺手下载进
                     // 本地缓存，启动时远程下不下来能用缓存顶上，不再只能
                     // 跳过。尽力而为，失败不影响更新结果，受整轮预算约束。
-                    warmRuleSetCache(content, roundDeadlineMs)
+                    warmRuleSetCache(content, roundDeadlineMs, fetched.restoreEpoch)
                     // 更新成功但有"跳过/修正"提示：记下来，仪表盘横幅展示，不藏报错。
                     SubscriptionUpdateHealth.recordImportWarnings(
                         applicationContext,
@@ -280,10 +280,10 @@ class UpdateProfileWork {
          * files the substitute looks for; bounded by the round deadline
          * — warming must not starve real updates.
          */
-        private suspend fun warmRuleSetCache(content: String, deadlineMs: Long) {
+        private suspend fun warmRuleSetCache(content: String, deadlineMs: Long, restoreEpoch: Long) {
             val context = currentCoroutineContext()
             ensureProfileUpdateActive { isStopped }
-            runCatching { RuleSetWarmup.warmNow(content, deadlineMs) { !isStopped && context.isActive } }
+            runCatching { RuleSetWarmup.warmNow(content, deadlineMs, restoreEpoch) { !isStopped && context.isActive } }
             ensureProfileUpdateActive { isStopped }
         }
     }

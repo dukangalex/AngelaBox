@@ -256,26 +256,41 @@ object RuleSetStore {
         storeDir: File,
         deadlineMs: Long,
         nowMs: () -> Long,
+        restoreGeneration: Long = RestoreStorageAccess.snapshot(),
         download: (url: String, tmp: File) -> Boolean,
     ): Int {
+        RestoreStorageAccess.requireCurrent(restoreGeneration)
         val refs = RuleSetTriage.enumerate(content)
-        markSeen(
-            storeDir,
-            refs.map { entryFileName(it.tag, it.format, it.url) }
-                .filter { File(storeDir, it).isFile },
-            nowMs(),
-        )
+        RestoreStorageAccess.access {
+            RestoreStorageAccess.requireCurrent(restoreGeneration)
+            markSeen(
+                storeDir,
+                refs.map { entryFileName(it.tag, it.format, it.url) }
+                    .filter { File(storeDir, it).isFile },
+                nowMs(),
+            )
+        }
         var stored = 0
         for (pending in pendingDownloads(content, storeDir, nowMs())) {
-            if (nowMs() > deadlineMs) break
-            val tmp = tempFile(storeDir, pending.tag, pending.format, pending.url)
+            if (nowMs() > deadlineMs || !RestoreStorageAccess.isCurrent(restoreGeneration)) break
+            storeDir.mkdirs()
+            // A cancelled old generation must never delete a newer pass's temporary download.
+            val tmp = File.createTempFile("warm-", TMP_SUFFIX, storeDir)
             val ok = try {
                 download(pending.url, tmp)
             } catch (_: Exception) {
                 false
             }
-            if (ok && promote(tmp, storeDir, pending.tag, pending.format, pending.url)) {
-                markSeen(storeDir, listOf(pending.dest.name), nowMs())
+            val committed = runCatching {
+                RestoreStorageAccess.access {
+                    RestoreStorageAccess.requireCurrent(restoreGeneration)
+                    if (ok && promote(tmp, storeDir, pending.tag, pending.format, pending.url)) {
+                        markSeen(storeDir, listOf(pending.dest.name), nowMs())
+                        true
+                    } else false
+                }
+            }.getOrDefault(false)
+            if (committed) {
                 stored++
             } else {
                 runCatching { tmp.delete() }
