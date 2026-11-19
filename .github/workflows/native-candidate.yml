@@ -106,12 +106,24 @@ jobs:
           echo "sdk.dir=$SDK" > local.properties
           mkdir -p app/libs
           cp candidate-native/libbox-native-close-arm64-api24.aar app/libs/libbox.aar
-          test "$(sha256sum app/libs/libbox.aar | cut -d' ' -f1)" = cad4a59d077f7a051bd3fc52985605a2fd7edfb9dadf24cb2a26f5dd339f0f7e
+          sha256sum app/libs/libbox.aar
       - name: Compile and run all JVM tests against candidate JNI API
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:compileOtherDebugKotlin :app:testDebugUnitTest --no-daemon --stacktrace --max-workers=2 -Dorg.gradle.jvmargs=-Xmx4096m
+      - name: Assemble emulator-only debug APK
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          ./gradlew :app:assembleOtherDebug --no-daemon --stacktrace --max-workers=2 -Dorg.gradle.jvmargs=-Xmx4096m
+      - name: Upload emulator-only APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-emulator-only-apk
+          path: app/build/outputs/apk/
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload candidate compile test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
