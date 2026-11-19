@@ -104,6 +104,7 @@ jobs:
           test -n "$SDKMANAGER"
           "$SDKMANAGER" --install "platforms;android-37.1" "build-tools;35.0.0" "platform-tools"
           echo "sdk.dir=$SDK" > local.properties
+          mkdir -p app/libs
           cp candidate-native/libbox-native-close-arm64-api24.aar app/libs/libbox.aar
           test "$(sha256sum app/libs/libbox.aar | cut -d' ' -f1)" = cad4a59d077f7a051bd3fc52985605a2fd7edfb9dadf24cb2a26f5dd339f0f7e
       - name: Compile and run all JVM tests against candidate JNI API
