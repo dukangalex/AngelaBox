@@ -1,0 +1,74 @@
+name: Candidate translated ARM64 runtime smoke
+on:
+  pull_request:
+    branches: [dev]
+    paths: [.github/workflows/native-runtime.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  translated-arm64-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Wait for exact security-candidate build and download APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: dukangalex/AngelaBox
+        run: |
+          set -euo pipefail
+          gh run watch 44444787512 --exit-status
+          test "$(gh run view 44444787512 --json headSha --jq .headSha)" = 517284083d415790792995c2a7a15f902f8f7408
+          gh run download 44444787512 -n candidate-emulator-only-apk -D apk
+          gh run view 44444787512 --json headSha,status,conclusion > build-provenance.json
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android 30 Google APIs image with ARM64 translation
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          "$SDKMANAGER" --install emulator platform-tools 'system-images;android-30;google_apis;x86_64' 'build-tools;35.0.0'
+          AVDMANAGER="$(dirname "$SDKMANAGER")/avdmanager"
+          echo no | "$AVDMANAGER" create avd -n native-smoke --package 'system-images;android-30;google_apis;x86_64' --device pixel
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Boot, install and launch exact ARM64 candidate
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-evidence
+          cp build-provenance.json runtime-evidence/
+          APK=$(find apk -name '*.apk' -type f | head -1)
+          test -n "$APK"
+          sha256sum "$APK" > runtime-evidence/apk-sha256.txt
+          "$ANDROID_HOME/emulator/emulator" -avd native-smoke -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader_indirect > runtime-evidence/emulator.log 2>&1 &
+          EMU=$!
+          trap 'kill "$EMU" 2>/dev/null || true' EXIT
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          timeout 240 bash -c 'until [ "$("$1" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done' _ "$ADB"
+          "$ADB" shell getprop > runtime-evidence/guest-properties.txt
+          "$ADB" shell getprop ro.product.cpu.abilist | grep arm64-v8a
+          "$ADB" shell getprop ro.dalvik.vm.native.bridge | grep libndk_translation
+          "$ADB" logcat -c
+          "$ADB" install "$APK" | tee runtime-evidence/install.txt
+          "$ADB" shell monkey -p io.chainbox.app -c android.intent.category.LAUNCHER 1 > runtime-evidence/launch.txt
+          sleep 20
+          PID=$("$ADB" shell pidof io.chainbox.app | tr -d '\r')
+          test -n "$PID"
+          "$ADB" shell run-as io.chainbox.app cat "/proc/$PID/maps" > runtime-evidence/process-maps.txt
+          grep -E 'libgojni|libbox' runtime-evidence/process-maps.txt
+          "$ADB" logcat -d > runtime-evidence/logcat.txt
+          ! grep -E 'FATAL EXCEPTION|UnsatisfiedLinkError|Fatal signal|panic:' runtime-evidence/logcat.txt
+          "$ADB" exec-out screencap -p > runtime-evidence/startup.png
+          echo 'PASS: installed, launched, remained alive and mapped candidate Go JNI via ARM64 translation. Not hardware ARM64 or VPN acceptance.' > runtime-evidence/result.txt
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-translated-arm64-runtime
+          path: runtime-evidence/
+          retention-days: 14
