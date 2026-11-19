@@ -60,7 +60,12 @@ jobs:
           MOBILE: ${{ steps.pin.outputs.gomobile_version }}
         run: |
           set -euo pipefail
-          sdkmanager --install "ndk;$NDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          test -n "$SDKMANAGER"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --install "ndk;$NDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
           go install "github.com/sagernet/gomobile/cmd/gomobile@$MOBILE"
           go install "github.com/sagernet/gomobile/cmd/gobind@$MOBILE"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
