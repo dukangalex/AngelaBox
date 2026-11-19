@@ -1310,12 +1310,26 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (worker.isAlive) {
             runCatching { server.close() }.onFailure { teardownFailed = true }
             worker.join(1_000)
-        } else {
-            closer.join(2_000)
         }
+        // Closing the native service runs on a separate thread; do not create a
+        // replacement command server while either native teardown or the start
+        // worker may still be active.
+        closer.join(2_000)
+        if (worker.isAlive || closer.isAlive) teardownFailed = true
         if (::commandServer.isInitialized && commandServer === server) {
-            runCatching { commandServer.close() }.onFailure { teardownFailed = true }
-            startCommandServer()
+            restartCommandServerAfterDrain(
+                canRestart = { !worker.isAlive && !closer.isAlive && !teardownFailed },
+                closeServer = {
+                    try {
+                        commandServer.close()
+                    } catch (failure: Throwable) {
+                        teardownFailed = true
+                        throw failure
+                    }
+                },
+                startServer = ::startCommandServer,
+                onFailure = { teardownFailed = true },
+            )
         }
     }
 
@@ -1375,9 +1389,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun restartCommandServer() {
-        runCatching { commandServer.closeService() }.onFailure { teardownFailed = true }
-        runCatching { commandServer.close() }.onFailure { teardownFailed = true }
-        startCommandServer()
+        try {
+            restartCommandServerSafely(
+                closeService = { commandServer.closeService() },
+                closeServer = { commandServer.close() },
+                startServer = ::startCommandServer,
+            )
+        } catch (failure: Throwable) {
+            teardownFailed = true
+            throw failure
+        }
     }
 
     @OptIn(DelicateCoroutinesApi::class)
