@@ -7,6 +7,8 @@ import java.net.InetAddress
 import java.net.URI
 import java.util.Locale
 
+internal class UnresolvedHostException : IllegalArgumentException("无法解析主机，已拒绝")
+
 data class ValidatedEndpoint(
     val url: String,
     val host: String,
@@ -64,20 +66,61 @@ object RemoteUrlGuard {
      * fetch it by name.
      */
     fun acceptSubscription(url: String) {
-        if (TunnelGate.up) {
+        if (!acceptSubscriptionForImport(url)) throw UnresolvedHostException()
+    }
+
+    /**
+     * Validate a new subscription before saving it. When the tunnel is down,
+     * a DNS-only failure may be deferred: no request is made until a later
+     * fetch repeats the full DNS/address policy. All other URL and address
+     * rejections remain fail-closed.
+     *
+     * @return true when DNS validation succeeded; false when only syntax/host
+     * policy could be checked and the caller must defer the download.
+     */
+    fun acceptSubscriptionForImport(url: String): Boolean = SubscriptionRouteLease().use { lease ->
+        acceptSubscriptionForImport(
+            url,
+            lease.snapshot.up,
+            { host -> resolveSubscriptionSystem(host, lease::check) },
+            { host -> resolveOutsideTunnel(host, protect = false, routeCheck = lease::check) },
+            lease::check,
+        )
+    }
+
+    internal fun acceptSubscriptionForImport(
+        url: String,
+        tunnelUp: Boolean,
+        resolveSystem: (String) -> List<InetAddress>,
+        resolvePublic: (String) -> List<InetAddress>,
+        routeCheck: () -> Unit = {},
+    ): Boolean {
+        routeCheck()
+        if (tunnelUp) {
             validateWithoutDns(url, Kind.SUBSCRIPTION)
-        } else {
+            routeCheck()
+            return true
+        }
+        // validate() deliberately normalizes resolver exceptions to unresolved
+        // DNS. Check the lease outside it as well, so a transition cannot be
+        // swallowed and turned into permission for a public DNS retry.
+        try {
+            validate(url, Kind.SUBSCRIPTION, resolve = resolveSystem)
+            routeCheck()
+            return true
+        } catch (e: UnresolvedHostException) {
+            routeCheck()
             try {
-                requireAllowed(url, Kind.SUBSCRIPTION)
-            } catch (e: IllegalArgumentException) {
-                // System DNS may be down or poisoned; give public resolvers a
-                // chance before rejecting a subscription the user just typed.
-                // Other rejections (scheme, blocked host, userinfo) still throw.
-                if (e.message?.contains("无法解析主机") == true) {
-                    validate(url, Kind.SUBSCRIPTION, resolve = ::resolveOutsideTunnel)
-                } else {
-                    throw e
-                }
+                validate(url, Kind.SUBSCRIPTION, resolve = resolvePublic)
+                routeCheck()
+                return true
+            } catch (_: UnresolvedHostException) {
+                routeCheck()
+                // Saving a deferred URL is not permission to fetch it. Every
+                // later download acquires its own current route lease.
+                validateWithoutDns(url, Kind.SUBSCRIPTION)
+                routeCheck()
+                return false
             }
         }
     }
@@ -130,7 +173,7 @@ object RemoteUrlGuard {
             if (!requireResolved) {
                 return ValidatedEndpoint(raw, host, port, emptyList())
             }
-            throw IllegalArgumentException("无法解析主机，已拒绝")
+            throw UnresolvedHostException()
         }
         require(resolved.all { isAddressAllowed(it, kind) }) {
             "主机解析到禁止地址，已拒绝"
@@ -159,16 +202,39 @@ object RemoteUrlGuard {
      * nothing to bypass, and requiring protection would guarantee empty
      * results (DirectDial hooks are unset), so protect only while up.
      */
-    internal fun resolveOutsideTunnel(host: String): List<InetAddress> {
+    internal fun resolveOutsideTunnel(host: String): List<InetAddress> = resolveOutsideTunnel(host, TunnelGate.up) {}
+
+    /** System lookup only: unlike systemResolve, this cannot enable a public bypass mid-call. */
+    private fun resolveSubscriptionSystem(host: String, routeCheck: () -> Unit): List<InetAddress> {
+        routeCheck()
+        val answers = try {
+            InetAddress.getAllByName(host)?.toList().orEmpty()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        routeCheck()
+        return answers.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
+    }
+
+    /** Leased direct subscriptions never acquire a VPN-bypass hook mid-resolution. */
+    internal fun resolveSubscriptionDirect(host: String, routeCheck: () -> Unit): List<InetAddress> = resolveSubscriptionSystem(host, routeCheck).ifEmpty {
+        resolveOutsideTunnel(host, protect = false, routeCheck = routeCheck)
+    }
+
+    internal fun resolveOutsideTunnel(host: String, protect: Boolean, routeCheck: () -> Unit): List<InetAddress> {
+        routeCheck()
         if (!canQueryDns(host)) return emptyList()
-        val protect = TunnelGate.up
         for (server in PUBLIC_DNS) {
-            val found = lookup(host, server, tcp = false, protect = protect)
+            routeCheck()
+            val found = lookup(host, server, tcp = false, protect = protect, routeCheck = routeCheck)
+            routeCheck()
             val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
             if (usable.isNotEmpty()) return usable
         }
         for (server in PUBLIC_DNS) {
-            val found = lookup(host, server, tcp = true, protect = protect)
+            routeCheck()
+            val found = lookup(host, server, tcp = true, protect = protect, routeCheck = routeCheck)
+            routeCheck()
             val usable = found.filter { isAddressAllowed(it, Kind.SUBSCRIPTION) }
             if (usable.isNotEmpty()) return usable
         }
@@ -474,8 +540,8 @@ object RemoteUrlGuard {
      */
     internal fun keepTunnelAnswer(addr: InetAddress): Boolean = isFakeIp(addr.address) || isAddressAllowed(addr, Kind.SUBSCRIPTION)
 
-    private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true): List<InetAddress> = try {
-        if (tcp) queryATcp(host, server, protect) else queryA(host, server, protect)
+    private fun lookup(host: String, server: String, tcp: Boolean, protect: Boolean = true, routeCheck: () -> Unit = {}): List<InetAddress> = try {
+        if (tcp) queryATcp(host, server, protect, routeCheck) else queryA(host, server, protect, routeCheck)
     } catch (_: Exception) {
         emptyList()
     }
@@ -485,7 +551,8 @@ object RemoteUrlGuard {
      * (VPN DNS down, or the ISP resolver is unreachable). Answers still go
      * through [isAddressAllowed]; this does not skip the pin.
      */
-    private fun queryA(host: String, server: String, protect: Boolean): List<InetAddress> {
+    private fun queryA(host: String, server: String, protect: Boolean, routeCheck: () -> Unit): List<InetAddress> {
+        routeCheck()
         val id = (System.nanoTime() ushr 8).toInt() and 0xffff
         val query = buildDnsQuery(id, host)
         DatagramSocket().use { socket ->
@@ -493,6 +560,7 @@ object RemoteUrlGuard {
             if (protect && !DirectDial.protect(socket)) return emptyList()
             socket.soTimeout = 2000
             val target = InetAddress.getByAddress(parseIpv4(server))
+            routeCheck()
             socket.send(DatagramPacket(query, query.size, target, 53))
             val buf = ByteArray(512)
             val response = DatagramPacket(buf, buf.size)
@@ -501,13 +569,16 @@ object RemoteUrlGuard {
         }
     }
 
-    private fun queryATcp(host: String, server: String, protect: Boolean): List<InetAddress> {
+    private fun queryATcp(host: String, server: String, protect: Boolean, routeCheck: () -> Unit): List<InetAddress> {
+        routeCheck()
         val id = (System.nanoTime() ushr 8).toInt() and 0xffff
         val query = buildDnsQuery(id, host)
         java.net.Socket().use { socket ->
             if (protect && !DirectDial.protect(socket)) return emptyList()
             socket.soTimeout = 3000
+            routeCheck()
             socket.connect(java.net.InetSocketAddress(InetAddress.getByAddress(parseIpv4(server)), 53), 3000)
+            routeCheck()
             val out = socket.getOutputStream()
             out.write(
                 byteArrayOf(

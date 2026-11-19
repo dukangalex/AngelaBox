@@ -10,6 +10,7 @@ import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
+import io.nekohasekai.sfa.database.preference.KeyValueEntity
 import io.nekohasekai.sfa.database.preference.RoomPreferenceDataStore
 import io.nekohasekai.sfa.ktx.boolean
 import io.nekohasekai.sfa.ktx.int
@@ -47,7 +48,21 @@ object Settings {
         }
     }
 
-    val dataStore = RoomPreferenceDataStore { database().keyValuePairDao() }
+    internal fun bindingDatabase(): KeyValueDatabase = database()
+
+    private fun <T> storage(action: () -> T): T = io.nekohasekai.sfa.utils.RestoreStorageAccess.access(action)
+
+    // Guard each DAO invocation, not only obtaining the DAO: a retained DAO must never
+    // bypass restore exclusion or keep using a closed pre-restore Room instance.
+    private val guardedDao = object : KeyValueEntity.Dao {
+        override fun all() = storage { database().keyValuePairDao().all() }
+        override fun get(key: String) = storage { database().keyValuePairDao()[key] }
+        override fun put(value: KeyValueEntity) = storage { database().keyValuePairDao().put(value) }
+        override fun delete(key: String) = storage { database().keyValuePairDao().delete(key) }
+        override fun reset() = storage { database().keyValuePairDao().reset() }
+        override fun insert(list: List<KeyValueEntity>) = storage { database().keyValuePairDao().insert(list) }
+    }
+    val dataStore = RoomPreferenceDataStore(guardedDao)
     var selectedProfile by dataStore.long(SettingsKey.SELECTED_PROFILE) { -1L }
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)
@@ -126,6 +141,27 @@ object Settings {
     var chainLandingTag by dataStore.string(SettingsKey.CHAIN_LANDING_TAG) { "" }
     var chainBoundProfileId by dataStore.long(SettingsKey.CHAIN_BOUND_PROFILE_ID) { -1L }
     var chainBindingsJson by dataStore.string(SettingsKey.CHAIN_BINDINGS) { "{}" }
+
+    /** Atomically persist the binding map and every legacy compatibility key.
+     * This protects the settings snapshot only; it does not make a profile file
+     * replacement and these settings a single durable transaction.
+     */
+    internal fun saveChainBindingSnapshot(
+        json: String,
+        enabled: Boolean,
+        boundProfileId: Long,
+        entryTag: String,
+        landingProfileId: Long,
+        landingTag: String,
+    ) {
+        val entries = ProfileBindingJournal.entries(
+            io.nekohasekai.sfa.chain.ChainBindingSnapshot(json, enabled, boundProfileId, entryTag, landingProfileId, landingTag),
+        )
+        val settingsDb = database()
+        writeChainBindingEntries(settingsDb, entries)
+        dataStore.notifyCommitted(entries.map { it.key })
+    }
+
     var profileStableIdsJson by dataStore.string(SettingsKey.PROFILE_STABLE_IDS) { "{}" }
     var webdavUrl by dataStore.string(SettingsKey.WEBDAV_URL) { "" }
     var webdavUser by dataStore.string(SettingsKey.WEBDAV_USER) { "" }
@@ -306,10 +342,26 @@ object Settings {
         return ProfileManager.get(selectedProfileId) != null
     }
 
+    internal fun closeDatabaseForRestore() {
+        io.nekohasekai.sfa.utils.RestoreStorageAccess.requireOwner()
+        synchronized(dbLock) {
+            db?.close() // A failed close must abort; never copy a live WAL behind Room.
+            db = null
+        }
+    }
+
     fun closeDatabase() {
         synchronized(dbLock) {
             runCatching { db?.close() }
             db = null
         }
+    }
+}
+
+/** Room-only binding snapshot write, shared by production and transaction tests. */
+internal fun writeChainBindingEntries(settingsDb: KeyValueDatabase, entries: List<KeyValueEntity>) {
+    settingsDb.runInTransaction {
+        val dao = settingsDb.keyValuePairDao()
+        entries.forEach { dao.put(it) }
     }
 }

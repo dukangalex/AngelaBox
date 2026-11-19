@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.chain
 
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
 
@@ -31,6 +32,15 @@ data class ChainBinding(
  * Stored in Settings, not inside the subscription JSON, so a remote refresh
  * does not wipe the binding.
  */
+internal data class ChainBindingSnapshot(
+    val json: String,
+    val enabled: Boolean,
+    val boundProfileId: Long,
+    val entryTag: String,
+    val landingProfileId: Long,
+    val landingTag: String,
+)
+
 object ChainBindingCodec {
     fun parse(json: String): Map<Long, ChainBinding> {
         if (json.isBlank()) return emptyMap()
@@ -80,6 +90,18 @@ object ChainBindingCodec {
             root.put(b.profileId.toString(), item)
         }
         return root.toString()
+    }
+
+    internal fun snapshot(bindings: Map<Long, ChainBinding>, selectedProfileId: Long): ChainBindingSnapshot {
+        val selected = bindings[selectedProfileId]
+        return ChainBindingSnapshot(
+            json = encode(bindings),
+            enabled = bindings.isNotEmpty(),
+            boundProfileId = selected?.profileId ?: -1L,
+            entryTag = selected?.entryTag ?: "",
+            landingProfileId = selected?.landingProfileId ?: -1L,
+            landingTag = selected?.landingTag ?: "",
+        )
     }
 
     fun mergeLegacy(
@@ -209,7 +231,7 @@ object ChainBindings {
         val binding = next[profileId] ?: return
         if (binding.materialized) return
         next[profileId] = binding.copy(materialized = true)
-        save(next)
+        save(next, materializationOnly = true)
     }
 
     /**
@@ -226,7 +248,13 @@ object ChainBindings {
     @Synchronized
     fun hasAny(): Boolean = load().isNotEmpty()
 
-    private fun load(): Map<Long, ChainBinding> {
+    /** Replace imported bindings and compatibility keys in one settings transaction. */
+    @Synchronized
+    fun replaceAll(bindings: Map<Long, ChainBinding>) {
+        save(bindings)
+    }
+
+    private fun load(): Map<Long, ChainBinding> = ProfileBindingStorage.access {
         val parsed = ChainBindingCodec.parse(Settings.chainBindingsJson)
         val merged = ChainBindingCodec.mergeLegacy(
             parsed,
@@ -237,23 +265,21 @@ object ChainBindings {
             Settings.chainLandingTag,
         )
         if (merged != parsed) save(merged)
-        return merged
+        merged
     }
 
-    private fun save(bindings: Map<Long, ChainBinding>) {
-        Settings.chainBindingsJson = ChainBindingCodec.encode(bindings)
-        Settings.chainEnabled = bindings.isNotEmpty()
-        val selected = bindings[Settings.selectedProfile]
-        if (selected != null) {
-            Settings.chainBoundProfileId = selected.profileId
-            Settings.chainEntryTag = selected.entryTag
-            Settings.chainLandingProfileId = selected.landingProfileId
-            Settings.chainLandingTag = selected.landingTag
-        } else {
-            Settings.chainBoundProfileId = -1L
-            Settings.chainEntryTag = ""
-            Settings.chainLandingProfileId = -1L
-            Settings.chainLandingTag = ""
+    private fun save(bindings: Map<Long, ChainBinding>, materializationOnly: Boolean = false) {
+        val action = {
+            val snapshot = ChainBindingCodec.snapshot(bindings, Settings.selectedProfile)
+            Settings.saveChainBindingSnapshot(
+                json = snapshot.json,
+                enabled = snapshot.enabled,
+                boundProfileId = snapshot.boundProfileId,
+                entryTag = snapshot.entryTag,
+                landingProfileId = snapshot.landingProfileId,
+                landingTag = snapshot.landingTag,
+            )
         }
+        if (materializationOnly) ProfileBindingStorage.access(action) else ProfileBindingStorage.mutate(action)
     }
 }

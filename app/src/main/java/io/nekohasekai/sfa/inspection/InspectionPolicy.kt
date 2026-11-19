@@ -21,14 +21,17 @@ object InspectionPolicy {
 
     private val allowedCodes = mapOf(
         "network" to setOf("present", "absent", "unknown"),
-        "service" to setOf("running", "stopped"),
+        "service" to setOf("running", "stopped", "unknown"),
         "TUNNEL" to setOf("ok", "http_error", "timeout", "dns_failure", "io_error", "not_started", "timeout_downgraded"),
         "DNS" to setOf("canary_not_resolved", "ok", "fakeip", "error", "hijacked", "hijacked_local", "hijacked_system"),
         "LATENCY" to setOf("ok", "slow", "ok_stale", "slow_stale", "no_data", "skipped"),
         "SUBSCRIPTION" to setOf("ok", "expired", "quota_exhausted", "update_failed", "quota_low", "import_warnings", "unknown"),
     )
 
-    fun normalized(fact: Fact): Fact = if (fact.id == "DNS" && fact.code == "ok") {
+    fun normalized(fact: Fact): Fact = if (fact.state == State.NOT_CHECKED && fact.id in allowedCodes) {
+        // Preserve the skipped state while removing unrecognized or potentially sensitive codes.
+        Fact(fact.id, State.NOT_CHECKED, fact.code.takeIf { it in allowedCodes[fact.id].orEmpty() } ?: "unknown")
+    } else if (fact.id == "DNS" && fact.code == "ok") {
         // UnknownHostException conflates normal NXDOMAIN and a non-working resolver.
         Fact("DNS", State.UNKNOWN, "canary_not_resolved")
     } else if (fact.code in allowedCodes[fact.id].orEmpty()) {

@@ -1,16 +1,17 @@
 # AngelaBox 维护说明
 
 AngelaBox 是独立客户端，不是官方 sing-box / SFA 的产品名。曾用名 ChainBox。
-维护目标：内核长期跟随官方 sing-box；App 只维护组链体验、运行时覆盖与发布。
+维护范围：sing-box 原生配置、订阅与内核，以及 Alex 明确提出的功能；不扩展其他格式兼容范围。
+维护目标：内核长期跟随官方 sing-box；App 保留现有功能，并维护 Alex 明确提出的功能，包括 AI 服务商/模型/API 密钥设置、通俗的 AI 巡检说明与可执行解决建议，以及全应用联动逻辑的正确性和及时性。
 
 ## 产品边界（必须遵守）
 
-AngelaBox = 官方 sing-box 内核 + **模块化链式出站覆盖层** + 面向普通用户的操作界面。
+AngelaBox 以官方 sing-box 内核和原生配置 / 订阅为基础，保留现有模块化链式出站覆盖层与普通用户界面；新增功能仅限 Alex 明确提出的范围。
 
 - 不重新设计 sing-box，不替换内核，不另做代理协议栈。
 - 组链、中国直连、广告拦截、WebRTC、DNS 兼容、备份等都是 **运行时/导入覆盖层**：只改内存中的 JSON，不改订阅原文，不改 libbox 架构。
 - 冲突即停：与官方配置模型无法兼容时停止发版，而不是在内核里开特例。
-- 增加的功能只为降低日常操作成本，不为单一订阅商或个人配置定制。
+- 不新增 Clash / Mihomo 或其他格式兼容，也不照搬其他客户端功能；保留既有代码与能力。明确提出的功能包括 AI 服务商 / 模型 / API 密钥设置、通俗的 AI 巡检说明与可执行建议，以及全应用联动逻辑正确、及时。
 
 仓库首页若已 Detach fork，不影响发版。同步上游继续用 git remote：
 
@@ -132,7 +133,7 @@ Go 版本（2026-09-17 核对）：
 
 AngelaBox 钉 1.25.5 是因为 `experimental/libbox/internal/oomprofile` 与 `runtimeinfo` 使用 `go:linkname` / `badlinkname` 绑 `runtime/pprof` 未导出符号和 `runtime.g` 布局，随 Go 次版本会变。官方 1.15 线已经在 1.26.8 上编过；本仓库 **尚未** 用 1.26.8 验证 gomobile / Android。升工具链应对齐 1.15 线并先验证，不是为了 1.14.1。
 
-当前测试内核为官方 **1.15.0-alpha.13**（2026-10-24）：自 alpha.11 起 209 个上游提交，含 TUN 栈重写与 gVisor 依赖移除、HTTP 代理协议重写、MASQUE、tailcat、anytls 迁到 sing-anytls、按目的地背压。`go.mod` 仍是 1.25.5；官方 CI 升到 Go 1.26.10，AngelaBox 发版仍用 Go 1.25.5。`chain/upstream-alpha.13` 现为 `9efb7914`（`v1.15.0-chain.9`）。上游这一版自己实现了真实出站链解析（`resolveOutbound` / `metadata.OutboundChain` / `registerInterrupt`），所以 `route/` 一层直接采用上游实现，fork 独有的 `protocol/chain/` 与 `option/chain_compile.go` 保持不动；Chain、urltest 失败换人（`dialFirstAvailable` / `dialCandidates`）与空闲组不测速都重新落到上游代码上。Clash 里的 `type: masque` 还不是这个端点，导入时仍跳过；sing-box 配置里的 `masque-client` 端点会原样交给内核。xhttp 仍然没有。稳定安装包 1.0.57 仍钉 1.14.0（`03ad0a1`）。默认脚本为 `overlay-revision: 29`。**Windows：** 图形端工作流可以构建；配了 `WINDOWS_PFX_*` 才签名发版。见 [WINDOWS.md](WINDOWS.md)。
+当前测试内核以官方 **sing-box 1.15.0-alpha.13** 为基线；AngelaBox fork 的精确版本为 `v1.15.0-chain.11`，提交 `b4a0320eabbb9b2835055b6dfcc094f25706421f`（见 `version.properties`）。正式版仍使用 `v1.15.0-chain.8`（见 `version-stable.properties`）。Go 版本和上游功能差异以版本 pin、对应内核源码及 CI 为准，维护前需重新核实，不能沿用旧快照。项目当前新增功能范围以 sing-box 原生配置/订阅及 Alex 明确提出的功能为准；不新增 Clash/Mihomo 或其他格式兼容。既有代码与功能保留，不因范围收窄而删除。
 
 官方上游：`https://github.com/SagerNet/sing-box`
 
@@ -152,7 +153,7 @@ git push origin chain-dev
 1. **Fail Closed**：链路失败不得静默落到 DIRECT。
 2. **低耦合**：Chain 尽量只挂在 outbound 注册与 dial 链路上。
 3. **冲突即停**：与官方架构无法兼容时停止发版。
-4. **先验证再跟进**：官方 sing-box 1.14 已发布，`chain-dev` 已带 1.14 依赖。App 侧先把兼容层（fakeip / rcode / inbound sniff / rule-set URL）与链式出站做稳，再合入更新的官方提交。不要在未验证 Chain outbound 的情况下整包快进。
+4. **先验证再跟进**：以 `version.properties` 中的官方 sing-box 基线和精确内核提交为准；升级前先核对依赖、配置行为及链式出站，并通过对应 CI/回归测试。未验证的升级不合入，也不把其他格式兼容作为新增维护范围。
 5. **发版核对官方功能**：CI 拉取 `SagerNet/sing-box` 的 `v$KERNEL_UPSTREAM`，用 `scripts/check_upstream_features.py` 确认官方 inbound/outbound 类型常量仍存在于 `chain-dev`。缺失即失败，不得发版。
 6. **记录内核 commit**：Release 说明写入本次构建的 `chain-dev` SHA，便于复现与审计。构建检出精确 `KERNEL_COMMIT`，并校验远端正式 `KERNEL_TAG` 指向同一提交；不得以可变分支替代精确 pin。
 

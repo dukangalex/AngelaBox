@@ -155,7 +155,11 @@ class ShareActivity :
         val files = sharedFiles
         if (files.isEmpty()) return
         sharedFiles = emptyList()
-        sendID = TaildropSendManager.send(endpointTag, peer.stableID, peer.displayName, files)
+        try {
+            sendID = TaildropSendManager.send(endpointTag, peer.stableID, peer.displayName, files)
+        } catch (e: Exception) {
+            errorMessage = e.message ?: e.toString()
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)

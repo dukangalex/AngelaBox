@@ -124,7 +124,7 @@ fun NewProfileScreen(
 
     if (showImportHint) {
         SelectableMessageDialog(
-            title = "建议开启默认脚本",
+            title = uiState.importHintTitle ?: "建议开启默认脚本",
             message = uiState.importHint.orEmpty(),
             onDismiss = {
                 showImportHint = false

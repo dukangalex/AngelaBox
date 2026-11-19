@@ -28,6 +28,7 @@ import io.nekohasekai.sfa.compose.model.isNestedRegionAutoSelect
 import io.nekohasekai.sfa.compose.navigation.ProfileRoutes
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -57,7 +58,6 @@ import org.json.JSONArray
 import org.json.JSONException
 import java.io.File
 import java.util.Collections
-import java.util.Date
 import java.util.concurrent.atomic.AtomicLong
 
 enum class CardGroup {
@@ -224,6 +224,8 @@ class DashboardViewModel :
     private var lastTopologyPublishAt = 0L
     private var pendingTopology = false
     private val loadSeq = AtomicLong()
+    private val profileSelectionSequence = AtomicLong()
+    private val profileSelectionMutex = Mutex()
 
     companion object {
         private const val TOPOLOGY_THROTTLE_MS = 1000L
@@ -389,7 +391,7 @@ class DashboardViewModel :
         return runCatching {
             val file = File(profile.typed.path)
             if (!file.isFile) return null
-            val root = ChainRuntimeCompiler.parseConfig(file.readText())
+            val root = ChainRuntimeCompiler.parseConfig(ProfileBindingStorage.readText(file))
             val outs = root.optJSONArray("outbounds") ?: return null
             val routeFinal = root.optJSONObject("route")?.optString("final").orEmpty()
             ChainRuntimeCompiler.resolveMainTag(outs, routeFinal)
@@ -463,6 +465,8 @@ class DashboardViewModel :
     fun selectProfile(profileId: Long) {
         if (profileId == currentState.selectedProfileId) return
         val name = currentState.profiles.find { it.id == profileId }?.name
+        val selectionSeq = profileSelectionSequence.incrementAndGet()
+        loadSeq.incrementAndGet()
         updateState {
             copy(
                 selectedProfileId = profileId,
@@ -482,14 +486,23 @@ class DashboardViewModel :
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                Settings.selectedProfile = profileId
-                runCatching { Settings.rebuildServiceMode() }
-                sendGlobalEvent(UiEvent.RequestReconnectService)
-                loadProfiles()
-            } catch (e: Exception) {
-                sendError(e)
-                loadProfiles()
+            profileSelectionMutex.withLock {
+                if (selectionSeq != profileSelectionSequence.get()) return@withLock
+                try {
+                    Settings.selectedProfile = profileId
+                    Settings.rebuildServiceMode()
+                    if (selectionSeq == profileSelectionSequence.get()) {
+                        sendGlobalEvent(UiEvent.RequestReconnectService)
+                        loadProfiles()
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (selectionSeq == profileSelectionSequence.get()) {
+                        sendError(e)
+                        loadProfiles()
+                    }
+                }
             }
         }
     }
@@ -572,8 +585,11 @@ class DashboardViewModel :
 
     fun updateProfile(profile: Profile) {
         if (profile.typed.type != TypedProfile.Type.Remote) return
+        val expectedUrl = profile.typed.remoteURL
+        val expectedPath = profile.typed.path
 
         viewModelScope.launch(Dispatchers.IO) {
+            val updateJob = coroutineContext[Job]
             // Set updating state
             withContext(Dispatchers.Main) {
                 updateState { copy(updatingProfileId = profile.id) }
@@ -583,13 +599,8 @@ class DashboardViewModel :
                 // X-4: 与后台 worker 同口径——用 Detailed 拿到「跳过/修正」
                 // 提示并记进健康记录，否则前台更新丢节点时用户看不到提示，
                 // 且旧警告会被 recordSuccess 清掉后无新记录可展示。
-                val detailed = ConfigCompat.sanitizeRemoteDetailed(
-                    io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemote(
-                        profile.typed.remoteURL,
-                        profile.id,
-                        io.nekohasekai.sfa.Application.application,
-                    ),
-                )
+                val fetched = io.nekohasekai.sfa.utils.SubscriptionInfoStore.fetchRemoteDeferred(expectedUrl)
+                val detailed = ConfigCompat.sanitizeRemoteDetailed(fetched.content)
                 val content = detailed.content
                 // G4: same heal-aligned gate as the background worker.
                 // The rejection reason is Chinese and user-facing, so
@@ -600,18 +611,16 @@ class DashboardViewModel :
                     is ConfigGate.Result.Accepted -> Unit
                 }
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                var contentChanged = false
-                if (!file.exists() || file.readText() != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                    contentChanged = true
-                }
-
-                // Update last updated time
-                profile.typed.lastUpdated = Date()
-                ProfileManager.update(profile)
+                val committed = ProfileManager.commitRemoteContent(
+                    profileId = profile.id,
+                    expectedUrl = expectedUrl,
+                    expectedPath = expectedPath,
+                    content = content,
+                    userInfo = fetched.userInfo,
+                    expectedRestoreEpoch = fetched.restoreEpoch,
+                    isStopped = { updateJob?.isActive == false },
+                ) ?: throw IllegalStateException("订阅已被修改或删除，本次更新已丢弃，请检查后重试。")
+                val contentChanged = committed.changed
                 SubscriptionUpdateHealth.recordSuccess(
                     io.nekohasekai.sfa.Application.application,
                     profile.id,

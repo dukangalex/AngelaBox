@@ -71,17 +71,35 @@ object RuleSetCacheWarmer {
         workingDir: File,
         deadlineMs: Long,
         nowMs: () -> Long,
+        restoreGeneration: Long = RestoreStorageAccess.snapshot(),
+        onStored: (String, File) -> Unit = { _, _ -> },
         download: (url: String, dest: File) -> Boolean,
     ): Int {
+        RestoreStorageAccess.requireCurrent(restoreGeneration)
         var warmed = 0
         for (pending in pendingDownloads(content, workingDir, nowMs())) {
-            if (nowMs() > deadlineMs) break
+            if (nowMs() > deadlineMs || !RestoreStorageAccess.isCurrent(restoreGeneration)) break
+            pending.dest.parentFile?.mkdirs()
+            val tmp = File.createTempFile("warm-", ".tmp", pending.dest.parentFile)
             val ok = try {
-                download(pending.url, pending.dest)
+                download(pending.url, tmp)
             } catch (_: Exception) {
                 false
             }
-            if (ok && pending.dest.isFile && pending.dest.length() > 0L) warmed++
+            try {
+                RestoreStorageAccess.access {
+                    RestoreStorageAccess.requireCurrent(restoreGeneration)
+                    // Same-directory rename preserves the old cache on failure; no destructive copy fallback.
+                    if (ok && tmp.isFile && tmp.length() > 0L && tmp.renameTo(pending.dest)) {
+                        runCatching { onStored(pending.url, pending.dest) }
+                        warmed++
+                    }
+                }
+            } catch (_: RestoreStorageUnavailable) {
+                // A restore invalidated these bytes, even if ID/URL/path were reused.
+            } finally {
+                tmp.delete()
+            }
         }
         return warmed
     }

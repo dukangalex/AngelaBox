@@ -65,4 +65,48 @@ class ChainBindingStoreTest {
         assertEquals("land-b", parsed[2L]?.landingTag)
         assertTrue(parsed[1L]?.landingTag != parsed[2L]?.landingTag)
     }
+
+    @Test
+    fun emptySnapshotClearsLegacyFieldsAndCannotRemigrate() {
+        val snapshot = ChainBindingCodec.snapshot(emptyMap(), 1L)
+        assertEquals("{}", snapshot.json)
+        assertEquals(false, snapshot.enabled)
+        assertEquals(-1L, snapshot.boundProfileId)
+        assertEquals("", snapshot.entryTag)
+        assertEquals(-1L, snapshot.landingProfileId)
+        assertEquals("", snapshot.landingTag)
+        assertTrue(
+            ChainBindingCodec.mergeLegacy(
+                ChainBindingCodec.parse(snapshot.json),
+                snapshot.enabled,
+                snapshot.boundProfileId,
+                snapshot.entryTag,
+                snapshot.landingProfileId,
+                snapshot.landingTag,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun snapshotRetainsOtherBindingsAndMaterializedState() {
+        val first = ChainBinding(1L, "first", 2L, "out", materialized = true)
+        val second = ChainBinding(3L, "second", 4L, "out2", invalidated = true, invalidReason = "gone")
+        val snapshot = ChainBindingCodec.snapshot(mapOf(1L to first, 3L to second), 3L)
+        assertEquals(mapOf(1L to first, 3L to second), ChainBindingCodec.parse(snapshot.json))
+        assertEquals(true, snapshot.enabled)
+        assertEquals(3L, snapshot.boundProfileId)
+        assertEquals("second", snapshot.entryTag)
+        assertEquals(4L, snapshot.landingProfileId)
+        assertEquals("out2", snapshot.landingTag)
+    }
+
+    @Test
+    fun unboundSelectedProfileDoesNotPopulateLegacyBinding() {
+        val snapshot = ChainBindingCodec.snapshot(mapOf(1L to ChainBinding(1L, "entry", 2L, "out")), 9L)
+        assertEquals(true, snapshot.enabled)
+        assertEquals(-1L, snapshot.boundProfileId)
+        assertEquals(-1L, snapshot.landingProfileId)
+        assertEquals("", snapshot.entryTag)
+        assertEquals("", snapshot.landingTag)
+    }
 }

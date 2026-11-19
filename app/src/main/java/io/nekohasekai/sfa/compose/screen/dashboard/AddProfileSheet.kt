@@ -217,7 +217,9 @@ fun AddProfileSheet(
                                 // classified for this confirmation, not a
                                 // fresh read of the URI.
                                 importSnapshot != null -> importHandler.importFromSnapshot(importSnapshot, importName)
-                                importUri != null -> importHandler.importFromUri(importUri)
+                                importUri != null -> ProfileImportHandler.ImportResult.Error(
+                                    context.getString(R.string.error_import_snapshot_mismatch),
+                                )
                                 else -> null
                             }
                             when (result) {

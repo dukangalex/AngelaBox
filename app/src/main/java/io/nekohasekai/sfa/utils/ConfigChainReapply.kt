@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.chain.ChainBindings
 import io.nekohasekai.sfa.chain.ChainRuntimeCompiler
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import org.json.JSONObject
@@ -54,7 +55,7 @@ object ConfigChainReapply {
             null
         } else {
             val landingProfile = ProfileManager.get(landingId) ?: error("落地配置不存在或已被删除")
-            val text = File(landingProfile.typed.path).readText()
+            val text = ProfileBindingStorage.readText(File(landingProfile.typed.path))
             require(text.isNotBlank()) { "落地配置文件为空，无法跨配置组链" }
             val prepared = prepareLandingContent(text, landingId)
             if (ChainRuntimeCompiler.savedEntryMatches(prepared, landingTag) == null) {

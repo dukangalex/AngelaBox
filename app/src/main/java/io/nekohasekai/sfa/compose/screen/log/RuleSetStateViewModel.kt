@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.RuleSetAvailabilityStore
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.utils.RuleSetProviders
 import io.nekohasekai.sfa.utils.RuleSetSeeds
@@ -76,7 +77,7 @@ class RuleSetStateViewModel : ViewModel() {
         //    same parse).
         val profiles = runCatching { ProfileManager.list() }.getOrDefault(emptyList())
         for (profile in profiles) {
-            val content = runCatching { File(profile.typed.path).readText() }.getOrNull() ?: continue
+            val content = runCatching { ProfileBindingStorage.readText(File(profile.typed.path)) }.getOrNull() ?: continue
             val manualPaths = runCatching {
                 RuleSetProviders.parse(content)
                     .filter { it.remote && it.path.isNotBlank() }

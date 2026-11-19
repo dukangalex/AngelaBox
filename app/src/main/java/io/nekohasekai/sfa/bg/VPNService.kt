@@ -32,7 +32,7 @@ class VPNService :
         DirectDial.protectUdp = { socket -> protect(socket) }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = service.onStartCommand()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = service.onStartCommand(intent)
 
     override fun onBind(intent: Intent): IBinder {
         val binder = super.onBind(intent)

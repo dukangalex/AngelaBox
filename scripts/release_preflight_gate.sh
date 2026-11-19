@@ -5,7 +5,13 @@
 set -euo pipefail
 TAG="${1:?usage: release_preflight_gate.sh <version_tag>}"
 
-# Gate 1: release must be cut from the tip of dev, with a clean version.properties.
+[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(beta|stable)$ ]] || { echo "Unsupported release tag" >&2; exit 1; }
+case "$TAG" in
+  *-stable) PROPERTIES=version-stable.properties ;;
+  *-beta) PROPERTIES=version.properties ;;
+esac
+
+# Gate 1: release must be cut from dev tip with clean channel properties.
 DEV_TIP=$(git ls-remote origin refs/heads/dev | awk '{print $1}')
 HEAD_SHA=$(git rev-parse HEAD)
 test -n "$DEV_TIP"
@@ -13,11 +19,11 @@ if [ "$HEAD_SHA" != "$DEV_TIP" ]; then
   echo "Release checkout $HEAD_SHA is not the tip of origin/dev ($DEV_TIP) — refusing to release a stale commit" >&2
   exit 1
 fi
-if [ -n "$(git status --porcelain -- version.properties)" ]; then
-  echo "version.properties has uncommitted changes — refusing to release" >&2
+if [ -n "$(git status --porcelain -- "$PROPERTIES")" ]; then
+  echo "$PROPERTIES has uncommitted changes — refusing to release" >&2
   exit 1
 fi
-echo "Pre-flight OK: releasing tip of dev ($HEAD_SHA), version.properties clean"
+echo "Pre-flight OK: releasing tip of dev ($HEAD_SHA), $PROPERTIES clean"
 
 # Gate 2: the ChainBox CI run for this exact commit must be green.
 CI_JSON=$(gh run list --workflow "ChainBox CI" --limit 20 \

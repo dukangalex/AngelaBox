@@ -1,6 +1,8 @@
 package io.nekohasekai.sfa.utils
 
+import android.net.NetworkCapabilities
 import android.net.SSLCertificateSocketFactory
+import io.nekohasekai.sfa.Application
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
@@ -129,12 +131,15 @@ class HTTPClient : Closeable {
             headers: Map<String, String> = emptyMap(),
             bypassTunnel: Boolean = false,
             resolve: ((String) -> List<InetAddress>)? = null,
+            routeCheck: () -> Unit = {},
         ): HttpsURLConnection {
+            routeCheck()
             val endpoint = when {
                 resolve != null -> RemoteUrlGuard.validate(url, kind, resolve = resolve)
                 bypassTunnel -> RemoteUrlGuard.validate(url, kind, resolve = RemoteUrlGuard::resolveOutsideTunnel)
                 else -> RemoteUrlGuard.validate(url, kind)
             }
+            routeCheck()
             val addr = endpoint.addresses.firstOrNull()
                 ?: throw IllegalArgumentException("无法解析主机，已拒绝")
             val pinned = requestUrlOnIp(url, addr, endpoint.port)
@@ -147,7 +152,7 @@ class HTTPClient : Closeable {
             conn.setRequestProperty("User-Agent", userAgent)
             conn.setRequestProperty("Connection", "close")
             headers.forEach { (key, value) -> conn.setRequestProperty(key, value) }
-            conn.sslSocketFactory = PinnedSniSslSocketFactory(endpoint.host, addr, endpoint.port, bypassTunnel)
+            conn.sslSocketFactory = PinnedSniSslSocketFactory(endpoint.host, addr, endpoint.port, bypassTunnel, routeCheck)
             conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, session ->
                 HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, session)
             }
@@ -159,8 +164,9 @@ class HTTPClient : Closeable {
             endpoint: ValidatedEndpoint,
             kind: RemoteUrlGuard.Kind,
             headers: Map<String, String>,
+            connection: (() -> java.net.URLConnection)? = null,
         ): HttpsURLConnection {
-            val conn = URL(url).openConnection()
+            val conn = connection?.invoke() ?: URL(url).openConnection()
             require(conn is HttpsURLConnection) { "仅允许 HTTPS" }
             conn.instanceFollowRedirects = false
             conn.connectTimeout = connectTimeout(kind, viaTunnel = true)
@@ -246,7 +252,44 @@ class HTTPClient : Closeable {
             kind: RemoteUrlGuard.Kind,
             headers: Map<String, String>,
             route: Route,
+            lease: SubscriptionRouteLease? = null,
         ): HttpsURLConnection {
+            lease?.check()
+            if (kind == RemoteUrlGuard.Kind.SUBSCRIPTION) {
+                checkNotNull(lease) { "订阅请求缺少安全路由上下文，已拒绝" }
+                check((route == Route.PROXY) == lease.snapshot.up) { "订阅路由与 VPN 状态不符，已拒绝" }
+                if (route == Route.PROXY) {
+                    val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
+                    val manager = Application.connectivity
+                    val network = manager.activeNetwork
+                    check(
+                        network != null && manager.getNetworkCapabilities(network)
+                            ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
+                    ) {
+                        "未找到可绑定的 VPN 网络，订阅更新已停止，请检查 VPN 后重试"
+                    }
+                    lease.check()
+                    // Bind DNS and sockets to this Network. Losing it must not fall
+                    // back to the default network, even after the last state check.
+                    return openNamed(url, endpoint, kind, headers) {
+                        network.openConnection(URL(url), java.net.Proxy.NO_PROXY)
+                    }
+                }
+                return openPinned(
+                    url,
+                    kind,
+                    headers,
+                    bypassTunnel = false,
+                    resolve = { host ->
+                        if (route == Route.DIRECT_DNS) {
+                            RemoteUrlGuard.resolveOutsideTunnel(host, protect = false, routeCheck = lease::check)
+                        } else {
+                            RemoteUrlGuard.resolveSubscriptionDirect(host, lease::check)
+                        }
+                    },
+                    routeCheck = lease::check,
+                )
+            }
             if (route == Route.PROXY) {
                 val endpoint = RemoteUrlGuard.validateWithoutDns(url, kind)
                 if (!TunnelGate.up) {
@@ -327,20 +370,15 @@ class HTTPClient : Closeable {
             // Tunnel down: say what actually failed instead of blaming the
             // user's network. The ladder already retried with public-resolver
             // DNS, so a DNS failure here means both resolvers gave up.
-            // The technical suffix names only the exception class: raw
-            // messages may contain handshake dumps.
             val dnsFailed = chain.any { it is java.net.UnknownHostException } ||
                 messages.any { it.contains("无法解析主机") || it.contains("解析到禁止地址") }
-            val cause = chain.lastOrNull { !it.message.isNullOrBlank() }
-                ?.javaClass?.simpleName?.takeIf { it.isNotEmpty() }
-            val suffix = if (cause.isNullOrEmpty()) "" else "（$cause）"
             return if (dnsFailed) {
                 "订阅没更新上：域名解析失败。系统 DNS 与公共 DNS 都拿不到可用地址，" +
-                    "可能是 DNS 被污染或订阅链接有误。请检查链接是否正确，或先连接可用节点后再更新。" + suffix
+                    "可能是 DNS 被污染或订阅链接有误。请检查链接是否正确，或先连接可用节点后再更新。"
             } else {
                 "订阅没更新上：直连订阅服务器失败，连接被中断或超时。" +
                     "该地址可能限制了直接访问——先连接一个可用节点，再回来更新订阅；" +
-                    "也可以改用分享链接、二维码或文件导入。" + suffix
+                    "也可以改用分享链接、二维码或文件导入。"
             }
         }
 
@@ -367,6 +405,7 @@ class HTTPClient : Closeable {
             var current: Throwable? = error
             while (current != null) {
                 when (current) {
+                    is SubscriptionRouteChangedException,
                     is java.net.SocketTimeoutException,
                     is java.net.SocketException,
                     is java.net.UnknownHostException,
@@ -422,12 +461,24 @@ class HTTPClient : Closeable {
     ): String {
         val max = maxChars(kind).toLong()
         lastUserinfo = null
-        return withUpdateRetry(kind) { route ->
-            fetch(url, kind, headers, max, route, FETCH_DEADLINE_MS) { input, conn, deadlineNanos ->
-                lastUserinfo = header(conn, "subscription-userinfo") ?: lastUserinfo
-                val bytes = readLimited(input, max, deadlineNanos)
-                String(bytes, Charsets.UTF_8)
+        return withSubscriptionLease(kind) { lease ->
+            withUpdateRetry(kind, lease?.snapshot?.up ?: TunnelGate.up) { route ->
+                lease?.check()
+                fetch(url, kind, headers, max, route, FETCH_DEADLINE_MS, lease) { input, conn, deadlineNanos ->
+                    lastUserinfo = header(conn, "subscription-userinfo") ?: lastUserinfo
+                    val bytes = readLimited(input, max, deadlineNanos)
+                    String(bytes, Charsets.UTF_8)
+                }
             }
+        }
+    }
+
+    private fun <T> withSubscriptionLease(kind: RemoteUrlGuard.Kind, block: (SubscriptionRouteLease?) -> T): T {
+        val lease = if (kind == RemoteUrlGuard.Kind.SUBSCRIPTION) SubscriptionRouteLease() else null
+        try {
+            return block(lease)
+        } finally {
+            lease?.close()
         }
     }
 
@@ -439,37 +490,40 @@ class HTTPClient : Closeable {
         onProgress: ((Long, Long) -> Unit)? = null,
     ) {
         val max = if (kind == RemoteUrlGuard.Kind.UPDATE) MAX_UPDATE_FILE_BYTES else maxChars(kind).toLong()
-        withUpdateRetry(kind) { route ->
-            fetch(url, kind, headers, max, route, FILE_FETCH_DEADLINE_MS) { input, conn, deadlineNanos ->
-                val total = conn.contentLengthLong
-                dest.parentFile?.mkdirs()
-                if (dest.exists()) dest.delete()
-                try {
-                    dest.outputStream().use { output ->
-                        val buf = ByteArray(64 * 1024)
-                        var written = 0L
-                        while (true) {
-                            checkFetchDeadline(deadlineNanos)
-                            val n = input.read(buf)
-                            if (n <= 0) break
-                            written += n
-                            if (written > max) {
-                                throw IllegalStateException("下载内容过大（>$max 字节）")
+        withSubscriptionLease(kind) { lease ->
+            withUpdateRetry(kind, lease?.snapshot?.up ?: TunnelGate.up) { route ->
+                lease?.check()
+                fetch(url, kind, headers, max, route, FILE_FETCH_DEADLINE_MS, lease) { input, conn, deadlineNanos ->
+                    val total = conn.contentLengthLong
+                    dest.parentFile?.mkdirs()
+                    if (dest.exists()) dest.delete()
+                    try {
+                        dest.outputStream().use { output ->
+                            val buf = ByteArray(64 * 1024)
+                            var written = 0L
+                            while (true) {
+                                checkFetchDeadline(deadlineNanos)
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                written += n
+                                if (written > max) {
+                                    throw IllegalStateException("下载内容过大（>$max 字节）")
+                                }
+                                output.write(buf, 0, n)
+                                onProgress?.invoke(written, total)
                             }
-                            output.write(buf, 0, n)
-                            onProgress?.invoke(written, total)
                         }
+                    } catch (e: Exception) {
+                        // 磁盘满等异常时删除残留的损坏文件，防调用方拿到半截文件。
+                        dest.delete()
+                        throw e
                     }
-                } catch (e: Exception) {
-                    // 磁盘满等异常时删除残留的损坏文件，防调用方拿到半截文件。
-                    dest.delete()
-                    throw e
+                    if (!dest.exists() || dest.length() == 0L) {
+                        dest.delete()
+                        throw IllegalStateException("下载失败：空文件")
+                    }
+                    dest
                 }
-                if (!dest.exists() || dest.length() == 0L) {
-                    dest.delete()
-                    throw IllegalStateException("下载失败：空文件")
-                }
-                dest
             }
         }
     }
@@ -538,7 +592,12 @@ class HTTPClient : Closeable {
             try {
                 return block(route)
             } catch (e: Exception) {
-                if (!isTransientUpdateFailure(e)) throw friendlyFetch(kind, e)
+                // A new worker may retry with a new lease; this attempt must not switch routes.
+                if (generateSequence<Throwable>(e) { it.cause }.any { it is SubscriptionRouteChangedException } ||
+                    !isTransientUpdateFailure(e)
+                ) {
+                    throw friendlyFetch(kind, e)
+                }
                 last = e
             }
         }
@@ -565,13 +624,16 @@ class HTTPClient : Closeable {
         maxBytes: Long,
         route: Route,
         deadlineMs: Long,
+        lease: SubscriptionRouteLease? = null,
         reader: (InputStream, HttpsURLConnection, Long) -> T,
     ): T {
         // E-2: one absolute deadline for the whole attempt, redirects included.
         val deadlineNanos = System.nanoTime() + deadlineMs * 1_000_000L
+        lease?.check()
         var current = startUrl.trim()
         val byName = route == Route.PROXY
-        if (byName) {
+        if (byName || lease != null) {
+            // Subscription DNS is resolved only by the per-hop leased route.
             RemoteUrlGuard.validateWithoutDns(current, kind)
         } else if (route == Route.DIRECT_DNS) {
             RemoteUrlGuard.requireAllowed(current, kind, RemoteUrlGuard::resolveOutsideTunnel)
@@ -586,10 +648,14 @@ class HTTPClient : Closeable {
             checkFetchDeadline(deadlineNanos)
             require(seen.add(current)) { "重定向循环" }
             hdrs = headersForHop(current, kind, hdrs)
-            val conn = openFor(current, kind, hdrs, route)
+            lease?.check()
+            val conn = openFor(current, kind, hdrs, route, lease)
             conn.requestMethod = "GET"
             try {
+                lease?.track(conn)
+                lease?.check()
                 val code = conn.responseCode
+                lease?.check()
                 val info = header(conn, "subscription-userinfo")
                 if (!info.isNullOrBlank()) lastUserinfo = info
                 if (code in 300..399) {
@@ -597,7 +663,7 @@ class HTTPClient : Closeable {
                         current,
                         conn.getHeaderField("Location"),
                         kind,
-                        resolveDns = !byName,
+                        resolveDns = !byName && lease == null,
                         // E-6: DIRECT_DNS must keep resolving through public
                         // resolvers on redirect hops too, tunnel or not.
                         outsideTunnel = redirectResolvesOutside(route, TunnelGate.up),
@@ -615,8 +681,12 @@ class HTTPClient : Closeable {
                 if (declared > maxBytes) {
                     throw IllegalStateException("下载内容过大（>$maxBytes 字节）")
                 }
-                return conn.inputStream.use { input -> reader(input, conn, deadlineNanos) }
+                return conn.inputStream.use { input ->
+                    val checked = lease?.checkedStream(input) ?: input
+                    reader(checked, conn, deadlineNanos).also { lease?.check() }
+                }
             } finally {
+                lease?.untrack(conn)
                 conn.disconnect()
             }
         }
@@ -665,22 +735,37 @@ private class PinnedSniSslSocketFactory(
     private val peer: InetAddress,
     private val port: Int,
     private val bypassTunnel: Boolean,
+    private val routeCheck: () -> Unit,
 ) : SSLSocketFactory() {
     private val delegate =
         SSLCertificateSocketFactory.getDefault(HTTPClient.CONNECT_TIMEOUT_MS, null)
             as SSLCertificateSocketFactory
 
+    private fun checked(create: () -> Socket): Socket {
+        routeCheck()
+        return pin(create())
+    }
+
     private fun pin(socket: Socket): Socket {
+        try {
+            routeCheck()
+        } catch (e: Exception) {
+            runCatching { socket.close() }
+            throw e
+        }
         delegate.setHostname(socket, hostname)
         return socket
     }
 
     /** Protect before connect so a dead node cannot reset the direct retry. */
     private fun connectOutside(): Socket {
+        routeCheck()
         val raw = Socket()
         try {
-            if (bypassTunnel) DirectDial.protect(raw)
+            if (bypassTunnel) DirectDial.requireTcpProtection(raw)
+            routeCheck()
             raw.connect(java.net.InetSocketAddress(peer, port), HTTPClient.UPDATE_DIRECT_CONNECT_TIMEOUT_MS)
+            routeCheck()
             val ssl = delegate.createSocket(raw, hostname, port, true)
             return pin(ssl)
         } catch (e: Exception) {
@@ -693,21 +778,18 @@ private class PinnedSniSslSocketFactory(
     override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
     override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
     override fun createSocket(s: Socket, host: String, port: Int, autoClose: Boolean): Socket {
+        routeCheck()
         if (!bypassTunnel) return pin(delegate.createSocket(s, hostname, port, autoClose))
         if (autoClose) runCatching { s.close() }
         return connectOutside()
     }
-    override fun createSocket(host: String, port: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
-    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port, localHost, localPort))
-    override fun createSocket(address: InetAddress, port: Int): Socket = if (bypassTunnel) connectOutside() else pin(delegate.createSocket(peer, port))
+    override fun createSocket(host: String, port: Int): Socket = if (bypassTunnel) connectOutside() else checked { delegate.createSocket(peer, port) }
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = if (bypassTunnel) connectOutside() else checked { delegate.createSocket(peer, port, localHost, localPort) }
+    override fun createSocket(address: InetAddress, port: Int): Socket = if (bypassTunnel) connectOutside() else checked { delegate.createSocket(peer, port) }
     override fun createSocket(
         address: InetAddress,
         port: Int,
         localAddress: InetAddress,
         localPort: Int,
-    ): Socket = if (bypassTunnel) {
-        connectOutside()
-    } else {
-        pin(delegate.createSocket(peer, port, localAddress, localPort))
-    }
+    ): Socket = if (bypassTunnel) connectOutside() else checked { delegate.createSocket(peer, port, localAddress, localPort) }
 }
