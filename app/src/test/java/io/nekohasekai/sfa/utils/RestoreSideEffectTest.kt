@@ -2,9 +2,8 @@ package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.*
-import java.io.IOException
-import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -12,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [30], application = Application::class, shadows = [RestoreDirectoryOsShadow::class])
@@ -36,7 +36,9 @@ class RestoreSideEffectTest {
             } catch (_: IOException) {}
             assertEquals("before", Settings.themeMode)
             assertTrue("provisional profile callbacks escaped rollback: $seen", seen.isEmpty())
-        } finally { ProfileManager.unregisterCallback(callback) }
+        } finally {
+            ProfileManager.unregisterCallback(callback)
+        }
     }
 
     @Test fun rollbackDoesNotPublishProvisionalSettings() = runBlocking(Dispatchers.IO) {
@@ -57,7 +59,9 @@ class RestoreSideEffectTest {
             } catch (_: IOException) {}
             assertTrue(seen.isEmpty())
             assertEquals("before", Settings.themeMode)
-        } finally { Settings.dataStore.unregisterChangeListener(listener) }
+        } finally {
+            Settings.dataStore.unregisterChangeListener(listener)
+        }
     }
 
     @Test fun successfulCommitCoalescesEffectsAndRunsOutsideBarrier() {
@@ -66,7 +70,8 @@ class RestoreSideEffectTest {
             RestoreStorageAccess.afterCommit("key") { seen += "discard" }
             RestoreStorageAccess.afterCommit("key") {
                 val reader = Thread { RestoreStorageAccess.access { seen += "committed" } }
-                reader.start(); reader.join(3000)
+                reader.start()
+                reader.join(3000)
                 assertFalse(reader.isAlive)
             }
             assertTrue(seen.isEmpty())
@@ -99,8 +104,10 @@ class RestoreSideEffectTest {
 
     @Test fun failedRestoreKeepsWorkManagerRequestButCommittedRestoreCancelsIt() = runBlocking(Dispatchers.IO) {
         val context = RuntimeEnvironment.getApplication()
-        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(context,
-            androidx.work.Configuration.Builder().setExecutor(androidx.work.testing.SynchronousExecutor()).build())
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
+            context,
+            androidx.work.Configuration.Builder().setExecutor(androidx.work.testing.SynchronousExecutor()).build(),
+        )
         val wm = androidx.work.WorkManager.getInstance(context)
         try {
             val profile = ProfileManager.create(Profile(name = "pending"), pendingInitialImport = true)
@@ -120,15 +127,22 @@ class RestoreSideEffectTest {
             assertEquals(androidx.work.WorkInfo.State.ENQUEUED, wm.getWorkInfosForUniqueWork(name).get().single().state)
             BackupRestoreTransaction.run(context) { ProfileManager.clearForRestore() }
             assertEquals(androidx.work.WorkInfo.State.CANCELLED, wm.getWorkInfosForUniqueWork(name).get().single().state)
-        } finally { androidx.work.testing.WorkManagerTestInitHelper.closeWorkDatabase() }
+        } finally {
+            androidx.work.testing.WorkManagerTestInitHelper.closeWorkDatabase()
+        }
     }
 
     @Test fun restoreCannotCrossASuspendedProductionProfileCommit() = runBlocking(Dispatchers.IO) {
-        val current = ProfileManager.create(Profile(name = "remote", typed = TypedProfile().apply {
-            type = TypedProfile.Type.Remote
-            remoteURL = "https://example.com/config"
-            path = "lease-test.json"
-        }))
+        val current = ProfileManager.create(
+            Profile(
+                name = "remote",
+                typed = TypedProfile().apply {
+                    type = TypedProfile.Type.Remote
+                    remoteURL = "https://example.com/config"
+                    path = "lease-test.json"
+                },
+            ),
+        )
         val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         val writer = async(Dispatchers.Default) {
@@ -144,8 +158,12 @@ class RestoreSideEffectTest {
         try {
             try {
                 BackupRestoreTransaction.run(RuntimeEnvironment.getApplication()) { mutated = true }
-            } catch (_: IllegalStateException) { denied = true }
-        } finally { release.complete(Unit) }
+            } catch (_: IllegalStateException) {
+                denied = true
+            }
+        } finally {
+            release.complete(Unit)
+        }
         assertTrue(writer.await())
         assertTrue("restore must reject while an admitted profile commit is suspended", denied)
         assertFalse(mutated)
@@ -172,7 +190,9 @@ class RestoreSideEffectTest {
             io.nekohasekai.sfa.bg.runProfileUpdateAttempt({ false }, { recorded = true }) {
                 throw IllegalStateException("transport wrapper", busy)
             }
-        } catch (e: RestoreStorageUnavailable) { caught = e }
+        } catch (e: RestoreStorageUnavailable) {
+            caught = e
+        }
         assertSame(busy, caught)
         assertFalse(recorded)
     }

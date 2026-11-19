@@ -441,7 +441,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             expectedPath = expectedPath,
             content = content,
             userInfo = fetched.userInfo,
-                    expectedRestoreEpoch = fetched.restoreEpoch,
+            expectedRestoreEpoch = fetched.restoreEpoch,
             isStopped = { !job.isActive },
         ) ?: error("订阅已被修改或删除，请刷新后重试")
         profile = ProfileManager.get(loaded.id)

@@ -72,8 +72,7 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = ProfileBindingStorage.access { database().profileDao().get(id) }
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false, pendingInitialImport: Boolean = false): Profile =
-        io.nekohasekai.sfa.utils.RestoreStorageAccess.lease {
+    suspend fun create(profile: Profile, andSelect: Boolean = false, pendingInitialImport: Boolean = false): Profile = io.nekohasekai.sfa.utils.RestoreStorageAccess.lease {
         profile.id = ProfileBindingStorage.mutate { database().insertProfile(profile, pendingInitialImport) }
         if (andSelect) {
             Settings.selectedProfile = profile.id

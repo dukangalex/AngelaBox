@@ -58,7 +58,10 @@ internal class RestoreJournal(
             DataOutputStream(out).apply {
                 writeInt(1)
                 writeInt(records.size)
-                records.forEach { (name, hash) -> writeUTF(name); writeUTF(hash) }
+                records.forEach { (name, hash) ->
+                    writeUTF(name)
+                    writeUTF(hash)
+                }
                 flush()
             }
         }
@@ -181,7 +184,10 @@ internal class RestoreJournal(
     }
 
     private fun writeDurably(file: File, body: (FileOutputStream) -> Unit) {
-        FileOutputStream(file).use { output -> body(output); output.fd.sync() }
+        FileOutputStream(file).use { output ->
+            body(output)
+            output.fd.sync()
+        }
     }
 
     private fun syncTree(file: File) {
@@ -189,7 +195,9 @@ internal class RestoreJournal(
         if (file.isDirectory) {
             (file.listFiles() ?: throw IOException("无法枚举恢复目录")).forEach(::syncTree)
             syncDirectory(file)
-        } else FileOutputStream(file, true).use { it.fd.sync() }
+        } else {
+            FileOutputStream(file, true).use { it.fd.sync() }
+        }
     }
 
     private fun fingerprint(root: File): String {
@@ -206,7 +214,11 @@ internal class RestoreJournal(
                 digest.update(0.toByte())
                 file.inputStream().use { input ->
                     val buffer = ByteArray(8192)
-                    while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) }
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        digest.update(buffer, 0, n)
+                    }
                 }
             }
         }

@@ -97,7 +97,9 @@ object RuleSetCacheWarmer {
                 }
             } catch (_: RestoreStorageUnavailable) {
                 // A restore invalidated these bytes, even if ID/URL/path were reused.
-            } finally { tmp.delete() }
+            } finally {
+                tmp.delete()
+            }
         }
         return warmed
     }

@@ -3,9 +3,9 @@ package io.nekohasekai.sfa.bg
 import android.util.Log
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.ProfileBindingStorage
-import io.nekohasekai.sfa.utils.RestoreStorageAccess
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
+import io.nekohasekai.sfa.utils.RestoreStorageAccess
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
 import io.nekohasekai.sfa.utils.RuleSetSeeds
 import io.nekohasekai.sfa.utils.RuleSetStore
@@ -142,9 +142,11 @@ object RuleSetWarmup {
             System::currentTimeMillis,
             restoreGeneration,
         ) { url, tmp -> shouldContinue() && downloadToTemp(url, tmp) }
-        if (shouldContinue()) RestoreStorageAccess.access {
-            RestoreStorageAccess.requireCurrent(restoreGeneration)
-            pruneStore(storeDir, content)
+        if (shouldContinue()) {
+            RestoreStorageAccess.access {
+                RestoreStorageAccess.requireCurrent(restoreGeneration)
+                pruneStore(storeDir, content)
+            }
         }
     }
 
@@ -180,5 +182,4 @@ object RuleSetWarmup {
             RuleSetStore.prune(storeDir, referenced, System.currentTimeMillis())
         }
     }
-
 }

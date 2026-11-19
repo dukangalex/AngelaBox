@@ -25,7 +25,9 @@ class RestoreCacheRaceTest {
             }
             assertEquals("stale completed download must not enter the live store", 0, count)
             assertFalse(RuleSetStore.entryFile(root, "custom", "source", url).exists())
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test fun staleQueuedWarmDoesNotBeginDownload() {
@@ -35,14 +37,22 @@ class RestoreCacheRaceTest {
         var requests = 0
         try {
             val result = runCatching {
-                RuleSetStore.warm("{}", root, Long.MAX_VALUE, { 1L }, epoch) { _, _ -> requests++; true }
+                RuleSetStore.warm("{}", root, Long.MAX_VALUE, { 1L }, epoch) { _, _ ->
+                    requests++
+                    true
+                }
             }
             assertTrue(result.exceptionOrNull() is RestoreStorageUnavailable)
             assertEquals(0, requests)
             // Android glue also rejects a ticket captured before its coroutine/mutex wait.
-            io.nekohasekai.sfa.bg.RuleSetWarmup.warmNow("{}", Long.MAX_VALUE, epoch) { requests++; true }
+            io.nekohasekai.sfa.bg.RuleSetWarmup.warmNow("{}", Long.MAX_VALUE, epoch) {
+                requests++
+                true
+            }
             assertEquals(1, requests) // continuation predicate only; no cache/downloader work
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test fun tagCachePreservesPriorCopyWhenRestoreFollowsDownload() {
@@ -55,8 +65,13 @@ class RestoreCacheRaceTest {
         dest.setLastModified(1L)
         var effects = 0
         try {
-            val count = RuleSetCacheWarmer.warm(content, root, Long.MAX_VALUE, { Long.MAX_VALUE / 2 },
-                onStored = { _, _ -> effects++ }) { _, tmp ->
+            val count = RuleSetCacheWarmer.warm(
+                content,
+                root,
+                Long.MAX_VALUE,
+                { Long.MAX_VALUE / 2 },
+                onStored = { _, _ -> effects++ },
+            ) { _, tmp ->
                 tmp.writeText("stale downloaded copy")
                 RestoreStorageAccess.exclusive { }
                 true
@@ -65,6 +80,8 @@ class RestoreCacheRaceTest {
             assertEquals("old last good copy", dest.readText())
             assertEquals(0, effects)
             assertFalse(dest.parentFile!!.listFiles()!!.any { it.name.endsWith(".tmp") })
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

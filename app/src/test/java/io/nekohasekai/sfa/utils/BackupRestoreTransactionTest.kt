@@ -5,8 +5,6 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
-import java.io.File
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -15,6 +13,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [30], application = Application::class, shadows = [RestoreDirectoryOsShadow::class])
@@ -55,6 +55,7 @@ class BackupRestoreTransactionTest {
     }
 
     @Test fun exceptionRollsBackBothDatabasesAndConfigurationTogether() = exercise(false)
+
     @Test fun startupRecoversBothDatabasesAndFilesAfterSimulatedDeath() = exercise(true)
 
     @Test fun otherThreadCannotUseRetainedDaoDuringRestore() = runBlocking(Dispatchers.IO) {
@@ -63,7 +64,8 @@ class BackupRestoreTransactionTest {
         var denied = false
         BackupRestoreTransaction.run(context) {
             val reader = Thread { denied = runCatching { retained.list() }.isFailure }
-            reader.start(); reader.join(3000)
+            reader.start()
+            reader.join(3000)
             assertFalse("reader must fail promptly rather than deadlock", reader.isAlive)
             assertTrue(denied)
         }

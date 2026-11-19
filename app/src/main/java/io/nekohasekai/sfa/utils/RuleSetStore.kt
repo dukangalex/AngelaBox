@@ -287,7 +287,9 @@ object RuleSetStore {
                     if (ok && promote(tmp, storeDir, pending.tag, pending.format, pending.url)) {
                         markSeen(storeDir, listOf(pending.dest.name), nowMs())
                         true
-                    } else false
+                    } else {
+                        false
+                    }
                 }
             }.getOrDefault(false)
             if (committed) {

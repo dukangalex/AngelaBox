@@ -5,18 +5,17 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.res.Resources
 import android.content.pm.ProviderInfo
+import android.content.res.Resources
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
-import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -24,6 +23,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowContentResolver
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [30], application = Application::class)
@@ -32,8 +32,7 @@ class ImportProviderUnavailableTest {
         var file: File? = null
         var opens = 0
         override fun onCreate() = true
-        override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor =
-            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME)).apply { addRow(arrayOf("profile.json")) }
+        override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME)).apply { addRow(arrayOf("profile.json")) }
         override fun getType(uri: Uri): String = "application/json"
         override fun insert(uri: Uri, values: ContentValues?): Uri? = null
         override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = 0
@@ -53,25 +52,41 @@ class ImportProviderUnavailableTest {
                 else -> "test-string"
             }
         }
-        return object : ContextWrapper(base) { override fun getResources(): Resources = resources }
+        return object : ContextWrapper(base) {
+            override fun getResources(): Resources = resources
+        }
     }
+
     @Test fun unavailableProviderMustNotProduceConfirmableImport() = runBlocking {
         val context: Context = testContext()
         val provider = UnavailableProvider()
-        provider.attachInfo(context, ProviderInfo().apply { authority = "test.unavailable"; exported = false })
+        provider.attachInfo(
+            context,
+            ProviderInfo().apply {
+                authority = "test.unavailable"
+                exported = false
+            },
+        )
         ShadowContentResolver.registerProviderInternal("test.unavailable", provider)
         val result = ProfileImportHandler(context).parseUri(Uri.parse("content://test.unavailable/profile.json"))
         assertTrue("No captured file must yield an error, not an import confirmation: $result", result is ProfileImportHandler.UriParseResult.Error)
         assertEquals("file-unavailable", (result as ProfileImportHandler.UriParseResult.Error).message)
         assertEquals(1, provider.opens)
     }
+
     @Test fun snapshotContainsTheBytesSeenBeforeProviderChanges() = runBlocking {
         val context: Context = testContext()
         val file = File(context.cacheDir, "import-snapshot-test.json")
         val original = "{\"outbounds\":[]}".toByteArray()
         file.writeBytes(original)
         val provider = UnavailableProvider().apply { this.file = file }
-        provider.attachInfo(context, ProviderInfo().apply { authority = "test.available"; exported = false })
+        provider.attachInfo(
+            context,
+            ProviderInfo().apply {
+                authority = "test.available"
+                exported = false
+            },
+        )
         ShadowContentResolver.registerProviderInternal("test.available", provider)
         val handler = ProfileImportHandler(context)
         val result = handler.parseUri(Uri.parse("content://test.available/profile.json"))
@@ -86,5 +101,4 @@ class ImportProviderUnavailableTest {
         assertEquals("snapshot-mismatch", (changed as ProfileImportHandler.ImportResult.Error).message)
         assertEquals(1, provider.opens)
     }
-
 }

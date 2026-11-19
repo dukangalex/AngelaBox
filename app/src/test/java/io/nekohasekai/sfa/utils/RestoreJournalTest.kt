@@ -1,9 +1,9 @@
 package io.nekohasekai.sfa.utils
 
-import java.io.File
-import java.nio.file.Files
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class RestoreJournalTest {
     private class Killed : Error("simulated process death")
@@ -11,7 +11,10 @@ class RestoreJournalTest {
         val root = Files.createTempDirectory("restore-journal-").toFile().canonicalFile
         val settings = File(root, "settings.db").apply { writeText("old-settings") }
         val profiles = File(root, "profiles.db").apply { writeText("old-profiles") }
-        val configs = File(root, "configs").apply { mkdir(); File(this, "old.json").writeText("old-config") }
+        val configs = File(root, "configs").apply {
+            mkdir()
+            File(this, "old.json").writeText("old-config")
+        }
         val wal = File(root, "profiles.db-wal") // Absent before restore.
         val journalDir = File(root, "journal")
         val targets = linkedMapOf("settings" to settings, "profiles" to profiles, "configs" to configs, "wal" to wal)
@@ -19,7 +22,9 @@ class RestoreJournalTest {
         fun change() {
             settings.writeText("new-settings")
             profiles.writeText("new-profiles")
-            configs.deleteRecursively(); configs.mkdir(); File(configs, "new.json").writeText("new-config")
+            configs.deleteRecursively()
+            configs.mkdir()
+            File(configs, "new.json").writeText("new-config")
             wal.writeText("new-wal")
         }
         fun assertOld() {
@@ -29,7 +34,9 @@ class RestoreJournalTest {
             assertEquals("old-config", File(configs, "old.json").readText())
             assertFalse(wal.exists())
         }
-        fun close() { root.deleteRecursively() }
+        fun close() {
+            root.deleteRecursively()
+        }
     }
 
     @Test fun copyFailureBeforeReadyLeavesOldDatasetUntouched() {
@@ -40,7 +47,9 @@ class RestoreJournalTest {
             f.assertOld()
             assertFalse(f.journal().recover())
             f.assertOld()
-        } finally { f.close() }
+        } finally {
+            f.close()
+        }
     }
 
     @Test fun processDeathAtEveryApplyBoundaryRestoresAllRoots() {
@@ -55,7 +64,9 @@ class RestoreJournalTest {
                 assertTrue(f.journal().recover())
                 f.assertOld()
                 assertFalse(f.journal().recover())
-            } finally { f.close() }
+            } finally {
+                f.close()
+            }
         }
     }
 
@@ -66,14 +77,24 @@ class RestoreJournalTest {
         for (stage in cuts) {
             val f = Fixture()
             try {
-                f.journal().begin(); f.change()
+                f.journal().begin()
+                f.change()
                 var hit = false
-                try { f.journal { if (it == stage) { hit = true; throw Killed() } }.recover() } catch (_: Killed) {}
+                try {
+                    f.journal {
+                        if (it == stage) {
+                            hit = true
+                            throw Killed()
+                        }
+                    }.recover()
+                } catch (_: Killed) {}
                 assertTrue("missing cut $stage", hit)
                 assertTrue(f.journal().needsRecovery())
                 assertTrue(f.journal().recover())
                 f.assertOld()
-            } finally { f.close() }
+            } finally {
+                f.close()
+            }
         }
     }
 
@@ -81,49 +102,68 @@ class RestoreJournalTest {
         val f = Fixture()
         try {
             val j = f.journal { if (it == "committed") throw Killed() }
-            j.begin(); f.change()
-            try { j.commit(); fail() } catch (_: Killed) {}
+            j.begin()
+            f.change()
+            try {
+                j.commit()
+                fail()
+            } catch (_: Killed) {}
             assertFalse(f.journal().needsRecovery())
             assertFalse(f.journal().recover())
             assertEquals("new-settings", f.settings.readText())
             assertEquals("new-profiles", f.profiles.readText())
             assertTrue(File(f.configs, "new.json").isFile)
             assertEquals("new-wal", f.wal.readText())
-        } finally { f.close() }
+        } finally {
+            f.close()
+        }
     }
 
     @Test fun preCommitDeathRollsBackEvenAfterSuccessfulApply() {
         val f = Fixture()
         try {
             val j = f.journal { if (it == "before_commit") throw Killed() }
-            j.begin(); f.change()
-            try { j.commit(); fail() } catch (_: Killed) {}
-            assertTrue(f.journal().recover()); f.assertOld()
-        } finally { f.close() }
+            j.begin()
+            f.change()
+            try {
+                j.commit()
+                fail()
+            } catch (_: Killed) {}
+            assertTrue(f.journal().recover())
+            f.assertOld()
+        } finally {
+            f.close()
+        }
     }
 
     @Test fun corruptedSnapshotBlocksRecoveryBeforeAnyLiveRootChanges() {
         val f = Fixture()
         try {
-            f.journal().begin(); f.change()
+            f.journal().begin()
+            f.change()
             File(f.journalDir, "originals/settings").writeText("corrupt")
             assertTrue(runCatching { f.journal().recover() }.isFailure)
             assertTrue(f.journal().needsRecovery())
             assertEquals("new-settings", f.settings.readText())
             assertEquals("new-profiles", f.profiles.readText())
             assertTrue(File(f.configs, "new.json").isFile)
-        } finally { f.close() }
+        } finally {
+            f.close()
+        }
     }
 
     @Test fun corruptIndexAndMarkersAreNotTreatedAsSuccessfulRecovery() {
         val f = Fixture()
         try {
-            f.journal().begin(); f.change()
+            f.journal().begin()
+            f.change()
             File(f.journalDir, "index").writeBytes(byteArrayOf(1))
             assertTrue(runCatching { f.journal().recover() }.isFailure)
             assertTrue(f.journal().needsRecovery())
             assertEquals("new-profiles", f.profiles.readText())
-        } finally { f.close() }
+        } finally {
+            f.close()
+        }
     }
 
     @Test fun symlinkSnapshotCannotRedirectRollbackOutsideTargets() {
@@ -134,8 +174,11 @@ class RestoreJournalTest {
             assertTrue(runCatching { f.journal().begin() }.isFailure)
             assertEquals("keep", outside.readText())
             assertFalse(f.journal().needsRecovery())
-        } finally { f.close() }
+        } finally {
+            f.close()
+        }
     }
+
     @Test fun redirectedRootIsRejectedButCanonicalParentAliasIsAccepted() {
         val f = Fixture()
         try {
@@ -146,8 +189,11 @@ class RestoreJournalTest {
                 val redirect = File(f.root, "redirect")
                 Files.createSymbolicLink(redirect.toPath(), f.configs.toPath())
                 assertTrue(runCatching { RestoreJournal(File(f.root, "other-journal"), mapOf("configs" to redirect), {}) }.isFailure)
-            } finally { Files.deleteIfExists(alias.toPath()) }
-        } finally { f.close() }
+            } finally {
+                Files.deleteIfExists(alias.toPath())
+            }
+        } finally {
+            f.close()
+        }
     }
-
 }

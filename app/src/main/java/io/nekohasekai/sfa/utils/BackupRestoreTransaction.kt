@@ -52,7 +52,11 @@ internal object RestoreStorageAccess {
             if (owner !== Thread.currentThread() && pending()) throw RestoreStorageUnavailable("备份恢复尚未完成，请保留应用数据并重启重试")
             active++
         }
-        try { return action() } finally { synchronized(lock) { active-- } }
+        try {
+            return action()
+        } finally {
+            synchronized(lock) { active-- }
+        }
     }
 
     /** Keep a suspending profile commit admitted across its file/DAO gaps. */
@@ -62,7 +66,11 @@ internal object RestoreStorageAccess {
             if (owner !== Thread.currentThread() && pending()) throw RestoreStorageUnavailable("备份恢复尚未完成，请保留应用数据并重启重试")
             active++
         }
-        try { return action() } finally { synchronized(lock) { active-- } }
+        try {
+            return action()
+        } finally {
+            synchronized(lock) { active-- }
+        }
     }
 
     fun <T> exclusive(action: () -> T): T {
@@ -104,7 +112,9 @@ internal object RestoreStorageAccess {
             if (owner != null) {
                 effects[key] = effect
                 true
-            } else false
+            } else {
+                false
+            }
         }
         if (!deferred) effect()
     }
