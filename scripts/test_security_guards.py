@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import os
+import subprocess
+import tempfile
 import re
 import sys
 from pathlib import Path
@@ -517,22 +521,69 @@ def test_subscription_https_only() -> None:
 
 
 def test_beta_release_requires_tested_dev_tip() -> None:
-    workflow = read(".github/workflows/release-chainbox.yml")
     guard = read("scripts/release_preflight_gate.sh")
-    assert "actions: read" in workflow
-    assert 'bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"' in workflow
-    assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
-    assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
+    for name in ("release-chainbox.yml", "release-stable.yml"):
+        workflow = read(".github/workflows/" + name)
+        assert "actions: read" in workflow
+        assert 'bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"' in workflow
+        assert workflow.index("Require tested dev tip") < workflow.index("Configure release signing")
+        assert workflow.index("Require tested dev tip") < workflow.index("Publish release")
     assert 'refs/heads/dev' in guard
     assert 'select(.headSha ==' in guard
     assert '[ "$CI_STATUS" != "completed" ]' in guard
     assert '[ "$CI_CONCLUSION" != "success" ]' in guard
+    assert '*-stable) PROPERTIES=version-stable.properties' in guard
+    assert 'git status --porcelain -- "$PROPERTIES"' in guard
+
+
+def test_release_preflight_execution() -> None:
+    # Stub only external reads: the production shell gate itself executes unchanged.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        git = root / "git"
+        git.write_text("""#!/usr/bin/python3
+import os, sys
+args=sys.argv[1:]
+if args[:2]==['ls-remote','origin']: print(os.environ['MOCK_TIP']+'\\trefs/heads/dev')
+elif args==['rev-parse','HEAD']: print(os.environ['MOCK_HEAD'])
+elif args[:3]==['status','--porcelain','--']:
+    if args[3]==os.environ.get('MOCK_DIRTY'): print(' M '+args[3])
+else: sys.exit(9)
+""")
+        gh = root / "gh"
+        gh.write_text("#!/usr/bin/python3\nimport os\nprint(os.environ.get('MOCK_CI', ''))\n")
+        git.chmod(0o755)
+        gh.chmod(0o755)
+        base = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                    MOCK_HEAD="a" * 40, MOCK_TIP="a" * 40,
+                    MOCK_CI=json.dumps({"status": "completed", "conclusion": "success"}))
+        count = 0
+        for channel, props in (("beta", "version.properties"), ("stable", "version-stable.properties")):
+            cases = [
+                ({}, True),
+                ({"MOCK_TIP": "b" * 40}, False),
+                ({"MOCK_DIRTY": props}, False),
+                ({"MOCK_CI": ""}, False),
+                ({"MOCK_CI": json.dumps({"status": "in_progress", "conclusion": None})}, False),
+                ({"MOCK_CI": json.dumps({"status": "completed", "conclusion": "failure"})}, False),
+            ]
+            for change, success in cases:
+                result = subprocess.run(["bash", str(ROOT / "scripts/release_preflight_gate.sh"),
+                                         "v1.0.139-" + channel], cwd=root,
+                                        env=dict(base, **change), text=True, capture_output=True)
+                assert (result.returncode == 0) == success, (channel, change, result.stdout, result.stderr)
+                count += 1
+        result = subprocess.run(["bash", str(ROOT / "scripts/release_preflight_gate.sh"), "invalid"],
+                                cwd=root, env=base, text=True, capture_output=True)
+        assert result.returncode != 0
+        print(f"preflight shell: {count + 1} fail-closed scenarios passed")
 
 
 def main() -> int:
     tests = [
         test_source_guards,
         test_beta_release_requires_tested_dev_tip,
+        test_release_preflight_execution,
         test_bypass_mixed_or,
         test_update_url_pin,
         test_clash_api_loopback,
