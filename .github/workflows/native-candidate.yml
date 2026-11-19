@@ -1,0 +1,75 @@
+name: Native candidate validation
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - kernel-candidate.properties
+      - .github/workflows/native-candidate.yml
+      - scripts/build_native_candidate.sh
+
+permissions:
+  contents: read
+
+jobs:
+  native-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout application validation inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: app
+      - name: Read candidate validation pin
+        id: pin
+        working-directory: app
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+          p = dict(line.split('=', 1) for line in pathlib.Path('kernel-candidate.properties').read_text().splitlines() if line and not line.startswith('#'))
+          assert p['KERNEL_REPOSITORY'] == 'dukangalex/sing-box'
+          assert re.fullmatch('[0-9a-f]{40}', p['KERNEL_COMMIT'])
+          assert re.fullmatch(r'\d+\.\d+\.\d+', p['GO_VERSION'])
+          assert re.fullmatch(r'v\d+\.\d+\.\d+', p['GOMOBILE_VERSION'])
+          assert re.fullmatch(r'\d+\.\d+\.\d+', p['ANDROID_NDK_VERSION'])
+          assert p['ANDROID_API'] == '24'
+          assert re.fullmatch('[a-z0-9_,]+', p['BUILD_TAGS'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              for k, v in p.items(): f.write(f'{k.lower()}={v}\n')
+          PY
+      - name: Checkout exact candidate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.kernel_commit }}
+          path: kernel
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          cache-dependency-path: kernel/go.sum
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install exact native toolchain
+        env:
+          NDK: ${{ steps.pin.outputs.android_ndk_version }}
+          MOBILE: ${{ steps.pin.outputs.gomobile_version }}
+        run: |
+          set -euo pipefail
+          sdkmanager --install "ndk;$NDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          go install "github.com/sagernet/gomobile/cmd/gomobile@$MOBILE"
+          go install "github.com/sagernet/gomobile/cmd/gobind@$MOBILE"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build validation-only ARM64 AAR
+        run: bash app/scripts/build_native_candidate.sh app/kernel-candidate.properties kernel native-evidence
+      - name: Upload unsigned candidate and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-candidate-arm64-api24
+          path: native-evidence/
+          if-no-files-found: error
+          retention-days: 14
