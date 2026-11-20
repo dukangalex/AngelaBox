@@ -28,7 +28,7 @@ jobs:
         working-directory: chainbox
         run: |
           set -euo pipefail
-          COMMIT=db43572d5eda61ba972ee6a37b53382aa34d1638
+          COMMIT=62d74dcbfe22953a19446b75c4c95300d76fd0a6
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
@@ -61,6 +61,12 @@ jobs:
           sudo -E env -u GITHUB_TOKEN -u GH_TOKEN PATH="$PATH" go test -ldflags=-checklinkname=0 $packages
           sudo -E env -u GITHUB_TOKEN -u GH_TOKEN PATH="$PATH" go test -ldflags=-checklinkname=0 github.com/sagernet/sing-openconnect/...
 
+      - name: Test Naive header guard with production feature enabled
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          go test -p 1 -vet=off -tags=with_naive_outbound,with_purego ./protocol/naive
+
   android-compile:
     name: ChainBox Android compile
     runs-on: ubuntu-latest
@@ -76,7 +82,7 @@ jobs:
         working-directory: sing-box-for-android
         run: |
           set -euo pipefail
-          COMMIT=db43572d5eda61ba972ee6a37b53382aa34d1638
+          COMMIT=62d74dcbfe22953a19446b75c4c95300d76fd0a6
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
