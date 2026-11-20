@@ -1,0 +1,251 @@
+# Diagnostic only: exact candidate commit; not a release gate or a production pin.
+name: Security candidate validation (non-release)
+on:
+  push:
+    branches:
+      - wabi/security-validate-20261120
+permissions:
+  contents: read
+env:
+  GOTOOLCHAIN: local
+  CGO_LDFLAGS_ALLOW: '-l:libcronet[.]a'
+concurrency:
+  group: security-candidate-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  kernel-test:
+    name: sing-box kernel tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: chainbox
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: chainbox
+        run: |
+          set -euo pipefail
+          COMMIT=db43572d5eda61ba972ee6a37b53382aa34d1638
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+          # Experiment: exact commit check above only; not the release tag guard.
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.26.11"
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Test kernel
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          packages=$(go list ./... | grep -v '^github.com/sagernet/sing-box/experimental/boxdd$' | grep -v '^github.com/sagernet/sing-box/experimental/libbox$')
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN PATH="$PATH" go test -ldflags=-checklinkname=0 $packages
+          sudo -E env -u GITHUB_TOKEN -u GH_TOKEN PATH="$PATH" go test -ldflags=-checklinkname=0 github.com/sagernet/sing-openconnect/...
+
+  android-compile:
+    name: ChainBox Android compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ChainBox
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: sing-box-for-android
+
+      - name: Read kernel pin
+        id: pin
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          COMMIT=db43572d5eda61ba972ee6a37b53382aa34d1638
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Chain kernel at audited commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sing-box
+          fetch-depth: 1
+
+      - name: Verify kernel identity
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.pin.outputs.commit }}"
+
+      - name: Setup Java 17 and 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+          cache-dependency-path: |
+            sing-box-for-android/**/*.gradle*
+            sing-box-for-android/**/gradle-wrapper.properties
+            sing-box-for-android/gradle/libs.versions.toml
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.26.11"
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Use preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          for bin in \
+            "$SDK/cmdline-tools/latest/bin" \
+            "$SDK/cmdline-tools/current/bin" \
+            "$SDK/cmdline-tools/16.0/bin" \
+            "$SDK/cmdline-tools/11.0/bin" \
+            "$SDK/tools/bin" \
+            "$SDK/platform-tools"
+          do
+            if [ -d "$bin" ]; then
+              echo "$bin" >> "$GITHUB_PATH"
+              export PATH="$bin:$PATH"
+            fi
+          done
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not on PATH; listing $SDK"
+            find "$SDK" -maxdepth 4 -name sdkmanager -type f || true
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          echo "Using Android SDK at $SDK"
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/tmp/sdk-licenses.txt || true
+          sdkmanager --install "ndk;28.0.13004108" "platforms;android-37.1" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          test -d "${ANDROID_HOME}/ndk/28.0.13004108"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" version
+          "$(go env GOPATH)/bin/gomobile" init || true
+
+      - name: Build libbox AAR
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?JAVA_HOME_17_X64 not set}"
+          export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+          java --version
+          export ANDROID_HOME ANDROID_SDK_ROOT ANDROID_NDK_HOME
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64 -debug
+          mkdir -p ../sing-box-for-android/app/libs
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          sha256sum libbox.aar libbox-legacy.aar
+          cp -f libbox.aar ../sing-box-for-android/app/libs/libbox.aar
+          cp -f libbox-legacy.aar ../sing-box-for-android/app/libs/libbox-legacy.aar
+          ls -lah ../sing-box-for-android/app/libs/
+          test -s ../sing-box-for-android/app/libs/libbox.aar
+
+      - name: Compile ChainBox
+        working-directory: sing-box-for-android
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -keyalg RSA -keysize 2048 -validity 10000 -noprompt
+          fi
+          chmod +x gradlew
+          ./gradlew :app:spotlessCheck \
+            :app:compileOtherDebugKotlin \
+            :app:testDebugUnitTest \
+            --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientSubscriptionTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
+            --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
+            --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
+            --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngestTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
+            --tests io.nekohasekai.sfa.utils.ConfigCompatTest \
+            --tests io.nekohasekai.sfa.utils.ConfigQuicOverrideTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDnsProtectChinaTest \
+            --tests io.nekohasekai.sfa.utils.CnRuleSetRecoveryTest \
+            --tests io.nekohasekai.sfa.utils.NoticeConsolidationTest \
+            --tests io.nekohasekai.sfa.utils.NoticeFlashPlannerTest \
+            --tests io.nekohasekai.sfa.utils.NoticeLogTest \
+            --tests io.nekohasekai.sfa.utils.ChinaDirectSplitMigrationTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
+            --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
+            --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \
+            --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
+            --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
+            --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingRobustnessTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingReferencingTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerGuardrailTest \
+            --tests io.nekohasekai.sfa.chain.ChainPathTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerBacklogTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerNestedGroupTest \
+            --tests io.nekohasekai.sfa.compose.NestedRegionAutoSelectTest \
+            --tests io.nekohasekai.sfa.utils.ApkSigningCertsTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDiagnoseTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDomainResolverTest \
+                        --tests io.nekohasekai.sfa.utils.ConfigIngest112RegressionTest \
+            --tests io.nekohasekai.sfa.utils.ConfigIngestFormatsTest \
+            --tests io.nekohasekai.sfa.utils.ConfigNormalizeTest \
+            --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
+            --tests io.nekohasekai.sfa.utils.NetworkCheckupTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionPolicyTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionAiTransportTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionAiLocalEndpointTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStoreTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStateTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetTriageTest \
+            --tests io.nekohasekai.sfa.utils.FakeIpServerTagTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \
+            --tests io.nekohasekai.sfa.utils.SubscriptionInfoTest \
+            --no-daemon --stacktrace
