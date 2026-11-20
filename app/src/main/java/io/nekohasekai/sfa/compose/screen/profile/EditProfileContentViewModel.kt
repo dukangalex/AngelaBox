@@ -209,7 +209,7 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
 
                 // Save to file without validation
                 profile?.let { p ->
-                    File(p.typed.path).writeText(currentContent)
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(p.typed.path), currentContent)
                 }
 
                 _uiState.update {

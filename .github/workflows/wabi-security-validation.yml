@@ -5,6 +5,7 @@ on:
     branches:
       - wabi/security-validate-20261120
       - wabi/profile-atomic-validate-20261120
+      - wabi/profile-all-writers-20261120
 permissions:
   contents: read
 env:
@@ -15,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   kernel-test:
+    if: github.ref != 'refs/heads/wabi/profile-all-writers-20261120'
     name: sing-box kernel tests
     runs-on: ubuntu-latest
     timeout-minutes: 30

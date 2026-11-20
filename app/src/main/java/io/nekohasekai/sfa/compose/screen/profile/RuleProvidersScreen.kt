@@ -323,7 +323,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                         )
                     }
                 }
-                File(loaded.typed.path).writeText(root.toString())
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
             }.fold(
                 onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
                 onFailure = {
@@ -414,7 +414,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         RuleSetProviders.updateItem(root, tag) { current ->
             current.put("initial_path", dest.absolutePath)
         }
-        File(loaded.typed.path).writeText(root.toString())
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
     }
 
     private suspend fun syncProxyOne() {
@@ -430,7 +430,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             ),
         )
         Libbox.checkConfig(content)
-        File(loaded.typed.path).writeText(content)
+        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), content)
         loaded.typed.lastUpdated = Date()
         ProfileManager.update(loaded)
         profile = loaded
