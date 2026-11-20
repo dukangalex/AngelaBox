@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - wabi/security-validate-20261120
+      - wabi/profile-atomic-validate-20261120
 permissions:
   contents: read
 env:
@@ -205,6 +206,7 @@ jobs:
             --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
             --tests io.nekohasekai.sfa.utils.BackupManagerTest \
+            --tests io.nekohasekai.sfa.utils.ProfileFilesTest \
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
             --tests io.nekohasekai.sfa.utils.ConfigChinaDirectTest \
             --tests io.nekohasekai.sfa.utils.ConfigInboundCompatLoopbackTest \
