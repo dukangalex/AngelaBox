@@ -4,35 +4,25 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
-/**
- * X-3: the one way profile archive files get written.
- *
- * A profile file used to be written two ways: the background worker wrote
- * tmp + fsync + rename, while the foreground update paths used a bare
- * `File.writeText` — a truncate-then-write that leaves a half-written JSON
- * behind if the process dies mid-write, corrupting the profile, and that a
- * concurrent serviceReload can read mid-write. Every writer of a profile's
- * stored config goes through here so the archive is never observable in a
- * partial state.
- */
+/** Writes a complete profile before atomically replacing its previous contents. */
 object ProfileFiles {
-
     @Throws(IOException::class)
     fun writeAtomically(file: File, content: String) {
-        val parent = file.parentFile
-        if (parent != null && !parent.exists()) parent.mkdirs()
-        val tmp = File(parent, file.name + ".tmp")
+        val target = file.absoluteFile
+        val parent = target.parentFile ?: throw IOException("配置目录不存在")
+        if (!parent.isDirectory && !parent.mkdirs() && !parent.isDirectory) {
+            throw IOException("无法创建配置目录")
+        }
+        // A unique temporary file prevents overlapping writers from modifying
+        // or deleting each other's in-progress data.
+        val tmp = File.createTempFile(target.name + ".", ".tmp", parent)
         try {
-            tmp.writeText(content)
-            // fsync so a power loss right after the rename cannot resurrect
-            // a zero-length or partial file.
-            FileOutputStream(tmp, true).channel.use { it.force(true) }
-            if (!tmp.renameTo(file)) {
-                throw IOException("原子写入配置失败")
+            FileOutputStream(tmp).use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.fd.sync()
             }
+            if (!tmp.renameTo(target)) throw IOException("原子写入配置失败")
         } finally {
-            // A leftover .tmp from a killed run is truncated by the next
-            // write, but do not leave one behind on failure paths either.
             if (tmp.exists()) tmp.delete()
         }
     }
