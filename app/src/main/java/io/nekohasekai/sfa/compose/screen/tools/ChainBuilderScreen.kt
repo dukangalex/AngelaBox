@@ -322,7 +322,7 @@ fun ChainBuilderScreen(
                             landingContent = landingContent,
                         ),
                     )
-                    file.writeText(ChainRuntimeCompiler.clear(raw, originalFinal))
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, raw, ChainRuntimeCompiler.clear(raw, originalFinal))
                     ChainBindings.put(
                         ChainBinding(
                             profileId = boundId,
@@ -364,9 +364,10 @@ fun ChainBuilderScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(path)
-                    val root = ChainRuntimeCompiler.parseConfig(file.readText())
+                    val raw = file.readText()
+                    val root = ChainRuntimeCompiler.parseConfig(raw)
                     val final = ChainRuntimeCompiler.resolveMainTag(root.optJSONArray("outbounds") ?: JSONArray(), "")
-                    file.writeText(ChainRuntimeCompiler.clear(root.toString(), final))
+                    io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, raw, ChainRuntimeCompiler.clear(root.toString(), final))
                     ChainBindings.remove(boundId)
                 }
             }

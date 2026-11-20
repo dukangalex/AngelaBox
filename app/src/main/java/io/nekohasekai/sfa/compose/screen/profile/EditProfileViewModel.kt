@@ -257,6 +257,8 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
 
             try {
                 var selectedProfileUpdated = false
+                val file = File(profile.typed.path)
+                val oldContent = io.nekohasekai.sfa.utils.ProfileFiles.snapshot(file)
 
                 // Fetch remote config
                 // X-4: 与后台 worker / 仪表盘同口径——Detailed + 记录健康，
@@ -271,11 +273,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 val content = detailed.content
                 Libbox.checkConfig(content)
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                if (!file.exists() || file.readText() != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
+                if (io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, oldContent, content)) {
                     if (profile.id == Settings.selectedProfile) {
                         selectedProfileUpdated = true
                     }

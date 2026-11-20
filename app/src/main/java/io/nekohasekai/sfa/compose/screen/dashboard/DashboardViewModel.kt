@@ -580,6 +580,8 @@ class DashboardViewModel :
             }
 
             try {
+                val file = File(profile.typed.path)
+                val oldContent = io.nekohasekai.sfa.utils.ProfileFiles.snapshot(file)
                 // X-4: 与后台 worker 同口径——用 Detailed 拿到「跳过/修正」
                 // 提示并记进健康记录，否则前台更新丢节点时用户看不到提示，
                 // 且旧警告会被 recordSuccess 清掉后无新记录可展示。
@@ -600,14 +602,7 @@ class DashboardViewModel :
                     is ConfigGate.Result.Accepted -> Unit
                 }
 
-                // Check if content changed
-                val file = File(profile.typed.path)
-                var contentChanged = false
-                if (!file.exists() || file.readText() != content) {
-                    // X-3: 原子写入，避免写一半损坏配置/被重载读到半截。
-                    io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
-                    contentChanged = true
-                }
+                val contentChanged = io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, oldContent, content)
 
                 // Update last updated time
                 profile.typed.lastUpdated = Date()

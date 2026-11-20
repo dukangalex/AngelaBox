@@ -109,6 +109,8 @@ class UpdateProfileWork {
                 }
                 SubscriptionUpdateHealth.recordAttempt(applicationContext, profile.id)
                 try {
+                    val file = File(profile.typed.path)
+                    val oldContent = io.nekohasekai.sfa.utils.ProfileFiles.snapshot(file)
                     // E-2: the round deadline is also threaded into adapt,
                     // so provider fetches inside one profile are bounded by
                     // it too, not only the between-profile check above.
@@ -132,17 +134,7 @@ class UpdateProfileWork {
                             throw IllegalStateException(gate.reason)
                         is ConfigGate.Result.Accepted -> Unit
                     }
-                    val file = File(profile.typed.path)
-                    // 文件不存在时视为内容不同（首次更新），直接写入
-                    val oldContent = try {
-                        if (file.isFile) file.readText() else null
-                    } catch (_: Exception) {
-                        null
-                    }
-                    if (oldContent != content) {
-                        // X-3: 原子写入（tmp + fsync + rename），与前台更新
-                        // 路径共用同一实现，防进程被杀导致配置写一半损坏。
-                        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(file, content)
+                    if (io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, oldContent, content)) {
                         if (profile.id == selectedProfile) {
                             selectedProfileUpdated = true
                         }

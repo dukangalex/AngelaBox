@@ -6,6 +6,24 @@ import java.io.IOException
 
 /** Writes a complete profile before atomically replacing its previous contents. */
 object ProfileFiles {
+    /** Snapshot null means no file; read errors are not treated as absence. */
+    @Synchronized
+    @Throws(IOException::class)
+    fun snapshot(file: File): String? = if (file.exists()) file.readText(Charsets.UTF_8) else null
+
+    /** Reject stale read-modify-write instead of overwriting an intervening in-process update. */
+    @Synchronized
+    @Throws(IOException::class)
+    fun writeIfUnchanged(file: File, expected: String?, content: String): Boolean {
+        if (snapshot(file) != expected) {
+            throw IOException("配置已被其他操作修改，请重新加载后再试")
+        }
+        if (expected == content) return false
+        writeAtomically(file, content)
+        return true
+    }
+
+    @Synchronized
     @Throws(IOException::class)
     fun writeAtomically(file: File, content: String) {
         val target = file.absoluteFile

@@ -1,16 +1,16 @@
 package io.nekohasekai.sfa.utils
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 
 class ProfileFilesTest {
     @get:Rule val temp = TemporaryFolder()
@@ -21,6 +21,22 @@ class ProfileFilesTest {
         ProfileFiles.writeAtomically(target, "新的配置")
         assertEquals("新的配置", target.readText(StandardCharsets.UTF_8))
         assertEquals(listOf("profile.json"), target.parentFile.list()!!.sorted())
+    }
+
+    @Test fun staleUpdateDoesNotOverwriteInterveningWrite() {
+        val target = File(temp.root, "profile.json")
+        val original = "{\"a\":0,\"b\":0}"
+        val changed = "{\"a\":1,\"b\":0}"
+        ProfileFiles.writeAtomically(target, original)
+        val snapshot = target.readText()
+        ProfileFiles.writeAtomically(target, changed)
+        val failure = runCatching {
+            ProfileFiles.writeIfUnchanged(target, snapshot, "{\"a\":0,\"b\":1}")
+        }.exceptionOrNull()
+        assertTrue("stale update must fail", failure is java.io.IOException)
+        assertEquals(changed, target.readText())
+        ProfileFiles.writeIfUnchanged(target, changed, "{\"a\":1,\"b\":1}")
+        assertEquals("{\"a\":1,\"b\":1}", target.readText())
     }
 
     @Test fun concurrentWritersNeverExposePartialContent() {
@@ -39,16 +55,23 @@ class ProfileFilesTest {
                 try {
                     if (target.readText() !in valid) invalidReads.incrementAndGet()
                     readCount.incrementAndGet()
-                } catch (_: Exception) { errors.incrementAndGet() }
+                } catch (_: Exception) {
+                    errors.incrementAndGet()
+                }
             }
         }
-        val writers = payloads.map { value -> thread {
-            start.await()
-            repeat(100) {
-                try { ProfileFiles.writeAtomically(target, value) }
-                catch (_: Exception) { errors.incrementAndGet() }
+        val writers = payloads.map { value ->
+            thread {
+                start.await()
+                repeat(100) {
+                    try {
+                        ProfileFiles.writeAtomically(target, value)
+                    } catch (_: Exception) {
+                        errors.incrementAndGet()
+                    }
+                }
             }
-        } }
+        }
         start.countDown()
         writers.forEach { it.join() }
         done.set(true)

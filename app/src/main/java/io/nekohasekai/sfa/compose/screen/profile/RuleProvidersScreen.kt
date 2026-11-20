@@ -323,7 +323,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
                         )
                     }
                 }
-                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
+                io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(File(loaded.typed.path), content, root.toString())
             }.fold(
                 onSuccess = { Application.application.getString(R.string.rule_providers_uploaded) },
                 onFailure = {
@@ -414,7 +414,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         RuleSetProviders.updateItem(root, tag) { current ->
             current.put("initial_path", dest.absolutePath)
         }
-        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), root.toString())
+        io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(File(loaded.typed.path), content, root.toString())
     }
 
     private suspend fun syncProxyOne() {
@@ -422,6 +422,8 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
         if (loaded.typed.type != TypedProfile.Type.Remote || loaded.typed.remoteURL.isBlank()) {
             error("这个提供者没有远程地址")
         }
+        val file = File(loaded.typed.path)
+        val oldContent = io.nekohasekai.sfa.utils.ProfileFiles.snapshot(file)
         val content = ConfigCompat.sanitizeRemote(
             SubscriptionInfoStore.fetchRemote(
                 loaded.typed.remoteURL,
@@ -430,7 +432,7 @@ class RuleProvidersViewModel(private val profileId: Long) : ViewModel() {
             ),
         )
         Libbox.checkConfig(content)
-        io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(File(loaded.typed.path), content)
+        io.nekohasekai.sfa.utils.ProfileFiles.writeIfUnchanged(file, oldContent, content)
         loaded.typed.lastUpdated = Date()
         ProfileManager.update(loaded)
         profile = loaded
