@@ -26,20 +26,19 @@ object ProfileFiles {
 
     @Throws(IOException::class)
     fun writeAtomically(file: File, content: String) {
-        val parent = file.parentFile
-        if (parent != null && !parent.exists()) parent.mkdirs()
-        val tmp = File(parent, file.name + ".tmp")
+        val target = file.absoluteFile
+        val parent = target.parentFile ?: throw IOException("配置目录不存在")
+        if (!parent.isDirectory && !parent.mkdirs() && !parent.isDirectory) {
+            throw IOException("无法创建配置目录")
+        }
+        val tmp = File.createTempFile(target.name + ".", ".tmp", parent)
         try {
-            tmp.writeText(content)
-            // fsync so a power loss right after the rename cannot resurrect
-            // a zero-length or partial file.
-            FileOutputStream(tmp, true).channel.use { it.force(true) }
-            if (!tmp.renameTo(file)) {
-                throw IOException("原子写入配置失败")
+            FileOutputStream(tmp).use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.fd.sync()
             }
+            if (!tmp.renameTo(target)) throw IOException("原子写入配置失败")
         } finally {
-            // A leftover .tmp from a killed run is truncated by the next
-            // write, but do not leave one behind on failure paths either.
             if (tmp.exists()) tmp.delete()
         }
     }
