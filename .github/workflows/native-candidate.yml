@@ -3,10 +3,6 @@ name: Native candidate validation
 on:
   pull_request:
     branches: [dev]
-    paths:
-      - kernel-candidate.properties
-      - .github/workflows/native-candidate.yml
-      - scripts/build_native_candidate.sh
 
 permissions:
   contents: read
@@ -20,6 +16,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: app
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Read candidate validation pin
         id: pin
         working-directory: app
@@ -86,6 +83,8 @@ jobs:
     steps:
       - name: Checkout candidate application
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Download exact native candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:

@@ -2,25 +2,33 @@ name: Candidate translated ARM64 runtime smoke
 on:
   pull_request:
     branches: [dev]
-    paths: [.github/workflows/native-runtime.yml]
 permissions:
   contents: read
   actions: read
 jobs:
   translated-arm64-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 95
     steps:
       - name: Wait for exact security-candidate build and download APK
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: dukangalex/AngelaBox
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          gh run watch 44444787512 --exit-status
-          test "$(gh run view 44444787512 --json headSha --jq .headSha)" = 517284083d415790792995c2a7a15f902f8f7408
-          gh run download 44444787512 -n candidate-emulator-only-apk -D apk
-          gh run view 44444787512 --json headSha,status,conclusion > build-provenance.json
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          RUN_ID=""
+          for attempt in $(seq 1 20); do
+            RUN_ID=$(gh run list --workflow native-candidate.yml --event pull_request --limit 100 --json databaseId,headSha --jq ".[] | select(.headSha == \"$EXPECTED_SHA\") | .databaseId" | head -1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 3
+          done
+          test -n "$RUN_ID"
+          gh run watch "$RUN_ID" --exit-status
+          test "$(gh run view "$RUN_ID" --json headSha --jq .headSha)" = "$EXPECTED_SHA"
+          gh run download "$RUN_ID" -n candidate-emulator-only-apk -D apk
+          gh run view "$RUN_ID" --json databaseId,headSha,status,conclusion > build-provenance.json
       - name: Setup Java
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
@@ -33,8 +41,13 @@ jobs:
           SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
           "$SDKMANAGER" --install emulator platform-tools 'system-images;android-30;google_apis;x86_64' 'build-tools;35.0.0'
           AVDMANAGER="$(dirname "$SDKMANAGER")/avdmanager"
-          echo no | "$AVDMANAGER" create avd -n native-smoke --package 'system-images;android-30;google_apis;x86_64' --device pixel
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/avd-home"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | "$AVDMANAGER" create avd -n native-smoke --package 'system-images;android-30;google_apis;x86_64' --device pixel --path "$ANDROID_AVD_HOME/native-smoke.avd"
+          test -f "$ANDROID_AVD_HOME/native-smoke.ini"
+          "$SDK/emulator/emulator" -list-avds | grep -Fx native-smoke
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           test -c /dev/kvm
           sudo chmod 666 /dev/kvm
       - name: Boot, install and launch exact ARM64 candidate
@@ -49,7 +62,12 @@ jobs:
           EMU=$!
           trap 'kill "$EMU" 2>/dev/null || true' EXIT
           ADB="$ANDROID_HOME/platform-tools/adb"
-          timeout 240 bash -c 'until [ "$("$1" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done' _ "$ADB"
+          deadline=$((SECONDS + 240))
+          until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do
+            if ! kill -0 "$EMU" 2>/dev/null; then cat runtime-evidence/emulator.log; exit 1; fi
+            if [ "$SECONDS" -ge "$deadline" ]; then echo "emulator boot timeout"; cat runtime-evidence/emulator.log; exit 1; fi
+            sleep 2
+          done
           "$ADB" shell getprop > runtime-evidence/guest-properties.txt
           "$ADB" shell getprop ro.product.cpu.abilist | grep arm64-v8a
           "$ADB" shell getprop ro.dalvik.vm.native.bridge | grep libndk_translation
