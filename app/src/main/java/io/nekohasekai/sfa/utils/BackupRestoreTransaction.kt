@@ -150,23 +150,44 @@ internal object BackupRestoreTransaction {
         // Finish an older file/binding commit before taking the rollback snapshot.
         ProfileBindingStorage.access { Unit }
         closeDatabases()
+        runJournaled(journal, ::closeDatabases, action)
+    }
+
+    /** A post-marker failure is not a rollback. Recover the visible commit and only report
+     * success after its directory barriers and cleanup have succeeded. Until then leave the
+     * storage fence in place and explicitly report that the outcome is uncertain. */
+    internal fun <T> runJournaled(journal: RestoreJournal, close: () -> Unit, action: () -> T): T {
         journal.begin()
-        try {
-            val result = action()
-            closeDatabases()
-            journal.commit()
-            result
-        } catch (failure: Exception) {
+        fun recoverOrThrow(failure: Exception, committed: Boolean) {
             try {
-                closeDatabases()
+                close()
                 journal.recover()
-            } catch (rollback: Exception) {
-                failure.addSuppressed(rollback)
-                throw IllegalStateException("恢复失败且回滚尚未完成，请保留应用数据并重启重试", failure)
+            } catch (recovery: Exception) {
+                failure.addSuppressed(recovery)
+                val message = if (committed) {
+                    "恢复可能已经提交，但持久化尚未确认；请保留应用数据并重启重试"
+                } else {
+                    "恢复失败且回滚尚未完成，请保留应用数据并重启重试"
+                }
+                throw IllegalStateException(message, failure)
             }
+        }
+        val result = try {
+            action().also { close() }
+        } catch (failure: Exception) {
+            recoverOrThrow(failure, false)
             throw failure
         }
-        // Errors (including simulated process termination) deliberately leave READY for startup.
+        try {
+            journal.commit()
+        } catch (failure: Exception) {
+            val committed = journal.commitMarkerRenamed
+            recoverOrThrow(failure, committed)
+            if (!committed) throw failure
+            // Recovery successfully synchronized the commit; preserve post-commit effects.
+        }
+        return result
+        // Errors (including simulated process termination) deliberately leave the journal.
     }
 
     private fun closeDatabases() {

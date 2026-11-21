@@ -32,6 +32,11 @@ internal class RestoreJournal(
     private val committed get() = File(directory, "COMMITTED")
     private val originals get() = File(directory, "originals")
 
+    // Process-local outcome signal: set only after the commit marker rename succeeds.
+    // It does not claim that the rename has reached durable storage.
+    var commitMarkerRenamed: Boolean = false
+        private set
+
     init {
         require(targets.isNotEmpty() && targets.keys.all { it.matches(Regex("[a-z0-9_-]+")) })
         require(this.targets.values.none { it == this.directory || it.path.startsWith(this.directory.path + "/") })
@@ -40,7 +45,7 @@ internal class RestoreJournal(
         require(paths.indices.all { i -> paths.indices.all { j -> i == j || !paths[i].path.startsWith(paths[j].path + "/") } })
     }
 
-    fun needsRecovery(): Boolean = ready.exists() && !committed.exists()
+    fun needsRecovery(): Boolean = ready.exists() || committed.exists() || finishedGarbage().isNotEmpty()
 
     fun begin() {
         check(!needsRecovery()) { "上次恢复尚未完成，请保留应用数据并重启重试" }
@@ -77,9 +82,9 @@ internal class RestoreJournal(
         targets.values.filter(File::exists).forEach(::syncTree)
         targets.values.mapNotNull { it.parentFile }.distinct().forEach(syncDirectory)
         cut("before_commit")
-        marker(committed)
+        marker(committed) { commitMarkerRenamed = true }
         cut("committed")
-        discardCompletedOrUnstarted()
+        discardCompletedOrUnstarted(committedSynced = true)
     }
 
     fun recover(): Boolean {
@@ -87,7 +92,10 @@ internal class RestoreJournal(
         if (!directory.exists()) return false
         if (committed.exists()) {
             requireMarker(committed)
-            discardCompletedOrUnstarted()
+            // The rename may have succeeded while its directory fsync failed.
+            // Keep storage fenced until the visible marker has a successful barrier.
+            syncDirectory(directory)
+            discardCompletedOrUnstarted(committedSynced = true)
             return false
         }
         if (!ready.exists()) {
@@ -138,16 +146,29 @@ internal class RestoreJournal(
         return true
     }
 
-    private fun cleanFinishedGarbage() {
-        directory.parentFile?.listFiles()?.filter {
+    private fun finishedGarbage(): List<File> {
+        val parent = directory.parentFile ?: return emptyList()
+        if (!parent.exists()) return emptyList()
+        val entries = parent.listFiles() ?: throw IOException("无法读取恢复事务目录")
+        return entries.filter {
             it.name.startsWith(directory.name + "-finished-") && it.isDirectory && it.canonicalFile == it.absoluteFile
-        }?.forEach { it.deleteRecursively() }
+        }
     }
 
-    private fun marker(file: File) {
+    private fun cleanFinishedGarbage() {
+        val garbage = finishedGarbage()
+        if (garbage.isEmpty()) return
+        // A previous rename may have succeeded before syncing its parent failed.
+        // The fence remains until this barrier is successful.
+        syncDirectory(directory.parentFile!!)
+        garbage.forEach { if (!it.deleteRecursively()) throw IOException("无法清理恢复事务") }
+    }
+
+    private fun marker(file: File, afterRename: () -> Unit = {}) {
         val temporary = File(directory, file.name + ".new")
         writeDurably(temporary) { it.write("restore-v1\n".toByteArray()) }
         check(temporary.renameTo(file)) { "无法提交恢复事务记录" }
+        afterRename()
         syncDirectory(directory)
     }
 
@@ -155,15 +176,15 @@ internal class RestoreJournal(
         check(file.isFile && file.length() == 11L && file.readText() == "restore-v1\n") { "恢复事务状态损坏" }
     }
 
-    private fun discardCompletedOrUnstarted(rolledBack: Boolean = false) {
+    private fun discardCompletedOrUnstarted(rolledBack: Boolean = false, committedSynced: Boolean = false) {
         if (!directory.exists()) return
-        check(rolledBack || !needsRecovery()) { "不能丢弃尚未恢复的数据" }
+        check(rolledBack || committedSynced || !needsRecovery()) { "不能丢弃尚未恢复的数据" }
         // Never recursively delete the active journal: a death halfway through cleanup could
         // erase COMMITTED while leaving READY and cause an obsolete rollback on next launch.
         val garbage = File(directory.parentFile, "${directory.name}-finished-${UUID.randomUUID()}")
         check(directory.renameTo(garbage)) { "无法结束恢复事务" }
         syncDirectory(directory.parentFile!!)
-        garbage.deleteRecursively() // Best-effort private garbage only; never a live root.
+        if (!garbage.deleteRecursively()) throw IOException("无法清理恢复事务")
     }
 
     private fun checkPlain(file: File) {

@@ -353,6 +353,10 @@ jobs:
             --tests io.nekohasekai.sfa.utils.ProfileBindingIntegrationTest \
             --tests io.nekohasekai.sfa.utils.RestoreCacheRaceTest \
             --tests io.nekohasekai.sfa.utils.RestoreJournalTest \
+            --tests io.nekohasekai.sfa.utils.ProfileCreationIntegrationTest \
+            --tests io.nekohasekai.sfa.utils.ProfileFilesTest \
+            --tests io.nekohasekai.sfa.utils.ProfilePathReservationTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCommitOutcomeTest \
             --tests io.nekohasekai.sfa.utils.RestoreQueuedCommitTest \
             --tests io.nekohasekai.sfa.utils.RestoreSideEffectTest \
             --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \

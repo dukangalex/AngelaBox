@@ -108,12 +108,65 @@ class RestoreJournalTest {
                 j.commit()
                 fail()
             } catch (_: Killed) {}
-            assertFalse(f.journal().needsRecovery())
+            assertTrue(f.journal().needsRecovery())
             assertFalse(f.journal().recover())
+            assertFalse(f.journal().needsRecovery())
             assertEquals("new-settings", f.settings.readText())
             assertEquals("new-profiles", f.profiles.readText())
             assertTrue(File(f.configs, "new.json").isFile)
             assertEquals("new-wal", f.wal.readText())
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test fun committedRenameSyncFailureRemainsFencedUntilBarrierSucceeds() {
+        val f = Fixture()
+        try {
+            var fail = true
+            val journal = RestoreJournal(f.journalDir, f.targets, { dir ->
+                if (fail && dir == f.journalDir && File(dir, "COMMITTED").exists()) {
+                    throw java.io.IOException("injected directory sync failure")
+                }
+            })
+            journal.begin()
+            f.change()
+            assertTrue(runCatching { journal.commit() }.isFailure)
+            assertTrue(journal.needsRecovery())
+            assertTrue(runCatching { journal.recover() }.isFailure)
+            assertTrue(journal.needsRecovery())
+            assertTrue(File(f.journalDir, "originals").isDirectory)
+            assertEquals("new-settings", f.settings.readText())
+            fail = false
+            assertFalse(journal.recover())
+            assertFalse(journal.needsRecovery())
+            assertEquals("new-settings", f.settings.readText())
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test fun cleanupRenameSyncFailureStaysFencedUntilParentSync() {
+        val f = Fixture()
+        try {
+            var fail = false
+            val journal = RestoreJournal(f.journalDir, f.targets, { dir ->
+                if (fail && dir == f.root && dir.listFiles()!!.any { it.name.startsWith("journal-finished-") }) {
+                    throw java.io.IOException("injected parent sync failure")
+                }
+            })
+            journal.begin()
+            f.change()
+            fail = true
+            assertTrue(runCatching { journal.commit() }.isFailure)
+            assertTrue(journal.needsRecovery())
+            assertTrue(runCatching { journal.recover() }.isFailure)
+            assertTrue(journal.needsRecovery())
+            assertEquals("new-settings", f.settings.readText())
+            fail = false
+            assertFalse(journal.recover())
+            assertFalse(journal.needsRecovery())
+            assertEquals("new-settings", f.settings.readText())
         } finally {
             f.close()
         }

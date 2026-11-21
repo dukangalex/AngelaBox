@@ -81,6 +81,39 @@ object ProfileManager {
         profile
     }
 
+    /** One lease and storage gate cover naming, file durability and the Room insert.
+     * On uncertainty, retain both marker and any file; never delete a possible committed row's data.
+     */
+    internal suspend fun createReserved(
+        profile: Profile,
+        andSelect: Boolean = false,
+        pendingInitialImport: Boolean = false,
+        writeConfig: ((File) -> Unit)? = null,
+    ): Profile = io.nekohasekai.sfa.utils.RestoreStorageAccess.lease {
+        ProfileBindingStorage.mutate {
+            val app = Application.application
+            val configurations = File(app.filesDir, "configs")
+            val markers = File(app.noBackupFilesDir, "profile-path-reservations")
+            val database = database()
+            val reservation = io.nekohasekai.sfa.utils.ProfilePathReservation(
+                configurations,
+                markers,
+                ::syncProfileDirectory,
+                { target -> database.profileDao().list().any { it.typed.path.isNotBlank() && File(it.typed.path).canonicalFile == target.canonicalFile } },
+            )
+            val target = reservation.reserve()
+            profile.typed.path = target.path
+            if (writeConfig != null) {
+                writeConfig(target)
+                syncProfileDirectory(configurations)
+            }
+            profile.id = database.insertProfile(profile, pendingInitialImport)
+        }
+        if (andSelect) Settings.selectedProfile = profile.id
+        notifyChanged()
+        profile
+    }
+
     suspend fun update(profile: Profile): Int {
         try {
             return profileMutationGate.withLock(profile.id) {

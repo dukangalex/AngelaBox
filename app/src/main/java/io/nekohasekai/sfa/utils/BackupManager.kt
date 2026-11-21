@@ -673,12 +673,7 @@ object BackupManager {
         if (srcName.isBlank() || srcName.contains("..")) return null
         val staged = File(backupConfigs, srcName)
         if (!staged.isFile) return null
-        val fileId = ProfileManager.nextFileID()
-        val dest = File(liveConfigs, "$fileId.json")
-        val copied = runCatching { ProfileBindingStorage.mutate { staged.copyTo(dest, overwrite = true) } }.isSuccess
-        if (!copied || !dest.isFile) return null
         val typed = TypedProfile().apply {
-            path = dest.path
             type = if (portable.type == "remote") TypedProfile.Type.Remote else TypedProfile.Type.Local
             remoteURL = url
             lastUpdated = Date(portable.lastUpdated)
@@ -690,10 +685,10 @@ object BackupManager {
             autoUpdate = false
             autoUpdateInterval = portable.autoUpdateIntervalMinutes.coerceAtLeast(15)
         }
-        return ProfileManager.create(
+        return ProfileManager.createReserved(
             Profile(name = portable.name.trim(), icon = portable.icon, typed = typed),
             andSelect = false,
-        )
+        ) { target -> ProfileFiles.copyAtomically(staged, target) }
     }
 
     /**
@@ -746,12 +741,7 @@ object BackupManager {
                         if (srcName.isBlank() || srcName.contains("..")) continue
                         val staged = File(backupConfigs, srcName)
                         if (!staged.isFile) continue
-                        val fileId = ProfileManager.nextFileID()
-                        val dest = File(liveConfigs, "$fileId.json")
-                        val copied = runCatching { ProfileBindingStorage.mutate { staged.copyTo(dest, overwrite = true) } }.isSuccess
-                        if (!copied || !dest.isFile) continue
                         val imported = TypedProfile().apply {
-                            path = dest.path
                             type = typed.type
                             remoteURL = typed.remoteURL
                             lastUpdated = typed.lastUpdated
@@ -763,10 +753,10 @@ object BackupManager {
                             autoUpdateInterval = typed.autoUpdateInterval.coerceAtLeast(15)
                         }
                         val icon = if (iconIdx >= 0 && !c.isNull(iconIdx)) c.getString(iconIdx) else null
-                        ProfileManager.create(
+                        ProfileManager.createReserved(
                             Profile(name = name, icon = icon, typed = imported),
                             andSelect = false,
-                        )
+                        ) { target -> ProfileFiles.copyAtomically(staged, target) }
                         names.add(name)
                         if (url.isNotEmpty()) urls.add(url)
                         if (typed.type == TypedProfile.Type.Remote && url.isNotEmpty()) {

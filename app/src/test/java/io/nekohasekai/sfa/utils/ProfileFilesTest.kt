@@ -1,16 +1,16 @@
 package io.nekohasekai.sfa.utils
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 
 class ProfileFilesTest {
     @get:Rule val temp = TemporaryFolder()
@@ -39,16 +39,23 @@ class ProfileFilesTest {
                 try {
                     if (target.readText() !in valid) invalidReads.incrementAndGet()
                     readCount.incrementAndGet()
-                } catch (_: Exception) { errors.incrementAndGet() }
+                } catch (_: Exception) {
+                    errors.incrementAndGet()
+                }
             }
         }
-        val writers = payloads.map { value -> thread {
-            start.await()
-            repeat(100) {
-                try { ProfileFiles.writeAtomically(target, value) }
-                catch (_: Exception) { errors.incrementAndGet() }
+        val writers = payloads.map { value ->
+            thread {
+                start.await()
+                repeat(100) {
+                    try {
+                        ProfileFiles.writeAtomically(target, value)
+                    } catch (_: Exception) {
+                        errors.incrementAndGet()
+                    }
+                }
             }
-        } }
+        }
         start.countDown()
         writers.forEach { it.join() }
         done.set(true)
@@ -58,5 +65,15 @@ class ProfileFilesTest {
         assertEquals("reader saw partial or mixed data", 0, invalidReads.get())
         assertTrue(target.readText() in valid)
         assertEquals(listOf("profile.json"), target.parentFile.list()!!.sorted())
+    }
+
+    @Test fun streamingCopyFailureKeepsDestinationAndCleansTemporaryFile() {
+        val source = File(temp.root, "source").apply { writeText("incoming") }
+        val target = File(temp.root, "existing-dir").apply { mkdir() }
+        File(target, "keep").writeText("old")
+        val failure = runCatching { ProfileFiles.copyAtomically(source, target) }
+        assertTrue("copy must fail without replacing the existing directory", failure.isFailure)
+        assertEquals("old", File(target, "keep").readText())
+        assertEquals(listOf("existing-dir", "source"), temp.root.list()!!.sorted())
     }
 }

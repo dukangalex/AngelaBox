@@ -346,15 +346,18 @@ class ProfileImportHandler(private val context: Context) {
             importNotes = detailed.notes
         }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
         persistImportedProfile(
             pendingRemote = pendingRemote,
             selectWhenReady = Settings.selectedProfile < 0L,
-            writeConfig = { ProfileBindingStorage.writeAtomically(configFile, storedConfig) },
-            create = { select -> ProfileManager.create(profile, andSelect = select, pendingInitialImport = pendingRemote) },
+            writeConfig = {},
+            create = { select ->
+                ProfileManager.createReserved(
+                    profile,
+                    andSelect = select,
+                    pendingInitialImport = pendingRemote,
+                    writeConfig = if (pendingRemote) null else { target -> io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(target, storedConfig) },
+                )
+            },
             enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
             updateSchedule = {
                 if (typedProfile.type == TypedProfile.Type.Remote && typedProfile.autoUpdate) {
@@ -386,15 +389,11 @@ class ProfileImportHandler(private val context: Context) {
             userOrder = ProfileManager.nextOrder()
         }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
         persistImportedProfile(
             pendingRemote = true,
             selectWhenReady = false,
             writeConfig = {},
-            create = { select -> ProfileManager.create(profile, andSelect = select, pendingInitialImport = true) },
+            create = { select -> ProfileManager.createReserved(profile, andSelect = select, pendingInitialImport = true) },
             enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
             updateSchedule = { UpdateProfileWork.reconfigureUpdater() },
         )
@@ -480,12 +479,9 @@ class ProfileImportHandler(private val context: Context) {
                 typed = typedProfile,
             ).apply { userOrder = ProfileManager.nextOrder() }
 
-            val fileID = ProfileManager.nextFileID()
-            val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-            val configFile = File(configDirectory, "$fileID.json")
-            ProfileBindingStorage.writeAtomically(configFile, sanitized)
-            typedProfile.path = configFile.path
-            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, sanitized)
+            }
             // AB-019: import-time rule-set cache warm-up (see importProfile).
             io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(sanitized)
             ImportResult.Success(profile, detailed.notes)

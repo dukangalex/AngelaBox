@@ -78,7 +78,7 @@ class BackupRestoreCopyFaultRegressionTest {
         assertFalse(File(live, "old-profile.json").exists())
     }
 
-    @Test fun portableCopyFailureRollsBackTheProfileSet() = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+    @Test fun portableRestoreSkipsLegacyNameCollision() = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
         io.nekohasekai.sfa.database.Settings.closeDatabase()
         io.nekohasekai.sfa.database.ProfileManager.closeDatabase()
         val context = RuntimeEnvironment.getApplication()
@@ -100,7 +100,38 @@ class BackupRestoreCopyFaultRegressionTest {
         }
         val result = BackupManager.restoreBackupFile(context, backup, compat = false)
         println("PORTABLE_FAULT success=${result.isSuccess} exception=${result.exceptionOrNull()} profiles=${io.nekohasekai.sfa.database.ProfileManager.list().map { it.name }}")
-        assertTrue("portable copy failure must fail instead of committing an empty profile set", result.isFailure)
+        assertTrue("a pre-existing legacy filename must not block a unique reserved name: $result", result.isSuccess)
+        val restored = io.nekohasekai.sfa.database.ProfileManager.list().single()
+        assertEquals("new", restored.name)
+        assertEquals("{}", File(restored.typed.path).readText())
+        assertTrue(blocked.isDirectory)
+        assertEquals("block", File(blocked, "occupied").readText())
+    }
+
+    @Test fun portableReservationFailureRollsBackTheProfileSet() = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+        io.nekohasekai.sfa.database.Settings.closeDatabase()
+        io.nekohasekai.sfa.database.ProfileManager.closeDatabase()
+        val context = RuntimeEnvironment.getApplication()
+        val live = File(context.filesDir, "configs").apply { mkdirs() }
+        val old = File(live, "old.json").apply { writeText("old") }
+        io.nekohasekai.sfa.database.ProfileManager.create(io.nekohasekai.sfa.database.Profile(name = "old", typed = io.nekohasekai.sfa.database.TypedProfile().apply { path = old.path }))
+        val blocked = File(context.noBackupFilesDir, "profile-path-reservations")
+        check(!blocked.exists())
+        blocked.writeText("block reservation directory")
+        val backup = File(context.cacheDir, "portable-reservation-fault.zip")
+        ZipOutputStream(backup.outputStream()).use { zip ->
+            mapOf(
+                "configs/incoming.json" to "{}",
+                "profiles.json" to """{"profiles":[{"id":"new-uuid","name":"new","type":"local","config":"configs/incoming.json"}]}""",
+            ).forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        val result = BackupManager.restoreBackupFile(context, backup, compat = false)
+        println("PORTABLE_FAULT success=${result.isSuccess} exception=${result.exceptionOrNull()} profiles=${io.nekohasekai.sfa.database.ProfileManager.list().map { it.name }}")
+        assertTrue("portable reservation failure must fail instead of committing an empty profile set", result.isFailure)
         assertEquals(listOf("old"), io.nekohasekai.sfa.database.ProfileManager.list().map { it.name })
         assertEquals("old", old.readText())
     }

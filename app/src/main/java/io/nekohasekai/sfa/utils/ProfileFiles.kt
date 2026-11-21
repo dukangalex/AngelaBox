@@ -25,7 +25,14 @@ object ProfileFiles {
     }
 
     @Throws(IOException::class)
-    fun writeAtomically(file: File, content: String) {
+    fun writeAtomically(file: File, content: String) = writeAtomically(file) { it.write(content.toByteArray(Charsets.UTF_8)) }
+
+    @Throws(IOException::class)
+    fun copyAtomically(source: File, file: File) = writeAtomically(file) { out ->
+        source.inputStream().use { it.copyTo(out) }
+    }
+
+    private fun writeAtomically(file: File, write: (FileOutputStream) -> Unit) {
         val target = file.absoluteFile
         val parent = target.parentFile ?: throw IOException("配置目录不存在")
         if (!parent.isDirectory && !parent.mkdirs() && !parent.isDirectory) {
@@ -34,7 +41,7 @@ object ProfileFiles {
         val tmp = File.createTempFile(target.name + ".", ".tmp", parent)
         try {
             FileOutputStream(tmp).use { out ->
-                out.write(content.toByteArray(Charsets.UTF_8))
+                write(out)
                 out.fd.sync()
             }
             if (!tmp.renameTo(target)) throw IOException("原子写入配置失败")

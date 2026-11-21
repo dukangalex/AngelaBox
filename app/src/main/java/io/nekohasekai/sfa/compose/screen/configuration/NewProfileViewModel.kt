@@ -285,11 +285,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 userOrder = ProfileManager.nextOrder()
             }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
-
         val raw = when (state.profileSource) {
             ProfileSource.CreateNew -> "{}"
             ProfileSource.Import -> {
@@ -333,9 +328,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
             is ConfigGate.Result.Accepted -> Unit
         }
-        ProfileBindingStorage.writeAtomically(configFile, configContent)
-
-        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+        ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, configContent)
+        }
         // AB-019: import-time rule-set cache warm-up, same as the other
         // import paths — the startup substitute needs the ammunition.
         io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(configContent)
@@ -361,11 +356,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             Profile(name = state.name, typed = typedProfile).apply {
                 userOrder = ProfileManager.nextOrder()
             }
-
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
 
         // If DNS could not be checked while the VPN is down, persist only a
         // pending remote profile. No request is attempted until the worker
@@ -400,8 +390,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
                 is ConfigGate.Result.Accepted -> Unit
             }
-            ProfileBindingStorage.writeAtomically(configFile, content)
-            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, content)
+            }
             // AB-019: a subscription created by hand warms its rule-set
             // cache right away, not only after the first periodic update.
             io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
@@ -419,7 +410,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         hint: String,
         title: String,
     ): CreatedProfile {
-        ProfileManager.create(profile, andSelect = false, pendingInitialImport = true)
+        ProfileManager.createReserved(profile, andSelect = false, pendingInitialImport = true)
         UpdateProfileWork.enqueueInitialImport(profile.id)
         if (state.autoUpdate) UpdateProfileWork.reconfigureUpdater()
         return CreatedProfile(profile, importHint = hint, importHintTitle = title)

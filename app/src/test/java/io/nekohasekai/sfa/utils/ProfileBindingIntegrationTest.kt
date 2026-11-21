@@ -52,20 +52,22 @@ class ProfileBindingIntegrationTest {
         val dir = kotlin.io.path.createTempDirectory("profile-binding").toFile()
         try {
             val file = File(dir, "profile.json").apply { writeText("original") }
-            File(dir, "profile.json.tmp").apply {
-                mkdir()
-                File(this, "block").writeText("x")
-            }
             var bindingSaved = false
+            var writeAttempted = false
             var failed = false
             try {
                 commitLocalProfileSnapshot(
                     ProfileMutationGate(), 1, { Row(file.path) }, { true }, { File(it.path) },
                     "original", "new", { true }, { bindingSaved = true },
+                    commitFile = { _, _, _ ->
+                        writeAttempted = true
+                        throw IOException("injected file commit failure")
+                    },
                 )
             } catch (_: IOException) {
                 failed = true
             }
+            assertTrue(writeAttempted)
             assertTrue(failed)
             assertEquals("original", file.readText())
             assertFalse(bindingSaved)
