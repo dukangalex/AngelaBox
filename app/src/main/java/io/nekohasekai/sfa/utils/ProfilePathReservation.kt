@@ -7,7 +7,8 @@ import java.util.UUID
 
 /** Caller must hold the restore lease through file+database commit and check referenced
  * paths under the same storage gate. Markers must not be deleted on uncertain outcomes.
- * Experimental integration; marker collection and device power-loss acceptance remain open. */
+ * Collection only removes markers whose target is absent and unreferenced under that gate.
+ * Device power-loss acceptance remains open. */
 internal class ProfilePathReservation(
     private val configs: File,
     private val markers: File,
@@ -41,5 +42,26 @@ internal class ProfilePathReservation(
             return target
         }
         throw IOException("Cannot reserve a unique profile path")
+    }
+
+    /** Only called under the same lease and synchronous storage gate as creation.
+     * A failed directory listing is uncertainty, not evidence that a target is absent.
+     */
+    fun collectUnreferencedMarkers() {
+        val names = configs.list()?.toHashSet() ?: throw IOException("Cannot list profile directory")
+        val candidates = markers.listFiles() ?: throw IOException("Cannot list reservation directory")
+        var removed = false
+        try {
+            for (marker in candidates) {
+                val match = Regex("([0-9a-f]{32})\\.reserved").matchEntire(marker.name) ?: continue
+                if (!marker.isFile || marker.canonicalFile != File(markers.canonicalFile, marker.name)) continue
+                val target = File(configs, "profile-${match.groupValues[1]}.json").absoluteFile
+                if (target.name in names || isReferenced(target)) continue
+                if (!marker.delete()) throw IOException("Cannot remove profile reservation")
+                removed = true
+            }
+        } finally {
+            if (removed) syncDirectory(markers)
+        }
     }
 }
