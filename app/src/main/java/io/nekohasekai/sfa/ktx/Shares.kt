@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import io.nekohasekai.libbox.ProfileContent
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.TypedProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,7 +24,7 @@ suspend fun Context.shareProfile(profile: Profile) {
             content.type = io.nekohasekai.libbox.Libbox.ProfileTypeRemote
         }
     }
-    content.config = File(profile.typed.path).readText()
+    content.config = ProfileBindingStorage.readText(File(profile.typed.path))
     content.remotePath = profile.typed.remoteURL
     content.autoUpdate = profile.typed.autoUpdate
     content.autoUpdateInterval = profile.typed.autoUpdateInterval
@@ -50,7 +51,7 @@ suspend fun Context.shareProfileAsJson(profile: Profile) {
     val configDirectory = File(cacheDir, "share").also { it.mkdirs() }
     val jsonFile = File(configDirectory, "${shareBasename(profile.name)}.json")
     require(jsonFile.canonicalFile.parentFile == configDirectory.canonicalFile)
-    jsonFile.writeText(File(profile.typed.path).readText())
+    jsonFile.writeText(ProfileBindingStorage.readText(File(profile.typed.path)))
     val uri = FileProvider.getUriForFile(this, "$packageName.cache", jsonFile)
     withContext(Dispatchers.Main) {
         startActivity(

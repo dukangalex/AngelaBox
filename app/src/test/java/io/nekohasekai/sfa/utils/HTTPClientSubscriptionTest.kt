@@ -18,6 +18,35 @@ class HTTPClientSubscriptionTest {
     private val client = HTTPClient()
 
     @Test
+    fun routeInvalidationIsRetryableForWorkerButCannotAdvanceCurrentLadder() {
+        val seen = mutableListOf<HTTPClient.Route>()
+        try {
+            client.tryRoutes(
+                RemoteUrlGuard.Kind.SUBSCRIPTION,
+                listOf(HTTPClient.Route.DIRECT, HTTPClient.Route.DIRECT_DNS),
+            ) { route ->
+                seen.add(route)
+                throw SubscriptionRouteChangedException("VPN 状态已变化，订阅更新已停止，请重试")
+            }
+            throw AssertionError("invalidated route must stop")
+        } catch (e: IllegalStateException) {
+            assertEquals(listOf(HTTPClient.Route.DIRECT), seen)
+            assertTrue(HTTPClient.isTransientUpdateFailure(e))
+        }
+    }
+
+    @Test
+    fun activeReloadRejectionRemainsRetryableForFreshWorker() {
+        TunnelGate.setUp(false)
+        TunnelGate.reconfiguring().use {
+            val failure = org.junit.Assert.assertThrows(SubscriptionRouteChangedException::class.java) {
+                SubscriptionRouteLease()
+            }
+            assertTrue(HTTPClient.isTransientUpdateFailure(failure))
+        }
+    }
+
+    @Test
     fun ladderRetriesDirectDnsAfterTransientDirectFailure() {
         val seen = mutableListOf<HTTPClient.Route>()
         val result = client.tryRoutes(
@@ -98,9 +127,19 @@ class HTTPClientSubscriptionTest {
         )
         assertTrue(msg.contains("直连订阅服务器失败"))
         assertTrue(msg.contains("可用节点"))
-        assertTrue(msg.contains("SocketException"))
+        assertFalse(msg.contains("SocketException"))
         assertFalse(msg.contains("Connection reset"))
         assertFalse(msg.contains("请检查网络后再更新"))
+    }
+
+    @Test
+    fun failureMessageDoesNotLeakExceptionClassName() {
+        val msg = HTTPClient.explainProfileUpdate(
+            IllegalArgumentException("无法解析主机，已拒绝"),
+            tunnelUp = false,
+        )
+        assertTrue(msg.contains("域名解析失败"))
+        assertFalse(msg.contains("IllegalArgumentException"))
     }
 
     @Test

@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 # One release at a time; never cancel a release that is already signing/publishing.
 concurrency:
@@ -26,6 +27,12 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: sing-box-for-android
+
+      - name: Require tested dev tip
+        working-directory: sing-box-for-android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/release_preflight_gate.sh "${{ inputs.version_tag }}"
 
       - name: Pre-flight release gate
         working-directory: sing-box-for-android
@@ -274,6 +281,8 @@ jobs:
             :app:testDebugUnitTest \
             --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientProtectionTest \
+            --tests io.nekohasekai.sfa.utils.SubscriptionRouteLeaseTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
             --tests io.nekohasekai.sfa.utils.BackupManagerTest \
             --tests io.nekohasekai.sfa.utils.ConfigScriptOverrideTest \
@@ -285,12 +294,17 @@ jobs:
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.CloseOnFailureTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OwnedSendJobTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \
             --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
             --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
             --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
+            --tests io.nekohasekai.sfa.bg.InitialImportSchedulingIntegrationTest \
+            --tests io.nekohasekai.sfa.database.ChainBindingRoomTransactionTest \
+            --tests io.nekohasekai.sfa.database.ProfileBindingJournalTest \
             --tests io.nekohasekai.sfa.chain.ChainPathTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerBacklogTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerNestedGroupTest \
@@ -308,6 +322,48 @@ jobs:
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
             --tests io.nekohasekai.sfa.utils.RuleSetPinsTest \
             --tests io.nekohasekai.sfa.utils.SubscriptionInfoTest \
+            --tests io.nekohasekai.sfa.bg.CommandServerRestartTest \
+            --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \
+            --tests io.nekohasekai.sfa.bg.RuntimeRestoreGateTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingReferencingTest \
+            --tests io.nekohasekai.sfa.chain.ChainBindingRobustnessTest \
+            --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerGuardrailTest \
+            --tests io.nekohasekai.sfa.chain.LatestChainLoadTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.ImportProviderUnavailableTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.LocalProviderDisclosureTest \
+            --tests io.nekohasekai.sfa.compose.screen.connections.ConnectionCriteriaTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionPresentationTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionProvidersTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionSampleGateTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreCopyFaultRegressionTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreTransactionTest \
+            --tests io.nekohasekai.sfa.utils.ChinaDirectSplitMigrationTest \
+            --tests io.nekohasekai.sfa.utils.CnRuleSetRecoveryTest \
+            --tests io.nekohasekai.sfa.utils.CommandEpochGateTest \
+            --tests io.nekohasekai.sfa.utils.ConfigDnsProtectChinaTest \
+            --tests io.nekohasekai.sfa.utils.FakeIpServerTagTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientSubscriptionTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
+            --tests io.nekohasekai.sfa.utils.LatestRemoteSelectionTest \
+            --tests io.nekohasekai.sfa.utils.ManualProfileCommitTest \
+            --tests io.nekohasekai.sfa.utils.NoticeConsolidationTest \
+            --tests io.nekohasekai.sfa.utils.NoticeFlashPlannerTest \
+            --tests io.nekohasekai.sfa.utils.NoticeLogTest \
+            --tests io.nekohasekai.sfa.utils.PendingProfileImportCommitTest \
+            --tests io.nekohasekai.sfa.utils.ProfileBindingIntegrationTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCacheRaceTest \
+            --tests io.nekohasekai.sfa.utils.RestoreJournalTest \
+            --tests io.nekohasekai.sfa.utils.ProfileCreationIntegrationTest \
+            --tests io.nekohasekai.sfa.utils.ProfileFilesTest \
+            --tests io.nekohasekai.sfa.utils.ProfilePathReservationTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCommitOutcomeTest \
+            --tests io.nekohasekai.sfa.utils.RestoreQueuedCommitTest \
+            --tests io.nekohasekai.sfa.utils.RestoreSideEffectTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStateTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetStoreTest \
+            --tests io.nekohasekai.sfa.utils.RuleSetTriageTest \
+            --tests io.nekohasekai.sfa.utils.SystemExplicitSegmentTest \
             --no-daemon --stacktrace
 
       - name: Assemble release APK

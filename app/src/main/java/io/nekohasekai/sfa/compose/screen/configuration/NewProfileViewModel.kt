@@ -8,6 +8,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -41,6 +42,7 @@ data class NewProfileUiState(
     val isSuccess: Boolean = false,
     val createdProfile: Profile? = null,
     val importHint: String? = null,
+    val importHintTitle: String? = null,
     val nameError: String? = null,
     val remoteUrlError: String? = null,
     val importError: String? = null,
@@ -85,12 +87,16 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun initializeFromQRSImport(name: String?, qrsData: ByteArray) {
+        approvedFetchUrls = emptyList()
         _uiState.update {
             it.copy(
                 name = name ?: "",
                 profileType = ProfileType.Local,
                 profileSource = ProfileSource.Import,
                 qrsData = qrsData,
+                importUri = null,
+                importFileName = null,
+                pendingFetchUrls = emptyList(),
             )
         }
     }
@@ -141,6 +147,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 importUri = uri,
                 importFileName = fileName,
+                qrsData = null,
                 importError = null,
                 pendingFetchUrls = emptyList(),
                 name =
@@ -233,6 +240,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                         isSuccess = true,
                         createdProfile = created.profile,
                         importHint = created.importHint,
+                        importHintTitle = created.importHintTitle,
                         pendingFetchUrls = emptyList(),
                     )
                 }
@@ -277,11 +285,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 userOrder = ProfileManager.nextOrder()
             }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
-
         val raw = when (state.profileSource) {
             ProfileSource.CreateNew -> "{}"
             ProfileSource.Import -> {
@@ -298,7 +301,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }
-        // P3-4: a picked file can embed remote proxy-providers (and rule
+        // P3-4: a picked file or decoded QR profile can embed remote proxy-providers (and rule
         // providers) that sanitizeRemote below would fetch without ever
         // naming them — a "local" import silently making network requests
         // to file-chosen hosts. Probe first with the converter's own
@@ -307,7 +310,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         // once they have been disclosed (pendingFetchUrls in the state
         // this attempt was launched with) or explicitly approved via
         // confirmPendingFetch().
-        if (state.importUri != null) {
+        if (requiresProviderDisclosure(state.profileSource)) {
             val fetchUrls = embeddedFetchUrls(raw)
             if (fetchUrls.isNotEmpty() &&
                 fetchUrls != approvedFetchUrls &&
@@ -325,9 +328,9 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
             is ConfigGate.Result.Accepted -> Unit
         }
-        configFile.writeText(configContent)
-
-        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+        ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+            io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, configContent)
+        }
         // AB-019: import-time rule-set cache warm-up, same as the other
         // import paths — the startup substitute needs the ammunition.
         io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(configContent)
@@ -338,7 +341,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun createRemoteProfile(state: NewProfileUiState): CreatedProfile {
         val context = getApplication<Application>()
         val remoteUrl = state.remoteUrl.trim()
-        io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(remoteUrl)
+        val dnsValidated = io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscriptionForImport(remoteUrl)
 
         val typedProfile =
             TypedProfile().apply {
@@ -354,21 +357,42 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                 userOrder = ProfileManager.nextOrder()
             }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        typedProfile.path = configFile.path
+        // If DNS could not be checked while the VPN is down, persist only a
+        // pending remote profile. No request is attempted until the worker
+        // reruns the complete URL/DNS/TLS policy on a connected network.
+        if (!dnsValidated) {
+            return savePendingRemoteProfile(
+                profile = profile,
+                state = state,
+                hint = "订阅已保存为待更新项。当前 DNS 无法解析订阅主机，暂时没有下载配置；联网后会安全重试，也可以在订阅页面手动更新。下载成功前请勿启用此配置。",
+                title = "等待网络后更新",
+            )
+        }
 
         HTTPClient().use { client ->
-            val raw = client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            val raw = try {
+                client.getString(remoteUrl, io.nekohasekai.sfa.utils.RemoteUrlGuard.Kind.SUBSCRIPTION)
+            } catch (e: Exception) {
+                // Defer only transient network failures while the tunnel is
+                // down. With the VPN up, the existing proxy-only failure path
+                // is preserved; it must never fall back to direct access.
+                if (io.nekohasekai.sfa.utils.TunnelGate.up || !isDeferredNetworkFailure(e)) throw e
+                return savePendingRemoteProfile(
+                    profile = profile,
+                    state = state,
+                    hint = "订阅已保存为待更新项，但这次下载没有完成。应用会在网络可用时重试；也可以在订阅页面手动更新。下载成功前请勿启用此配置。",
+                    title = "订阅已保存，等待更新",
+                )
+            }
             val content = ConfigCompat.sanitizeRemote(raw)
             // G4: same heal-aligned gate as local creation.
             when (val gate = ConfigGate.validate(content, ConfigGate::libboxCheck)) {
                 is ConfigGate.Result.Rejected -> throw Exception(gate.reason)
                 is ConfigGate.Result.Accepted -> Unit
             }
-            configFile.writeText(content)
-            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, content)
+            }
             // AB-019: a subscription created by hand warms its rule-set
             // cache right away, not only after the first periodic update.
             io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(content)
@@ -378,6 +402,33 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             }
             return CreatedProfile(profile, shareLinkHint(raw))
         }
+    }
+
+    private suspend fun savePendingRemoteProfile(
+        profile: Profile,
+        state: NewProfileUiState,
+        hint: String,
+        title: String,
+    ): CreatedProfile {
+        ProfileManager.createReserved(profile, andSelect = false, pendingInitialImport = true)
+        UpdateProfileWork.enqueueInitialImport(profile.id)
+        if (state.autoUpdate) UpdateProfileWork.reconfigureUpdater()
+        return CreatedProfile(profile, importHint = hint, importHintTitle = title)
+    }
+
+    private fun isDeferredNetworkFailure(error: Throwable): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is java.net.UnknownHostException ||
+                current is java.net.SocketException ||
+                current is java.net.SocketTimeoutException ||
+                (current is IllegalArgumentException && current.message.orEmpty().contains("无法解析主机"))
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private fun shareLinkHint(raw: String): String? {
@@ -390,31 +441,6 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
             return null
         }
         return "这份订阅是节点链接，里面没有分流规则。建议在这个配置上开启「默认脚本」，国内直连和国外代理才会分开。应用不会自动开启。"
-    }
-
-    /**
-     * Enumerate the remote URLs converting [raw] would fetch, using the
-     * converter's own detection: this runs the real sanitize conversion
-     * with a fetch channel that only records the URL and then aborts.
-     * The converter swallows the abort per provider, so every URL it
-     * would attempt is recorded — and nothing touches the network.
-     */
-    private fun embeddedFetchUrls(raw: String): List<String> {
-        val urls = LinkedHashSet<String>()
-        try {
-            ConfigCompat.sanitizeDetailed(
-                raw,
-                fetch = { url ->
-                    urls += url
-                    throw FetchProbeAbort
-                },
-            )
-        } catch (_: Exception) {
-            // A file the real pass will reject anyway: the scan only
-            // needs the URLs recorded up to the failure; the real error
-            // surfaces unchanged when the import actually runs.
-        }
-        return urls.toList()
     }
 
     private fun readImportText(context: Application, uri: Uri): String {
@@ -430,6 +456,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
 private data class CreatedProfile(
     val profile: Profile,
     val importHint: String? = null,
+    val importHintTitle: String? = null,
 )
 
 /** Thrown by the probe fetch channel to stop a dry-run conversion fetch. */
@@ -437,3 +464,30 @@ private object FetchProbeAbort : Exception("fetch probe")
 
 /** The import is paused before any fetch: these URLs need disclosure first. */
 private class ProviderFetchConfirmationRequired(val urls: List<String>) : Exception("provider fetch confirmation required")
+
+internal fun requiresProviderDisclosure(source: ProfileSource): Boolean = source == ProfileSource.Import
+
+/**
+ * Enumerate the remote URLs converting [raw] would fetch, using the
+ * converter's own detection: this runs the real sanitize conversion
+ * with a fetch channel that only records the URL and then aborts.
+ * The converter swallows the abort per provider, so every URL it
+ * would attempt is recorded — and nothing touches the network.
+ */
+internal fun embeddedFetchUrls(raw: String): List<String> {
+    val urls = LinkedHashSet<String>()
+    try {
+        ConfigCompat.sanitizeDetailed(
+            raw,
+            fetch = { url ->
+                urls += url
+                throw FetchProbeAbort
+            },
+        )
+    } catch (_: Exception) {
+        // A file the real pass will reject anyway: the scan only
+        // needs the URLs recorded up to the failure; the real error
+        // surfaces unchanged when the import actually runs.
+    }
+    return urls.toList()
+}

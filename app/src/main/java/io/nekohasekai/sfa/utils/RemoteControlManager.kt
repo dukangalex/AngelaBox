@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 object RemoteControlManager : CommandClient.Handler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -38,6 +39,8 @@ object RemoteControlManager : CommandClient.Handler {
     private var sessionConnectedAt = 0L
     private var reconnectAttempts = 0
     private var restored = false
+    private val selection = LatestRemoteSelection()
+    private val callbackGeneration = AtomicLong(0)
 
     // A dropped session gets this many silent reconnect attempts before the
     // failure is surfaced. The counter resets once a connection survives
@@ -50,6 +53,7 @@ object RemoteControlManager : CommandClient.Handler {
             return
         }
         restored = true
+        val restoreGeneration = selection.current()
         scope.launch {
             val server =
                 withContext(Dispatchers.IO) {
@@ -58,13 +62,14 @@ object RemoteControlManager : CommandClient.Handler {
                         return@withContext null
                     }
                     val storedServer = runCatching { RemoteServerManager.get(serverId) }.getOrNull()
-                    if (storedServer == null) {
-                        Settings.activeRemoteServerId = 0L
-                    }
                     storedServer
                 }
-            if (server != null && _remoteServer.value == null) {
-                enterRemoteControl(server)
+            if (selection.current() == restoreGeneration && _remoteServer.value == null) {
+                if (server != null) {
+                    enterRemoteControl(server)
+                } else {
+                    persistSelection(restoreGeneration, 0L)
+                }
             }
             // The initial state was already handled by enterRemoteControl.
             AppLifecycleObserver.isForeground.drop(1).collect { foreground ->
@@ -85,31 +90,37 @@ object RemoteControlManager : CommandClient.Handler {
     }
 
     fun enterRemoteControl(server: RemoteServer) {
+        val generation = selection.changed()
         CommandTarget.setRemoteServer(server)
         resetSessionState()
         _remoteServer.value = server
         if (AppLifecycleObserver.isForeground.value) {
             monitorClient.connect()
         }
-        scope.launch(Dispatchers.IO) {
-            Settings.activeRemoteServerId = server.id
-        }
+        persistSelection(generation, server.id)
     }
 
     fun exitRemoteControl() {
+        val generation = selection.changed()
         if (_remoteServer.value == null) {
+            persistSelection(generation, 0L)
             return
         }
         CommandTarget.setRemoteServer(null)
         resetSessionState()
         _remoteServer.value = null
         monitorClient.disconnect()
+        persistSelection(generation, 0L)
+    }
+
+    private fun persistSelection(generation: Long, serverId: Long) {
         scope.launch(Dispatchers.IO) {
-            Settings.activeRemoteServerId = 0L
+            selection.writeIfCurrent(generation) { Settings.activeRemoteServerId = serverId }
         }
     }
 
     private fun resetSessionState() {
+        callbackGeneration.incrementAndGet()
         sessionHadConnected = false
         sessionConnectedAt = 0L
         reconnectAttempts = 0
@@ -118,8 +129,9 @@ object RemoteControlManager : CommandClient.Handler {
     }
 
     override fun onConnected() {
+        val generation = callbackGeneration.incrementAndGet()
         scope.launch {
-            if (_remoteServer.value == null) {
+            if (generation != callbackGeneration.get() || _remoteServer.value == null) {
                 return@launch
             }
             sessionHadConnected = true
@@ -129,21 +141,25 @@ object RemoteControlManager : CommandClient.Handler {
                 withContext(Dispatchers.IO) {
                     runCatching { CommandTarget.standaloneClient().startedAt }.getOrNull()
                 }
-            if (_isConnected.value) {
+            if (generation == callbackGeneration.get() && _isConnected.value) {
                 _startedAt.value = serviceStartedAt?.takeIf { it > 0 }
             }
         }
     }
 
     override fun onDisconnected() {
+        val generation = callbackGeneration.incrementAndGet()
         scope.launch {
+            if (generation != callbackGeneration.get()) return@launch
             _isConnected.value = false
             _startedAt.value = null
         }
     }
 
     override fun onConnectionError(kind: CommandClient.ConnectionErrorKind, message: String) {
+        val generation = callbackGeneration.get()
         scope.launch {
+            if (generation != callbackGeneration.get()) return@launch
             handleConnectionError(kind, message)
         }
     }

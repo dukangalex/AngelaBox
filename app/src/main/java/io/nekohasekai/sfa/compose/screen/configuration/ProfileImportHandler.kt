@@ -6,12 +6,16 @@ import android.provider.OpenableColumns
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.ProfileContent
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.ConfigCompat
 import io.nekohasekai.sfa.utils.ConfigGate
+import io.nekohasekai.sfa.utils.isUnmaterializedRemoteConfig
+import io.nekohasekai.sfa.utils.persistImportedProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -21,6 +25,7 @@ import java.util.Date
 
 class ProfileImportHandler(private val context: Context) {
     companion object {
+        private const val PENDING_REMOTE_HINT = "订阅已保存为待更新项；联网后会安全下载，也可在订阅页面手动更新。下载成功前不会自动选用此配置。"
         private const val MAX_IMPORT_BYTES = 8L * 1024L * 1024L
 
         /**
@@ -78,7 +83,7 @@ class ProfileImportHandler(private val context: Context) {
             val name: String,
             val detail: String? = null,
             val sshWarning: String? = null,
-            val snapshot: ImportSnapshot? = null,
+            val snapshot: ImportSnapshot,
         ) : UriParseResult()
 
         data class Error(val message: String) : UriParseResult()
@@ -142,7 +147,7 @@ class ProfileImportHandler(private val context: Context) {
             // The snapshot binds the confirmation to these exact bytes; the
             // import later consumes the snapshot (see importFromSnapshot).
             val data = readUriBytes(uri)
-                ?: return@withContext UriParseResult.Success(filename)
+                ?: return@withContext UriParseResult.Error(context.getString(R.string.error_import_file_unavailable))
             val snapshot = ImportSnapshot(data, sha256Hex(data))
             val dataString = String(data)
             if (isJsonConfiguration(dataString) || io.nekohasekai.sfa.utils.ConfigIngest.looksConvertible(dataString)) {
@@ -305,7 +310,7 @@ class ProfileImportHandler(private val context: Context) {
             Libbox.ProfileTypeiCloud -> return ImportResult.Error(context.getString(R.string.icloud_profile_unsupported))
             Libbox.ProfileTypeRemote -> {
                 try {
-                    io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(content.remotePath)
+                    io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscriptionForImport(content.remotePath)
                 } catch (e: Exception) {
                     return ImportResult.Error(e.message ?: "订阅地址不安全")
                 }
@@ -326,9 +331,10 @@ class ProfileImportHandler(private val context: Context) {
         // file targets the blob author controls (log.output, see
         // ConfigCompat.stripLogFileOutput). Non-object configs (e.g. the
         // empty placeholder a remote blob carries) have nothing to sanitize.
+        val pendingRemote = isUnmaterializedRemoteConfig(typedProfile.type == TypedProfile.Type.Remote, content.config)
         var storedConfig = content.config
         var importNotes: List<String> = emptyList()
-        if (storedConfig.trimStart().startsWith("{")) {
+        if (!pendingRemote && storedConfig.trimStart().startsWith("{")) {
             val detailed = ConfigCompat.sanitizeDetailed(storedConfig)
             val gate = ConfigGate.validate(detailed.content, ConfigGate::libboxCheck)
             if (gate is ConfigGate.Result.Rejected) {
@@ -340,23 +346,33 @@ class ProfileImportHandler(private val context: Context) {
             importNotes = detailed.notes
         }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText(storedConfig)
-        typedProfile.path = configFile.path
-        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-        // AB-019: warm the rule-set cache at import time, so the startup
-        // cache substitute has ammunition for file/QR imports too — it
-        // used to be filled only by remote subscription updates.
-        io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(storedConfig)
-        return ImportResult.Success(profile, importNotes)
+        persistImportedProfile(
+            pendingRemote = pendingRemote,
+            selectWhenReady = Settings.selectedProfile < 0L,
+            writeConfig = {},
+            create = { select ->
+                ProfileManager.createReserved(
+                    profile,
+                    andSelect = select,
+                    pendingInitialImport = pendingRemote,
+                    writeConfig = if (pendingRemote) null else { target -> io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(target, storedConfig) },
+                )
+            },
+            enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
+            updateSchedule = {
+                if (typedProfile.type == TypedProfile.Type.Remote && typedProfile.autoUpdate) {
+                    UpdateProfileWork.reconfigureUpdater()
+                }
+            },
+        )
+        if (!pendingRemote) io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(storedConfig)
+        return ImportResult.Success(profile, importNotes + if (pendingRemote) listOf(PENDING_REMOTE_HINT) else emptyList())
     }
 
     private suspend fun importRemoteProfile(name: String, url: String): ImportResult {
         val secureUrl = url.trim()
         try {
-            io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscription(secureUrl)
+            io.nekohasekai.sfa.utils.RemoteUrlGuard.acceptSubscriptionForImport(secureUrl)
         } catch (e: Exception) {
             return ImportResult.Error(e.message ?: "订阅地址不安全")
         }
@@ -373,13 +389,15 @@ class ProfileImportHandler(private val context: Context) {
             userOrder = ProfileManager.nextOrder()
         }
 
-        val fileID = ProfileManager.nextFileID()
-        val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-        val configFile = File(configDirectory, "$fileID.json")
-        configFile.writeText("{}")
-        typedProfile.path = configFile.path
-        ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
-        return ImportResult.Success(profile)
+        persistImportedProfile(
+            pendingRemote = true,
+            selectWhenReady = false,
+            writeConfig = {},
+            create = { select -> ProfileManager.createReserved(profile, andSelect = select, pendingInitialImport = true) },
+            enqueueInitial = { UpdateProfileWork.enqueueInitialImport(profile.id) },
+            updateSchedule = { UpdateProfileWork.reconfigureUpdater() },
+        )
+        return ImportResult.Success(profile, listOf(PENDING_REMOTE_HINT))
     }
 
     private fun readUriBytes(uri: Uri): ByteArray? = context.contentResolver.openInputStream(uri)?.use { input ->
@@ -461,12 +479,9 @@ class ProfileImportHandler(private val context: Context) {
                 typed = typedProfile,
             ).apply { userOrder = ProfileManager.nextOrder() }
 
-            val fileID = ProfileManager.nextFileID()
-            val configDirectory = File(context.filesDir, "configs").also { it.mkdirs() }
-            val configFile = File(configDirectory, "$fileID.json")
-            configFile.writeText(sanitized)
-            typedProfile.path = configFile.path
-            ProfileManager.create(profile, andSelect = Settings.selectedProfile < 0L)
+            ProfileManager.createReserved(profile, andSelect = Settings.selectedProfile < 0L) {
+                io.nekohasekai.sfa.utils.ProfileFiles.writeAtomically(it, sanitized)
+            }
             // AB-019: import-time rule-set cache warm-up (see importProfile).
             io.nekohasekai.sfa.bg.RuleSetWarmup.schedule(sanitized)
             ImportResult.Success(profile, detailed.notes)
@@ -487,6 +502,10 @@ class ProfileImportHandler(private val context: Context) {
             append('\n')
             append(context.getString(R.string.import_profile_detail_url, content.remotePath))
             append('\n')
+            if (isUnmaterializedRemoteConfig(true, content.config)) {
+                append("此订阅未附带已下载的配置；确认导入后会保存为待更新项，下载成功前不会自动选用。")
+                append('\n')
+            }
             append(
                 if (content.autoUpdate) {
                     context.getString(

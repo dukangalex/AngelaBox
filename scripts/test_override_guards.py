@@ -249,8 +249,23 @@ def main() -> int:
     ui = read("app/src/main/java/io/nekohasekai/sfa/compose/screen/tools/ChainBuilderScreen.kt")
     if 'picker == "entry"' not in ui:
         errors.append("Chain builder must let the user pick the entry hop")
-    if "ChainBindings.put" not in ui:
-        errors.append("Chain builder must save a per-profile binding")
+    # Config bytes and their binding must be one recoverable operation, not
+    # independent calls separated by a process-crash window.
+    if ui.count("ProfileManager.commitChainContent(") < 2 or "binding = null" not in ui:
+        errors.append("Chain builder must journal both binding save and clear")
+    if "ChainBindings.put(" in ui or "ChainBindings.remove(" in ui:
+        errors.append("Chain builder must not commit its binding separately from the config")
+    storage = read("app/src/main/java/io/nekohasekai/sfa/database/ProfileBindingStorage.kt")
+    if "journal.commit(" not in storage or "journal.recover()" not in storage:
+        errors.append("Profile storage must recover before committing or exposing bindings")
+    warmup = read("app/src/main/java/io/nekohasekai/sfa/bg/RuleSetWarmup.kt")
+    if "storedProfileContents(): List<String> = ProfileBindingStorage.access" not in warmup or warmup.count("storedProfileContents()") != 3:
+        errors.append("Rule-set warmup and pruning must snapshot profiles behind recovery")
+    journal = read("app/src/main/java/io/nekohasekai/sfa/database/ProfileBindingJournal.kt")
+    for guard in ("database().runInTransaction", "currentFingerprint() != intent.bindings",
+                  "actual != intent.before", "target.canonicalPath != intent.canonicalPath"):
+        if guard not in journal:
+            errors.append(f"Profile binding recovery safety guard missing: {guard}")
     if "仅绑定当前" not in ui and "只绑定当前" not in ui:
         errors.append("Chain builder UI must say the binding is current-profile only")
     if "订阅更新" not in ui:

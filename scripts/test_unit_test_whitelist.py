@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """D6 guard: every JVM unit test class must be in EACH workflow's --tests whitelist.
 
-ci.yml and release-chainbox.yml run an explicit `--tests` whitelist instead of
+All CI and release workflows run an explicit `--tests` whitelist instead of
 the full `testDebugUnitTest` task. A new *Test class that is not listed is
 silently skipped by that workflow. This guard fails in that case (and on stale
 whitelist entries that no longer map to a file). Each workflow file is checked
-independently: being listed in only one of them is still a failure.
+independently: being listed in only one workflow is still a failure.
 
-Run by the overlay-guards step in ci.yml and by release-chainbox.yml:
+Run by the overlay guards and by both release workflows:
     python3 scripts/test_unit_test_whitelist.py
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ TEST_SRC = ROOT / "app" / "src" / "test"
 WORKFLOWS = [
     ROOT / ".github" / "workflows" / "ci.yml",
     ROOT / ".github" / "workflows" / "release-chainbox.yml",
+    ROOT / ".github" / "workflows" / "release-stable.yml",
 ]
 
 PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)", re.MULTILINE)

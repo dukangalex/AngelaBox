@@ -2,8 +2,10 @@ package io.nekohasekai.sfa.bg
 
 import android.util.Log
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.utils.HTTPClient
 import io.nekohasekai.sfa.utils.RemoteUrlGuard
+import io.nekohasekai.sfa.utils.RestoreStorageAccess
 import io.nekohasekai.sfa.utils.RuleSetCacheWarmer
 import io.nekohasekai.sfa.utils.RuleSetSeeds
 import io.nekohasekai.sfa.utils.RuleSetStore
@@ -51,9 +53,10 @@ object RuleSetWarmup {
      */
     fun schedule(content: String) {
         if (content.isBlank()) return
+        val generation = runCatching { RestoreStorageAccess.snapshot() }.getOrNull() ?: return
         scope.launch {
             runCatching {
-                gate.withLock { warmNow(content, System.currentTimeMillis() + ASYNC_BUDGET_MS) }
+                gate.withLock { warmNow(content, System.currentTimeMillis() + ASYNC_BUDGET_MS, generation) }
             }.onFailure { Log.w(TAG, "rule-set warm-up failed", it) }
         }
     }
@@ -69,9 +72,10 @@ object RuleSetWarmup {
      */
     fun scheduleBuilt(content: String) {
         if (content.isBlank()) return
+        val generation = runCatching { RestoreStorageAccess.snapshot() }.getOrNull() ?: return
         scope.launch {
             runCatching {
-                gate.withLock { warmNow(content, System.currentTimeMillis() + ASYNC_BUDGET_MS) }
+                gate.withLock { warmNow(content, System.currentTimeMillis() + ASYNC_BUDGET_MS, generation) }
             }.onFailure { Log.w(TAG, "built-config rule-set warm-up failed", it) }
         }
     }
@@ -88,20 +92,28 @@ object RuleSetWarmup {
      * bounds the whole scan; best-effort like every warm path.
      */
     fun warmRestored(deadlineMs: Long) {
-        val dir = File(Application.application.filesDir, "configs")
-        val files = runCatching { dir.listFiles() }.getOrNull() ?: return
-        for (f in files) {
+        val generation = runCatching { RestoreStorageAccess.snapshot() }.getOrNull() ?: return
+        val contents = runCatching { storedProfileContents() }.getOrNull() ?: return
+        for (content in contents) {
             if (System.currentTimeMillis() > deadlineMs) return
-            if (!f.isFile || !f.name.endsWith(".json")) continue
-            val content = runCatching { f.readText() }.getOrNull() ?: continue
             if (content.isNotBlank()) {
-                runCatching { warmNow(content, deadlineMs) }
+                runCatching { warmNow(content, deadlineMs, generation) }
             }
         }
     }
 
+    /** Recover first, then snapshot disk reads only; never hold the barrier over downloads. */
+    private fun storedProfileContents(): List<String> = ProfileBindingStorage.access {
+        val dir = File(Application.application.filesDir, "configs")
+        (dir.listFiles() ?: emptyArray()).mapNotNull { file ->
+            if (!file.isFile || !file.name.endsWith(".json")) return@mapNotNull null
+            runCatching { file.readText() }.getOrNull()
+        }
+    }
+
     /** Synchronous warm, bounded by [deadlineMs] (the worker's round deadline). */
-    fun warmNow(content: String, deadlineMs: Long) {
+    fun warmNow(content: String, deadlineMs: Long, restoreGeneration: Long = RestoreStorageAccess.snapshot(), shouldContinue: () -> Boolean = { true }) {
+        if (!shouldContinue() || !RestoreStorageAccess.isCurrent(restoreGeneration)) return
         val working = Application.application.getExternalFilesDir(null)
             ?: Application.application.filesDir
         RuleSetCacheWarmer.warm(
@@ -109,25 +121,33 @@ object RuleSetWarmup {
             working,
             deadlineMs,
             System::currentTimeMillis,
-        ) { url, dest -> download(url, dest) }
+            restoreGeneration,
+            onStored = { url, dest -> RuleSetSeeds.refreshFromDownload(Application.application.filesDir, url, dest) },
+        ) { url, dest -> shouldContinue() && downloadToTemp(url, dest) }
         // Localization store (137b): the same trigger points fill
         // the URL-keyed store, inside the same deadline — the warmer
         // cache and the store are two floors with different contracts
         // (tag-keyed substitute ammo vs origin-keyed initial_path
         // floors), and both are at their fullest when every import /
         // update / restore feeds both.
-        runCatching { warmStoreNow(content, deadlineMs) }
+        if (shouldContinue()) runCatching { warmStoreNow(content, deadlineMs, restoreGeneration, shouldContinue) }
     }
 
-    private fun warmStoreNow(content: String, deadlineMs: Long) {
+    private fun warmStoreNow(content: String, deadlineMs: Long, restoreGeneration: Long, shouldContinue: () -> Boolean) {
         val storeDir = RuleSetStore.storeDir(Application.application.filesDir)
         RuleSetStore.warm(
             content,
             storeDir,
             deadlineMs,
             System::currentTimeMillis,
-        ) { url, tmp -> downloadToTemp(url, tmp) }
-        pruneStore(storeDir, content)
+            restoreGeneration,
+        ) { url, tmp -> shouldContinue() && downloadToTemp(url, tmp) }
+        if (shouldContinue()) {
+            RestoreStorageAccess.access {
+                RestoreStorageAccess.requireCurrent(restoreGeneration)
+                pruneStore(storeDir, content)
+            }
+        }
     }
 
     private fun downloadToTemp(url: String, tmp: File): Boolean = runCatching {
@@ -156,34 +176,10 @@ object RuleSetWarmup {
                 }
             }
             collect(warmedContent)
-            val dir = File(Application.application.filesDir, "configs")
-            for (f in dir.listFiles() ?: emptyArray()) {
-                if (!f.isFile || !f.name.endsWith(".json")) continue
-                val text = runCatching { f.readText() }.getOrNull() ?: continue
+            for (text in storedProfileContents()) {
                 if (text.isNotBlank()) collect(text)
             }
             RuleSetStore.prune(storeDir, referenced, System.currentTimeMillis())
         }
-    }
-
-    private fun download(url: String, dest: File): Boolean {
-        val ok = runCatching {
-            HTTPClient().use { client ->
-                client.downloadToFile(url, RemoteUrlGuard.Kind.SUBSCRIPTION, dest)
-            }
-            dest.isFile && dest.length() > 0L
-        }.getOrDefault(false)
-        if (ok) {
-            // Seed refresh (137a): a download of an app-owned set from
-            // its pinned URL also refreshes the bundled seed's
-            // installed copy, so a later cold start floors on the
-            // freshest fetched bytes. RuleSetSeeds enforces the
-            // pinned-URL trust boundary; failure is silent like every
-            // warm path.
-            runCatching {
-                RuleSetSeeds.refreshFromDownload(Application.application.filesDir, url, dest)
-            }
-        }
-        return ok
     }
 }

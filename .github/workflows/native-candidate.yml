@@ -1,0 +1,134 @@
+name: Native candidate validation
+
+on:
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  native-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout application validation inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: app
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Read candidate validation pin
+        id: pin
+        working-directory: app
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+          p = dict(line.split('=', 1) for line in pathlib.Path('kernel-candidate.properties').read_text().splitlines() if line and not line.startswith('#'))
+          assert p['KERNEL_REPOSITORY'] == 'dukangalex/sing-box'
+          assert re.fullmatch('[0-9a-f]{40}', p['KERNEL_COMMIT'])
+          assert re.fullmatch(r'\d+\.\d+\.\d+', p['GO_VERSION'])
+          assert re.fullmatch(r'v\d+\.\d+\.\d+', p['GOMOBILE_VERSION'])
+          assert re.fullmatch(r'\d+\.\d+\.\d+', p['ANDROID_NDK_VERSION'])
+          assert p['ANDROID_API'] == '24'
+          assert re.fullmatch('[a-z0-9_,]+', p['BUILD_TAGS'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              for k, v in p.items(): f.write(f'{k.lower()}={v}\n')
+          PY
+      - name: Checkout exact candidate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: dukangalex/sing-box
+          ref: ${{ steps.pin.outputs.kernel_commit }}
+          path: kernel
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          cache-dependency-path: kernel/go.sum
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install exact native toolchain
+        env:
+          NDK: ${{ steps.pin.outputs.android_ndk_version }}
+          MOBILE: ${{ steps.pin.outputs.gomobile_version }}
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          test -n "$SDKMANAGER"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --install "ndk;$NDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          go install "github.com/sagernet/gomobile/cmd/gomobile@$MOBILE"
+          go install "github.com/sagernet/gomobile/cmd/gobind@$MOBILE"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build validation-only ARM64 AAR
+        run: bash app/scripts/build_native_candidate.sh app/kernel-candidate.properties kernel native-evidence
+      - name: Upload unsigned candidate and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-candidate-arm64-api24
+          path: native-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+  candidate-app:
+    needs: native-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout candidate application
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Download exact native candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-candidate-arm64-api24
+          path: candidate-native
+      - name: Setup Java 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Setup Android SDK and candidate library
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-37.1" "build-tools;35.0.0" "platform-tools"
+          echo "sdk.dir=$SDK" > local.properties
+          mkdir -p app/libs
+          cp candidate-native/libbox-native-close-arm64-api24.aar app/libs/libbox.aar
+          sha256sum app/libs/libbox.aar
+      - name: Compile and run all JVM tests against candidate JNI API
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:compileOtherDebugKotlin :app:testDebugUnitTest --no-daemon --stacktrace --max-workers=2 -Dorg.gradle.jvmargs=-Xmx4096m
+      - name: Assemble emulator-only debug APK
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          ./gradlew :app:assembleOtherDebug --no-daemon --stacktrace --max-workers=2 -Dorg.gradle.jvmargs=-Xmx4096m
+      - name: Upload emulator-only APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-emulator-only-apk
+          path: app/build/outputs/apk/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload candidate compile test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-app-jvm-validation
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+          retention-days: 14

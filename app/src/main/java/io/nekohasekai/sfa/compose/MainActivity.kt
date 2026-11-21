@@ -368,18 +368,19 @@ class MainActivity :
 
     private fun startService0() {
         lifecycleScope.launch(Dispatchers.IO) {
-            Settings.rebuildServiceMode()
-            connection.reconnect()
-            if (Settings.serviceMode == ServiceMode.VPN) {
-                if (prepare()) {
-                    return@launch
+            val preparation = io.nekohasekai.sfa.bg.BoxService.restoreGate.prepareStart() ?: return@launch
+            preparation.second.use {
+                Settings.rebuildServiceMode()
+                connection.reconnect()
+                if (Settings.serviceMode == ServiceMode.VPN) {
+                    if (prepare()) {
+                        return@launch
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    io.nekohasekai.sfa.bg.BoxService.start()
                 }
             }
-            val intent = Intent(Application.application, Settings.serviceClass())
-            withContext(Dispatchers.Main) {
-                ContextCompat.startForegroundService(this@MainActivity, intent)
-            }
-            Settings.startedByUser = true
         }
     }
 
@@ -607,13 +608,12 @@ class MainActivity :
                         pendingImportLocalProfileSnapshot = null
                         scope.launch {
                             // P3-4: import the snapshot bytes that were
-                            // hashed and classified for this confirmation;
-                            // only fall back to reading the URI when no
-                            // snapshot could be taken.
+                            // hashed and classified for this confirmation. Never
+                            // reread a provider after user confirmation.
                             val result = if (importSnapshot != null) {
                                 importHandler.importFromSnapshot(importSnapshot, importName)
                             } else {
-                                importHandler.importFromUri(importUri)
+                                ProfileImportHandler.ImportResult.Error(getString(R.string.error_import_snapshot_mismatch))
                             }
                             when (result) {
                                 is ProfileImportHandler.ImportResult.Success -> {

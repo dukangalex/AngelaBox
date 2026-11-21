@@ -267,7 +267,13 @@ jobs:
             :app:compileOtherDebugKotlin \
             :app:testDebugUnitTest \
             --tests io.nekohasekai.sfa.utils.RemoteUrlGuardTest \
+            --tests io.nekohasekai.sfa.utils.PendingProfileImportCommitTest \
+            --tests io.nekohasekai.sfa.utils.ManualProfileCommitTest \
+            --tests io.nekohasekai.sfa.utils.ProfileBindingIntegrationTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.LocalProviderDisclosureTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientRedirectTest \
+            --tests io.nekohasekai.sfa.utils.HTTPClientProtectionTest \
+            --tests io.nekohasekai.sfa.utils.SubscriptionRouteLeaseTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.HTTPClientVpnSubscriptionTest \
             --tests io.nekohasekai.sfa.utils.ImportPathGuardTest \
@@ -288,13 +294,31 @@ jobs:
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerTest \
             --tests io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyClassifierTest \
             --tests io.nekohasekai.sfa.compose.screen.tools.OpenConnectCallbackTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.CloseOnFailureTest \
+            --tests io.nekohasekai.sfa.compose.screen.tools.OwnedSendJobTest \
             --tests io.nekohasekai.sfa.ktx.SharesTest \
+            --tests io.nekohasekai.sfa.bg.CommandServerRestartTest \
             --tests io.nekohasekai.sfa.bg.DebugInfoExporterTest \
             --tests io.nekohasekai.sfa.bg.PerAppPackageSnapshotTest \
             --tests io.nekohasekai.sfa.backup.PortableCloudBackupTest \
             --tests io.nekohasekai.sfa.bg.ReportRetentionTest \
+            --tests io.nekohasekai.sfa.compose.screen.configuration.ImportProviderUnavailableTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreCopyFaultRegressionTest \
+            --tests io.nekohasekai.sfa.utils.BackupRestoreTransactionTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCacheRaceTest \
+            --tests io.nekohasekai.sfa.utils.RestoreJournalTest \
+            --tests io.nekohasekai.sfa.utils.ProfileCreationIntegrationTest \
+            --tests io.nekohasekai.sfa.utils.ProfileFilesTest \
+            --tests io.nekohasekai.sfa.utils.ProfilePathReservationTest \
+            --tests io.nekohasekai.sfa.utils.RestoreCommitOutcomeTest \
+            --tests io.nekohasekai.sfa.utils.RestoreQueuedCommitTest \
+            --tests io.nekohasekai.sfa.utils.RestoreSideEffectTest \
+            --tests io.nekohasekai.sfa.bg.RuntimeRestoreGateTest \
             --tests io.nekohasekai.sfa.bg.RuleSetStallMemoryTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingStoreTest \
+            --tests io.nekohasekai.sfa.bg.InitialImportSchedulingIntegrationTest \
+            --tests io.nekohasekai.sfa.database.ChainBindingRoomTransactionTest \
+            --tests io.nekohasekai.sfa.database.ProfileBindingJournalTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingRobustnessTest \
             --tests io.nekohasekai.sfa.chain.ChainBindingReferencingTest \
             --tests io.nekohasekai.sfa.chain.ChainRuntimeCompilerGuardrailTest \
@@ -313,6 +337,13 @@ jobs:
             --tests io.nekohasekai.sfa.inspection.InspectionPolicyTest \
             --tests io.nekohasekai.sfa.inspection.InspectionAiTransportTest \
             --tests io.nekohasekai.sfa.inspection.InspectionAiLocalEndpointTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionPresentationTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionProvidersTest \
+            --tests io.nekohasekai.sfa.inspection.InspectionSampleGateTest \
+            --tests io.nekohasekai.sfa.chain.LatestChainLoadTest \
+            --tests io.nekohasekai.sfa.utils.LatestRemoteSelectionTest \
+            --tests io.nekohasekai.sfa.utils.CommandEpochGateTest \
+            --tests io.nekohasekai.sfa.compose.screen.connections.ConnectionCriteriaTest \
             --tests io.nekohasekai.sfa.utils.RuleSetProvidersTest \
             --tests io.nekohasekai.sfa.utils.RuleSetSeedsTest \
             --tests io.nekohasekai.sfa.utils.RuleSetStoreTest \

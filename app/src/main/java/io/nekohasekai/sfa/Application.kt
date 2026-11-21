@@ -40,6 +40,7 @@ class Application : Application() {
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
         application = this
+        io.nekohasekai.sfa.utils.BackupRestoreTransaction.recoverAtStartup(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             runCatching {
                 HiddenApiBypass.addHiddenApiExemptions("L")

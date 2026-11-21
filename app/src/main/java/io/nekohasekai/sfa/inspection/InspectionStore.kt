@@ -19,6 +19,20 @@ import javax.crypto.spec.GCMParameterSpec
 object InspectionStore {
     data class AiConfig(val endpoint: String, val model: String, val key: String)
     val changes = MutableStateFlow(0L)
+    private val samples = InspectionSampleGate()
+
+    @Synchronized
+    fun beginSample(isManual: Boolean): Long = samples.begin(isManual)
+
+    @Synchronized
+    fun endSample(ticket: Long) = samples.end(ticket)
+
+    @Synchronized
+    fun saveCurrent(context: Context, ticket: Long, snapshot: InspectionPolicy.Snapshot, stillCurrent: () -> Boolean): Boolean {
+        if (!samples.mayCommit(ticket) || !stillCurrent()) return false
+        save(context, snapshot)
+        return true
+    }
     private const val KEY_ALIAS = "angelabox-inspection-ai-v1"
 
     private fun file(context: Context, name: String) = AtomicFile(File(context.noBackupFilesDir, "inspection-$name.json"))
@@ -81,6 +95,7 @@ object InspectionStore {
 
     @Synchronized
     fun clearResult(context: Context) {
+        samples.invalidate()
         file(context, "result").delete()
         changes.value += 1
     }

@@ -72,6 +72,7 @@ import io.nekohasekai.sfa.compose.screen.qrscan.QRScanResult
 import io.nekohasekai.sfa.compose.util.QRCodeGenerator
 import io.nekohasekai.sfa.compose.util.RelativeTimeFormatter
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileBindingStorage
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.ktx.errorDialogBuilder
 import io.nekohasekai.sfa.ktx.shareProfile
@@ -156,7 +157,7 @@ fun ProfilesCard(
             if (selectedProfile != null) {
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
-                        val jsonContent = File(selectedProfile.typed.path).readText()
+                        val jsonContent = ProfileBindingStorage.readText(File(selectedProfile.typed.path))
                         context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                             outputStream.write(jsonContent.toByteArray())
                         }
@@ -388,7 +389,7 @@ private suspend fun createProfileContent(profile: Profile): ByteArray {
             content.type = Libbox.ProfileTypeRemote
         }
     }
-    content.config = java.io.File(profile.typed.path).readText()
+    content.config = ProfileBindingStorage.readText(java.io.File(profile.typed.path))
     content.remotePath = profile.typed.remoteURL
     content.autoUpdate = profile.typed.autoUpdate
     content.autoUpdateInterval = profile.typed.autoUpdateInterval

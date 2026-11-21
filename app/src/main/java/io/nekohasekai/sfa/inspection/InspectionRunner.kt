@@ -58,30 +58,37 @@ object InspectionRunner {
         stamp.tunnelUp,
         listOf(
             InspectionPolicy.Fact("network", if (stamp.network != null) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.ATTENTION, if (stamp.network != null) "present" else "absent"),
-            InspectionPolicy.Fact("service", InspectionPolicy.State.OBSERVED, if (stamp.tunnelUp) "running" else "stopped"),
+            InspectionPolicy.Fact("service", if (stamp.tunnelUp) InspectionPolicy.State.OBSERVED else InspectionPolicy.State.UNKNOWN, if (stamp.tunnelUp) "running" else "unknown"),
         ),
         networkId = stamp.network,
         contextToken = stamp.token,
     )
     suspend fun manual(context: Context): InspectionPolicy.Snapshot = withContext(Dispatchers.IO) {
-        val before = stamp(context)
-        val result = NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {})
-        require(before == stamp(context)) { "stale" }
-        passive(before).copy(
-            facts = passive(before).facts + result.items.map {
-                InspectionPolicy.normalized(
-                    InspectionPolicy.Fact(
-                        it.id.name,
-                        when (it.status) {
-                            NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
-                            NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
-                            NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
-                        },
-                        it.code,
-                    ),
-                )
-            },
-        ).also { InspectionStore.save(context, it) }
+        val ticket = InspectionStore.beginSample(isManual = true)
+        try {
+            val before = stamp(context)
+            val result = NetworkCheckup.run(context, before.network != null, before.tunnelUp, "", { null }, {}, {})
+            require(before == stamp(context)) { "stale" }
+            passive(before).copy(
+                facts = passive(before).facts + result.items.map {
+                    InspectionPolicy.normalized(
+                        InspectionPolicy.Fact(
+                            it.id.name,
+                            when (it.status) {
+                                NetworkCheckup.ItemStatus.OK -> InspectionPolicy.State.OBSERVED
+                                NetworkCheckup.ItemStatus.WARN, NetworkCheckup.ItemStatus.FAIL -> InspectionPolicy.State.ATTENTION
+                                NetworkCheckup.ItemStatus.SKIP -> InspectionPolicy.State.NOT_CHECKED
+                            },
+                            it.code,
+                        ),
+                    )
+                },
+            ).also { snapshot ->
+                require(InspectionStore.saveCurrent(context, ticket, snapshot) { before == stamp(context) }) { "stale" }
+            }
+        } finally {
+            InspectionStore.endSample(ticket)
+        }
     }
     fun schedule(context: Context, enabled: Boolean) {
         val manager = WorkManager.getInstance(context)
@@ -103,10 +110,11 @@ class InspectionWorker(context: Context, params: WorkerParameters) : CoroutineWo
     override suspend fun doWork(): Result {
         if (!InspectionStore.enabled(applicationContext)) return Result.success()
         return try {
+            val ticket = InspectionStore.beginSample(isManual = false)
             val stamp = InspectionRunner.stamp(applicationContext)
             val snapshot = InspectionRunner.passive(stamp)
-            if (InspectionStore.enabled(applicationContext) && stamp == InspectionRunner.stamp(applicationContext)) {
-                InspectionStore.save(applicationContext, snapshot)
+            InspectionStore.saveCurrent(applicationContext, ticket, snapshot) {
+                InspectionStore.enabled(applicationContext) && stamp == InspectionRunner.stamp(applicationContext)
             }
             Result.success()
         } catch (_: Exception) {
