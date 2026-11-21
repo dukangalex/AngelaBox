@@ -101,6 +101,7 @@ object ProfileManager {
                 ::syncProfileDirectory,
                 { target -> database.profileDao().list().any { it.typed.path.isNotBlank() && File(it.typed.path).canonicalFile == target.canonicalFile } },
             )
+            if (configurations.isDirectory && markers.isDirectory) reservation.collectUnreferencedMarkers()
             val target = reservation.reserve()
             profile.typed.path = target.path
             if (writeConfig != null) {

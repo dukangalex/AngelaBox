@@ -62,4 +62,39 @@ class ProfilePathReservationTest {
             pool.shutdownNow()
         }
     }
+
+    @Test fun collectsOnlyUnreferencedAndAbsentMarkers() {
+        val configs = File(temp.root, "configs").apply { mkdir() }
+        val markers = File(temp.root, "markers").apply { mkdir() }
+        val orphan = "a".repeat(32)
+        val existing = "b".repeat(32)
+        val pending = "c".repeat(32)
+        listOf(orphan, existing, pending).forEach { File(markers, "$it.reserved").writeText("") }
+        File(configs, "profile-$existing.json").writeText("data")
+        var synced = 0
+        val subject = reservation(
+            { first },
+            sync = { if (it == markers) synced++ },
+            referenced = { it.name == "profile-$pending.json" },
+        )
+        subject.collectUnreferencedMarkers()
+        val target = subject.reserve()
+        assertFalse(File(markers, "$orphan.reserved").exists())
+        assertTrue(File(markers, "$existing.reserved").exists())
+        assertTrue(File(markers, "$pending.reserved").exists())
+        assertEquals("profile-$first.json", target.name)
+        assertTrue("cleanup and new reservation each sync the directory", synced >= 2)
+    }
+
+    @Test fun cleanupSyncFailureStopsNewReservation() {
+        val configs = File(temp.root, "configs").apply { mkdir() }
+        val markers = File(temp.root, "markers").apply { mkdir() }
+        File(markers, "${"a".repeat(32)}.reserved").writeText("")
+        try {
+            reservation({ first }, sync = { if (it == markers) throw IOException("sync failure") }).collectUnreferencedMarkers()
+            fail("cleanup barrier must fail closed")
+        } catch (_: IOException) {}
+        assertFalse(File(markers, "$first.reserved").exists())
+        assertFalse(File(configs, "profile-$first.json").exists())
+    }
 }

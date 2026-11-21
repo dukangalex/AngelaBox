@@ -61,6 +61,8 @@ class ProfileCreationIntegrationTest {
         val target = File(p.typed.path)
         val marker = File(RuntimeEnvironment.getApplication().noBackupFilesDir, "profile-path-reservations/${target.name.removePrefix("profile-").removeSuffix(".json")}.reserved")
         assertTrue(marker.exists())
+        ProfileManager.createReserved(Profile(name = "after-failure", typed = TypedProfile()))
+        assertFalse("later creation collects orphan only after checking Room and files", marker.exists())
     }
 
     @Test fun restoreExclusionCoversFileToRoomCommitGap() = runBlocking(Dispatchers.IO) {

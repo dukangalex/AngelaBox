@@ -60,8 +60,23 @@ jobs:
           sha256sum "$APK" > runtime-evidence/apk-sha256.txt
           "$ANDROID_HOME/emulator/emulator" -avd native-smoke -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader_indirect > runtime-evidence/emulator.log 2>&1 &
           EMU=$!
-          trap 'kill "$EMU" 2>/dev/null || true' EXIT
           ADB="$ANDROID_HOME/platform-tools/adb"
+          collect_runtime_evidence() {
+            result=$?
+            trap - EXIT
+            "$ADB" logcat -d > runtime-evidence/logcat.txt 2>&1 || true
+            "$ADB" shell dumpsys activity activities > runtime-evidence/activities.txt 2>&1 || true
+            "$ADB" shell dumpsys activity exit-info io.chainbox.app > runtime-evidence/exit-info.txt 2>&1 || true
+            "$ADB" shell ps -A > runtime-evidence/processes.txt 2>&1 || true
+            "$ADB" exec-out screencap -p > runtime-evidence/startup.png 2>/dev/null || true
+            if [ "$result" -ne 0 ]; then
+              echo "FAIL: runtime checks stopped with exit $result; see logcat and exit-info." > runtime-evidence/result.txt
+              tail -120 runtime-evidence/logcat.txt || true
+            fi
+            kill "$EMU" 2>/dev/null || true
+            exit "$result"
+          }
+          trap collect_runtime_evidence EXIT
           deadline=$((SECONDS + 240))
           until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do
             if ! kill -0 "$EMU" 2>/dev/null; then cat runtime-evidence/emulator.log; exit 1; fi
